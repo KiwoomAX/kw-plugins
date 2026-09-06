@@ -41,7 +41,7 @@
       "failure_story": "우산을 깔고 나니 사내 인증서 스킬이 두 벌 실렸다. 개인 스킬 폴더의 옛 사본과 플러그인 안의 새 것이 같은 이름으로 뜬다.",
       "root_cause": "register-corp-certs를 선언의 은퇴 목록에 적지 않기로 한 결정이다. \"우산이 자기 skills/에 담으면 개인 스킬 폴더에 복사할 일 자체가 없어진다\"는 새로 세우는 PC에만 참이다. 이미 설치기를 돌린 PC에는 사본이 이미 놓여 있고 그것을 걷는 자리가 설계 어디에도 없다.",
       "where": "「선언 파일」 마지막 문단과 retiredSkills 값, 경계 표의 ~/.claude/skills/ 행.",
-      "evidence": "C:\\Users\\ho381\\.claude\\skills\\ 아래에 register-corp-certs 폴더가 실제로 있다. setup.ps1:282 주석이 \"other shipped skill (register-corp-certs) stays a personal skill by design\"이라 적는다.",
+      "evidence": "C:\\Users\\<사용자>\\.claude\\skills\\ 아래에 register-corp-certs 폴더가 실제로 있다. setup.ps1:282 주석이 \"other shipped skill (register-corp-certs) stays a personal skill by design\"이라 적는다.",
       "category": "failure-mode"
     },
     {
