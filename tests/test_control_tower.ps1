@@ -78,7 +78,29 @@ Check '세션 시작 훅이 하나뿐이다' {
 }
 Check '훅을 powershell.exe 로 건다 (pwsh 7 이 없어도 돈다)' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
-    $j.hooks.SessionStart[0].hooks[0].command -match 'powershell\.exe'
+    $j.hooks.SessionStart[0].hooks[0].command -eq 'powershell.exe'
+}
+# 한 문자열로 적으면 셸이 그것을 다시 가르고, 사용자 이름에 공백이 든 PC 에서
+# 플러그인 경로가 거기서 깨진다. 나눠 적으면 셸을 안 거친다.
+Check '명령과 인자를 나눠 적는다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $all = @($j.hooks.SessionStart[0].hooks) + @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
+    @($all | Where-Object { $_.command -ne 'powershell.exe' -or @($_.args).Count -lt 6 }).Count -eq 0
+}
+# matcher 는 도구 이름만 거른다. 명령 내용을 거르는 것은 if 이고, 이것이 없으면
+# 도커도 python3 도 아닌 명령마다 프로세스가 뜬다.
+Check '도구 훅마다 if 규칙이 걸려 있다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $tool = @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
+    (@($tool).Count -eq 4) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
+}
+Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $bad = 0
+    foreach ($g in @($j.hooks.PreToolUse)) {
+        foreach ($h in @($g.hooks)) { if (-not $h.'if'.StartsWith($g.matcher + '(')) { $bad++ } }
+    }
+    $bad -eq 0
 }
 Check '훅이 외부 프로그램을 안 부른다' {
     ($hookCode -notmatch '(?m)^\s*&\s') -and
