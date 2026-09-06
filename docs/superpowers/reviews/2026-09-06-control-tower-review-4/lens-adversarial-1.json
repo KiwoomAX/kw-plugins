@@ -1,0 +1,229 @@
+{
+  "principles_applied": [
+    "FAIL-LOUD",
+    "SSOT",
+    "EXPLICIT",
+    "REVERSIBLE",
+    "IDEMPOTENT",
+    "FOCUSED",
+    "Simplicity First (YAGNI)",
+    "Think Before Acting (측정하지 않은 것을 현재 상태로 가정하지 않는다)",
+    "Goal-Driven Execution (검증 가능한 성공 기준)",
+    "모호한 표현의 구체화",
+    "팩트와 근거",
+    "문서 타입과 수명 (선언에 상태를 담지 않는다)"
+  ],
+  "angles_examined": [
+    "감지가 넷째로 무너지는 길 — 영원히 조용한 PC와 영원히 시끄러운 PC를 실제 파일 상태로 재구성했다",
+    "걸음별 입력 해시가 무엇의 증거인가 — 선언의 증거인가 PC의 증거인가",
+    "매니페스트 부분 트리 해시의 결정성을 설치기의 정규화 코드와 맞댔다",
+    "걸음 여섯과 상태 키 넷의 대응",
+    "훅의 예산 계약 넷과 감지 표 다섯 행의 요구를 하나씩 맞댔다",
+    "예산 밖으로 정의된 python3 가드의 실제 반복 비용",
+    "둘을 하나로 합쳐 새로 생긴 단일 실패점 — 감시자가 감시 대상 안에 산다",
+    "install이 false를 덮는 실측이 사용자와 맞춤 사이에 만드는 고리",
+    "uninstall이 두 흔적을 다 지운다는 실측과 suggested 규칙의 충돌",
+    "아직 안 잰 uninstall 위에 얹힌 감지 표의 행과 이행 절",
+    "kw-install.stamp의 세 상태 — 없는 PC, 지워진 PC, 값을 얻을 수 없는 PC",
+    "이행 네 걸음이 중간에 멈춘 PC의 상태 행렬",
+    "PowerShell 전환의 대가 — 설치기 자신이 pwsh 7을 보장으로 안 보는 자리",
+    "은퇴 넷의 걷는 자리와 새로 까는 것의 이름 충돌",
+    "삭제 가드를 옮길 때 함께 안 온 인자와 판정",
+    "실행이 계획을 안 따르는 길 — 공용폴더 갱신 주체와 사람의 약속",
+    "과설계 — 상태 파일과 걸음별 해시가 무엇을 사는가"
+  ],
+  "findings": [
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "매니페스트의 부분 트리를 해시하는 두 걸음이 프로세스마다 다른 값을 내어 모든 PC가 매 세션 영원히 시끄러워진다.",
+      "where": "「이 PC의 상태를 재는 법 — 걸음마다 입력의 해시」 입력 표의 '은퇴 정리'(입력 `manifest.json`의 은퇴 넷)와 '플러그인 목록'(입력 `manifest.json`의 목록 셋) 두 행",
+      "failure_story": "배포한 다음 날부터 모든 PC가 매 세션 은퇴 정리와 플러그인 목록 두 걸음이 바뀌었다는 알림을 받았다. 사용자가 `/kw-sync`를 돌리면 그 프로세스 안에서 낸 해시가 상태 파일에 적혀 그 자리에서는 맞다. 다음 세션의 훅은 새 pwsh 프로세스라 같은 매니페스트를 다시 해시해도 값이 달라졌다. 아무도 아무것도 안 바꿨는데 두 걸음이 끝없이 알렸고, 그 소음이 첫째 규칙대로 옆의 진짜 알림까지 함께 묻었다.",
+      "evidence": "D:\\projects\\kw_install\\setup.ps1:1288-1292 — \"Hashtables do not preserve order, and .NET randomizes the string hash seed per process, so the same keys enumerate differently in a later run. Left alone that makes ConvertTo-Json emit a different byte sequence every time and the \\\"did anything change\\\" check below is true forever.\" 설치기는 이 때문에 `ConvertTo-Canonical`을 두고 setup.ps1:1428에서 통과시킨다. 문서의 입력 표는 두 걸음의 입력을 파일이 아니라 JSON의 부분 트리로 적고 정규화 규칙을 한 줄도 안 적는다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "걸음별 입력 해시는 이 PC의 상태가 아니라 컨트롤 타워가 자기 안에 실어 나른 선언을 재므로, 셋째 판이 `enabledPlugins`로 무너진 것과 증거의 등급이 같다.",
+      "where": "「감지 — 물음과 자리와 명령」 표의 다섯째 행 \"이 PC의 상태가 선언과 맞나 | 걸음별 입력 파일의 해시와 상태 파일\"",
+      "failure_story": "사용자가 가상환경을 갈아엎으며 파이썬 라이브러리를 지웠고, 다른 PC에서는 `HKCU\\Environment`의 `PYTHONUTF8`을 손으로 지웠고, 또 다른 PC에서는 `CLAUDE.md`의 AX 블록 안을 직접 고쳤다. 세 PC 모두 입력 파일(`requirements.txt`와 문안 템플릿)은 그대로였고 상태 파일에는 마지막 성공 해시가 그대로 적혀 있었다. 훅은 세 PC에서 영원히 조용했다. 한글이 깨진 채로 석 달을 썼고 아무도 알려 주지 않았다.",
+      "evidence": "표의 1~3행은 `installed_plugins.json`과 `enabledPlugins`라는 PC의 실물을 읽는데, 다섯째 행만 자기가 실어 온 파일과 자기가 적은 상태 파일 `~/.claude/kw-control-tower.state`를 읽는다. 라이브러리와 `PYTHONUTF8`과 `CLAUDE.md` 세 걸음은 1~3행 어디에도 안 걸리므로 이 다섯째 행이 그것들의 유일한 감지다. 셋째 회차 기록(D:\\projects\\kw-plugins\\docs\\superpowers\\reviews\\2026-09-06-control-tower-review-3.md:7)이 같은 모양을 \"훅이 자기가 적은 선언을 확인하는 꼴이 됐다\"로 적는다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "맞춤의 걸음이 여섯인데 상태 키가 넷이라, 셋째 규칙 \"걸음마다 따로 재고 따로 적는다\"가 설계 안에서 이미 깨져 있다.",
+      "where": "「/kw-sync가 고친다」의 걸음 1~6과 「걸음마다 입력의 해시」 입력 표 넷",
+      "failure_story": "걸음 3(은퇴한 플러그인과 마켓플레이스)은 성공했고 걸음 6(은퇴한 스킬과 훅)은 `settings.json` 쓰기에서 실패했다. 둘이 '은퇴 정리' 한 칸을 나눠 쓰기 때문에 해시를 적으면 아직 안 끝난 일에 훅이 조용해지고, 안 적으면 이미 끝난 걸음 3까지 영원히 다시 알린다. 어느 쪽을 골라도 한 걸음의 실패가 다른 걸음을 오염시켰다. 걸음 4는 더 나쁘다. 라이브러리와 `PYTHONUTF8`을 함께 하는데 입력은 `requirements.txt` 하나뿐이라, 레지스트리 값이 사라져도 해시가 그대로여서 영원히 조용하다.",
+      "evidence": "문서가 걸음 여섯을 224~234줄에 열거하고 상태 키는 209~220줄에 넷만 둔다. 걸음 1과 2가 '플러그인 목록' 한 칸, 걸음 3과 6이 '은퇴 정리' 한 칸에 들어가고, 걸음 4는 두 가지 일을 하면서 입력 파일이 하나다. 문서가 176줄에 적은 규칙 \"하나가 영구히 실패하는 PC에서도 나머지 걸음은 조용하고, 알림 문구가 어느 걸음인지 말한다\"를 자기 표가 지킬 수 없다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "`uninstall`이 두 파일의 흔적을 모두 지운다는 이번 판의 실측이, `suggested`를 \"두 파일 어디에도 흔적이 없을 때만 깐다\"는 규칙을 그대로 뒤집는데 규칙이 안 바뀐 채 남았다.",
+      "where": "「/kw-sync가 고친다」 걸음 2의 \"`suggested`는 두 파일 어디에도 흔적이 없을 때만 깐다\"",
+      "failure_story": "사용자가 `playwright`를 안 쓴다고 `claude plugin uninstall`로 지웠다. 실측대로 `enabledPlugins`의 키도 `installed_plugins.json`의 항목도 사라져 두 파일에 흔적이 없다. 다음 `/kw-sync`가 그것을 \"한 번도 깔린 적 없는 PC\"로 읽고 다시 깔았다. 사용자는 또 지웠고 맞춤은 또 깔았다. 남는 유일한 흔적인 캐시 폴더는 같은 문서가 감지에 쓰지 말라고 금지해 두었다.",
+      "evidence": "이 판의 실측표(문서 21~25줄)가 `uninstall`이 `enabledPlugins`의 키를 지우고 `installed_plugins.json`의 항목도 지운다고 적는다. 「하지 않는 것」의 \"캐시 폴더의 존재를 감지에 쓰지 않는다\"(396줄)가 남은 유일한 증거를 막는다. 158줄이 적은 근거 문장 \"사용자가 `playwright`를 안 쓴다고 지웠는데 매 세션 알리고 매번 다시 까는 것은 사용자 결정을 뒤집는 것이다\"를 229줄의 규칙이 그대로 실행한다. 셋째 회차가 이미 같은 자리를 짚었고(lens-adversarial-1.json 여덟째 발견) 이번 실측이 그 짐작을 사실로 바꿨는데도 규칙 문장은 그대로다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "은퇴 플러그인 감지 한 행 전체가 아직 안 잰 명령 위에 얹혀 있고, 그 명령이 안 들으면 지금 있는 모든 PC가 맞춤으로 끌 수 없는 알림을 영원히 받는다.",
+      "where": "「물음과 자리와 명령」 표의 \"은퇴한 플러그인이 남았나 | 두 파일 가운데 어느 쪽에든 있나 | `claude plugin uninstall`\" 행과 「아직 안 잰 것」",
+      "failure_story": "배포 첫날 모든 기존 PC가 은퇴한 플러그인이 남았다는 알림을 받았다. `/kw-sync`가 `claude plugin uninstall superpowers@superpowers-marketplace`를 돌렸는데, 같은 걸음 3이 방금 `superpowers-marketplace`를 등록에서 걷어낸 뒤였거나 애초에 등록이 없어 CLI가 거절했다. `installed_plugins.json`의 항목은 그대로 남았고 훅은 다음 세션에도 같은 말을 했다. 맞춤을 몇 번 돌려도 안 꺼지는 알림이 매 세션 떴고, 사용자들이 컨트롤 타워를 껐다.",
+      "evidence": "이 PC의 C:\\Users\\ho381\\.claude\\plugins\\installed_plugins.json:51-60에 `superpowers@superpowers-marketplace`가, 71-80에 `frontend-design@claude-code-plugins`가 항목으로 살아 있고, C:\\Users\\ho381\\.claude\\settings.json:18-30의 `enabledPlugins`에는 둘 다 키가 없다. 설치기가 은퇴 처리를 `enabledPlugins`에서만 하기 때문이다(setup.ps1:277-280의 `$script:RetiredPlugins`와 setup.ps1:1411-1415). 곧 감지 표 셋째 행은 오늘 이 PC에서 이미 참이다. 문서 385줄이 바로 그 `uninstall`을 안 쟀다고 적으면서 표의 한 행과 걸음 3 전체를 그 위에 얹었고, 이것은 172줄의 첫째 규칙 \"훅이 재는 것은 맞춤이 고칠 수 있는 것뿐이다\"를 정면으로 어긴다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "훅이 `kw-install.stamp`를 재는데 `/kw-sync`는 설치기를 갈아 줄 수 없어, 첫째 규칙을 어기는 끌 수 없는 알림이 하나 더 생겼다.",
+      "where": "「설치기가 바뀌는 것」의 \"컨트롤 타워의 훅이 그것을 읽어 낡은 설치기로 세운 PC를 알아본다\"",
+      "failure_story": "공용폴더 사본이 낡은 부서의 PC 열 대가 매 세션 낡은 설치기로 세운 PC라는 알림을 받았다. 사용자가 `/kw-sync`를 돌려도 안 꺼졌다. 설치기를 새 것으로 바꾸는 일은 맞춤의 여섯 걸음 어디에도 없기 때문이다. 담당자에게 연락이 닿기까지 두 달 동안 그 소음이 필수 플러그인이 빠졌다는 진짜 알림과 나란히 떴고, 사용자는 둘을 구별하지 않고 함께 무시했다.",
+      "evidence": "172줄의 첫째 규칙과 328줄이 부딪친다. 예산 계약은 훅이 읽는 파일을 일곱으로 못 박고 그 일곱을 197줄에 이름으로 열거하는데 스탬프가 그 목록에 없다. 테스트 364줄은 \"읽는 파일이 일곱을 안 넘는지도 센다\"이므로, 스탬프를 읽는 순간 이 설계 자신의 테스트가 떨어진다. 이 PC에 `~/.claude/kw-install.stamp`는 아직 없다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "낡은 설치기를 멈추게 하는 게이트가, 멈춰야 할 그 낡은 설치기 안에는 없다.",
+      "where": "「이행」 둘째 걸음의 \"사람의 약속에 기대지 않도록, 설치기가 `kw-install.stamp`와 `kiwoom-ax` 항목을 함께 보고 자기가 그 항목보다 낡았으면 멈추게 한다\"",
+      "failure_story": "사람의 약속을 기계로 바꿨다고 적고 배포했다. 그런데 그 판정 코드는 둘째 걸음에서 새로 쓰는 얇은 설치기에만 들어간다. 공용폴더와 각자 바탕화면에 흩어져 있는 옛 사본에는 그 코드가 없으므로 아무 검사 없이 그냥 돈다. 게이트는 한 번도 발동하지 않았고, 옛 설치기가 `kw-doc-formats@kw-doc-formats`와 그 마켓플레이스를 되살렸다. 게이트는 그것이 필요 없어진 판에만 실렸다.",
+      "evidence": "setup.ps1:264-270의 `$script:Plugins`가 `kw-doc-formats@kw-doc-formats`를 `AutoUpdate = $true`로 들고 있고, setup.ps1:1395-1407이 그것을 무조건 `enabledPlugins`에 `true`로, 마켓플레이스를 `extraKnownMarketplaces`에 다시 적는다. 문서의 선언은 그 둘을 은퇴로 적는다(142~149줄). 테스트 367줄 \"`kiwoom-ax` 항목이 있는 PC에서 얇아지기 전 설치기를 돌리면 멈춘다\"가 통과하려면 게이트를 가진 뚱뚱한 설치기 판이 첫째 걸음보다 먼저 배포되어야 하는데, 이행 네 걸음 어디에도 그 판이 없다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "게이트를 실제로 넣더라도 판정 재료를 얻을 수 없거나, 얻는 순간 모든 설치기를 영구히 잠근다.",
+      "where": "「이행」 둘째 걸음의 \"자기가 그 항목보다 낡았으면 멈추게\"와 「레포」의 \"설치기는 폴더를 복사해 나르므로 clone이 필요 없어 비공개로 둔다\"",
+      "failure_story": "게이트를 뚱뚱한 설치기에 넣어 배포했다. 설치기는 공용폴더에서 폴더째 복사돼 오므로 `.git`이 없었고, 자기 커밋을 알아낼 방법이 없어 판정이 늘 알 수 없음으로 떨어졌다. 대안으로 스탬프에 적힌 시각과 `kiwoom-ax` 항목의 `lastUpdated`를 견주게 고쳤더니, 그 값은 마켓플레이스가 자동 갱신될 때마다 새로 찍혀 언제나 설치기보다 최신이었다. 그 뒤로 새 PC를 세우려는 사람의 설치기가 매번 멈췄고 아무도 설치를 못 했다.",
+      "evidence": "문서 70줄이 설치기의 배포 방식을 폴더 복사로 정한다. 이 PC의 C:\\Users\\ho381\\.claude\\plugins\\known_marketplaces.json은 항목마다 `lastUpdated`만 갖고, 여덟 항목 가운데 다섯이 `2026-09-06T12:17`로 한꺼번에 찍혀 있다. 자동 갱신이 그 값을 계속 밀어 올린다는 뜻이다. 스탬프가 아예 없는 PC(지금 이 PC가 그렇다)에서 게이트가 멈추는 쪽인지 지나가는 쪽인지도 문서에 없고, 멈추는 쪽이면 첫째 걸음 뒤 개발 PC부터 잠긴다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "훅이 어느 PowerShell에서 도는지가 여전히 안 정해졌고, PowerShell 7이 보장된다는 이 판의 전제를 설치기 자신이 부정한다.",
+      "where": "「무엇으로 쓰나 — PowerShell이다」의 \"PowerShell 7이 `setup.cmd`로 보장된 지금 그 물음이 통째로 사라진다\"",
+      "failure_story": "winget이 사내망 프록시에 막힌 PC에서 pwsh 7이 안 깔렸다. 설치기는 그것을 경고로만 남기고 끝까지 갔다. 세션 시작 훅은 Windows PowerShell 5.1에서 돌았고 5.1에 없는 `ConvertFrom-Json -AsHashtable`에서 던졌다. 문서대로 훅은 조용히 물러났다. 사내 플러그인이 하나도 없는 PC에서 감지가 통째로 침묵했고, 그 PC야말로 감지가 가장 필요한 PC였다.",
+      "evidence": "setup.ps1:958-966 — \"Which PowerShell Claude Code runs cannot be set. There is no settings key for it... It probes these three places in order and, finding no pwsh 7, falls back to Windows PowerShell 5.1... its own pwsh could sit somewhere Claude never looks, so the answer is checked rather than assumed.\" setup.ps1:2376이 그 경우를 `Add-Warning`으로만 처리한다. 설치기의 도커 훅도 절대 경로가 아닌 `command = 'pwsh.exe'`를 적는다(setup.ps1:1270). 셋째 판의 \"어느 bash가 잡히나\"가 \"어느 PowerShell이 잡히나\"로 이름만 바뀌었고, 문서 118~120줄은 그 물음이 사라졌다고 적는다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "맞춤은 마켓플레이스 클론의 파일을, 훅은 플러그인 캐시의 파일을 해시하는데 문서가 두 경로를 서로 다르게 적어 두었다.",
+      "where": "「걸음마다 입력의 해시」의 \"파일은 `$CLAUDE_PLUGIN_ROOT` 아래에 있다\"와 「설치기가 바뀌는 것」의 \"자리는 마켓플레이스 클론 아래의 알려진 경로다\"",
+      "failure_story": "새 PC에서 설치기가 초록으로 끝났는데 첫 세션에서 라이브러리 걸음이 바뀌었다는 알림이 떴다. 아무도 아무것도 안 바꿨다. 9단계가 클론의 `requirements.txt`를 해시해 상태 파일에 적었고, 훅은 플러그인 캐시의 판본 폴더 아래 같은 이름 파일을 해시했기 때문이다. 두 자리는 갱신되는 시점이 다르다.",
+      "evidence": "문서 213줄과 326줄이 두 경로를 서로 다르게 적는다. 셋째 회차가 같은 것을 짚었고(review-3.md 표의 \"해시 대상이 마켓플레이스 클론인지 플러그인 캐시인지 안 정했다\"), 이 판은 37줄에서 합치기로 그 문제가 사라졌다고 적는다. 합치기가 없앤 것은 \"어느 플러그인의 폴더인가\"이지 \"클론인가 캐시인가\"가 아니다. 이 PC의 `~/.claude/plugins/cache/kw-doc-formats/kw-doc-formats/` 아래에는 판본 폴더가 `27ddf0050f1e`와 `50457b5ca733` 둘 쌓여 있고, 클론의 HEAD는 `27ddf0050f1eda3219831989ca9520bb9ca5b79b` 하나다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "감시자가 감시 대상 안에 살아, 컨트롤 타워가 꺼지는 순간 사내 것 전부에 대한 감지가 함께 사라진다. 합치기가 이 침묵의 범위를 넓혔다.",
+      "where": "「남는 위험」의 \"컨트롤 타워 하나가 단일 실패점이다. 그것이 안 깔리면 사내 것 전부가 안 온다. 설치기가 그 실패를 경고가 아니라 실패로 다룬다\"",
+      "failure_story": "사용자가 알림이 성가셔 `/plugin`에서 `kw-control-tower`를 껐다. 훅도 스킬도 맞춤도 함께 꺼졌다. 다음 세션부터 필수 플러그인이 빠져도, 은퇴한 것이 남아도, 자동 갱신이 꺼져도 아무 말이 없었다. 되켜 줄 장치는 그 꺼진 플러그인 안에 있었다. 설치기는 이미 한 번 돌고 끝났으므로 다시 오지 않았다. 셋째 판이 설치 실패한 PC에서 침묵한 것과 같은 일이 감시 대상에서 감시자로 자리만 옮겨 일어났고, 둘을 하나로 합친 덕에 잃은 것이 하나가 아니라 전부였다.",
+      "evidence": "이 PC의 settings.json:20과 :25에 `code-review@claude-plugins-official: false`와 `humanize-korean@im-not-ai: false`가 있다. 사용자가 실제로 플러그인을 끄는 PC다. 이 판의 실측표(25줄)가 `disable`은 `installed_plugins.json`과 캐시를 그대로 둔다고 적으므로 이 상태는 밖에서 보면 정상과 구별되지 않는다. 문서 375줄이 드는 대비책은 설치기 한 번이고, 381줄은 \"컨트롤 타워가 자기를 못 걷는다\"까지만 적을 뿐 자기가 꺼졌을 때 감지가 통째로 사라지는 것은 안 적는다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "발행처가 바뀌면 플러그인 id가 바뀌어, 깔림과 켜짐을 가른 장치가 통째로 우회되고 사용자의 끄기가 말없이 되돌아간다.",
+      "where": "「깔림과 켜짐을 가르는 이유」의 \"되켠 것은 반드시 요약에 적는다\"와 「이행」 넷째 걸음",
+      "failure_story": "사용자가 `kw-doc-formats`를 일부러 꺼 두었다. 넷째 걸음의 선언이 도착해 옛 id `kw-doc-formats@kw-doc-formats`를 은퇴로 걷었고, 새 id `kw-doc-formats@kiwoom-ax`는 `required`인데 키가 없으므로 \"안 깔림\"으로 판정돼 맞춤이 `install`을 골랐다. 실측대로 `install`이 `true`로 적었다. 되켠 것을 요약에 적는 규칙은 `enable` 갈래에만 붙어 있어 요약에도 안 나왔다. 사용자는 자기가 끈 것이 언제 왜 켜졌는지 끝내 몰랐다.",
+      "evidence": "실측표 24줄 \"`install`은 키가 `false`여도 `true`로 덮어쓴다\"와 205줄의 요약 규칙이 `enable` 쪽에만 걸린 것, 그리고 350줄의 넷째 걸음이 옛 id 은퇴와 새 id 설치를 한 걸음에 놓는 것이 함께 서 있다. 203줄이 이 위험을 정확히 알아보고 \"사용자가 필수 플러그인을 일부러 껐는데 맞춤이 `install`을 돌리면 말없이 다시 켜진다\"고 적었는데, 자기 이행 계획이 그 상황을 스스로 만든다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "은퇴 훅을 파일 이름으로 걷는데, 새로 까는 훅이 같은 파일 이름이라 맞춤이 자기 배선을 매번 지운다.",
+      "where": "「은퇴 스킬의 삭제 가드」 끝의 \"`retiredHooks`는 `settings.json`의 `hooks`에서 그 이름을 인자로 갖는 항목을 걷는다\"",
+      "failure_story": "맞춤을 돌릴 때마다 도커 인증서 훅이 사라졌다. 걸음 6이 `docker-cert-reminder.ps1`이라는 이름을 인자로 갖는 항목을 걷는데, 컨트롤 타워가 새로 건 항목의 인자에도 같은 파일 이름이 들어 있었기 때문이다. 이름만으로는 옛것과 새것이 구별되지 않았고, 사용자는 도커 안에서 인증서가 안 잡히는 이유를 알 수 없었다.",
+      "evidence": "선언의 `retiredHooks`가 `[\"docker-cert-reminder.ps1\"]`이고(154줄) 「무엇을 나르나」 표에 `hooks/docker-cert-reminder.ps1`이 \"옮겨 온다\"로 그대로 있다(110줄). 설치기의 판정이 정확히 이 방식이다 — setup.ps1:1283 `if ((@($h['args']) -join ' ') -match 'docker-cert-reminder\\.ps1') { return $true }`. 264줄이 훅 배선을 \"설치기가 도커 훅을 그렇게 걸고 있고\"로 설치기 방식에 맞추므로 새 항목도 같은 `settings.json`의 `hooks`에 같은 이름으로 들어간다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "자동 갱신이라는 한 사실이 여전히 두 파일에 사는데 훅은 한 자리만 재고 맞춤은 한 자리만 고치며, 이 판은 안 잰 것을 잰 것처럼 표에 적었다.",
+      "where": "「물음과 자리와 명령」 표의 \"우리 마켓플레이스의 자동 갱신이 켜졌나 | `known_marketplaces.json`의 `autoUpdate`\" 행과 「딛고 선 나머지 측정」의 \"자동 갱신 값이 사는 곳\" 행",
+      "failure_story": "`kiwoom-ax`의 자동 갱신이 꺼진 PC에서 훅이 알렸고 맞춤이 `known_marketplaces.json`을 고쳐 알림이 꺼졌다. 그 뒤 마켓플레이스를 다시 등록하는 일이 생기자 그 파일이 `settings.json`의 `extraKnownMarketplaces`에서 다시 만들어졌고, 거기에는 `autoUpdate`가 없어 값이 사라졌다. 같은 알림이 다시 떴고 맞춤이 다시 고쳤다. 그 고리가 계속 돌았다.",
+      "evidence": "이 PC에서 두 파일이 이미 어긋나 있다. known_marketplaces.json:69-77의 `kw-doc-formats`에는 `autoUpdate: true`가 있고 settings.json:71-76의 같은 이름에는 그 키가 없다. 설치기는 `settings.json` 쪽에 쓴다(setup.ps1:1397-1404 \"autoUpdate is the user's once they have set it... filled in only when absent\"). 셋째 회차의 「못 잰 것」에 \"클로드 코드가 `known_marketplaces.json`을 다시 만들 때 `autoUpdate`를 보존하는지\"가 그대로 남아 있는데(lens-adversarial-1.json의 `could_not_check`), 이 판은 그것을 재지 않고 \"클로드 코드가 실제로 읽는 파일이다\"로 단정해 표에 넣었으며 「아직 안 잰 것」 절에도 안 적었다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "남의 마켓플레이스에 \"키가 없을 때만 넣는다\"가 마켓플레이스 항목인지 자동 갱신 키인지 갈리지 않아, 공유 파일에 사용자가 정한 적 없는 값이 켜질 수 있다.",
+      "where": "「선언」의 \"`ours`가 되켜기의 대상을 정한다. 자동 갱신을 되켜는 것은 우리 마켓플레이스 하나이고, 남의 것은 키가 없을 때만 넣고 `false`로 둔 것은 그대로 둔다\"와 「/kw-sync가 고친다」 걸음 1",
+      "failure_story": "맞춤이 처음 돌면서 `claude-plugins-official`과 `anthropic-agent-skills`에 `autoUpdate: true`를 넣었다. 앞 문장이 되켜는 대상을 우리 것 하나로 못 박았는데 뒤 문장의 \"키가 없을 때만 넣는다\"를 구현자가 자동 갱신 키로 읽었기 때문이다. 사용자가 켠 적 없는 자동 갱신이 앤트로픽 레포 둘에 켜졌고, 앞 문장이 금지한 바로 그 일이 뒤 문장을 통해 일어났다.",
+      "evidence": "이 PC의 settings.json:52-57의 `claude-plugins-official`과 :32-37의 `anthropic-agent-skills`에는 `autoUpdate` 키가 아예 없고 known_marketplaces.json:2-9와 :27-34에도 없다. 곧 \"키가 없는\" 상태가 이 PC에 실재하며 두 해석이 서로 다른 결과를 낸다. 315줄이 `known_marketplaces.json`에 잠금이 없다고 적은 그 파일에 쓰는 규칙이라 잘못 읽힌 쓰기가 남의 값을 밀어낸다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "실패모드",
+      "what": "이행의 전제인 공용폴더 갱신에 주체가 없는데 대책이 README 한 줄이라, 옛 설치기와 컨트롤 타워가 같은 두 키를 반대 방향으로 쓰는 고리가 PC마다 남는다.",
+      "where": "「설치기가 바뀌는 것」의 \"공용폴더의 갱신 주체를 문서에 적는다… `README.md`에 적는다\"와 「이행」 둘째 걸음",
+      "failure_story": "둘째 걸음이 끝나 얇은 설치기를 커밋했다. 그런데 공용폴더의 사본은 아무도 안 바꿨다. 새 PC를 세우는 사람마다 옛 설치기를 돌렸고 그때마다 `kw-doc-formats@kw-doc-formats`와 그 마켓플레이스가 되살아났으며, 다음 세션의 컨트롤 타워가 그것을 은퇴로 걷었다. 되살리고 걷는 일이 PC마다 오갔고 사용자는 자기 플러그인 목록이 왜 계속 바뀌는지 몰랐다. 설계는 맞았는데 배포가 계획을 안 따랐다.",
+      "evidence": "문서 330줄이 갱신 주체가 \"지금 아무 데도 없다\"고 적고 대책으로 README 한 줄을 든다. 되살리는 자리는 setup.ps1:264-270과 1395-1407이고, 걷는 자리는 선언의 `retiredPlugins`와 `retiredMarketplaces`다(142~149줄). 문서 자신이 342줄에서 \"사람의 약속에 기대지 않도록\"이라고 적으면서 그 바로 앞 절의 대책은 사람이 읽을 문서 한 줄이다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "비가역",
+      "what": "넷째 걸음의 게이트인 \"각 PC에 도착한 것을 확인한 뒤에\"를 확인할 수단이 이 설계 어디에도 없다.",
+      "where": "「이행」 넷째 걸음의 \"각 PC에 그 선언이 도착해 옛 등록이 걷힌 것을 확인한 뒤에 `KW-doc-formats` 레포의 마켓플레이스 파일을 지운다\"",
+      "failure_story": "두 주를 기다렸으니 다 도착했겠다고 보고 `KW-doc-formats`의 마켓플레이스 파일을 지웠다. 한 달 동안 꺼져 있던 노트북과 옛 이미지로 복원한 신입 PC가 그 뒤에 돌아왔다. 그 PC의 `kw-doc-formats` 등록은 마켓플레이스 파일이 없는 레포를 가리켰고, 자동 갱신이 실패했으며, 컨트롤 타워가 아직 없어 은퇴 선언도 도착하지 않았다. 스스로 빠져나올 길이 없는 PC가 남았고 문서가 말한 비대칭이 반대쪽으로 작동했다.",
+      "evidence": "문서 96줄이 회사가 각 PC에 정책을 뿌릴 수단이 없다고 적는다. 읽어 올 수단도 같은 이유로 없다. 곧 게이트의 조건이 관측할 수 없는 것이다. 이 PC에는 지금도 `kw-doc-formats` 등록이 known_marketplaces.json:69-77에 살아 있고 캐시에 판본 폴더가 둘 쌓여 있어, 옛 등록이 저절로 사라지지 않는다는 것을 보여 준다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "비가역",
+      "what": "삭제 가드를 그대로 들고 오면서 사본을 둘 자리와 저작자 판정이 함께 오지 않아, 사용자가 손으로 쓴 스킬이 사본 없이 사라진다.",
+      "where": "「은퇴 스킬의 삭제 가드」의 \"설치기의 `Remove-RetiredClaudeSkill`을 그대로 들고 온다\"와 갈래 표의 \"`SKILL.md` 하나뿐이다 | 사본을 뜨고 지운다\"",
+      "failure_story": "사용자가 자기 손으로 쓴 `~/.claude/skills/register-corp-certs/SKILL.md`가 지워졌다. 함수는 파일이 하나뿐인지만 세고 그것을 누가 썼는지는 안 보기 때문이다. 설치기에서는 `BackupDir`가 있어 되살릴 수 있었는데, 컨트롤 타워에는 그 인자에 해당하는 자리가 문서 어디에도 없어 사본이 안 떠졌다.",
+      "evidence": "setup.ps1:943 `$onlySkill = ($subdirs.Count -eq 0) -and ($files.Count -eq 1) -and ($files[0].Name -eq 'SKILL.md')` — 개수만 센다. setup.ps1:911-917의 머리말은 \"the folder held only the SKILL.md this installer wrote\"라고 저작자를 주장하지만 코드는 확인하지 않는다. setup.ps1:948과 952-953이 `BackupDir`로 사본을 뜨는데, 문서의 「무엇을 나르나」 표(102~112줄)와 걸음 6 어디에도 그 자리가 없다. 이 PC의 `C:\\Users\\ho381\\.claude\\skills\\register-corp-certs\\`는 지금 `SKILL.md` 하나만 들고 있어 곧바로 삭제 갈래에 든다. 문서 297줄의 \"남이 써 둔 것을 지우지 않아야 한다\"와 부딪친다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "비가역",
+      "what": "정규화 전에 뜬 `CLAUDE.md.pre-normalize` 사본이 걸음 재실행 한 번에 덮여, 되돌릴 것이 없어진다.",
+      "where": "「이행」 셋째 걸음의 \"되돌릴 수 없는 걸음이라 정규화 전에 그 PC에 `CLAUDE.md.pre-normalize` 사본을 뜬다\"",
+      "failure_story": "접두로 찾은 옛 블록의 범위가 넓게 잡혀 사용자가 손으로 쓴 줄까지 블록 안으로 들어갔다. 되돌리려고 `CLAUDE.md.pre-normalize`를 열었는데, 그 사이 상태 파일이 지워져 문안 걸음이 한 번 더 돌았고 사본이 이미 정규화된 내용으로 덮여 있었다. 문서가 되돌릴 수 없는 걸음이라고 스스로 적은 그 걸음에 되돌릴 것이 남지 않았다.",
+      "evidence": "222줄 \"상태 파일이 없으면 전부 다르다고 보고 알린다\"가 걸음의 재실행 경로다. 348줄은 사본 이름을 고정해 적을 뿐 이미 있을 때 어떻게 하는지가 없다. 설치기는 같은 상황에서 `$SettingsPath.bak`을 매번 덮어쓴다(setup.ps1:1439-1443). 같은 규율을 그대로 들고 오면 사본은 한 번만 값을 한다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "과설계",
+      "what": "걸음별 입력 해시와 상태 파일은 네 걸음 가운데 셋에서 PC를 직접 읽는 것보다 비싸지도 정확하지도 않으므로 라이브러리 한 걸음만 남기고 걷어낼 수 있다.",
+      "where": "「이 PC의 상태를 재는 법 — 걸음마다 입력의 해시」 절 전체와 「물음과 자리와 명령」 표의 다섯째 행",
+      "failure_story": "이 장치를 위해 상태 파일 하나와 걸음별 해시 규칙과 매니페스트 부분 트리 해시 규칙과 여섯 걸음을 넷으로 접는 대응표가 생겼다. 그 넷에서 나온 것이 위의 발견 1과 2와 3이다. 정작 그것이 사는 값은 \"선언이 바뀌었으니 `/kw-sync`를 돌려라\" 한 줄이었다.",
+      "evidence": "단순화의 근거는 이렇다. 문안 걸음은 `CLAUDE.md`의 마커 사이를 템플릿과 글자로 견주면 답이 나오고, 그것은 작은 텍스트 파일 하나를 더 읽는 값이며 그 자리에 상태 파일 읽기가 빠지므로 예산이 그대로다(예산 목록 197줄에 템플릿은 이미 있고 `CLAUDE.md`는 없으며 상태 파일이 있다). 은퇴 정리와 플러그인 목록은 표의 1~3행이 `installed_plugins.json`과 `enabledPlugins`를 직접 읽어 이미 답한다(182~184줄). `PYTHONUTF8`은 레지스트리 값 하나를 읽으면 되고 지금은 어떤 해시로도 안 잡힌다. 예산 안에서 PC를 못 읽는 것은 라이브러리 하나뿐이다. 그 하나만 해시로 남기면 발견 1과 2와 3이 함께 없어진다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "과설계",
+      "what": "은퇴 목록 넷이 일회성 이행을 영원히 사는 선언에 담고, 항목이 언제 목록에서 나가는지가 없어 모든 PC가 끝난 청소를 영원히 다시 돈다.",
+      "where": "「선언」의 `retiredPlugins`·`retiredMarketplaces`·`retiredSkills`·`retiredHooks`와 「/kw-sync가 고친다」 걸음 3과 6",
+      "failure_story": "두 해가 지나 은퇴 목록이 스무 줄이 됐다. 새로 산 PC는 그 스무 줄 가운데 어느 것도 가진 적이 없는데 매 맞춤마다 스무 번을 확인했다. 목록에서 항목을 빼도 되는 조건이 문서에 없어 아무도 못 뺐고, 선언은 목록이면서 이행 상태 기록이 됐다.",
+      "evidence": "정본의 문서 타입 표가 절차·계약 문서의 낡음 방지를 \"상태를 적지 않고 방법만 적는다\"로 정한다. `retiredSkills`의 `register-corp-certs`는 `replacedBy`가 `kw-control-tower@kiwoom-ax`, 곧 그 검사를 돌리는 플러그인 자신이다(152줄). 자기가 돌고 있으면 자기는 깔려 있으므로 그 확인은 언제나 참이고 254줄이 말한 \"먼저 지우고 설치가 실패하면 그 스킬이 아예 없는 PC가 된다\"를 이 항목에 대해서는 아무것도 막지 못한다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "완화만가능한위험",
+      "what": "사용자가 가장 앞선다고 정한 훅의 예산에 숫자가 하나도 없어, 어떤 테스트도 그 제약을 떨어뜨릴 수 없다.",
+      "where": "「훅의 예산이 이 설계의 첫째 제약이다」의 계약 넷과 「테스트」의 \"훅의 예산\" 항목",
+      "failure_story": "다 만들고 재 보니 세션 시작이 0.9초 늘었다. 테스트는 전부 통과했다. 외부 프로세스를 안 부르고 네트워크에 안 나가고 파일 일곱만 읽는 것을 다 지켰기 때문이다. 늘어난 값은 훅 하나를 띄우는 pwsh의 시작 시간이었고 계약 어디에도 그 항목이 없었다. 사용자가 다른 무엇보다 앞선다고 정한 것만 검증 대상에서 빠져 있었다.",
+      "evidence": "계약 넷(194~197줄)은 전부 \"무엇을 하지 마라\"이고 시간의 상한이 없다. 유일한 숫자인 \"일곱을 다 합쳐 20KB가 안 된다\"는 읽는 양이지 걸리는 시간이 아니다. 테스트 364줄도 행위만 센다. 완화의 근거는 정본의 「모호한 표현의 구체화」다 — \"느리다\"로 적지 말고 \"로딩 12초\"로 적는다. 프로세스 시작 값 자체는 378줄이 적은 대로 없앨 수 없으므로 상한을 재는 수밖에 없다."
+    },
+    {
+      "lens": "lens-adversarial",
+      "kind": "완화만가능한위험",
+      "what": "예산 밖이라고 정의로 선언한 `python3` 가드가 실제로는 도구 호출마다 프로세스를 띄워 세션 시작보다 큰 값을 문다.",
+      "where": "「훅의 예산」의 \"`python3` 가드는 도구를 부를 때 도는 것이라 이 예산 밖이다\"",
+      "failure_story": "세션 시작은 가벼웠다. 대신 Bash와 PowerShell을 쉰 번 부르는 세션마다 pwsh 프로세스가 쉰 번 떴다. 사용자가 느낀 것은 세션 시작이 아니라 모든 도구 호출이 조금씩 늦는 것이었다. 끄는 스위치가 없어 벗어나는 길은 컨트롤 타워를 통째로 끄는 것뿐이었고, 그러면 감지도 함께 죽었다.",
+      "evidence": "194줄이 예산 밖이라고 정의로 선언할 뿐 그 값을 재지 않았다. 설치기의 도커 훅은 같은 문제를 `if` 규칙으로 좁혀 해결하고 그 이유를 적어 둔다 — setup.ps1:1262-1264 \"Rather than nagging every session, this fires only when a docker command is actually issued; the 'if' filter keeps a process from being spawned otherwise\", 배선은 setup.ps1:1273-1274의 `'Bash(docker *)'`와 `'PowerShell(docker *)'`다. 완화의 근거는 이미 이 레포 안에 있는 그 방식이며, 확정 4가 스위치를 금하므로 값을 줄이는 길은 그것뿐이다."
+    }
+  ],
+  "notes": "세 판이 무너진 자리와 같은 모양이 이 판에도 셋 남아 있다. 첫째, 자기가 적은 값을 증거로 삼는 것이 `enabledPlugins`에서 상태 파일과 걸음별 입력 해시로 자리만 옮겼다(발견 2). 둘째, 맞춤이 고칠 수 없는 것을 훅이 재는 자리가 둘 새로 생겼다 — 안 잰 `uninstall`에 걸린 은퇴 플러그인 행(발견 5)과 `kw-install.stamp`(발견 6)다. 셋째, 클론과 캐시 가운데 어느 파일을 해시하는가가 셋째 회차의 지적 그대로 아직 안 정해졌고, 합치기로 사라졌다고 적힌 것은 다른 물음이다(발견 10). 이 셋은 문서의 172~176줄에 적힌 자기 규칙 셋으로 각각 판정되므로, 규칙을 고칠 것이 아니라 규칙에 걸리는 행을 표에서 걷어내면 된다. 더 확인해야 할 것은 둘이다. 하나는 `claude plugin uninstall`이 등록에서 빠진 마켓플레이스의 플러그인을 걷는지이며, 문서가 이행 첫째 걸음으로 미뤄 두었는데 그 답이 아니오이면 감지 표의 한 행과 걸음 3을 통째로 다시 써야 하므로 첫째 걸음보다 앞서 재야 한다. 다른 하나는 클로드 코드가 `known_marketplaces.json`을 다시 만들 때 `settings.json`의 `extraKnownMarketplaces`에서 도출하는지이며, 이 판이 재지 않고 확정으로 표에 적은 유일한 값이다(발견 14).",
+  "not_examined": [
+    "클로드 코드가 플러그인이 나르는 훅 명령을 실제로 어느 인터프리터와 어느 셸로 실행하는지. 프로세스를 띄워 재야 하고 읽기 전용으로는 못 쟀다.",
+    "세션 시작 훅의 실제 소요 시간과 pwsh 프로세스 시작 값. 재려면 실행해야 한다.",
+    "`D:\\projects\\kw-plugins`의 플러그인 실물. 이 회차에서는 설계 문서와 검토 기록만 열었고 `plugins/kw-control-tower/` 아래 코드가 있는지는 안 봤다.",
+    "첫째와 둘째 회차의 기록 원문(`2026-09-06-control-tower-review.md`와 `-2.md`). 셋째 회차 기록과 셋째 회차 `lens-adversarial-1.json`만 읽었다.",
+    "`disableSkillShellExecution: false`인 이 PC에서 스킬 안의 셸 실행이 `python3` 가드의 두 매처(Bash·PowerShell)를 우회하는지."
+  ]
+}

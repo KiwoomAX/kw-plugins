@@ -1,0 +1,153 @@
+{
+  "principles_applied": [
+    "Karpathy / Think Before Acting — 현재 상태를 가정하지 않고 이 PC의 settings.json·installed_plugins.json·known_marketplaces.json·캐시·CLAUDE.md와 setup.ps1·setup.cmd·git 이력을 직접 열어 쟀다",
+    "팩트와 근거 — 확인 안 된 것을 단정한 문장을 근거 없음으로 올렸다",
+    "SSOT — 같은 사실이 두 파일·두 절에 갈라져 사는 자리를 짚었다",
+    "EXPLICIT — 자리와 명령과 계약이 이름만으로 드러나지 않는 자리를 짚었다",
+    "IDEMPOTENT — 두 번 돌렸을 때 사용자 결정을 뒤집는 걸음을 짚었다",
+    "REVERSIBLE — 되돌릴 수 없는 걸음의 근거가 실측되지 않은 자리를 짚었다",
+    "NAME-ITEMS — 걸음을 번호로 부르면서 절마다 개수가 갈리는 자리를 짚었다"
+  ],
+  "angles_examined": [
+    "문서가 setup.ps1에 대해 하는 주장 전부를 실물 함수(Remove-RetiredClaudeSkill 918행, Merge-ClaudeSettings 1312~1425행, Merge-PersonalMemory 1616~1680행, Test-ClaudePowerShell 967행, $script:Plugins 264행, $script:RetiredPlugins 277행, $script:RetiredSkill 289행)와 대조",
+    "설치기 단계 번호 0/9~9/9를 실제 Write-Step 열한 자리와 대조하고 경계 표 열여섯 행을 한 행씩 맞댐",
+    "setup.cmd를 열어 pwsh 7 설치 주체와 e98dde5 커밋을 확인",
+    "새 실측 표(uninstall/install/disable × 세 자리)에서 문서가 도출한다고 적은 결론 다섯을 하나씩 역으로 따라감",
+    "「딛고 선 나머지 측정」 열두 행을 이 PC의 실제 파일과 대조(캐시 폴더 구조, 마켓플레이스 클론, gitCommitSha 유무, 라이브러리 일곱, 스킬 하나, 은퇴 플러그인 둘)",
+    "「훅의 예산」 넷을 문서의 다른 절이 훅에 시키는 일과 대조하고 파일 크기를 실제로 잼",
+    "「감지」의 걸음 표 넷 ↔ 「/kw-sync가 고친다」의 걸음 여섯 ↔ 「무엇을 나르나」 아홉 행의 삼각 대조",
+    "은퇴 넷(플러그인·마켓플레이스·스킬·훅)마다 감지 자리와 고치는 명령이 적혔는지 추적",
+    "이름 드리프트: 우산·환경·kw-environment·kw-control-tower·컨트롤 타워를 문서 전체에서 세어 두 플러그인 전제의 잔재를 찾음",
+    "셸→PowerShell 전환 잔재: 사본 셋과 bash 전제 문장 추적, disciplined-coder 클론의 scripts/ 실물 확인",
+    "앞 세 회차 리뷰의 지적 여든여덟 줄을 넷째 판 본문과 한 줄씩 맞대어 미해결분 추출",
+    "사용자 확정 여섯과 문서의 진술이 어긋나는지 확인(합침·훅은 알리기만·훅 부담 우선·python3 스위치 없음·도메인 목록 공개·레포 공개 범위)"
+  ],
+  "findings": [
+    {
+      "lens": "lens-consistency",
+      "what": "실측 표에서 도출했다는 `suggested` 규칙이 그 표에서 따라 나오지 않고, 문서가 그 규칙으로 지키겠다던 바로 그 사용자 결정을 뒤집는다.",
+      "where": "「/kw-sync가 고친다」 걸음 2 — \"`suggested`는 **두 파일 어디에도 흔적이 없을 때만** 깐다.\"",
+      "evidence": "실측 표(문서 21~25행)는 `uninstall`이 `enabledPlugins`의 키를 지우고 `installed_plugins.json`의 항목도 지운다고 적는다. 남는 흔적은 캐시 폴더뿐인데 같은 문서가 「하지 않는 것」에서 \"캐시 폴더의 존재를 감지에 쓰지 않는다\"고 못 박았다. 따라서 사용자가 `claude plugin uninstall playwright`를 한 PC는 두 파일 어디에도 흔적이 없어 걸음 2가 매번 다시 깐다.",
+      "why_it_matters": "문서 158행이 \"사용자가 `playwright`를 안 쓴다고 지웠는데 매번 다시 까는 것은 사용자 결정을 뒤집는 것이다\"라고 적어 놓고, 걸음 2가 정확히 그 동작을 한다. `disable`로 끈 경우만 존중되고 `uninstall`로 지운 경우는 매 맞춤마다 되돌아온다. 테스트 절도 \"`suggested`가 `false`면 그대로 둔다\"만 덮어 이 갈래를 안 잡는다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "감지의 해시 걸음은 넷인데 맞춤의 걸음은 여섯이라, \"걸음마다 따로 재고 따로 적는다\"가 성립하지 않는다.",
+      "where": "「이 PC의 상태를 재는 법 — 걸음마다 입력의 해시」의 표(라이브러리·문안·은퇴 정리·플러그인 목록)",
+      "evidence": "「감지」 셋째 규칙은 \"걸음마다 따로 재고 따로 적는다\"이고 226행은 \"걸음마다 그 걸음이 성공했을 때 그 걸음의 해시만 적는다\"이다. 그런데 「/kw-sync가 고친다」는 걸음이 여섯이다. 표의 `은퇴 정리` 한 칸이 걸음 3(플러그인·마켓플레이스)과 걸음 6(스킬·훅) 둘을 덮고, `플러그인 목록` 한 칸이 걸음 1과 걸음 2를 덮으며, 걸음 4의 `PYTHONUTF8`은 입력 파일이 아예 없다.",
+      "why_it_matters": "걸음 6만 실패한 PC에서 걸음 3의 성공이 같은 `은퇴 정리` 해시를 적어 버리면 훅은 영원히 조용해진다. 이것이 첫 회차가 짚은 \"부분 성공이 완전 성공과 같은 흔적을 남긴다\"와 같은 실패다. 반대로 걸음 6이 실패해 해시를 안 적으면 이미 성공한 걸음 3까지 매 세션 다시 알린다. `PYTHONUTF8`은 레지스트리에서 지워져도 `requirements.txt`가 그대로라 아무도 못 잡는다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "맞춤 걸음 4가 `PYTHONUTF8`을 무조건 세우는데, 설치기 실물은 재서 필요할 때만 세우고 사용자가 0으로 둔 것은 건드리지 않는다.",
+      "where": "「/kw-sync가 고친다」 걸음 4 — \"파이썬 라이브러리를 고정한 3.12에 맞추고 `PYTHONUTF8`을 레지스트리에 세운다.\"",
+      "evidence": "D:\\projects\\kw_install\\setup.ps1:2108-2134에 `$utf8Now = [Environment]::GetEnvironmentVariable('PYTHONUTF8','User')`로 먼저 읽고 `'PYTHONUTF8 is 0: left alone, python keeps the system code page'`와 `'python already defaults to utf-8: PYTHONUTF8 not needed'` 갈래가 있다. 커밋 2b7cdb4의 제목이 \"PYTHONUTF8을 단정하지 않고 재서 필요할 때만 세운다\"이다.",
+      "why_it_matters": "옮기면서 갈래 셋이 사라진다. 일부러 0으로 둔 PC에서 맞춤이 말없이 1로 덮어쓰고, 문서 309행의 \"값이 같고 걸음이 멱등이라 해가 없으며\"는 값이 다를 수 있는 경우를 세지 않았다. disciplined-coder는 같은 값을 \"물어서 세운다\"라고 경계 표가 적으므로, 묻는 쪽과 안 묻는 쪽이 한 레지스트리 값을 두고 부딪친다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "이행 셋째 걸음이 요구하는 마커 정규화의 전제(각 PC에 드리프트가 있다)가 실물에서 확인되지 않는다.",
+      "where": "「이행」 셋째 — \"정규화는 개발 PC 한 번이 아니라 **각 PC에서 그 걸음이 처음 돌 때** 한다. 드리프트가 각 PC에 있기 때문이다.\"",
+      "evidence": "`git log -- templates/personal-memory-ko.md`의 네 커밋(df7d5fe, d779b55, c087fa8, 8f823dd) 전부에서 첫 줄이 `# BEGIN AX 설치 (자동 생성 영역 — 직접 고치지 마십시오)`로 한 글자도 안 바뀌었다. 이 PC의 C:\\Users\\ho381\\.claude\\CLAUDE.md도 13행과 20행에 그 한 쌍만 있고 옛 블록이 없다.",
+      "why_it_matters": "문구가 한 번도 안 바뀌었으므로 설치기가 만든 블록에는 정규화할 드리프트가 없다. 그런데 문서는 이 전제 위에 \"되돌릴 수 없는 걸음\"을 세우고 모든 PC에 `CLAUDE.md.pre-normalize` 사본까지 뜨게 한다. 근거 없이 비가역 걸음을 매 PC에 넣는 것이며, 정규화가 실제로 필요한 조건(새 걸음이 접두가 아닌 전체 줄로 찾을 때)은 문서 어디에도 안 적혀 있다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "이행 둘째 걸음이 근거로 든 \"옛 설치기의 청소 반복문이 `kiwoom-ax` 항목을 걷어낸다\"가 실물 코드와 맞지 않는다.",
+      "where": "「이행」 둘째 — \"얇아지지 않은 설치기의 청소 반복문이 컨트롤 타워가 넣어 둔 `kiwoom-ax` 항목을 남의 것으로 보고 걷어낸다.\"",
+      "evidence": "D:\\projects\\kw_install\\setup.ps1:1419-1425의 청소 반복문은 `$stillUsed = @($settings['enabledPlugins'].Keys | Where-Object { ($_ -split '@')[1] -eq $mkt })`를 세어 `$stillUsed.Count -eq 0` 일 때만 마켓플레이스를 지운다. `kw-control-tower@kiwoom-ax`나 `kw-doc-formats@kiwoom-ax` 키가 `enabledPlugins`에 있으면 `kiwoom-ax`는 걷히지 않는다. 실측 표도 `install`이 `enabledPlugins`에 `true`를 적는다고 확인한다. 실제로 걷히는 것은 1411-1415행의 `$script:RetiredPlugins` 둘뿐이고, 진짜 부작용은 1395-1406행이 `kw-doc-formats@kw-doc-formats`와 옛 마켓플레이스를 **다시 적는** 것이다.",
+      "why_it_matters": "위험의 이름이 틀렸으므로 대책(`kw-install.stamp`와 `kiwoom-ax` 항목을 함께 보고 멈추기)이 막는 대상도 어긋난다. 실제로 일어나는 일은 은퇴시킨 발행처가 되살아나 같은 스킬이 두 벌 실리는 것인데 문서는 그것을 안 센다. 셋째 판이 주석을 코드로 오인한 것과 같은 종류의 실수가 남았다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "「훅의 예산」이 못 박은 파일 일곱에 설치기 스탬프가 빠져 있는데, 다른 절이 그 훅더러 그것을 읽으라고 한다.",
+      "where": "「훅의 예산이 이 설계의 첫째 제약이다」 — \"작은 JSON 다섯과 텍스트 둘을 읽고 끝난다\"",
+      "evidence": "예산 절이 세는 일곱은 `settings.json`, `installed_plugins.json`, `known_marketplaces.json`, `manifest.json`, 상태 파일, `requirements.txt`, 문안 템플릿이다. 그런데 328행은 \"설치기가 `~/.claude/kw-install.stamp`에 자기 커밋과 돌린 시각과 어느 공용폴더에서 왔는지를 적고, 컨트롤 타워의 훅이 그것을 읽어 낡은 설치기로 세운 PC를 알아본다\"고 적는다. 테스트 절은 \"읽는 파일이 일곱을 안 넘는지도 센다\"로 그 수를 계약으로 굳힌다.",
+      "why_it_matters": "여덟째 파일을 읽으면 테스트가 실패하고, 테스트를 지키면 낡은 설치기 감지가 사라진다. 둘 중 하나가 반드시 깨지는데 문서가 어느 쪽을 버릴지 안 정했다. 게다가 그 스탬프 판정은 감지 표의 「물음과 자리와 명령」 다섯 행 어디에도 없어, 맞춤이 그것을 어떻게 고치는지도 없다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "은퇴가 넷이라고 선언해 놓고 마켓플레이스만 감지 자리도 걷는 명령도 없다.",
+      "where": "「선언」 — \"**은퇴가 넷이다.** 플러그인과 마켓플레이스와 스킬과 훅이며 각각 걷는 자리가 다르다.\"",
+      "evidence": "「물음과 자리와 명령」 표에는 은퇴 플러그인 행만 있고(`두 파일 가운데 어느 쪽에든 있나` / `claude plugin uninstall`), 마켓플레이스 행이 없다. 걸음 3은 \"은퇴한 플러그인과 마켓플레이스를 걷는다\" 한 줄뿐이고 명령을 안 댄다. 이 PC에서 `superpowers-marketplace`와 `claude-code-plugins`는 C:\\Users\\ho381\\.claude\\plugins\\known_marketplaces.json의 19-26행과 35-42행에는 있으나 C:\\Users\\ho381\\.claude\\settings.json의 `extraKnownMarketplaces`(31-77행)에는 없다.",
+      "why_it_matters": "걷을 자리가 두 파일인데 문서가 하나도 안 지정했으므로, `extraKnownMarketplaces`만 지우는 구현은 이 PC의 두 항목을 그대로 남긴다. 감지 행이 없으니 남아도 아무도 알리지 않는다. 셋째 회차가 `claude-code-plugins`를 목록에 넣게 만든 지적은 고쳤지만, 그것을 실제로 걷는 자리는 여전히 비어 있다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "자동 갱신 값이 한 파일에만 산다고 단정했으나 이 PC에서 두 파일이 서로 다른 값을 들고 있다.",
+      "where": "「딛고 선 나머지 측정」 — \"자동 갱신 값이 사는 곳 | `~/.claude/plugins/known_marketplaces.json`. 클로드 코드가 실제로 읽는 파일이다\"",
+      "evidence": "C:\\Users\\ho381\\.claude\\plugins\\known_marketplaces.json:69-77의 `kw-doc-formats`에는 `\"autoUpdate\": true`가 있는데, C:\\Users\\ho381\\.claude\\settings.json:71-76의 같은 이름 항목에는 `source`만 있고 `autoUpdate`가 없다. 한편 D:\\projects\\kw_install\\setup.ps1:1399-1404은 `$entry['autoUpdate'] = $true`를 settings.json 쪽에 쓴다.",
+      "why_it_matters": "\"클로드 코드가 실제로 읽는 파일이다\"는 settings.json 쪽 사본이 안 읽힌다는 뜻인데, 그 근거가 문서에도 이 PC에도 없다. 감지 표가 한 파일만 보므로 두 파일이 어긋난 지금 상태가 감지에 안 잡히고, 경계 표는 `extraKnownMarketplaces`를 컨트롤 타워 소유로 두어 같은 사실을 두 곳에 계속 남긴다. 셋째 회차의 \"자동 갱신이 두 파일에 사는데 훅은 하나만 본다\"가 그대로 남았다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "「세 층」이 설치기 0~7단계를 통째로 \"이 PC에 매인 것\"이라 적는데 경계 표는 그 구간에서 여섯을 밖으로 내보낸다.",
+      "where": "「세 층」 — \"0~7단계  이 PC의 하드웨어와 사내망과 레지스트리에 매인 것\"",
+      "evidence": "「경계」 표는 3단계의 `PYTHONUTF8`과 `라이브러리 일곱`, 7단계의 `settings.json의 플러그인 절`·`도커 인증서 훅`·`register-corp-certs 스킬`·`CLAUDE.md 개인 문안 블록` 여섯 행을 모두 컨트롤 타워로 보낸다.",
+      "why_it_matters": "셋째 회차가 \"「세 층」의 0~7단계가 7단계에서 셋이 나가는 것과 부딪친다\"고 짚은 자리가 안 고쳐졌고, 나가는 개수만 셋에서 여섯으로 늘었다. 문서의 첫머리 그림을 읽고 구현하는 사람은 7단계를 손대면 안 된다고 읽고, 「경계」 표를 읽는 사람은 7단계에서 넷을 걷어내야 한다고 읽는다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "경계 표의 0단계 행이 설치기 실물과 두 곳에서 어긋난다.",
+      "where": "「경계」 표 — \"| 0단계 | pwsh 7 설치와 payload와 winget 점검 | 설치기 |\"",
+      "evidence": "D:\\projects\\kw_install\\setup.ps1:1952-1984의 `0/9 Preflight`는 PSVersion 출력과 관리자 여부와 payload 존재와 winget 존재만 본다. pwsh 7을 까는 것은 D:\\projects\\kw_install\\setup.cmd의 `winget install --id Microsoft.PowerShell` 이고, 클로드 코드가 pwsh 7을 찾는지 확인하는 `Test-ClaudePowerShell` 호출은 setup.ps1:2368의 `7/9 Claude Code wiring` 안에 있다. 문서 자신도 87행에서 \"PowerShell 7 | `setup.cmd`가 winget으로 깐다\"고 적는다.",
+      "why_it_matters": "같은 문서가 pwsh 7 설치의 자리를 두 곳으로 적는다. 경계 표는 \"각 행이 실제 설치기 단계와 맞는가\"로 읽히는 표인데 첫 행부터 안 맞으므로, 이 표를 들고 설치기를 얇게 만드는 둘째 걸음에서 0단계에 없는 것을 찾게 된다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "「무엇을 나르나」의 훅 셋과 스킬 하나가 맞춤의 걸음 여섯 어느 쪽으로도 이어지지 않는다.",
+      "where": "「무엇을 나르나」 표의 `hooks/docker-cert-reminder.ps1`, `hooks/python3-guard.ps1`, `hooks/session-check.ps1`, `skills/register-corp-certs/`",
+      "evidence": "「/kw-sync가 고친다」의 여섯 걸음은 마켓플레이스 등록·필수 설치·은퇴 플러그인/마켓플레이스·라이브러리와 PYTHONUTF8·CLAUDE.md·은퇴 스킬과 훅이다. 도커 훅에 대해 문서가 정한 유일한 동작은 걸음 6이 부르는 `retiredHooks` 걷기(\"`settings.json`의 `hooks`에서 그 이름을 인자로 갖는 항목을 걷는다\")뿐이다. 설치기 쪽 실물은 setup.ps1:2409-2419가 스크립트를 `%LOCALAPPDATA%\\corp-certs\\`로 복사하고 1264-1275의 `New-DockerHookEntries`가 그 절대 경로를 settings.json에 박는다.",
+      "why_it_matters": "옛 도커 훅 항목을 걷은 뒤 무엇이 그 자리를 대신하는지가 문서 어디에도 없다. 플러그인 훅으로 바뀌면 CA 번들 경로를 누가 정하는지도 안 적혔고, 설치기의 `-BundleDir` 인자로 자리를 바꾼 PC에서는 그 경로를 알 길이 없다. 커버리지 공백이 걸음과 감지 양쪽에 걸쳐 있다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "새 플러그인의 산출물 표에 플러그인이 성립하는 데 필요한 파일들이 빠져 있다.",
+      "where": "「무엇을 나르나」 표 아홉 행",
+      "evidence": "표에 `manifest.json`·`scripts/sync.ps1`·훅 셋·`requirements.txt`·템플릿·스킬 둘은 있으나 `.claude-plugin/plugin.json`도, 훅을 실제로 거는 `hooks/hooks.json`도, 마켓플레이스를 정의하는 `.claude-plugin/marketplace.json`도 없다. 「레포」 표는 `KiwoomAX/kw-plugins`가 \"마켓플레이스 `kiwoom-ax` + `kw-control-tower`\"를 담는다고 적어 마켓플레이스 파일의 존재를 전제한다.",
+      "why_it_matters": "산출물의 형태와 놓일 곳을 정하는 표에서 빠졌으므로, 「훅을 어느 도구에 거나」가 정한 두 매처 배선이 어느 파일에 적히는지 아무도 못 짚는다. `plugin.json`은 특히 문제인데, 문서가 \"판본을 재지 않는다\"의 근거로 `plugin.json`의 `version` 유무를 길게 논하면서 정작 자기 `plugin.json`에 `version`을 넣을지 안 넣을지는 안 정했다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "테스트가 \"훅마다\" 두 매처를 요구하는데 세션 시작 훅에는 도구 매처가 붙을 자리가 없다.",
+      "where": "「테스트」 — \"**훅 배선** — 훅마다 Bash와 PowerShell 두 매처에 걸린다.\"",
+      "evidence": "설치기의 근거인 setup.ps1:1264-1275 `New-DockerHookEntries`는 `@{ matcher = 'Bash' ... }`와 `@{ matcher = 'PowerShell' ... }`를 `PreToolUse`에만 얹는다(1385행 `$settings['hooks']['PreToolUse']`). 반면 「무엇을 나르나」의 `hooks/session-check.ps1`은 \"알리기만 한다\"는 세션 시작 훅이고, 「훅의 예산」이 \"세션 시작에 도는 훅은 하나뿐이다\"로 그 성격을 못 박는다.",
+      "why_it_matters": "테스트가 못 지킬 계약을 적었다. 세션 시작 훅에 도구 매처를 붙이려 하면 훅이 안 걸리고, 테스트를 그대로 두면 영원히 실패하는 검사가 하나 남는다. 「훅을 어느 도구에 거나」 절도 범위를 안 적어 같은 오해를 만든다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "전부 PowerShell로 쓴다고 못 박은 뒤에도 셸 스크립트 사본 하나를 계속 기다린다.",
+      "where": "「무엇으로 쓰나 — PowerShell이다」 — \"`_managed_block` 사본만 남고, 그것은 아래 「이행」의 셋째 걸음까지 미룬다.\"",
+      "evidence": "그 실물은 C:\\Users\\ho381\\.claude\\plugins\\marketplaces\\chshin-tools\\scripts\\_managed_block.sh 이며 확장자가 `.sh`인 bash 스크립트다. 같은 절이 \"**훅과 맞춤 스크립트를 전부 PowerShell로 쓴다.**\"라고 적고, 그 결정의 근거로 \"어느 bash가 잡히나\"라는 물음이 통째로 사라진다고 적는다.",
+      "why_it_matters": "`sync.ps1`이 bash 스크립트를 사본으로 받아 쓸 길이 없으므로, 셋째 걸음에 이르면 다시 쓰거나 bash를 부르거나 둘 중 하나를 골라야 한다. 어느 쪽도 문서에 없고, 부르는 쪽을 고르면 PowerShell 전환의 근거가 그 자리에서 되살아난다. 셋째 판의 셸 전제 위에 쓰인 문장이 그대로 남은 자리다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "상대 체계가 공식 마켓플레이스를 만지겠다고 알려 왔다는 진술의 근거가 이 PC의 어디에도 없다.",
+      "where": "「disciplined-coder와의 경계」 — \"`disciplined-coder`가 `claude-plugins-official`도 만지겠다고 알려 왔지만 그쪽 사용자 승인 전이다.\"",
+      "evidence": "C:\\Users\\ho381\\.claude\\plugins\\cache\\chshin-tools\\ 아래 판본 열일곱 폴더 전체와 C:\\Users\\ho381\\.claude\\plugins\\marketplaces\\chshin-tools\\ 클론 전체에 `claude-plugins-official` 문자열이 한 번도 안 나온다. 그 클론의 skills/와 scripts/ 어디에도 해당 항목을 다루는 자리가 없다.",
+      "why_it_matters": "둘째 회차가 \"`disciplined-coder`가 `claude-plugins-official`을 만진다는 근거가 없다\"고 짚은 자리가 문장만 \"알려 왔지만\"으로 부드러워지고 근거는 그대로 없다. 경계 표는 두 체계가 겹치는 자리를 세는 표인데, 확인 안 된 항목이 표 밖의 각주로 남아 있어 나중에 표에 더할 때 아무도 그것이 검증된 적 없다는 것을 모른다."
+    },
+    {
+      "lens": "lens-grounding",
+      "what": "은퇴 스킬 삭제 가드의 기준을 \"파일 개수\"라고만 적었으나 실물은 세 조건을 함께 본다.",
+      "where": "「딛고 선 나머지 측정」 — \"은퇴 스킬 삭제 가드의 실제 기준 | 파일 개수다.\"",
+      "evidence": "D:\\projects\\kw_install\\setup.ps1:942의 판정은 `$onlySkill = ($subdirs.Count -eq 0) -and ($files.Count -eq 1) -and ($files[0].Name -eq 'SKILL.md')`로 하위 폴더 개수와 파일 개수와 파일 이름 셋을 함께 본다. 또 갈래는 넷이 아니라 다섯으로, `absent`·`removed`(빈 폴더)·`removed`(SKILL.md 하나)·`kept` 외에 `-WhatIfOnly`가 내는 `skipped`가 있다(931·939·950행).",
+      "why_it_matters": "셋째 판이 이 함수의 기준을 잘못 읽어 그 위에 정정을 쌓았고, 넷째 판은 방향은 바로잡았지만 요약이 다시 한 단계 뭉개졌다. \"파일 개수\"만 옮겨 구현하면 `SKILL.md`가 아닌 파일 하나가 든 폴더를 지운다. 「테스트」의 \"갈래 넷을 각각 시험한다\"도 실물의 다섯째 갈래를 안 덮는다."
+    },
+    {
+      "lens": "lens-consistency",
+      "what": "「아직 안 잰 것」이 이행 첫째 걸음에 측정을 배정했는데 그 걸음 서술에는 그 일이 없다.",
+      "where": "「아직 안 잰 것」 — \"**이행 첫째 걸음에서 잰다.**\"",
+      "evidence": "「이행」 첫째 걸음은 \"`kw-plugins` 레포에 컨트롤 타워를 세운다\"와 \"이 시점의 선언에는 발행처 이전을 담지 않는다\"와 \"되돌리기는 로컬 커밋을 지우는 것뿐이다\"만 적고, 은퇴한 마켓플레이스에서 온 플러그인을 `uninstall`이 걷는지 재는 일은 안 적는다.",
+      "why_it_matters": "그 측정 결과에 걸음 3의 은퇴 정리가 통째로 걸려 있는데(이 PC의 `superpowers@superpowers-marketplace`와 `frontend-design@claude-code-plugins`가 그 경우다) 실행 계획에 그 일이 없으므로 그냥 넘어간다. 게다가 첫째 걸음이 `retiredMarketplaces`를 비우기로 해서, 재야 할 상태를 만들 재료도 그 시점에는 선언에 없다."
+    }
+  ],
+  "notes": "이름 드리프트는 실질적으로 정리되었다. `우산`은 35행 한 번, `환경`은 35·39행 두 번뿐이고 모두 셋째 판을 설명하는 자리이며 `kw-environment`는 0회다. 다만 39행의 \"둘 다 작고, 같은 레포에 있어 판본이 한 벌로 움직이고, 환경 쪽이 필수라 늘 함께 깔린다\"는 합친 뒤에는 가리킬 대상이 없는 문장이라 두 플러그인 전제의 잔재로 읽힌다. 값이 작아 발견으로 올리지 않았다.\n\n확인해 두었으나 문제 없던 것: 실측 표의 세 결론 가운데 `install`이 `false`를 덮어쓰므로 깔림과 켜짐을 가른다는 것과 캐시 폴더를 증거로 안 쓴다는 것은 표에서 곧바로 따라 나온다. 29행의 \"앞의 것에만 있는 둘\"과 \"뒤의 것이 false인 셋\"은 이 PC에서 정확히 맞았다(다만 셋 가운데 `supabase`의 `false`는 이번 측정이 만든 값이라 원래 상태의 증거로는 순환이다). 「딛고 선 나머지 측정」의 라이브러리 일곱·플러그인 다섯·은퇴 플러그인 둘·스킬 하나·은퇴 스킬 하나·`gitCommitSha` 없는 공식 셋·`e98dde5`·`register-corp-certs`가 `~/.claude/skills/`에 실재하는 것은 전부 실물과 맞았다. 훅 예산의 20KB도 실측한 다섯 파일 합이 13.9KB라 성립한다(나머지 둘은 아직 없는 파일이라 재지 못했다).\n\n더 확인해야 할 것: `claude plugin marketplace remove` 같은 명령이 `known_marketplaces.json`과 `extraKnownMarketplaces` 둘을 함께 지우는지는 CLI를 돌려야 알 수 있고, 이것이 은퇴 마켓플레이스 걸음의 실행 가능성을 가른다. 그리고 클로드 코드가 `settings.json`의 `autoUpdate`를 읽는지 안 읽는지도 이 PC의 두 파일이 어긋난 지금 상태에서 관찰로 가릴 수 있다.",
+  "not_examined": [
+    "`kw-plugins` 레포의 실물 파일(마켓플레이스 정의, 플러그인 폴더, 훅·맞춤 스크립트)이 아직 없어 문서 서술로만 판정했다",
+    "`claude plugin marketplace` 계열 명령이 두 파일을 어떻게 바꾸는지 — 이 PC의 상태를 바꾸는 일이라 읽기 전용 렌즈가 못 쟀다",
+    "각 리뷰 이름의 폴더 안에 있는 렌즈 원본 JSON은 열지 않고 회차 요약본 셋만 대조했다",
+    "`disciplined-coder`의 `setup-discipline` 스킬 실물 — 캐시 판본 열일곱과 마켓플레이스 클론 어디에도 그 폴더가 없어 세션 스킬 목록의 설명 한 줄로만 봤다"
+  ]
+}
