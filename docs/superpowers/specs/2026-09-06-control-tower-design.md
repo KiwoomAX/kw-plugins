@@ -71,6 +71,28 @@
 | 8단계 | 사내 마켓플레이스 등록과 우산 설치 | 설치기 | 부트스트랩이다. 우산이 자기를 깔 수는 없다 |
 | 9단계 | HTTPS 검증 | 설치기 | 1단계가 된 것을 확인하는 짝이다 |
 
+## disciplined-coder와의 경계
+
+같은 PC에 범용 체계가 하나 더 있다. `disciplined-coder`가 자기 요건을 점검하고 갱신하는 장치를 갖는다. 둘 다 사용자 폴더의 같은 파일들에 손이 닿으므로 경계를 먼저 못 박는다.
+
+**한 파일을 둘이 고치는 것은 `CLAUDE.md` 하나로 끝낸다.** 그 파일은 마커 블록으로 갈리고 서로의 바깥을 건드리지 않는다. 이미 그렇게 살고 있고 다른 길이 없다. 그 밖의 파일은 파일이 같더라도 **고치는 키가 겹치지 않게** 가른다.
+
+| 파일 | 우산이 만지는 자리 | disciplined-coder가 만지는 자리 |
+|---|---|---|
+| `~/.claude/CLAUDE.md` | `# BEGIN AX 설치` 블록 안 | `# BEGIN disciplined-coder` 블록 안 |
+| `~/.claude/settings.json` | `extraKnownMarketplaces`의 `kiwoom-ax` 항목 | `chshin-tools` 항목 |
+| `~/.claude/plugins/known_marketplaces.json` | `kiwoom-ax`의 `autoUpdate` | `chshin-tools`의 `autoUpdate` |
+| `~/.claude/skills/` | 은퇴한 사본을 걷는 것뿐 | 건드리지 않는다 |
+| `~/.claude/hooks/` | 건드리지 않는다 | 건드리지 않는다 |
+| 파이썬 환경 | 선언의 라이브러리 | 건드리지 않는다 |
+| 상태 파일 | `kw-control-tower.state` | 자기 이름의 파일 |
+
+`settings.json`의 하드웨어성 키(PowerShell 도구, 기본 셸, 권한 모드)는 설치기만 쓴다. 우산도 `disciplined-coder`도 그 키를 보지 않는다.
+
+`~/.claude/hooks/`가 비는 것은 훅을 플러그인이 나르기 때문이다. 도커 훅과 `python3` 훅이 우산 안으로 들어오면 사용자 폴더에 훅 파일을 놓을 이유가 없어진다.
+
+**이 경계는 약속이 아니라 검사로 지킨다.** 양쪽 테스트가 상대의 자리를 심어 놓고 자기 걸음을 돌린 뒤 그것이 살아남는지 본다. `kw_install`의 「somebody else hook survives」와 「their ask list is left exactly as found」가 이미 그 꼴이다.
+
 ## 순서
 
 선언이 마켓플레이스 클론 안에 있으므로 등록 전에는 읽을 수 없다. 지금 3단계에 있는 `pip install`이 뒤로 밀린다. 단계를 다시 매기면 이렇게 된다.
