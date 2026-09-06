@@ -14,6 +14,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
+$script:SuggestedIncomplete = $false
 $script:Did      = New-Object System.Collections.ArrayList
 $script:Reenab   = New-Object System.Collections.ArrayList
 $script:Failed   = New-Object System.Collections.ArrayList
@@ -212,7 +213,13 @@ try {
             $entry = Get-Prop $installedOf $id
             if ($null -ne $entry) { continue }
             if (Invoke-Claude @('plugin', 'install', $id)) { Note "권장 플러그인을 깔았습니다: $id" }
-            else { Fail '2' "권장 플러그인 설치에 실패했습니다: $id" }
+            else {
+                Fail '2' "권장 플러그인 설치에 실패했습니다: $id"
+                # 하나라도 못 깔았으면 "한 번 돌았다" 를 안 적는다. 적어 버리면 다음
+                # 실행부터 이 갈래를 아예 안 보고, 권장은 알림 대상도 아니라 사용자가
+                # 영영 모른 채 그 플러그인 없이 지낸다.
+                $script:SuggestedIncomplete = $true
+            }
         }
     } else {
         Say '권장 플러그인은 처음 한 번만 깝니다. 건너뜁니다.'
@@ -544,7 +551,10 @@ try {
 
 # ---------------------------------------------------------------- 마무리
 if (-not $WhatIfOnly) {
-    $state['ranOnce'] = (Get-Date -Format o)
+    # 권장 플러그인을 다 깔았을 때만 "한 번 돌았다" 를 적는다. 이 표시가 그 갈래를
+    # 영영 닫으므로, 못 깐 것이 있으면 다음 실행이 다시 해 볼 수 있게 열어 둔다.
+    if (-not $script:SuggestedIncomplete) { $state['ranOnce'] = (Get-Date -Format o) }
+    else { Say '권장 플러그인을 다 못 깔아 다음 실행에서 다시 해 봅니다.' }
     $lines = foreach ($k in $state.Keys) { "$k=$($state[$k])" }
     $lines | Out-File -LiteralPath $statePath -Encoding UTF8
 }

@@ -195,6 +195,12 @@ $syncSrc = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
 Check '미리보기가 한 일처럼 적지 않는다' { $syncSrc -match '안 함 · 미리보기' }
 Check '안 깔린 것에만 install 을 쓴다'    { $syncSrc -match "if \(-not \`$onDisk\)" -and $syncSrc -match "'plugin', 'enable'" }
 Check '되켠 것을 따로 적는다'              { $syncSrc -match '되켠 것' }
+# "한 번 돌았다" 표시는 권장 플러그인 갈래를 영영 닫는다. 첫 실행이 실패했는데도
+# 적어 버리면 사용자가 영영 모른 채 그 플러그인 없이 지낸다.
+Check '권장을 다 못 깔면 한 번 돌았다를 안 적는다' {
+    ($syncSrc -match '\$script:SuggestedIncomplete = \$true') -and
+    ($syncSrc -match 'if \(-not \$script:SuggestedIncomplete\) \{ \$state\[''ranOnce''\]')
+}
 Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\[A-Za-z0-9\._-\]\+\$" }
 Check '지우기 전에 사본을 뜬다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
