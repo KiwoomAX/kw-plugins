@@ -39,7 +39,7 @@ foreach ($rel in @(
     'hooks\hooks.json',
     'hooks\session-check.ps1',
     'scripts\sync.ps1',
-    'skills\kw-sync\SKILL.md',
+    'commands\kw-sync.md',
     'requirements.txt'
 )) {
     Check "있다: $rel" { Test-Path -LiteralPath (Join-Path $plugin $rel) }
@@ -260,6 +260,17 @@ Check '파이프 뒤의 python3 은 막는다'          { (Invoke-Guard 'cat x |
 Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 python3 -V') -match 'deny' }
 
 Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- /kw-sync 명령 ----------------------------------------------------------
+Write-Host ''
+Write-Host '/kw-sync 명령'
+$cmdSrc = Get-Content (Join-Path $plugin 'commands\kw-sync.md') -Raw
+Check '설명이 앞머리에 있다'            { $cmdSrc -match '(?s)^---\s*\r?\ndescription:' }
+Check '맞춤 스크립트를 부른다'          { $cmdSrc -match 'scripts/sync\.ps1' }
+Check '미리보기 방법을 적어 둔다'        { $cmdSrc -match '\-WhatIfOnly' }
+Check '되켠 것을 말하라고 적혀 있다'      { $cmdSrc -match '되켠 것' }
+# 명령과 스킬이 같은 말을 두 곳에서 하면 곧 어긋난다. 부르는 자리는 명령 하나다.
+Check '같은 이름의 스킬이 남아 있지 않다' { -not (Test-Path -LiteralPath (Join-Path $plugin 'skills\kw-sync')) }
 
 # --- 도커 인증서 안내 -------------------------------------------------------
 Write-Host ''

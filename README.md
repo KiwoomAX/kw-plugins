@@ -69,7 +69,8 @@ PC에서도 훅이 죽지 않는다.
 | `plugins/kw-control-tower/manifest.json` | **목록의 정본.** 새 플러그인은 여기에 더한다 |
 | `plugins/kw-control-tower/hooks/` | 세션 시작 알림, 도커 인증서 안내, `python3` 가드 |
 | `plugins/kw-control-tower/scripts/sync.ps1` | `/kw-sync` 가 부르는 본체 |
-| `plugins/kw-control-tower/skills/` | `/kw-sync` 스킬과 사내 인증서 스킬 |
+| `plugins/kw-control-tower/commands/kw-sync.md` | `/kw-sync` 명령 |
+| `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `tests/test_control_tower.ps1` | 계약 검사. `pwsh -File tests\test_control_tower.ps1` |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
 | `docs/superpowers/reviews/` | 그 설계를 검토한 기록 |
