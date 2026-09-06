@@ -184,7 +184,28 @@ try {
         [void]$notes.Add('PYTHONUTF8 이 세워져 있지 않습니다. 한글이 깨질 수 있습니다.')
     }
 
-    # --- 물음 8과 9. 정리하기로 한 스킬과 훅이 남았나 ----------------------
+    # --- 물음 8. CLAUDE.md 의 사내 문안이 템플릿과 같나 ---------------------
+    # 이것이 감지 표에 있는데 훅에 없었다. 사내 문안을 손으로 고쳐도 아무도 모르는
+    # 상태였다. 판본이나 해시가 아니라 글자를 견준다. 줄바꿈은 두 파일이 서로 다를
+    # 수 있고 그것은 다름이 아니므로 맞춘 뒤에 견준다.
+    $tpl = Join-Path $root 'templates\personal-memory-ko.md'
+    $mem = Join-Path $cfg 'CLAUDE.md'
+    $script:Budget.Files += 2
+    if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
+        $u8 = New-Object System.Text.UTF8Encoding($false)
+        $block = ([System.IO.File]::ReadAllText($tpl, $u8)).Trim()
+        $now   = [System.IO.File]::ReadAllText($mem, $u8)
+        $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
+        $found = [regex]::Match($now, $re)
+        $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }
+        if (-not $found.Success) {
+            [void]$notes.Add('CLAUDE.md 에 사내 문안 블록이 없습니다.')
+        } elseif ((& $norm $found.Value) -ne (& $norm $block)) {
+            [void]$notes.Add('CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.')
+        }
+    }
+
+    # --- 물음 9와 10. 정리하기로 한 스킬과 훅이 남았나 ---------------------
     $staleS = New-Object System.Collections.ArrayList
     foreach ($s in @($manifest.retiredSkills)) {
         $name = Get-Prop $s 'name'

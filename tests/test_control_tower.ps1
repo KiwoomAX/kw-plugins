@@ -118,6 +118,23 @@ Check '훅이 아무 파일도 안 고친다 (자국 파일 둘은 뺀다)' {
 # 자국 파일이 영원히 자라면 그것도 이 PC 를 더럽히는 것이다.
 Check '느림 자국은 덧붙이지 않고 덮어쓴다' { $hookCode -match 'WriteAllText\(\$over' }
 Check '오류 자국은 스무 줄까지만 남긴다'   { $hookCode -match '\$keep\.Count -gt 20' }
+# 감지 표가 적은 물음을 훅이 다 재야 한다. CLAUDE.md 문안 검사가 표에는 있고
+# 훅에는 없어서, 사내 문안을 손으로 고쳐도 아무도 모르는 상태였다.
+Check '훅이 감지 표의 물음을 다 잰다' {
+    $spec2 = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw
+    # 표 머리에 바로 붙여 잡는다. 절 머리부터 잡으면 표 앞 문단에서 끊긴다.
+    $tbl = [regex]::Match($spec2, "(?s)\| 물음 \| 어디서 재나 \|.*?(?=\r?\n\r?\n)").Value
+    $rows = @([regex]::Matches($tbl, "(?m)^\|(?!-)")).Count - 1   # 머리 줄을 뺀다
+    $asked = @([regex]::Matches($hookSrc, "(?m)^\s*# --- 물음 ")).Count
+    # 한 주석이 물음 둘을 덮는 자리가 있어 주석 수가 아니라 번호의 최댓값을 센다
+    # 한 주석이 물음 둘을 덮을 때 앞말에 따라 '과' 도 되고 '와' 도 된다.
+    $nums = @([regex]::Matches($hookSrc, '# --- 물음 (\d+)(?:[과와] (\d+))?')) |
+            ForEach-Object { [int]$_.Groups[1].Value; if ($_.Groups[2].Success) { [int]$_.Groups[2].Value } }
+    ($asked -gt 0) -and (($nums | Measure-Object -Maximum).Maximum -eq $rows)
+}
+Check '훅이 CLAUDE.md 문안을 견준다' {
+    ($hookCode -match 'personal-memory-ko\.md') -and ($hookCode -match 'BEGIN AX')
+}
 Check '훅이 5.1 전용 문법만 쓴다' {
     ($hookCode -notmatch '-AsHashtable') -and
     ($hookCode -notmatch '\?\?') -and
