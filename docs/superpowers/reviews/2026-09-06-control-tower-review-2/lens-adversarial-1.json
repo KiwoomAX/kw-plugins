@@ -1,0 +1,136 @@
+{
+  "lens": "adversarial",
+  "round": 2,
+  "first_round_followup": [
+    { "finding": "훅의 해시가 라이브러리·문안 변경을 못 잡는다", "status": "new_problem", "note": "선언의 해시를 버리고 플러그인 판본으로 바꾼 것은 감지 범위를 넓혔다. 그러나 판본은 마켓플레이스 레포의 커밋 SHA이고 한 레포의 플러그인이 그 값을 함께 쓴다. 좁던 신호가 이제 넘친다." },
+    { "finding": "부분 실패에도 해시를 적는다", "status": "new_problem", "note": "걸음 넷이 모두 성공했을 때만 적는 것으로 고쳤다. 대신 영구히 실패하는 PC에서 상태가 영영 안 적혀 같은 알림이 끝없이 뜨고 문구가 원인을 틀리게 말한다. 그 대가를 남는 위험이 적지 않는다." },
+    { "finding": "_ensure_autoupdate.sh가 우산의 자리에서 아무것도 못 한다", "status": "new_problem", "note": "사본을 버리고 우산이 자기 코드로 쓰기로 한 것은 맞다. 다만 셋을 한꺼번에 뗐고 그 가운데 _resolve_home.sh는 우산이 만지는 파일 전부에 걸린다." },
+    { "finding": "known_marketplaces.json과 settings.json에 잠금이 없다", "status": "partial", "note": "위험으로 적고 정본에 제안을 올리기로 했다. 완화는 우산이 자기 쓰기를 짧게 유지한다뿐인데 그 두 파일에 손대는 주체가 셋으로 늘었다." },
+    { "finding": "이행 첫째 걸음에서 두 기록자가 CLAUDE.md를 함께 쓴다", "status": "partial", "note": "환경의 CLAUDE.md 걸음을 끄기로 했다. 그 스위치가 무엇인지는 문서에 없다." },
+    { "finding": "register-corp-certs가 개인 스킬 폴더에 남아 두 벌이 된다", "status": "new_problem", "note": "은퇴 목록에 넣어 고쳤다. 그런데 삭제 가드의 설치기가 쓴 것 말고 아무것도 없을 때만이 설치기가 물러난 뒤에는 주인을 잃는다." },
+    { "finding": "걸음 5가 설치기의 삭제 가드 셋과 백업을 버렸다", "status": "fixed", "note": "가드 셋과 백업을 그대로 들고 왔고 테스트 절에도 자리가 생겼다." },
+    { "finding": "이행 둘째 걸음이 셋째보다 앞서 스킬이 사라질 수 있다", "status": "fixed", "note": "발행처 이전을 넷째로 미뤘고 비대칭을 근거로 적었다." },
+    { "finding": "9단계가 어느 bash를 부를지 안 정했다", "status": "partial", "note": "설치기 9단계에는 절대 경로 규율이 붙었다. 같은 위험을 지는 훅 셋과 스크립트 둘에는 안 붙었다." },
+    { "finding": "Merge-ClaudeSettings의 청소가 $script:Plugins를 진실로 삼는다", "status": "partial", "note": "둘째 걸음에서 플러그인 절을 걷기로 했다. 첫째 걸음 창과 되돌리기 뒤에는 그 청소가 그대로 살아 있다." },
+    { "finding": "잠금 규약이 갈리면 배제가 깨지는데 아무도 안 잰다", "status": "partial", "note": "위험으로 적고 규약 판 번호를 제안했다. 제안이 받아들여지기 전까지 사본의 유일한 값이 성립하는지 아무도 모른다." },
+    { "finding": "마켓플레이스 클론과 플러그인 캐시가 다른 시점에 갱신된다", "status": "partial", "note": "실물을 재게 해서 줄었다고 적었다. 첫 설치에서는 자리가 남는다." },
+    { "finding": "schema는 보호 대상이 그 코드를 안 가져 발동할 수 없다", "status": "fixed", "note": "판 번호를 버리고 읽기 실패만 남겼다." },
+    { "finding": "되돌리기 절이 없다", "status": "partial", "note": "걸음마다 한 줄씩 적혔다. 적힌 것이 되돌리는 것은 레포이고 이미 배포된 PC는 되돌아가지 않는다." },
+    { "finding": "사본 넷 가운데 하나만 값을 낸다", "status": "fixed", "note": "셋으로 줄고 환경 한쪽에만 두기로 했다. 남은 셋의 값이 잠금 하나에 걸려 있다." }
+  ],
+  "findings": [
+    {
+      "failure_story": "사내망 도메인 PC에 설치기를 돌렸다. 설치기는 끝났다고 말했는데 세션을 열 때마다 우산의 훅이 선언의 플러그인이 여섯 다 빠졌다를 냈다. 그 PC의 홈은 U: 드라이브로 리다이렉트되어 있었고 셸의 $HOME과 클로드 코드가 쓰는 USERPROFILE이 서로 다른 곳을 가리켰다.",
+      "root_cause": "사본은 환경 플러그인에만 둔다, 우산은 사본이 필요 없다로 정한 것이 원인이다. 우산이 읽고 쓰는 파일 넷이 전부 설정 홈 아래에 있고 홈을 정하는 것이 _resolve_home.sh인데, 사본의 값을 _managed_block.sh가 기대는 것으로만 세어 우산 쪽 필요를 세지 않았다.",
+      "where": "「범용 함수의 사본」 첫 문단과 사본 표",
+      "evidence": "_resolve_home.sh 머리말: 도메인 PC는 네트워크 홈 리다이렉트(HOMEDRIVE=U:)로 bash $HOME이 os.homedir(USERPROFILE)과 어긋날 수 있어 잘못된 곳에 쓰면 조용히 누락된다. _json_valid.sh 머리말: 이 PC의 python3는 Windows Store 스텁이라 실행되지 않을 수 있다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "우산의 선언에 플러그인 한 줄을 더하고 커밋했다. 그 커밋은 환경 플러그인의 파일을 하나도 안 건드렸는데 모든 PC가 환경이 바뀌었다를 받았다. 검진 기록 하나를 커밋한 날에도 같은 알림이 떴다. 두 주가 지나자 아무도 그 줄을 읽지 않았다.",
+      "root_cause": "둘을 한 레포에 둔 것과 자기 설치 판본을 재는 것이 겹쳤다. plugin.json에 version을 안 적으면 판본이 마켓플레이스 커밋 SHA가 되고 그 값은 레포의 모든 플러그인이 함께 쓴다. 반대로 version을 적으면 판본이 커밋과 무관해져 첫 판의 침묵이 돌아온다. 문서는 어느 쪽을 전제하는지 안 적었다.",
+      "where": "「환경의 훅은 판본을 잰다」와 「레포」 절",
+      "evidence": "installed_plugins.json에서 frontend-design·code-review·playwright 세 항목이 모두 version 85cce0381e78로 같다. KW-doc-formats의 plugin.json에는 version 키가 없어 판본이 커밋 SHA로 기록된다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "사용자가 /plugin 화면에서 kw-doc-formats를 껐다. 사내 문서 스킬이 그날부터 안 실렸다. 우산의 훅은 아무 말도 하지 않았고 /kw-sync도 이상 없음으로 끝났다.",
+      "root_cause": "훅이 재는 실물을 installed_plugins.json 하나로 정한 것이 원인이다. 그 파일은 깔려 있다만 기록하고 켜져 있다는 settings.json의 enabledPlugins가 따로 기록한다. 우산은 그 키의 주인이라고 경계 표에 적혀 있으면서 자기가 소유한 키를 재지 않는다.",
+      "where": "「우산의 훅은 실물을 잰다」와 경계 표의 settings.json 행",
+      "evidence": "settings.json의 enabledPlugins에 code-review·supabase·humanize-korean이 false로 있고 같은 셋이 installed_plugins.json에는 정상 항목으로 있다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "이행을 끝낸 PC에서 세션마다 은퇴한 frontend-design@claude-code-plugins가 아직 있다가 떴다. /kw-sync를 돌려도 다음 세션에 또 떴다. 열 번 돌리고 사용자가 훅을 무시하기 시작했다.",
+      "root_cause": "재는 파일과 고치는 파일이 다르다. 훅은 installed_plugins.json에서 찾는데 retiredPlugins가 걷는 것은 settings.json의 enabledPlugins 키다. 설치기가 이미 걷어 낸 PC에서는 걷을 것이 없고 installed 항목은 아무도 안 지운다.",
+      "where": "「우산이 하는 일」의 은퇴 문단과 「우산의 훅은 실물을 잰다」",
+      "evidence": "이 PC의 installed_plugins.json에 frontend-design@claude-code-plugins와 superpowers@superpowers-marketplace가 있고 settings.json의 enabledPlugins에는 없다. setup.ps1:1451-1455 주석이 키만으로 증거가 되지 않는다고 적는다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "사내망의 어떤 PC에서 pip이 프록시 때문에 영원히 실패한다. 세션마다 환경이 바뀌었다를 받고 반년 동안 매번 돌렸고 매번 같은 자리에서 실패했다. 진짜로 문안이 바뀐 날에도 문구가 똑같아 아무도 알아채지 못했다.",
+      "root_cause": "부분 성공이면 상태를 안 적는 것이 실패를 잊지 않게 만들었지만 잊지 않는 것과 매번 같은 말로 외치는 것을 가르지 않았다. 아직 안 맞췄다와 맞출 수 없다와 새로 바뀌었다가 한 문장으로 합쳐진다.",
+      "where": "「/kw-env-sync가 고친다」의 걸음 다섯과 「남는 위험」",
+      "evidence": "설계 문서가 부분 성공이면 상태를 적지 않는다와 둘이 다르면 같은 문구를 낸다와 훅이 파일을 고치지 않는다를 함께 적는다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "새 PC에 설치기를 돌렸다. 초록색으로 끝났는데 다음 날 openpyxl이 없었고 CLAUDE.md에 문안 블록이 없었다. 9단계는 우산의 걸음 넷을 다 돌았고 그 넷 어디에도 환경을 맞추는 일이 없었다.",
+      "root_cause": "우산의 걸음 목록과 환경을 부르는 서술이 다른 자리에 적혀 어긋났다. 걸음 넷에 환경을 부르는 걸음이 없는데 환경 표와 설치기 절은 우산이 이어 돌린다고 적는다. 게다가 그렇게 부르려면 우산이 다른 프로세스가 설치한 플러그인의 내부 스크립트 경로를 알아야 하는데, 문서는 우산이 담지 않고 깔아 준다고 못 박았다.",
+      "where": "「/kw-sync가 고친다」의 걸음 목록과 「환경이 하는 일」 표와 「설치기가 바뀌는 것」",
+      "evidence": "세 자리가 같은 걸음을 서로 다르게 적는다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "설치는 끝났는데 세션마다 훅이 전부 빠졌다를 냈다. 훅의 명령이 bash로 시작하고 그 이름으로 WSL의 bash.exe가 잡혔다.",
+      "root_cause": "bash를 절대 경로로 찾는 규율을 설치기 9단계 한 곳에만 걸었다. 세 층으로 가르며 셸을 도는 자리가 여섯으로 늘었는데 나머지 다섯은 클로드 코드가 훅 배선을 읽어 부르므로 설치기가 못 박은 경로를 물려받지 못한다.",
+      "where": "「설치기가 바뀌는 것」의 bash 문단",
+      "evidence": "설계 문서가 환경의 훅과 스크립트를 전부 .sh로 적는다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "도커 인증서 안내가 아무에게도 안 떴다. 이 PC는 PowerShell 도구를 기본으로 쓰는데 새 훅은 Bash 도구에만 걸려 있었다. python3 가드도 한 번도 안 걸렸다.",
+      "root_cause": "PowerShell 훅을 셸로 옮겨 적으면서 스크립트의 언어만 옮기고 배선의 대상을 옮기지 않았다. 지금 설치기는 같은 훅을 Bash와 PowerShell 두 매처에 각각 건다.",
+      "where": "「환경이 하는 것」 표의 훅 두 행",
+      "evidence": "setup.ps1:1268-1269에 matcher Bash와 matcher PowerShell 두 줄이 나란히 있다. settings.json의 defaultShell이 powershell이고 CLAUDE_CODE_USE_POWERSHELL_TOOL이 1이다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "이미 설치기를 돌렸던 PC에서 /kw-env-sync를 돌렸다. register-corp-certs가 안 걷혔다. 그 폴더의 SKILL.md가 설치기가 쓴 것과 한 글자 달랐기 때문이다. 걸음 3이 사용자가 손으로 더한 것으로 보인다고 알리며 남겼고 스킬은 계속 두 벌 실렸다.",
+      "root_cause": "가드의 설치기가 쓴 것 말고 아무것도 없을 때만을 그대로 들고 오면서 그 판정에 쓰이던 기준이 설치기와 함께 사라진다는 것을 세지 않았다. 게다가 가드에 걸려 안 지운 것이 걸음의 성공인지 실패인지를 문서가 정하지 않았다.",
+      "where": "「은퇴 스킬의 삭제 가드」와 「/kw-env-sync가 고친다」의 상태 기록 조건",
+      "evidence": "setup.ps1:279-284 주석과, 이 PC의 register-corp-certs/SKILL.md 갱신 시각이 설치 시각과 다른 것.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "이행 셋째 걸음에서 이 PC의 마커를 정규화하고 환경의 CLAUDE.md 걸음을 켰다. 다른 PC들에서는 옛 괄호 문구가 달랐고 전체 줄 일치로 찾는 사본이 블록을 못 찾아 새 블록을 하나 더 붙였다. 그 PC들에는 사본이 없었다.",
+      "root_cause": "정규화를 개발 PC에서 한 번 하는 이행 걸음으로 잡았는데 고쳐야 할 드리프트는 각 사용자 PC의 CLAUDE.md에 있다. 그것을 만질 수 있는 것은 env-sync뿐이고 그것이 쓰는 사본은 전체 줄 일치라 옛 문구를 못 찾는다.",
+      "where": "「이행」 셋째 걸음",
+      "evidence": "setup.ps1:1616-1618의 접두 매칭 주석과 _managed_block.sh의 전체 줄 비교.",
+      "category": "irreversible"
+    },
+    {
+      "failure_story": "이행 첫째 걸음 동안 설치기를 한 번 다시 돌렸다. 우산이 넣어 둔 kiwoom-ax 항목이 settings.json에서 사라졌다. 나중에 둘째 걸음을 되돌리려 커밋을 되돌렸더니 얇아진 설치기가 옛 설치기로 돌아가 이미 우산이 깔린 PC들과 매 실행 서로의 항목을 지우기 시작했다.",
+      "root_cause": "첫째 걸음에서 kw_install은 손대지 않는다와 되돌리기는 커밋 되돌리기다가 함께 섰다. 손대지 않은 설치기의 청소가 우산의 새 항목을 대상으로 삼고, 커밋 되돌리기는 이미 배포된 PC를 되돌리지 않는다.",
+      "where": "「이행」 첫째 걸음과 둘째 걸음의 되돌리기",
+      "evidence": "setup.ps1:1414-1416의 청소 반복문.",
+      "category": "irreversible"
+    },
+    {
+      "failure_story": "첫째 걸음에서 --plugin-dir로 둘을 얹고 훅 셋과 맞춤 명령 둘이 도는 것을 봤다. 실제로는 --plugin-dir로 얹은 플러그인은 installed_plugins.json에 항목을 만들지 않으므로 두 훅의 판정 로직은 한 줄도 시험되지 않았다.",
+      "root_cause": "첫째 걸음의 성공 기준을 돈다로 잡았다. 두 훅의 판정은 전부 installed_plugins.json의 자기 항목에서 나오는데 그 항목을 만드는 것은 마켓플레이스 설치뿐이라 시험에서는 입력 자체가 없다. CLAUDE.md 걸음을 끄는 스위치도 무엇인지 안 정했고, 파일이나 환경변수라면 이 설계가 다른 곳에서 거부한 끄는 스위치를 하나 만드는 것이 된다.",
+      "where": "「이행」 첫째 걸음",
+      "evidence": "installed_plugins.json에는 마켓플레이스로 깐 것만 항목이 있다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "사용자가 playwright를 안 쓴다고 지웠다. 다음 세션에 빠졌다가 떴고 /kw-sync를 돌리니 다시 깔렸다. 다음 달에 또 지웠고 또 깔렸다.",
+      "root_cause": "걸음 1은 되켜는 대상을 좁혔는데 걸음 2는 선언의 플러그인을 깐다로 범위를 안 좁혔다. 사내 것이 아닌 선택형 플러그인까지 같은 강도로 되돌려 놓는다.",
+      "where": "「/kw-sync가 고친다」의 걸음 2",
+      "evidence": "선언에 playwright와 frontend-design이 함께 들어 있고 걸음 1에는 범위 한정이 있다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "사본 셋과 vendor.sh와 낡음 검사와 머리말 규약을 다 만들었다. 그것들이 지키려던 값 하나는 두 체계가 같은 잠금 파일을 잡는 것이었는데 사용자 PC에서 두 판의 규약이 같은지는 끝내 아무도 재지 않았다.",
+      "root_cause": "사본의 값을 잠금 하나로 좁혀 놓고 그 잠금이 성립할 조건을 사용자 PC에서 확인할 수 없다고 같은 절에서 인정했다. 값이 조건부인데 장치는 무조건이다.",
+      "where": "「범용 함수의 사본」",
+      "evidence": "같은 절이 사용자 PC에서는 아무도 그것을 재지 않는다고 적고 제안의 결정권이 다른 레포에 있다고도 적는다. 단순화 제안: 규약 판 번호 제안이 받아들여진 뒤에 사본을 들인다.",
+      "category": "yagni"
+    },
+    {
+      "failure_story": "python3 가드를 켠 뒤로 도커 컨테이너 안에서 파이썬을 돌리는 작업이 막혔다. docker exec ... python3 도 WSL 안의 python3 도 이름이 같아 전부 거부됐다. 끄는 스위치가 없어 플러그인을 통째로 지우는 것 말고는 길이 없었다.",
+      "root_cause": "이 이름은 안내판이라 부를 이유가 없고 거짓 양성이 없다는 근거가 윈도 호스트에만 참이다. 이 PC가 다루는 자리에는 리눅스 홈이 둘 더 있다. 전제가 깨지는 자리에서 되돌릴 방법이 남지 않는다.",
+      "where": "「이 설계에 흡수되는 것」의 끄는 스위치를 두지 않는다",
+      "evidence": "_json_valid.sh가 python3를 첫 번째로 불러 본다. register-corp-certs 스킬의 설명이 도커·컨테이너·WSL 안에서 HTTPS를 내는 작업을 자기 범위로 적는다.",
+      "category": "irreversible"
+    }
+  ],
+  "could_not_check": [
+    "우산과 환경의 실물 스크립트가 아직 없다.",
+    "claude plugin install이 enabledPlugins가 false인 플러그인을 다시 켜는지 재지 못했다.",
+    "플러그인 hooks.json에 적힌 .sh 명령을 윈도의 클로드 코드가 어느 인터프리터로 부르는지 재지 못했다.",
+    "kw-environment의 plugin.json에 version을 적을지 아닐지가 아직 없다.",
+    "%LOCALAPPDATA%\\corp-certs\\가 이 PC에 없고 settings.json에 hooks 키가 아예 없다."
+  ],
+  "notes": "둘째 판이 새로 만든 뿌리를 하나 꼽으면 「재는 파일과 고치는 파일이 갈렸다」이다. 첫 판은 해시 하나로 재고 고쳤는데 둘째 판은 installed_plugins.json으로 재고 settings.json으로 고친다. 그래서 재는 쪽에만 있는 사실과 고치는 쪽에만 있는 사실이 각각 영원한 알림과 영원한 침묵을 만든다. 기능 추가는 올리지 않았다."
+}
