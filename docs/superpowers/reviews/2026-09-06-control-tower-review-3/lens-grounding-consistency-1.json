@@ -1,0 +1,155 @@
+{
+  "lens": "grounding+consistency",
+  "round": 3,
+  "prior_followup_summary": "앞 두 회차의 발견 예순셋을 한 줄씩 맞댔다. 고쳐진 것이 다수이고 partial이 열넷, new_problem이 넷이다. new_problem 넷은 삭제 가드의 옛 기준 오독, --plugin-dir 시험의 덤이 곧 훅이 설치를 못 보는 성질이라는 것, CLAUDE.md 걸음을 미루면서 훅은 그 입력을 그대로 재는 것, 그리고 이행 둘째 걸음의 창이다.",
+  "findings": [
+    {
+      "lens": "grounding",
+      "what": "삭제 가드를 바꾼다고 적었으나 설치기의 기준은 처음부터 파일 개수다. 바꿀 것이 없는데 바꿨다고 적혀 있고 그 근거로 든 주인이 사라진다도 성립하지 않는다.",
+      "where": "「은퇴 스킬의 삭제 가드」 / setup.ps1:938",
+      "evidence": "setup.ps1:938 $onlySkill = ($subdirs.Count -eq 0) -and ($files.Count -eq 1) -and ($files[0].Name -eq 'SKILL.md')",
+      "why_it_matters": "둘째 회차의 지적 자체가 설치기 주석의 표현을 코드로 오인한 것이었고 이번 판이 그 오인 위에 정정을 쌓았다. 그래서 진짜로 빠진 둘, 곧 이름 화이트리스트(setup.ps1:923)와 빈 폴더 갈래(setup.ps1:932-937)는 이번에도 안 들어왔다. 개수 기준이 놓치는 것도 그대로다. 사용자가 SKILL.md 하나를 손으로 고쳐 쓴 PC에서는 파일이 하나라 사용자 글이 그대로 지워진다."
+    },
+    {
+      "lens": "grounding",
+      "what": "_resolve_home.sh가 USERPROFILE이 없을 때 물러나지 않는다. 조용히 $HOME/.claude를 돌려준다.",
+      "where": "「셸 스크립트가 어느 홈을 보나」 / _resolve_home.sh:26-28",
+      "evidence": "_resolve_home.sh:27 printf '%s\\n' \"${HOME:-}/$sub\"",
+      "why_it_matters": "이 절이 막겠다고 세운 상황이 바로 WSL의 bash가 잡혀 리눅스 홈에서 도는 것이다. WSL 안에서는 USERPROFILE이 기본으로 안 넘어가므로 함수는 폴백 가지로 들어가 리눅스 홈을 가리키고, 훅과 맞춤은 실패하지 않고 엉뚱한 홈에 쓰거나 아무것도 못 찾는다. 우선순위도 문서와 다르다. 함수는 CLAUDE_HOME_DIR과 CLAUDE_CONFIG_DIR을 먼저 본다."
+    },
+    {
+      "lens": "grounding",
+      "what": "_json_valid.sh를 위 둘이 기대는 것이라 적었으나 _resolve_home.sh도 _managed_block.sh도 그것을 source하지 않는다.",
+      "where": "「범용 함수의 사본」 표",
+      "evidence": "scripts 폴더 전수 검색에서 _json_valid.sh를 부르는 것은 _ensure_autoupdate.sh:9와 audit·test 스크립트뿐이다.",
+      "why_it_matters": "받는 사본 셋 가운데 하나의 존재 이유가 근거 없이 적혀 있다. 실제로는 환경의 맞춤이 JSON을 다루느라 필요할 수 있는데, 표가 틀린 이유를 적어 나중에 근거가 무너지면 함께 버려질 자리에 놓인다."
+    },
+    {
+      "lens": "grounding",
+      "what": "_resolve_home.sh는 이름표가 인자화되어 있지 않아 사본이 우산과 환경에서 자기를 [disciplined-coder]로 밝힌다.",
+      "where": "「범용 함수의 사본」 / _resolve_home.sh:23",
+      "evidence": "_resolve_home.sh:23 echo \"[disciplined-coder] note: 설정 홈을 USERPROFILE 기준 $val 로 잡음\" >&2",
+      "why_it_matters": "인자화가 끝났다는 진술은 _managed_block.sh에만 맞다. 사본 규율이 손질을 금지하므로 그 문구는 못 고친다. 도메인 PC에서 이 note는 홈을 잡을 때마다 stderr로 나가는데 그 자리가 세션 훅 안이고 문서는 그 훅을 두고 이상이 없으면 아무 말도 하지 않는다고 적었다."
+    },
+    {
+      "lens": "grounding",
+      "what": "enabledPlugins는 설치의 증거가 아니라 선언이다. 그것 하나만 보는 훅은 깔렸지만 안 켜짐과 안 깔림을 가르지 못하고 선언만 있고 안 깔림에는 아예 조용하다.",
+      "where": "「훅이 재는 것」 / setup.ps1:1384-1386, 1512-1514",
+      "evidence": "setup.ps1:1384-1386 These keys are the standing declaration, and the fallback for a machine where claude.exe never ran. / setup.ps1:1513-1514 Only the CLI populates them, so declaring the keys is not the same as having the plugin on disk.",
+      "why_it_matters": "설치기는 같은 질문에 답하려고 Test-PluginInstalled를 따로 두었고 그 함수는 installPath가 디스크에 아직 있는지까지 본다. 이번 판은 그 증거를 감지에서 빼기로 했으므로 clone이 실패한 PC에서 훅은 만족하고 사내 플러그인은 없다. 이행 첫째 걸음의 키를 손으로 넣고 빼며 시험할 수 있다는 덤이 같은 성질의 다른 얼굴이다. 값을 손으로 넣어 경보를 끌 수 있다는 뜻이기도 하다."
+    },
+    {
+      "lens": "grounding",
+      "what": "권장 플러그인을 키가 아예 없을 때만 깐다는 규칙이 기대는 사실, 곧 사용자가 지운 것도 false로 남는다는 것이 측정되지 않았다.",
+      "where": "「/kw-sync가 고친다」 걸음 2 / settings.json",
+      "evidence": "잰 것은 enabledPlugins에 false인 것 셋뿐이고 그 셋은 /plugin 화면에서 끈 자취다. 지우기가 키를 지우는지 false로 두는지는 어디에도 없다.",
+      "why_it_matters": "둘째 회차가 올린 사용자가 지운 것을 매번 되돌린다의 처방이 이 미측정 사실 하나에 통째로 걸려 있다. 지우기가 키를 없애면 맞춤이 매 회차 되깔아 사용자 결정을 뒤집고, 처음 설치가 실패한 경우와도 구별되지 않는다."
+    },
+    {
+      "lens": "consistency",
+      "what": "환경의 훅이 재는 걸음 셋 가운데 문안 걸음이 이행 셋째 걸음 전까지 존재하지 않는다. 훅이 못 고치는 것을 잰다.",
+      "where": "「훅이 재는 것 — 걸음마다 입력의 해시」 ↔ 「이행」 첫째 걸음",
+      "evidence": "이행 첫째: 환경의 CLAUDE.md 걸음도 아직 만들지 않는다 / 입력 표: 문안 | templates/personal-memory-ko.md",
+      "why_it_matters": "감지의 첫째 규칙을 세운 문서가 자기 이행 계획에서 바로 어긴다. 문안 걸음이 없으므로 상태 파일에 그 이름의 해시가 영원히 안 적히고 훅은 첫 세션부터 매 세션 문안을 이름으로 불러 알린다. 그 걸음이 생기는 시점은 다른 레포의 변경에 걸려 있어 언제 끝날지 문서가 모른다."
+    },
+    {
+      "lens": "consistency",
+      "what": "은퇴 정리 걸음에서 대체가 확인되지 않은 경우의 처분이 없다. 성공으로 세도 실패로 세도 어긋난다.",
+      "where": "「은퇴 스킬의 삭제 가드」",
+      "evidence": "대체가 확인된 뒤에만 지운다와 가드에 걸려 안 지운 것은 걸음의 성공이다가 함께 서 있다.",
+      "why_it_matters": "성공으로 세면 그 걸음의 해시가 적히고 뒤늦게 대체가 도착해도 env-manifest.json이 안 바뀌는 한 훅은 조용해 옛 사본이 영원히 남는다. 실패로 세면 문서가 스스로 금지한 영구 알림이 된다."
+    },
+    {
+      "lens": "consistency",
+      "what": "대체가 확인된 것을 무엇으로 확인하는지 정해지지 않았고 쓸 수 있는 유일한 증거는 문서가 쓰지 않기로 한 파일이다.",
+      "where": "「은퇴 스킬의 삭제 가드」 ↔ 「하지 않는 것」 / setup.ps1:1445-1468",
+      "evidence": "하지 않는 것: installed_plugins.json을 감지에 쓰지 않는다 / setup.ps1:1451-1455 Phase 8 deletes ... so at least one of those paths has to still be on disk before it is a yes.",
+      "why_it_matters": "설치기는 지우는 결정을 그 파일과 경로 실재로만 내린다. 환경이 그 파일을 안 본다면 남는 증거는 선언뿐이고 그것은 설치를 증명하지 못한다."
+    },
+    {
+      "lens": "consistency",
+      "what": "두 훅의 감지 기준이 서로 다른데 그 이유가 없다. 우산은 PC의 상태를 보고 환경은 배포물의 해시만 본다.",
+      "where": "「훅이 재는 것」 ↔ 「훅이 재는 것 — 걸음마다 입력의 해시」",
+      "evidence": "우산은 사용자가 /plugin 화면에서 끈 것이 여기서 잡힌다고 적고 환경은 파일 셋을 읽어 해시를 내고 상태와 비교한다고 적는다.",
+      "why_it_matters": "환경의 훅은 입력이 안 바뀌면 조용하므로 해시가 그대로인 채 결과만 바뀌는 길이 전부 감지 밖이다. 사용자가 라이브러리를 지우거나 관리 블록을 지우거나 파이썬이 3.13으로 바뀌어도 상태 파일의 해시는 그대로다. 첫 회차의 뿌리가 대상만 바꿔 남아 있다."
+    },
+    {
+      "lens": "consistency",
+      "what": "고정한 파이썬 판이 두 곳에 산다. 설치기가 판을 정하는데 환경의 걸음도 같은 값을 스스로 안다.",
+      "where": "「/kw-env-sync가 고친다」 걸음 1 ↔ 「경계」 표 / setup.ps1:218",
+      "evidence": "setup.ps1:218 $script:PythonVersion = '3.12'",
+      "why_it_matters": "문서 자신이 같은 사실이 두 곳에 남으면 곧 어긋난다고 적고 백업 목록을 그 이유로 거부한다. 판을 올리는 날 설치기만 고치면 환경은 옛 판에 계속 깔고 requirements.txt는 안 바뀌므로 해시도 그대로라 훅은 조용하다."
+    },
+    {
+      "lens": "grounding",
+      "what": "설치기가 세워 둔 settings.json의 기록자는 하나라는 성질이 이 설계로 깨지는데 문서가 그것을 안 적는다.",
+      "where": "「경계」·「잠금이 없는 자리」 / setup.ps1:1305-1306",
+      "evidence": "setup.ps1:1305-1306 The single writer of settings.json ... so two writers cannot fight over the file.",
+      "why_it_matters": "설치기가 한 벌로 쓰던 파일을 이제 넷이 쓴다. 잠금이 없는 자리 절은 둘만 세고 완화도 우산만 이름을 부른다. 환경의 도커 항목 걷기가 우산의 플러그인 절 쓰기와 겹치는 자리는 아무도 안 다룬다."
+    },
+    {
+      "lens": "consistency",
+      "what": "맞춤이 어느 수단으로 마켓플레이스를 등록하고 플러그인을 까는지가 없다. 감지의 둘째 규칙을 문서로 판정할 수 없다.",
+      "where": "「/kw-sync가 고친다」 걸음 1·2",
+      "evidence": "known_marketplaces.json의 항목은 installLocation과 lastUpdated를 함께 갖고 그 값은 clone이 끝나야 생긴다.",
+      "why_it_matters": "규칙 둘째가 훅이 읽는 파일은 맞춤이 쓰는 파일과 같다인데 맞춤이 claude 명령을 부르는지 파일을 직접 고치는지가 없어 등식이 성립하는지 확인할 방법이 없다."
+    },
+    {
+      "lens": "consistency",
+      "what": "python3 가드가 호스트 호출만 어떻게 가르는지 문서에 없다. 기대만 테스트에 적혀 있다.",
+      "where": "「이 설계에 흡수되는 것」 ↔ 「테스트」",
+      "evidence": "테스트는 wsl ... python3과 docker exec ... python3은 안 막는다고 단언하는데 가르는 방법이 본문에 없다.",
+      "why_it_matters": "가르는 방법이 없으면 구현자가 스스로 정하고 그 결정이 스위치를 안 두기로 한 근거를 지킬지 아무도 못 본다. 명령줄 어디에 나오든 막는 단순한 구현은 둘째 회차의 지적을 그대로 되살리고 그때는 끌 스위치가 없다."
+    },
+    {
+      "lens": "grounding",
+      "what": "retiredMarketplaces에 claude-code-plugins가 빠졌다. 같은 이유로 넣은 superpowers-marketplace와 짝이 안 맞는다.",
+      "where": "「선언」 / known_marketplaces.json",
+      "evidence": "known_marketplaces.json에 claude-code-plugins 항목이 남아 있고 enabledPlugins의 어느 키도 그것을 가리키지 않는다.",
+      "why_it_matters": "은퇴 플러그인 둘 가운데 하나의 마켓플레이스만 걷힌다. 설치기의 청소 반복문이 물러나면 그것을 걷을 주체가 사라진다."
+    },
+    {
+      "lens": "consistency",
+      "what": "지우기 전에 뜬 사본을 어디에 무슨 이름으로 두는지가 없다.",
+      "where": "「은퇴 스킬의 삭제 가드」 / setup.ps1:943",
+      "evidence": "setup.ps1:943 $backup = Join-Path $BackupDir \"$Name.SKILL.md.bak\" (설치기는 %LOCALAPPDATA%\\kw-install 아래에 이름을 정해 둔다)",
+      "why_it_matters": "같은 문서가 마커 정규화에서는 자리와 이름을 정해 두었으므로 이 걸음만 빠진 것이다. 사본의 자리가 안 정해지면 되살릴 사람이 무엇을 어디서 찾을지 모른다."
+    },
+    {
+      "lens": "consistency",
+      "what": "감지의 셋째 규칙이 걸음마다 따로 재고 따로 적는다인데 우산은 적지 않는다. 규칙의 적용 범위가 없다.",
+      "where": "「감지의 규칙」 ↔ 경계 표",
+      "evidence": "경계 표: 상태 파일 | 없다 | kw-environment.state | 자기 이름의 파일",
+      "why_it_matters": "규칙 셋을 먼저 세우고 나머지를 거기 맞춘다고 했는데 셋째 규칙은 환경에만 걸린다. 우산이 살아 있는 파일을 매번 다시 읽으므로 적을 것이 없다는 것이 옳은 판단이지만 문서가 그 예외를 말하지 않는다."
+    }
+  ],
+  "checked_and_ok": [
+    "측정표의 자리 값이 실물과 맞다.",
+    "판본의 출처가 맞다. plugin.json에 판이 있는 것과 없는 것이 갈리고 공식 플러그인 셋이 커밋 접두를 함께 쓴다.",
+    "gitCommitSha가 그 셋에만 없다는 관찰이 맞다.",
+    "enabledPlugins가 false인 것 셋이 installed_plugins.json에는 정상 항목으로 있다.",
+    "은퇴한 둘이 enabledPlugins에는 없고 installed_plugins.json에는 있다.",
+    "관리 설정이 없다는 것을 이번에 직접 쟀다. HKLM 정책 키가 없고 Program Files와 ProgramData의 자리도 없다. 앞 두 회차의 커버리지 공백 하나가 닫혔다.",
+    "설치기가 지금 나르는 것의 수가 맞다.",
+    "설치기가 파이썬을 PATH의 이름으로 찾은 뒤 sys.executable로 절대 경로를 얻는다는 정정이 맞다.",
+    "훅에 pwsh.exe 맨 이름을 적는다는 관찰이 맞다.",
+    "도커 훅을 Bash와 PowerShell 두 매처에 건다는 관찰이 맞다.",
+    "도커 훅의 자리가 맞다.",
+    "retiredHooks의 판정이 설치기의 Test-IsOurHookEntry와 같다.",
+    "_ensure_autoupdate.sh를 안 받는 근거 둘이 맞고 괄호로 단 정정도 맞다.",
+    "_managed_block.sh의 이름표와 마커와 락 경로 서술이 맞다.",
+    "사본이 전체 줄 일치로 마커를 찾는다는 서술과 설치기가 접두로 찾는 이유가 주석에 있다는 것이 맞다.",
+    "WSL 배포판이 셋이고 Docker Desktop이 깔려 있다.",
+    "퍼블릭으로 나가는 도커 훅의 도메인 목록에 인증서 파일이나 내부 주소가 없다.",
+    "멱등을 새 프로세스에서 재는 자리가 kw_install 테스트에 실제로 있다."
+  ],
+  "could_not_check": [
+    "claude plugin install이 false인 키를 다시 true로 돌리는지, uninstall이 키를 지우는지 false로 두는지.",
+    "플러그인이 나르는 .sh 훅을 윈도의 클로드 코드가 어느 인터프리터로 부르는지.",
+    "플러그인의 훅 배선이 매처와 if 규칙을 지원하는지.",
+    "SessionStart 훅의 stderr가 사용자 화면에 뜨는지.",
+    "조직 계정 서버 쪽 관리 설정.",
+    "kw-plugins 레포의 실물 스크립트."
+  ],
+  "notes": "이번 회차의 뿌리는 둘이다. 하나는 증거의 등급을 낮춘 것이다. 훅이 보는 enabledPlugins는 설치기가 스스로 선언일 뿐 디스크의 증거가 아니라고 적어 둔 값이라, 소음을 줄이려고 파일을 하나 버린 대가로 안 깔림이 조용해졌다. 다른 하나는 정정의 근거를 코드가 아니라 주석에서 가져온 것이다. 삭제 가드에서 바꿨다고 적은 기준이 실물에서는 처음부터 그 기준이었다. 더 확인해야 할 것은 하나로 모인다. claude plugin install과 uninstall이 enabledPlugins를 어떻게 건드리는지다."
+}
