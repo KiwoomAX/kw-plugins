@@ -236,11 +236,18 @@ try {
     if ($WhatIfOnly) {
         Say "[미리보기] $($py.Source) -m pip install -r $req"
     } else {
-        & $py.Source -m pip install --disable-pip-version-check -r $req 2>&1 | ForEach-Object { Say $_ }
-        if ($LASTEXITCODE -ne 0) { throw "pip 이 코드 $LASTEXITCODE 로 끝났습니다." }
+        # pip 은 이미 깔린 것마다 한 줄씩 뱉어 요약을 파묻는다. 조용히 돌리고
+        # 실패했을 때만 보여 준다.
+        $pipOut = & $py.Source -m pip install --quiet --disable-pip-version-check -r $req 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            foreach ($l in $pipOut) { Say $l }
+            throw "pip 이 코드 $LASTEXITCODE 로 끝났습니다."
+        }
         # 이 걸음이 성공했을 때만 이 걸음의 해시를 적는다.
-        $state['requirements'] = Get-CheapHash $req
-        Note '파이썬 라이브러리를 목록에 맞췄습니다.'
+        $newHash = Get-CheapHash $req
+        if ($state['requirements'] -ne $newHash) { Note '파이썬 라이브러리를 목록에 맞췄습니다.' }
+        else { Say '이미 목록과 같습니다.' }
+        $state['requirements'] = $newHash
     }
 } catch { Fail '4' $_.Exception.Message }
 
