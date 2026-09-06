@@ -54,9 +54,32 @@ function Get-Prop {
 }
 function Save-Json {
     # 남이 써 둔 것을 지우지 않으려고 통째로 읽어 고친 뒤 그대로 다시 쓴다.
+    #
+    # 셋을 지킨다. 고치기 전에 사본을 남기고, 다시 읽히지 않을 것은 안 쓰고,
+    # 사람이 읽을 수 있는 글자로 쓴다.
     param($Object, [string]$Path)
+
+    $json = ($Object | ConvertTo-Json -Depth 30)
+
+    # 5.1 의 ConvertTo-Json 은 아스키가 아닌 글자를 전부 \uXXXX 로 바꾼다. 내용은
+    # 같지만 사용자가 여는 파일이 못 읽는 글자로 덮인다. 되돌려 쓴다.
+    #
+    # 되돌려도 5.1 에서 쓴 파일은 7 에서 쓴 것보다 크다. 이 PC 에서 4785자가
+    # 9260자가 된다. 그것은 이스케이프가 아니라 배열을 줄 나누는 방식 차이이고
+    # 읽는 데 지장이 없어 그대로 둔다. 이 함수가 도는 것은 배포처를 등록하거나
+    # 자동 갱신을 켤 때뿐이라 자주 있는 일도 아니다.
+    $json = [regex]::Replace($json, '\\u([0-9a-fA-F]{4})', {
+        param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16)
+    })
+
+    # 다시 안 읽힐 것은 안 쓴다. 사용자 설정을 잃느니 이 걸음을 실패로 두는 편이 낫다.
+    $null = $json | ConvertFrom-Json
+
+    if (Test-Path -LiteralPath $Path) {
+        Copy-Item -LiteralPath $Path -Destination "$Path.bak" -Force
+    }
     $tmp = "$Path.kwtmp"
-    ($Object | ConvertTo-Json -Depth 30) | Out-File -LiteralPath $tmp -Encoding UTF8 -NoNewline
+    [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
 function Invoke-Claude {

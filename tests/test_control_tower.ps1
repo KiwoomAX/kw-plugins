@@ -261,6 +261,16 @@ Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 
 
 Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- 사용자 파일을 쓸 때 ----------------------------------------------------
+Write-Host ''
+Write-Host '사용자 파일 쓰기'
+# settings.json 은 사용자 파일이다. 통째로 다시 쓰므로 셋을 지켜야 한다.
+Check '고치기 전에 사본을 남긴다'        { $syncSrc.Contains('Copy-Item -LiteralPath $Path -Destination "$Path.bak"') }
+Check '다시 안 읽힐 것은 안 쓴다'        { $syncSrc.Contains('$null = $json | ConvertFrom-Json') }
+Check '5.1 이 만든 이스케이프를 되돌린다' { $syncSrc.Contains("[regex]::Replace(`$json, '\\u([0-9a-fA-F]{4})'") }
+Check '임시 파일에 쓰고 옮긴다'          { $syncSrc -match '\$Path\.kwtmp' -and $syncSrc -match 'Move-Item' }
+Check 'BOM 없이 쓴다'                    { $syncSrc -match 'UTF8Encoding\(\$false\)' }
+
 # --- /kw-sync 명령 ----------------------------------------------------------
 Write-Host ''
 Write-Host '/kw-sync 명령'
