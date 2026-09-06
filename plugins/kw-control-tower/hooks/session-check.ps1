@@ -108,7 +108,9 @@ try {
 
     # --- 물음 3. 정리하기로 한 플러그인이 남았나 ---------------------------
     $staleP = New-Object System.Collections.ArrayList
-    foreach ($id in @($manifest.retiredPlugins)) {
+    foreach ($p in @($manifest.retiredPlugins)) {
+        $id = Get-Prop $p 'id'
+        if (-not $id) { continue }
         if ((Get-Prop $installedOf $id) -or ($null -ne (Get-Prop $enabled $id))) { [void]$staleP.Add($id) }
     }
     if ($staleP.Count -gt 0) {
@@ -117,7 +119,9 @@ try {
 
     # --- 물음 4. 정리하기로 한 배포처가 남았나 -----------------------------
     $staleM = New-Object System.Collections.ArrayList
-    foreach ($name in @($manifest.retiredMarketplaces)) {
+    foreach ($mk in @($manifest.retiredMarketplaces)) {
+        $name = Get-Prop $mk 'name'
+        if (-not $name) { continue }
         $m = Test-Marketplace $settings $known $name
         if ($m.InSettings -or $m.InKnown) { [void]$staleM.Add($name) }
     }
@@ -180,11 +184,17 @@ try {
         [void]$notes.Add("더 안 쓰는 스킬 사본이 남아 있습니다: $($staleS -join ', ')")
     }
 
+    # 훅 배선은 파일 이름이 아니라 경로로 가른다. 이 플러그인이 거는 훅의 파일 이름이
+    # 옛것과 같아서, 이름만 보면 자기 배선을 남의 것으로 센다.
     $staleH = New-Object System.Collections.ArrayList
+    $hookBlob = ''
+    try { $hookBlob = (Get-Prop $settings 'hooks' | ConvertTo-Json -Depth 20 -Compress) } catch { $hookBlob = '' }
     foreach ($h in @($manifest.retiredHooks)) {
-        $blob = ''
-        try { $blob = (Get-Prop $settings 'hooks' | ConvertTo-Json -Depth 20 -Compress) } catch { $blob = '' }
-        if ($blob -and $blob.Contains($h)) { [void]$staleH.Add($h) }
+        $file = Get-Prop $h 'file'
+        $pathBit = Get-Prop $h 'pathContains'
+        if ($file -and $pathBit -and $hookBlob -and $hookBlob.Contains($file) -and $hookBlob.Contains($pathBit)) {
+            [void]$staleH.Add($file)
+        }
     }
     if ($staleH.Count -gt 0) {
         [void]$notes.Add("더 안 쓰는 훅 배선이 남아 있습니다: $($staleH -join ', ')")

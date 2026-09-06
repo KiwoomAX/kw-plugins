@@ -175,6 +175,73 @@ Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\
 Check '지우기 전에 사본을 뜬다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
 
+# --- 목록 파일의 계약 -------------------------------------------------------
+Write-Host ''
+Write-Host '목록 파일'
+$mf = Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json
+Check '필수는 새 배포처에서 온다'        { @($mf.required) -contains 'kw-doc-formats@kiwoom-ax' }
+Check '옛 배포처가 정리 목록에 있다'      { @($mf.retiredMarketplaces | ForEach-Object { $_.name }) -contains 'kw-doc-formats' }
+Check '옛 이름의 플러그인도 정리 목록에'  { @($mf.retiredPlugins | ForEach-Object { $_.id }) -contains 'kw-doc-formats@kw-doc-formats' }
+Check '정리 항목마다 언제 넣었는지 적혀 있다' {
+    $all = @($mf.retiredPlugins) + @($mf.retiredMarketplaces) + @($mf.retiredSkills) + @($mf.retiredHooks)
+    @($all | Where-Object { -not $_.since }).Count -eq 0
+}
+Check '은퇴 훅은 이름과 경로를 함께 갖는다' {
+    @($mf.retiredHooks | Where-Object { -not $_.file -or -not $_.pathContains }).Count -eq 0
+}
+Check '마켓플레이스가 컨트롤 타워와 문서 스킬 둘을 낸다' {
+    $mk = Get-Content (Join-Path $repo '.claude-plugin\marketplace.json') -Raw | ConvertFrom-Json
+    (@($mk.plugins | ForEach-Object { $_.name }) -contains 'kw-control-tower') -and
+    (@($mk.plugins | ForEach-Object { $_.name }) -contains 'kw-doc-formats')
+}
+
+# --- python3 가드 -----------------------------------------------------------
+Write-Host ''
+Write-Host 'python3 가드'
+$guard = Join-Path $plugin 'hooks\python3-guard.ps1'
+$fake2 = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-g-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path (Join-Path $fake2 '.claude') | Out-Null
+
+function Invoke-Guard {
+    param([string]$Command, [string]$Verdict = 'redirector')
+    if ($Verdict) {
+        "python3=$Verdict`r`npython3Target=C:\stub\AppInstallerPythonRedirector.exe" |
+            Set-Content -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state')
+    } else {
+        Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state') -ErrorAction SilentlyContinue
+    }
+    $payload = @{ tool_name = 'Bash'; tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
+    return ($payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; & '$guard'" 2>&1 | Out-String)
+}
+
+Check '맨 앞의 python3 을 막는다'            { (Invoke-Guard 'python3 -c "print(1)"') -match 'deny' }
+Check '판정이 안내판이 아니면 안 막는다'      { -not ((Invoke-Guard 'python3 -c "print(1)"' 'real') -match 'deny') }
+Check '아직 안 쟀으면 안 막는다'              { -not ((Invoke-Guard 'python3 -c "print(1)"' '') -match 'deny') }
+Check 'python 은 안 막는다'                   { -not ((Invoke-Guard 'python -c "print(1)"') -match 'deny') }
+Check 'py -3 은 안 막는다'                    { -not ((Invoke-Guard 'py -3 -c "print(1)"') -match 'deny') }
+Check 'python312 처럼 이름이 다르면 안 막는다' { -not ((Invoke-Guard 'python312 -V') -match 'deny') }
+Check 'python3.12 도 안 막는다'                { -not ((Invoke-Guard 'python3.12 -V') -match 'deny') }
+Check 'wsl 안의 python3 은 안 막는다'          { -not ((Invoke-Guard 'wsl python3 -c "print(1)"') -match 'deny') }
+Check 'docker exec 안의 python3 도 안 막는다'  { -not ((Invoke-Guard 'docker exec c python3 -V') -match 'deny') }
+Check '따옴표 안의 python3 은 안 막는다'       { -not ((Invoke-Guard 'echo "run python3 later"') -match 'deny') }
+Check '파이프 뒤의 python3 은 막는다'          { (Invoke-Guard 'cat x | python3 -') -match 'deny' }
+Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 python3 -V') -match 'deny' }
+
+Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- CLAUDE.md 걸음 ---------------------------------------------------------
+Write-Host ''
+Write-Host 'CLAUDE.md 걸음'
+# 접두로 찾는다는 것은 마커 뒤 괄호 문구가 바뀌어도 같은 블록으로 알아본다는 뜻이다.
+# 전체 줄 일치로 찾으면 옛 문구를 못 찾고 블록을 하나 더 붙인다.
+Check '마커를 접두로 찾는다'          { $syncSrc.Contains('^#\s*BEGIN AX\b') -and $syncSrc.Contains('^#\s*END AX[^\r\n]*') }
+Check '마커 바깥은 안 건드린다'        { $syncSrc -match '마커 바깥은 안 건드렸습니다' }
+Check '고치기 전에 사본을 뜬다'        { $syncSrc -match '\$target\.bak' }
+Check '잠금 폴더 이름을 상대와 맞춘다' { $syncSrc -match '\$target\.lock' -and $syncSrc -match "lock\.gate" }
+Check '오래 잡힌 잠금은 빼앗는다'      { $syncSrc -match 'heldsince' -and $syncSrc -match '\-ge 10' }
+Check '남의 잠금은 안 지운다'          { $syncSrc -match "\`$owner -eq \`$token" }
+Check '줄바꿈을 대상 파일에 맞춘다'    { $syncSrc -match '\$nl' }
+
 # --- 결과 -----------------------------------------------------------------
 Write-Host ''
 if ($script:FailList.Count -eq 0) {

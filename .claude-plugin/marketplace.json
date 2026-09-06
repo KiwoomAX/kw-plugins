@@ -8,6 +8,11 @@
       "name": "kw-control-tower",
       "source": "./plugins/kw-control-tower",
       "description": "사내 플러그인 목록을 들고 이 PC를 그 목록에 맞춘다. 세션이 시작할 때 어긋난 곳을 알리기만 하고, 고치는 것은 /kw-sync 명령이다."
+    },
+    {
+      "name": "kw-doc-formats",
+      "source": { "source": "github", "repo": "KiwoomAX/KW-doc-formats" },
+      "description": "사내 문서 형식 처리 스킬 여섯. common은 파일 인코딩을 다루고, hwp는 한글과 구형 오피스 파일을 바꾸며, pdf와 pptx와 xlsx와 docx는 공식 document-skills가 이 PC에서 틀리는 자리를 덮는다. 내용은 KW-doc-formats 레포에 그대로 있고 여기서는 배포만 한다."
     }
   ]
 }

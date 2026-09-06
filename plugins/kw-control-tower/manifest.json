@@ -1,15 +1,14 @@
 {
-  "_comment": "이 파일이 목록의 정본이다. 이행 첫째 걸음이라 배포처 이전을 아직 담지 않는다. kw-doc-formats 는 옛 배포처에서 오고 정리 목록 넷은 비어 있다.",
+  "_comment": "이 파일이 목록의 정본이다. 새 플러그인을 더하는 일은 여기에 한 줄 더하고 커밋하는 것이다. 각 PC는 다음 세션에 알림을 받고 /kw-sync 로 받아 간다.",
 
   "marketplaces": [
     { "name": "kiwoom-ax", "repo": "KiwoomAX/kw-plugins", "ours": true },
-    { "name": "kw-doc-formats", "repo": "KiwoomAX/KW-doc-formats", "ours": true },
     { "name": "claude-plugins-official", "repo": "anthropics/claude-plugins-official" },
     { "name": "anthropic-agent-skills", "repo": "anthropics/skills" }
   ],
 
   "required": [
-    "kw-doc-formats@kw-doc-formats"
+    "kw-doc-formats@kiwoom-ax"
   ],
 
   "suggested": [
@@ -19,8 +18,23 @@
     "frontend-design@claude-plugins-official"
   ],
 
-  "retiredPlugins": [],
-  "retiredMarketplaces": [],
-  "retiredSkills": [],
-  "retiredHooks": []
+  "_retired_comment": "항목마다 언제 넣었는지를 적는다. 두 해가 지나면 뺀다. 그때까지 안 돌아온 PC 는 다시 세우는 편이 빠르고, 목록이 자라기만 하면 새 PC 가 가진 적 없는 것을 매번 확인한다.",
+
+  "retiredPlugins": [
+    { "id": "kw-doc-formats@kw-doc-formats", "since": "2026-09-06" }
+  ],
+
+  "retiredMarketplaces": [
+    { "name": "kw-doc-formats", "since": "2026-09-06" }
+  ],
+
+  "retiredSkills": [
+    { "name": "document-formats",    "replacedBy": "kw-doc-formats@kiwoom-ax",   "since": "2026-09-06" },
+    { "name": "register-corp-certs", "replacedBy": "kw-control-tower@kiwoom-ax", "since": "2026-09-06" }
+  ],
+
+  "_retiredHooks_comment": "파일 이름이 아니라 경로로 가른다. 이 플러그인이 거는 훅의 파일 이름이 옛것과 같기 때문이다. 옛것은 설치기가 %LOCALAPPDATA%\\corp-certs\\ 아래에 놓은 사본을 가리킨다.",
+  "retiredHooks": [
+    { "file": "docker-cert-reminder.ps1", "pathContains": "corp-certs", "since": "2026-09-06" }
+  ]
 }

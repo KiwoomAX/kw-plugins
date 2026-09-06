@@ -1,5 +1,5 @@
 {
-  "_comment": "powershell.exe 는 윈도에 언제나 있다. pwsh 7 을 쓰면 그것이 클로드가 보는 자리에 없는 PC에서 훅이 통째로 죽는다. session-check.ps1 은 5.1 문법만 쓴다.",
+  "_comment": "powershell.exe 는 윈도에 언제나 있다. pwsh 7 을 쓰면 그것이 클로드가 보는 자리에 없는 PC 에서 훅이 통째로 죽는다. 훅 스크립트 셋은 5.1 문법만 쓴다. 도구 훅 둘에는 if 규칙을 걸어 해당 명령을 부를 때만 프로세스가 뜨게 한다.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,42 @@
           {
             "type": "command",
             "command": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-check.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/docker-cert-reminder.ps1\"",
+            "if": "Bash(docker *)",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1\"",
+            "if": "Bash(python3*)",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/docker-cert-reminder.ps1\"",
+            "if": "PowerShell(docker *)",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1\"",
+            "if": "PowerShell(python3*)",
             "timeout": 10
           }
         ]

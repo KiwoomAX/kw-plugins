@@ -206,14 +206,18 @@ try {
     $installedOf = Get-Prop $installed 'plugins'
     $enabled     = Get-Prop $settings 'enabledPlugins'
 
-    foreach ($id in @($manifest.retiredPlugins)) {
+    foreach ($p in @($manifest.retiredPlugins)) {
+        $id = Get-Prop $p 'id'
+        if (-not $id) { continue }
         if ((Get-Prop $installedOf $id) -or ($null -ne (Get-Prop $enabled $id))) {
             if (Invoke-Claude @('plugin', 'uninstall', $id)) { Note "플러그인을 걷었습니다: $id" }
             else { Fail '3' "걷지 못했습니다: $id" }
         }
     }
 
-    foreach ($name in @($manifest.retiredMarketplaces)) {
+    foreach ($mk in @($manifest.retiredMarketplaces)) {
+        $name = Get-Prop $mk 'name'
+        if (-not $name) { continue }
         $settings = Read-Json $settingsPath
         $known    = Read-Json $knownPath
         $kr = Get-Prop $known 'marketplaces'; if ($null -eq $kr) { $kr = $known }
@@ -276,6 +280,96 @@ try {
     }
 } catch { Fail '5' $_.Exception.Message }
 
+# ---------------------------------------------------------------- 걸음 6
+Write-Host '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
+try {
+    $tpl = Join-Path $root 'templates\personal-memory-ko.md'
+    if (-not (Test-Path -LiteralPath $tpl)) { throw "문안 템플릿이 없습니다: $tpl" }
+
+    $utf8  = New-Object System.Text.UTF8Encoding($false)
+    $block = ([System.IO.File]::ReadAllText($tpl, $utf8)).Trim()
+
+    # 마커가 둘 다 없으면 다음 실행이 자기 자리를 못 찾아 사본을 하나 더 붙인다.
+    # 파일을 키우느니 멈춘다.
+    if ($block -notmatch '(?m)^#\s*BEGIN AX\b' -or $block -notmatch '(?m)^#\s*END AX\b') {
+        throw '템플릿에 BEGIN/END AX 마커가 없습니다.'
+    }
+
+    $target = Join-Path $userHome '.claude\CLAUDE.md'
+    $lock   = "$target.lock"
+
+    # 잠금 규약을 disciplined-coder 와 맞춘다. 같은 파일을 둘이 고치므로 서로
+    # 배제되어야 한다. 규약은 폴더를 만드는 것이 곧 잠그는 것이고, 문지기 폴더를
+    # 따로 두어 나이를 보는 것과 빼앗는 것 사이가 갈라지지 않게 한다.
+    $token = [guid]::NewGuid().ToString('n')
+    $held  = $false
+    if (-not $WhatIfOnly) {
+        for ($tick = 0; $tick -lt 600; $tick++) {
+            $gate = "$lock.gate"
+            try {
+                New-Item -ItemType Directory -Path $gate -ErrorAction Stop | Out-Null
+                try {
+                    New-Item -ItemType Directory -Path $lock -ErrorAction Stop | Out-Null
+                    [System.IO.File]::WriteAllText((Join-Path $lock 'heldsince'), [string][int][double]::Parse((Get-Date -UFormat %s)))
+                    [System.IO.File]::WriteAllText((Join-Path $lock 'owner'), $token)
+                    $held = $true
+                } catch {
+                    # 이미 누가 잡고 있다. 열 초를 넘게 잡고 있으면 빼앗는다.
+                    $born = 0
+                    try { $born = [int](Get-Content -LiteralPath (Join-Path $lock 'heldsince') -ErrorAction Stop) } catch { }
+                    $now = [int][double]::Parse((Get-Date -UFormat %s))
+                    if ($born -eq 0 -or ($now - $born) -ge 10) { Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue }
+                }
+                Remove-Item -LiteralPath $gate -Recurse -Force -ErrorAction SilentlyContinue
+            } catch { Start-Sleep -Milliseconds 50; continue }
+            if ($held) { break }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not $held) { throw "CLAUDE.md 의 잠금을 못 잡았습니다: $lock" }
+    }
+
+    try {
+        $original = ''
+        if (Test-Path -LiteralPath $target) { $original = [System.IO.File]::ReadAllText($target, $utf8) }
+
+        # 템플릿의 줄바꿈은 깃이 어떻게 체크아웃했는지에 따라 갈린다. 그대로 쓰면 PC 마다
+        # 한 번씩 줄바꿈만 바꾸는 헛수고를 하고, 파일이 섞인 줄바꿈을 갖게 된다.
+        # 대상 파일이 쓰는 줄바꿈에 맞춘다. 파일이 없으면 윈도 기본인 CRLF 다.
+        $nl = "`r`n"
+        if ($original -and ([regex]::Matches($original, "`r`n").Count -eq 0)) { $nl = "`n" }
+        $block = ($block -replace "`r`n", "`n")
+        if ($nl -eq "`r`n") { $block = ($block -replace "`n", "`r`n") }
+
+        # 마커는 아스키 접두로만 찾는다. 뒤는 한국어라 괄호 안 문구가 바뀌어도 살아남는다.
+        $reBlock = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
+        if ($original -match $reBlock) {
+            $merged = [regex]::Replace($original, $reBlock, { $block })
+            $mode = '고쳤습니다'
+        } elseif ($original.Trim()) {
+            $merged = $original.TrimEnd() + $nl + $nl + $block + $nl
+            $mode = '뒤에 붙였습니다'
+        } else {
+            $merged = $block + $nl
+            $mode = '새로 만들었습니다'
+        }
+
+        if ($merged -eq $original) { Say '이미 템플릿과 같습니다.' }
+        elseif ($WhatIfOnly) { Say "[미리보기] CLAUDE.md 의 사내 문안 블록을 $mode" }
+        else {
+            if ($original) { [System.IO.File]::WriteAllText("$target.bak", $original, $utf8) }
+            [System.IO.File]::WriteAllText($target, $merged, $utf8)
+            Note "CLAUDE.md 의 사내 문안 블록을 $mode. 마커 바깥은 안 건드렸습니다."
+        }
+    } finally {
+        if ($held) {
+            $owner = ''
+            try { $owner = (Get-Content -LiteralPath (Join-Path $lock 'owner') -Raw -ErrorAction Stop).Trim() } catch { }
+            # 빼앗긴 잠금을 남의 것인 줄 모르고 지우지 않는다.
+            if ($owner -eq $token) { Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+} catch { Fail '6' $_.Exception.Message }
+
 # ---------------------------------------------------------------- 걸음 7
 Write-Host '7. 더 안 쓰는 스킬 사본과 훅 배선을 정리합니다.'
 try {
@@ -321,12 +415,91 @@ try {
         Note "$name : 사본을 뜨고 지웠습니다."
     }
 
-    # 훅 배선은 파일 이름이 아니라 경로로 가른다. 새로 거는 훅이 같은 파일 이름을 갖기
-    # 때문에, 이름으로 걷으면 맞춤이 매번 자기 배선을 지운다.
-    foreach ($h in @($manifest.retiredHooks)) {
-        Say "훅 배선 정리는 이행 셋째 걸음에서 만듭니다: $h"
+    # 훅 배선은 파일 이름이 아니라 경로로 가른다. 이 플러그인이 거는 훅의 파일 이름이
+    # 옛것과 같아서, 이름으로 걷으면 맞춤이 매번 자기 배선을 지운다. 옛것은 설치기가
+    # %LOCALAPPDATA%\corp-certs\ 아래에 놓은 사본을 가리키고 새것은 플러그인 캐시를
+    # 가리키므로 경로가 갈린다.
+    $retiredHooks = @($manifest.retiredHooks)
+    if ($retiredHooks.Count -gt 0) {
+        $settings = Read-Json $settingsPath
+        $hooks = Get-Prop $settings 'hooks'
+        $removed = 0
+        if ($null -ne $hooks) {
+            foreach ($evt in @($hooks.PSObject.Properties.Name)) {
+                $groups = @($hooks.$evt)
+                $keptGroups = New-Object System.Collections.ArrayList
+                foreach ($g in $groups) {
+                    $entries = @(Get-Prop $g 'hooks')
+                    $keptEntries = New-Object System.Collections.ArrayList
+                    foreach ($e in $entries) {
+                        $blob = ''
+                        try { $blob = ($e | ConvertTo-Json -Depth 10 -Compress) } catch { }
+                        $isOld = $false
+                        foreach ($h in $retiredHooks) {
+                            $file = Get-Prop $h 'file'
+                            $pathBit = Get-Prop $h 'pathContains'
+                            if ($file -and $pathBit -and $blob -and $blob.Contains($file) -and $blob.Contains($pathBit)) { $isOld = $true }
+                        }
+                        if ($isOld) { $removed++ } else { [void]$keptEntries.Add($e) }
+                    }
+                    if ($keptEntries.Count -gt 0) {
+                        $g.hooks = @($keptEntries)
+                        [void]$keptGroups.Add($g)
+                    }
+                }
+                $hooks.$evt = @($keptGroups)
+            }
+        }
+        if ($removed -gt 0) {
+            if ($WhatIfOnly) { Say "[미리보기] 옛 훅 배선 $removed 개를 걷습니다." }
+            else { Save-Json $settings $settingsPath; Note "옛 훅 배선 $removed 개를 걷었습니다. 같은 일은 이 플러그인의 훅이 이어서 합니다." }
+        }
     }
 } catch { Fail '7' $_.Exception.Message }
+
+# ---------------------------------------------------------------- 걸음 8
+Write-Host '8. python3 이 이 PC 에서 무엇으로 풀리는지 잽니다.'
+try {
+    # 도구를 부를 때마다 도는 가드는 이 판정을 직접 못 한다. 링크가 가리키는 실물을
+    # 읽으려면 fsutil 을 불러야 하고 그것이 이 PC 에서 48밀리초다. 여기서 한 번 재고
+    # 가드는 그 결과 한 줄을 읽기만 한다.
+    $verdict = 'ok'
+    $targetExe = ''
+    $c = Get-Command python3 -ErrorAction SilentlyContinue
+    if ($null -eq $c) {
+        $verdict = 'absent'
+    } else {
+        $src = $c.Source
+        $item = Get-Item -LiteralPath $src -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+            $verdict = 'real'; $targetExe = $src
+        } else {
+            # 재지정 버퍼 안에 링크가 가리키는 실물의 경로가 UTF-16 으로 들어 있다.
+            $dump = (& fsutil.exe reparsepoint query $src 2>&1 | Out-String)
+            $bytes = New-Object System.Collections.Generic.List[byte]
+            foreach ($line in ($dump -split "`n")) {
+                if ($line -notmatch '^\s*[0-9a-fA-F]{4}:\s') { continue }
+                $body = ($line -replace '^\s*[0-9a-fA-F]{4}:\s+', '')
+                $hexPart = $body.Substring(0, [Math]::Min(48, $body.Length))
+                foreach ($m in [regex]::Matches($hexPart, '\b[0-9a-fA-F]{2}\b')) { $bytes.Add([Convert]::ToByte($m.Value, 16)) }
+            }
+            $text = [System.Text.Encoding]::Unicode.GetString($bytes.ToArray())
+            $exe = ($text -split "`0" | Where-Object { $_ -match '\.exe$' } | Select-Object -Last 1)
+            if ($exe) { $targetExe = $exe.Trim() }
+            # 경로에 WindowsApps 가 들었는지로 안 가른다. 스토어로 깐 진짜 파이썬도
+            # 거기 놓인다. 가리키는 실물의 이름이 판정의 근거다.
+            if ($text -match 'AppInstallerPythonRedirector') { $verdict = 'redirector' } else { $verdict = 'real' }
+        }
+    }
+    $state['python3'] = $verdict
+    $state['python3Target'] = $targetExe
+    switch ($verdict) {
+        'redirector' { Say 'python3 은 마이크로소프트 스토어 안내판입니다. 그 호출을 막습니다.' }
+        'real'       { Say "python3 이 진짜 파이썬으로 풀립니다. 안 막습니다." }
+        'absent'     { Say 'python3 이 PATH 에 없습니다. 막을 것이 없습니다.' }
+        default      { Say '판정하지 못했습니다.' }
+    }
+} catch { Fail '8' $_.Exception.Message }
 
 # ---------------------------------------------------------------- 마무리
 if (-not $WhatIfOnly) {
