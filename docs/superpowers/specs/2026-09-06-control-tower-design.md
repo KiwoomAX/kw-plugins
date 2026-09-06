@@ -45,7 +45,8 @@
 | 훅이 하는 일 | 알리기만 한다 | 사용자 파일을 고치는 일을 묻지 않고 하지 않는다 |
 | 훅이 재는 것 | 선언의 해시와 자동 갱신 값 둘뿐 | 라이브러리를 실제로 세면 매 세션 `pip`이 돈다. 파일 읽기 둘이면 세션 시작이 느려지지 않는다 |
 | 고치는 것 | `/kw-sync` 하나 | 고치는 자리가 하나여야 무엇이 언제 바뀌었는지 셀 수 있다 |
-| 자동 갱신이 꺼져 있으면 | 훅이 알리고 `/kw-sync`가 되켠다 | 사용자 값을 몰래 덮지 않는다. `PYTHONUTF8`에서 내린 결정과 결이 같다 |
+| 자동 갱신이 꺼져 있으면 | 훅이 알리고 `/kw-sync`가 되켠다. **되켜는 것은 `kiwoom-ax` 하나다** | 사용자 값을 몰래 덮지 않는다. `PYTHONUTF8`에서 내린 결정과 결이 같다 |
+| 남의 마켓플레이스의 자동 갱신 | 키가 없을 때만 넣고, `false`로 둔 것은 그대로 둔다 | 우리 것이 아니다. 사용자가 일부러 끈 것을 매번 되켜면 끄는 길이 없어진다 |
 | 진실의 자리 | `known_marketplaces.json` | 클로드 코드가 실제로 읽는 파일이다. `settings.json`의 선언과 어긋나면 이쪽을 따른다 |
 | 두 소비자의 공통 구현 | 스크립트 하나 | 설치기의 마지막 단계와 `/kw-sync`가 같은 스크립트를 부른다. 같은 일을 두 벌로 쓰지 않는다 |
 
@@ -92,7 +93,7 @@
 |---|---|---|
 | `~/.claude/CLAUDE.md` | `# BEGIN AX 설치` 블록 | `# BEGIN disciplined-coder` 블록 |
 | `~/.claude/settings.json` | `extraKnownMarketplaces`의 `kiwoom-ax` 항목 | `chshin-tools` 항목 |
-| `~/.claude/plugins/known_marketplaces.json` | `kiwoom-ax`의 `autoUpdate` | `chshin-tools`의 `autoUpdate` |
+| `~/.claude/plugins/known_marketplaces.json` | `kiwoom-ax`와 공식 둘의 `autoUpdate` | `chshin-tools`와 `claude-plugins-official`의 `autoUpdate` |
 | `HKCU\Environment`의 `PYTHONUTF8` | 설치기가 세운다 | 물어서 세운다. 값이 같아 겹쳐도 된다 |
 | `~/.claude/skills/` | 은퇴한 사본을 걷는 것뿐 | 건드리지 않는다 |
 | `~/.claude/hooks/` | 건드리지 않는다 | 건드리지 않는다 |
