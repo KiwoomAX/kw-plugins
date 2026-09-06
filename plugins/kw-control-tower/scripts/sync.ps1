@@ -209,10 +209,28 @@ try {
     foreach ($p in @($manifest.retiredPlugins)) {
         $id = Get-Prop $p 'id'
         if (-not $id) { continue }
-        if ((Get-Prop $installedOf $id) -or ($null -ne (Get-Prop $enabled $id))) {
-            if (Invoke-Claude @('plugin', 'uninstall', $id)) { Note "플러그인을 걷었습니다: $id" }
-            else { Fail '3' "걷지 못했습니다: $id" }
+        if (-not ((Get-Prop $installedOf $id) -or ($null -ne (Get-Prop $enabled $id)))) { continue }
+
+        # 대체가 확인된 뒤에만 걷는다. 먼저 걷고 설치가 실패하면 그 플러그인이 아예
+        # 없는 PC 가 된다. 2026-09-06 에 이 PC 에서 실제로 그렇게 됐다. 걸음 2 가
+        # 새 이름을 못 깔았는데 이 걸음이 옛 이름을 걷어, 문서 스킬이 사라졌다.
+        $by = Get-Prop $p 'replacedBy'
+        if ($by) {
+            $ipNow = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
+            $entryNow = Get-Prop (Get-Prop $ipNow 'plugins') $by
+            $replacedOnDisk = $false
+            foreach ($scope in @($entryNow)) {
+                $pth = Get-Prop $scope 'installPath'
+                if ($pth -and (Test-Path -LiteralPath $pth)) { $replacedOnDisk = $true }
+            }
+            if (-not $replacedOnDisk) {
+                Say "$id : 대체할 $by 가 아직 안 깔려 있어 그대로 둡니다."
+                continue
+            }
         }
+
+        if (Invoke-Claude @('plugin', 'uninstall', $id)) { Note "플러그인을 걷었습니다: $id" }
+        else { Fail '3' "걷지 못했습니다: $id" }
     }
 
     foreach ($mk in @($manifest.retiredMarketplaces)) {

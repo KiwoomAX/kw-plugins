@@ -179,9 +179,10 @@ Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$s
 Write-Host ''
 Write-Host '목록 파일'
 $mf = Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json
-Check '필수는 새 배포처에서 온다'        { @($mf.required) -contains 'kw-doc-formats@kiwoom-ax' }
-Check '옛 배포처가 정리 목록에 있다'      { @($mf.retiredMarketplaces | ForEach-Object { $_.name }) -contains 'kw-doc-formats' }
-Check '옛 이름의 플러그인도 정리 목록에'  { @($mf.retiredPlugins | ForEach-Object { $_.id }) -contains 'kw-doc-formats@kw-doc-formats' }
+Check '필수 플러그인의 배포처가 목록에 등록되어 있다' {
+    $mkNames = @($mf.marketplaces | ForEach-Object { $_.name })
+    @($mf.required | Where-Object { $mkNames -notcontains ($_ -split '@')[1] }).Count -eq 0
+}
 Check '정리 항목마다 언제 넣었는지 적혀 있다' {
     $all = @($mf.retiredPlugins) + @($mf.retiredMarketplaces) + @($mf.retiredSkills) + @($mf.retiredHooks)
     @($all | Where-Object { -not $_.since }).Count -eq 0
@@ -189,10 +190,19 @@ Check '정리 항목마다 언제 넣었는지 적혀 있다' {
 Check '은퇴 훅은 이름과 경로를 함께 갖는다' {
     @($mf.retiredHooks | Where-Object { -not $_.file -or -not $_.pathContains }).Count -eq 0
 }
-Check '마켓플레이스가 컨트롤 타워와 문서 스킬 둘을 낸다' {
+# 이 마켓플레이스는 자기 레포 안의 것만 낸다. 외부 레포를 플러그인 원본으로
+# 가리키면 SSH 로 클론해 사내 PC 에서 실패하는 것을 2026-09-06 에 확인했다.
+Check '마켓플레이스가 외부 레포를 원본으로 안 가리킨다' {
     $mk = Get-Content (Join-Path $repo '.claude-plugin\marketplace.json') -Raw | ConvertFrom-Json
-    (@($mk.plugins | ForEach-Object { $_.name }) -contains 'kw-control-tower') -and
-    (@($mk.plugins | ForEach-Object { $_.name }) -contains 'kw-doc-formats')
+    @($mk.plugins | Where-Object { $_.source -isnot [string] -or -not $_.source.StartsWith('./') }).Count -eq 0
+}
+# 먼저 걷고 설치가 실패하면 그 플러그인이 아예 없는 PC 가 된다. 실제로 그렇게
+# 됐던 자리라 계약으로 못 박는다.
+Check '정리할 플러그인에는 대체자가 적혀 있다' {
+    @($mf.retiredPlugins | Where-Object { -not $_.replacedBy }).Count -eq 0
+}
+Check '맞춤이 대체를 확인한 뒤에 걷는다' {
+    $syncSrc -match '대체할 \$by 가 아직 안 깔려 있어'
 }
 
 # --- python3 가드 -----------------------------------------------------------

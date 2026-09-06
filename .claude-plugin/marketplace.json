@@ -3,16 +3,14 @@
   "name": "kiwoom-ax",
   "description": "KiwoomAX 사내 플러그인 마켓플레이스. 컨트롤 타워가 나머지 플러그인 목록을 들고 각 PC를 그 목록에 맞춘다.",
   "owner": { "name": "KiwoomAX" },
+
+  "_kw-doc-formats_comment": "여기서 kw-doc-formats 를 배포하려 했으나 못 한다. 마켓플레이스 안에서 외부 레포를 플러그인 원본으로 가리키면 클로드 코드가 SSH 로 클론하고, 사내 PC 에는 SSH 키가 없어 'Host key verification failed' 로 끝난다. protocol 을 https 로 적어도 같다. 배포처를 통째로 등록하는 `claude plugin marketplace add` 는 SSH 가 없으면 HTTPS 로 물러서지만 이 자리는 안 물러선다. 2026-09-06 에 이 PC 에서 재고 확인했다. 그래서 kw-doc-formats 는 자기 배포처에 그대로 두고, 컨트롤 타워의 목록이 그 배포처를 등록해 준다.",
+
   "plugins": [
     {
       "name": "kw-control-tower",
       "source": "./plugins/kw-control-tower",
       "description": "사내 플러그인 목록을 들고 이 PC를 그 목록에 맞춘다. 세션이 시작할 때 어긋난 곳을 알리기만 하고, 고치는 것은 /kw-sync 명령이다."
-    },
-    {
-      "name": "kw-doc-formats",
-      "source": { "source": "github", "repo": "KiwoomAX/KW-doc-formats" },
-      "description": "사내 문서 형식 처리 스킬 여섯. common은 파일 인코딩을 다루고, hwp는 한글과 구형 오피스 파일을 바꾸며, pdf와 pptx와 xlsx와 docx는 공식 document-skills가 이 PC에서 틀리는 자리를 덮는다. 내용은 KW-doc-formats 레포에 그대로 있고 여기서는 배포만 한다."
     }
   ]
 }
