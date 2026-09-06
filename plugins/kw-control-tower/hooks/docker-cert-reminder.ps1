@@ -7,6 +7,16 @@
 
 $ErrorActionPreference = 'Stop'
 
+# 번들이 없는 PC 에서는 아무 말도 안 한다. 이 안내가 시키는 것이 그 번들을 컨테이너에
+# 마운트하는 것인데, 없는 폴더를 가리키는 안내는 틀린 안내다.
+#
+# 옛 설치기는 이것을 등록 시점에 걸렀다. 번들을 안 구운 PC 에는 훅 자체를 안 걸었다.
+# 플러그인이 나르는 훅은 그렇게 못 한다. 배선이 목록 파일에 박혀 있고 PC 마다 갈리지
+# 않기 때문이다. 그래서 판정을 훅 자신이 한다. 등록 시점이 아니라 부를 때마다 보므로,
+# 나중에 번들이 생긴 PC 에서는 저절로 살아난다는 것이 덤이다.
+$bundleDir = Join-Path $env:LOCALAPPDATA 'corp-certs'
+if (-not (Test-Path -LiteralPath (Join-Path $bundleDir 'ca-bundle.pem'))) { exit 0 }
+
 function Write-Context {
     param([string]$Text)
     $payload = @{

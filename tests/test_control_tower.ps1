@@ -239,6 +239,32 @@ Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 
 
 Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- 도커 인증서 안내 -------------------------------------------------------
+Write-Host ''
+Write-Host '도커 인증서 안내'
+$dockerHook = Join-Path $plugin 'hooks\docker-cert-reminder.ps1'
+$dockerSrc  = Get-Content $dockerHook -Raw
+# 옛 설치기는 번들이 없는 PC 에 이 훅을 아예 안 걸었다. 플러그인 훅은 배선이 PC 마다
+# 갈리지 않으므로 그 판정을 훅 자신이 해야 한다.
+Check '번들이 없으면 아무 말도 안 한다' { $dockerSrc -match "ca-bundle\.pem'\)\)\) \{ exit 0 \}" }
+Check '어떤 경우에도 호출을 안 막는다'   { $dockerSrc -notmatch "permissionDecision" }
+
+$noBundle = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-nb-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path $noBundle | Out-Null
+Check '번들 없는 PC 에서 실제로 조용하다' {
+    $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
+    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:LOCALAPPDATA='$noBundle'; & '$dockerHook'" 2>&1
+    [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
+}
+Check '번들 있는 PC 에서는 말한다' {
+    New-Item -ItemType Directory -Force -Path (Join-Path $noBundle 'corp-certs') | Out-Null
+    Set-Content -LiteralPath (Join-Path $noBundle 'corp-certs\ca-bundle.pem') -Value '# stand-in'
+    $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
+    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:LOCALAPPDATA='$noBundle'; & '$dockerHook'" 2>&1
+    ($out | Out-String) -match 'additionalContext'
+}
+Remove-Item -LiteralPath $noBundle -Recurse -Force -ErrorAction SilentlyContinue
+
 # --- CLAUDE.md 걸음 ---------------------------------------------------------
 Write-Host ''
 Write-Host 'CLAUDE.md 걸음'
