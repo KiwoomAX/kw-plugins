@@ -127,10 +127,10 @@
 {
   "schema": 1,
   "plugins": [
-    { "id": "superpowers@claude-plugins-official", "marketplaceRepo": "anthropics/claude-plugins-official" },
-    { "id": "document-skills@anthropic-agent-skills", "marketplaceRepo": "anthropics/skills" },
-    { "id": "playwright@claude-plugins-official", "marketplaceRepo": "anthropics/claude-plugins-official" },
-    { "id": "frontend-design@claude-plugins-official", "marketplaceRepo": "anthropics/claude-plugins-official" },
+    { "id": "superpowers@claude-plugins-official", "marketplaceRepo": "anthropics/claude-plugins-official", "autoUpdate": true },
+    { "id": "document-skills@anthropic-agent-skills", "marketplaceRepo": "anthropics/skills", "autoUpdate": true },
+    { "id": "playwright@claude-plugins-official", "marketplaceRepo": "anthropics/claude-plugins-official", "autoUpdate": true },
+    { "id": "frontend-design@claude-plugins-official", "marketplaceRepo": "anthropics/claude-plugins-official", "autoUpdate": true },
     { "id": "kw-doc-formats@kiwoom-ax", "marketplaceRepo": "KiwoomAX/kw-plugins", "autoUpdate": true }
   ],
   "retiredPlugins": [ "kw-doc-formats@kw-doc-formats", "superpowers@superpowers-marketplace" ],
@@ -143,6 +143,16 @@
 **남의 플러그인도 여기 적는다.** 지금 설치기의 `$script:Plugins`가 공식 넷과 사내 하나를 함께 들고 있고, 그 목록이 자라는 것이 이 작업의 출발점이다. 사내 것만 옮기면 설치기를 고쳐야 하는 이유가 그대로 남는다.
 
 `marketplaceRepo`는 플러그인이 사는 레포가 아니라 **마켓플레이스를 등록할 때 넘길 레포**다. `claude plugin marketplace add`가 받는 값이 그것이다. `kw-doc-formats` 플러그인의 소스는 `KW-doc-formats` 레포에 있지만, 그것을 발행하는 마켓플레이스는 `kw-plugins`다.
+
+### 자동 갱신을 어디까지 켜나
+
+**사내 것과 공식 것을 켠다.** `kiwoom-ax`와 `claude-plugins-official`과 `anthropic-agent-skills`다. 그 밖의 개인·외부 마켓플레이스는 지금처럼 둔다. 남의 회귀를 사내 PC 전부가 같은 날 함께 받는 것을 공식 것에 한해 받아들인다는 뜻이다.
+
+이 PC에서 잰 지금 상태는 이렇다. 켜진 것이 `chshin-tools`와 `claude-community`와 `im-not-ai`와 `kw-doc-formats` 넷이고, **꺼진 것이 다섯**이다. `claude-plugins-official`과 `anthropic-agent-skills`와 `superpowers-marketplace`와 `claude-code-plugins`와 `karpathy-skills`다. 설치기의 플러그인 표에서 `AutoUpdate`가 붙은 것이 `kw-doc-formats` 하나뿐이라, 지금은 `superpowers`와 `document-skills`와 `frontend-design`과 `playwright`의 고침이 자동으로 오지 않는다.
+
+`chshin-tools`는 켜져 있지만 우산이 건드리지 않는다. `disciplined-coder`가 자기 것으로 관리하며, 그것이 경계 합의다.
+
+자동 갱신이 하는 일과 안 하는 일을 갈라 둔다. **이미 깔린 플러그인을 갱신할 뿐 새로 깔지 않는다.** 그래서 선언에 새 플러그인이 들어오는 것, 은퇴한 것을 걷어내는 것, 라이브러리와 문안과 옛 스킬 사본은 모두 훅이 알리고 `/kw-sync`가 고치는 쪽에 남는다.
 
 `schema`는 판 번호다. 읽는 쪽이 모르는 판을 만나면 멈추고 알린다. 옛 설치기를 든 PC가 새 선언의 모르는 필드를 조용히 지나가는 것을 막는다.
 
@@ -226,6 +236,8 @@
 둘째 걸음은 발행처를 옮기는 것이다. `kiwoom-ax`가 `kw-doc-formats`를 발행하게 하고 `KW-doc-formats` 레포의 마켓플레이스 파일을 지운다.
 
 셋째 걸음은 `kw_install`을 얇게 만드는 것이다. 옮겨 간 것을 걷어내고 8단계와 9단계를 새로 쓴다. 앞의 두 걸음이 서 있어야 이 걸음이 안전하다.
+
+`CLAUDE.md`의 AX 블록을 한 번 정규화한다. `kw_install`은 마커를 접두 정규식(`^#\s*BEGIN AX\b`)으로 찾아 왔고, 누가 괄호 안 문구를 바꿔도 살아남게 하려던 것이라고 주석에 적혀 있다. 받아 오는 사본은 **전체 줄 일치**로 찾는다. 그래서 옛 판이 찍은 블록의 괄호 문구가 지금과 다르면 우산이 그것을 못 찾고 블록을 하나 더 붙인다. 이행할 때 접두로 찾아 한 번 정규화하고, 그 뒤로 마커 문자열을 상수로 고정해 다시 바꾸지 않는다.
 
 옛 마켓플레이스 `kw-doc-formats`를 은퇴시키고 `kiwoom-ax`로 옮긴다. 두 마켓플레이스가 같은 플러그인을 각각 내면 한 PC에 같은 스킬이 두 벌 실린다. `superpowers`에서 겪은 일이고 설치기 주석에 남아 있다.
 
