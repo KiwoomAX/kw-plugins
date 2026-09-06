@@ -30,12 +30,15 @@ function Get-CheapHash {
 }
 
 function Read-Json {
-    # 없거나 깨졌으면 $null 을 준다. 판정을 못 하겠으면 안 하는 것이 이 훅의 규칙이다.
+    # 없는 것과 못 읽는 것을 가른다. 없으면 $null 이고 그것은 정상일 수 있다.
+    # 못 읽으면 던진다. 사용자에게는 그래도 조용히 물러나지만, 삼키면 망가진
+    # 설정을 가진 PC 와 아무 문제 없는 PC 가 구별되지 않는다. 던져서 catch 가
+    # 자국을 남기게 한다.
     param([string]$Path)
     $script:Budget.Files++
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) }
-    catch { return $null }
+    catch { throw "JSON 으로 안 읽힙니다: $Path" }
 }
 
 function Get-Prop {

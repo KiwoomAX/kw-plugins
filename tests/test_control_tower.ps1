@@ -306,6 +306,22 @@ Check '다시 안 읽힐 것은 안 쓴다'        { $syncSrc.Contains('$null = 
 Check '5.1 이 만든 이스케이프를 되돌린다' { $syncSrc.Contains("[regex]::Replace(`$json, '\\u([0-9a-fA-F]{4})'") }
 Check '임시 파일에 쓰고 옮긴다'          { $syncSrc -match '\$Path\.kwtmp' -and $syncSrc -match 'Move-Item' }
 Check 'BOM 없이 쓴다'                    { $syncSrc -match 'UTF8Encoding\(\$false\)' }
+# 없는 것과 못 읽는 것은 다르다. 삼키면 망가진 설정을 가진 PC 에서 맞춤이
+# 아무것도 안 하고 "바꾼 것이 없습니다" 라고 말한다.
+Check '못 읽는 JSON 은 삼키지 않고 던진다' {
+    ($syncSrc -match 'catch \{ throw "JSON 으로 안 읽힙니다') -and
+    ($hookCode -match 'catch \{ throw "JSON 으로 안 읽힙니다')
+}
+
+$brokenHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-brk-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path (Join-Path $brokenHome '.claude\plugins') | Out-Null
+'{ not json' | Set-Content -LiteralPath (Join-Path $brokenHome '.claude\settings.json')
+Check '망가진 설정에서 알림은 조용하고 자국을 남긴다' {
+    $out = & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    ([string]::IsNullOrWhiteSpace(($out | Out-String).Trim())) -and
+    (Test-Path -LiteralPath (Join-Path $brokenHome '.claude\kw-control-tower.error'))
+}
+Remove-Item -LiteralPath $brokenHome -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- /kw-sync 명령 ----------------------------------------------------------
 Write-Host ''

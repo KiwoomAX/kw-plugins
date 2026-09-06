@@ -42,9 +42,14 @@ function Get-CheapHash {
 }
 
 function Read-Json {
+    # 없는 것과 못 읽는 것을 가른다. 없으면 $null 이고 그것은 정상일 수 있다.
+    # 못 읽으면 던진다. 삼키면 망가진 설정을 가진 PC 에서 이 스크립트가 아무것도
+    # 안 하고 "바꾼 것이 없습니다" 라고 말한다. 설치기도 같은 이유로 못 읽는
+    # settings.json 위에 절대 안 쓴다.
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }
+    try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) }
+    catch { throw "JSON 으로 안 읽힙니다. 손으로 고친 뒤 다시 돌리십시오: $Path" }
 }
 function Get-Prop {
     param($Object, [string]$Name)
