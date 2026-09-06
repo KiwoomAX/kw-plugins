@@ -403,19 +403,36 @@ try {
     }
 
     try {
-        $original = ''
-        if (Test-Path -LiteralPath $target) { $original = [System.IO.File]::ReadAllText($target, $utf8) }
+        # 파일에 실제로 들어 있는 것($fileNow)과 고쳐 나가는 것($original)을 가른다.
+        # 둘을 한 변수로 두면, 메모리에서 고친 뒤 그 고친 것과 결과를 견주게 되어
+        # "이미 같다" 로 끝나고 파일은 안 고쳐진다. 실제로 그렇게 됐다.
+        $fileNow = ''
+        if (Test-Path -LiteralPath $target) { $fileNow = [System.IO.File]::ReadAllText($target, $utf8) }
+        $original = $fileNow
 
         # 템플릿의 줄바꿈은 깃이 어떻게 체크아웃했는지에 따라 갈린다. 그대로 쓰면 PC 마다
         # 한 번씩 줄바꿈만 바꾸는 헛수고를 하고, 파일이 섞인 줄바꿈을 갖게 된다.
         # 대상 파일이 쓰는 줄바꿈에 맞춘다. 파일이 없으면 윈도 기본인 CRLF 다.
         $nl = "`r`n"
-        if ($original -and ([regex]::Matches($original, "`r`n").Count -eq 0)) { $nl = "`n" }
+        if ($fileNow -and ([regex]::Matches($fileNow, "`r`n").Count -eq 0)) { $nl = "`n" }
         $block = ($block -replace "`r`n", "`n")
         if ($nl -eq "`r`n") { $block = ($block -replace "`n", "`r`n") }
 
         # 마커는 아스키 접두로만 찾는다. 뒤는 한국어라 괄호 안 문구가 바뀌어도 살아남는다.
         $reBlock = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
+
+        # 블록이 둘 이상이면 먼저 하나로 줄인다. 안 그러면 이 아래 정규식이 첫 블록만
+        # 보고 "이미 같다" 로 끝나, 중복이 조용히 남는다. 지우는 것은 우리 마커 사이뿐이라
+        # 사용자가 쓴 것은 안 건드린다. 첫 것을 남기고 뒤엣것을 걷는다.
+        $blocks = @([regex]::Matches($original, $reBlock))
+        if ($blocks.Count -gt 1) {
+            for ($i = $blocks.Count - 1; $i -ge 1; $i--) {
+                $original = $original.Remove($blocks[$i].Index, $blocks[$i].Length)
+            }
+            $original = ($original -replace '(\r?\n){3,}', ($nl + $nl))
+            Note "CLAUDE.md 에 사내 문안 블록이 $($blocks.Count) 개 있어 하나로 줄였습니다."
+        }
+
         if ($original -match $reBlock) {
             $merged = [regex]::Replace($original, $reBlock, { $block })
             $mode = '고쳤습니다'
@@ -427,11 +444,23 @@ try {
             $mode = '새로 만들었습니다'
         }
 
-        if ($merged -eq $original) { Say '이미 템플릿과 같습니다.' }
+        if ($merged -eq $fileNow) { Say '이미 템플릿과 같습니다.' }
         elseif ($WhatIfOnly) { Say "[미리보기] CLAUDE.md 의 사내 문안 블록을 $mode" }
         else {
-            if ($original) { [System.IO.File]::WriteAllText("$target.bak", $original, $utf8) }
+            # 쓰기 전에 결과를 본다. 블록이 하나가 아니면 다음 실행이 자기 자리를 못
+            # 찾아 사본을 하나 더 붙인다. 사용자 파일이라 그렇게 두느니 안 쓴다.
+            $count = @([regex]::Matches($merged, $reBlock)).Count
+            if ($count -ne 1) { throw "블록이 하나여야 하는데 $count 개가 됩니다. CLAUDE.md 를 안 고쳤습니다." }
+
+            if ($fileNow) { [System.IO.File]::WriteAllText("$target.bak", $fileNow, $utf8) }
             [System.IO.File]::WriteAllText($target, $merged, $utf8)
+
+            # 쓴 뒤에도 본다. 사본이 있으니 되돌릴 수 있고, 조용히 망가뜨리는 것보다
+            # 무엇이 잘못됐는지 말하는 편이 낫다.
+            $after = [System.IO.File]::ReadAllText($target, $utf8)
+            if (@([regex]::Matches($after, $reBlock)).Count -ne 1) {
+                throw "쓴 뒤에 블록이 하나가 아닙니다. 사본이 $target.bak 에 있습니다."
+            }
             Note "CLAUDE.md 의 사내 문안 블록을 $mode. 마커 바깥은 안 건드렸습니다."
         }
     } finally {

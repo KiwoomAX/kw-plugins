@@ -198,8 +198,13 @@ try {
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
         $found = [regex]::Match($now, $re)
         $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }
+        $howMany = @([regex]::Matches($now, $re)).Count
         if (-not $found.Success) {
             [void]$notes.Add('CLAUDE.md 에 사내 문안 블록이 없습니다.')
+        } elseif ($howMany -gt 1) {
+            # 개수를 따로 세는 것은 위 정규식이 첫 블록만 잡기 때문이다. 개수를 안
+            # 보면 같은 블록이 둘인 파일이 "이미 같다" 로 읽혀 조용히 남는다.
+            [void]$notes.Add("CLAUDE.md 에 사내 문안 블록이 $howMany 개 있습니다.")
         } elseif ((& $norm $found.Value) -ne (& $norm $block)) {
             [void]$notes.Add('CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.')
         }

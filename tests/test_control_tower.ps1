@@ -393,6 +393,17 @@ Check '잠금 폴더 이름을 상대와 맞춘다' { $syncSrc -match '\$target\
 Check '오래 잡힌 잠금은 빼앗는다'      { $syncSrc -match 'heldsince' -and $syncSrc -match '\-ge 10' }
 Check '남의 잠금은 안 지운다'          { $syncSrc -match "\`$owner -eq \`$token" }
 Check '줄바꿈을 대상 파일에 맞춘다'    { $syncSrc -match '\$nl' }
+# 블록이 둘이 되면 다음 실행이 자기 자리를 못 찾아 또 하나를 붙인다. 사용자 파일이라
+# 그렇게 두느니 안 쓴다.
+Check '쓰기 전에 블록이 하나인지 본다' { $syncSrc -match '블록이 하나여야 하는데' }
+# 블록이 둘이면 정규식이 첫 것만 보고 "이미 같다" 로 끝나 중복이 조용히 남는다.
+Check '블록이 둘 이상이면 하나로 줄인다' { $syncSrc -match '개 있어 하나로 줄였습니다' }
+Check '훅도 블록 개수를 센다'            { $hookCode -match '개 있습니다' }
+# 메모리에서 고친 것과 파일에 있던 것을 견주면 "이미 같다" 로 끝나 안 써진다.
+Check '견주는 대상은 파일에 있던 것이다' {
+    ($syncSrc -match '\$merged -eq \$fileNow') -and ($syncSrc -notmatch '\$merged -eq \$original')
+}
+Check '쓴 뒤에도 다시 본다'            { $syncSrc -match '쓴 뒤에 블록이 하나가 아닙니다' }
 
 # --- 문서와 코드를 맞댄다 ---------------------------------------------------
 Write-Host ''
