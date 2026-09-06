@@ -75,19 +75,30 @@
 
 같은 PC에 범용 체계가 하나 더 있다. `disciplined-coder`가 자기 요건을 점검하고 갱신하는 장치를 갖는다. 둘 다 사용자 폴더의 같은 파일들에 손이 닿으므로 경계를 먼저 못 박는다.
 
-**한 파일을 둘이 고치는 것은 `CLAUDE.md` 하나로 끝낸다.** 그 파일은 마커 블록으로 갈리고 서로의 바깥을 건드리지 않는다. 이미 그렇게 살고 있고 다른 길이 없다. 그 밖의 파일은 파일이 같더라도 **고치는 키가 겹치지 않게** 가른다.
+**가르는 것은 만지는 자리가 아니라 스크립트의 소유다.** 두 체계가 PC에 남기는 결과는 겹쳐도 된다. 둘 다 `PYTHONUTF8`을 `1`로 세워도 되고, 둘 다 `CLAUDE.md`의 자기 마커 블록을 다시 써도 된다. 멱등이면 나중에 도는 쪽이 앞의 결과를 그대로 두거나 같은 값으로 다시 쓸 뿐이다.
 
-| 파일 | 우산이 만지는 자리 | disciplined-coder가 만지는 자리 |
+**금지하는 것은 한 스크립트를 두 체계가 함께 갖는 것이다.** 우산의 스크립트를 `disciplined-coder`가 부르거나, 그 반대이거나, 같은 구현을 두 레포가 공동으로 소유하는 것을 하지 않는다. 그렇게 하면 한쪽 레포의 변경이 다른 쪽을 말없이 바꾸고, 어느 레포의 테스트도 그것을 못 잡는다. 각자 자기 구현을 갖고 각자 돈다.
+
+`kw_install` 계열 안에서는 반대다. 설치기와 우산은 한 체계이므로 스크립트를 하나만 둔다. 설치기의 마지막 단계가 우산의 `sync.ps1`을 부르는 것이 그 계열의 정본을 하나로 지키는 방법이다.
+
+겹쳐도 되게 하려면 걸음마다 두 가지를 지켜야 한다.
+
+- **멱등이다.** 두 번 돌려도 결과가 같고, 상대가 먼저 돌린 뒤에 돌아도 결과가 같다.
+- **남이 써 둔 것을 지우지 않는다.** `CLAUDE.md`는 자기 마커 블록 바깥을 그대로 옮겨 담고, `settings.json`은 자기 키만 쓰고 나머지를 있는 그대로 둔다. 주인 없는 사용자 값(`BASH_DEFAULT_TIMEOUT_MS` 같은 것)도 건드리지 않는다.
+
+| 무엇 | 우산 | disciplined-coder |
 |---|---|---|
-| `~/.claude/CLAUDE.md` | `# BEGIN AX 설치` 블록 안 | `# BEGIN disciplined-coder` 블록 안 |
+| `~/.claude/CLAUDE.md` | `# BEGIN AX 설치` 블록 | `# BEGIN disciplined-coder` 블록 |
 | `~/.claude/settings.json` | `extraKnownMarketplaces`의 `kiwoom-ax` 항목 | `chshin-tools` 항목 |
 | `~/.claude/plugins/known_marketplaces.json` | `kiwoom-ax`의 `autoUpdate` | `chshin-tools`의 `autoUpdate` |
+| `HKCU\Environment`의 `PYTHONUTF8` | 설치기가 세운다 | 물어서 세운다. 값이 같아 겹쳐도 된다 |
 | `~/.claude/skills/` | 은퇴한 사본을 걷는 것뿐 | 건드리지 않는다 |
 | `~/.claude/hooks/` | 건드리지 않는다 | 건드리지 않는다 |
-| 파이썬 환경 | 선언의 라이브러리 | 건드리지 않는다 |
+| 파이썬 라이브러리 | 선언대로 깐다 | 깔지 않는다 |
 | 상태 파일 | `kw-control-tower.state` | 자기 이름의 파일 |
+| 스크립트 | 자기 레포 것만 | 자기 레포 것만 |
 
-`settings.json`의 하드웨어성 키(PowerShell 도구, 기본 셸, 권한 모드)는 설치기만 쓴다. 우산도 `disciplined-coder`도 그 키를 보지 않는다.
+`settings.json`의 하드웨어성 키(PowerShell 도구, 기본 셸, 권한 모드)는 설치기만 쓴다.
 
 `~/.claude/hooks/`가 비는 것은 훅을 플러그인이 나르기 때문이다. 도커 훅과 `python3` 훅이 우산 안으로 들어오면 사용자 폴더에 훅 파일을 놓을 이유가 없어진다.
 
