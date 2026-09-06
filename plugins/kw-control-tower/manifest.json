@@ -1,0 +1,26 @@
+{
+  "_comment": "이 파일이 목록의 정본이다. 이행 첫째 걸음이라 배포처 이전을 아직 담지 않는다. kw-doc-formats 는 옛 배포처에서 오고 정리 목록 넷은 비어 있다.",
+
+  "marketplaces": [
+    { "name": "kiwoom-ax", "repo": "KiwoomAX/kw-plugins", "ours": true },
+    { "name": "kw-doc-formats", "repo": "KiwoomAX/KW-doc-formats", "ours": true },
+    { "name": "claude-plugins-official", "repo": "anthropics/claude-plugins-official" },
+    { "name": "anthropic-agent-skills", "repo": "anthropics/skills" }
+  ],
+
+  "required": [
+    "kw-doc-formats@kw-doc-formats"
+  ],
+
+  "suggested": [
+    "superpowers@claude-plugins-official",
+    "document-skills@anthropic-agent-skills",
+    "playwright@claude-plugins-official",
+    "frontend-design@claude-plugins-official"
+  ],
+
+  "retiredPlugins": [],
+  "retiredMarketplaces": [],
+  "retiredSkills": [],
+  "retiredHooks": []
+}

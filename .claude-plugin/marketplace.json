@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
+  "name": "kiwoom-ax",
+  "description": "KiwoomAX 사내 플러그인 마켓플레이스. 컨트롤 타워가 나머지 플러그인 목록을 들고 각 PC를 그 목록에 맞춘다.",
+  "owner": { "name": "KiwoomAX" },
+  "plugins": [
+    {
+      "name": "kw-control-tower",
+      "source": "./plugins/kw-control-tower",
+      "description": "사내 플러그인 목록을 들고 이 PC를 그 목록에 맞춘다. 세션이 시작할 때 어긋난 곳을 알리기만 하고, 고치는 것은 /kw-sync 명령이다."
+    }
+  ]
+}

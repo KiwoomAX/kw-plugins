@@ -1,0 +1,17 @@
+{
+  "_comment": "powershell.exe 는 윈도에 언제나 있다. pwsh 7 을 쓰면 그것이 클로드가 보는 자리에 없는 PC에서 훅이 통째로 죽는다. session-check.ps1 은 5.1 문법만 쓴다.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-check.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
