@@ -38,6 +38,18 @@
 | `install` | 키가 `false`여도 **`true`로 덮어쓴다** | 항목을 새로 적는다 | 다시 받는다 |
 | `disable` | `false`로 적는다 | **그대로 둔다.** `installPath`가 남는다 | 그대로 남는다 |
 
+넷째 회차 뒤에 셋을 더 쟀다. 이 PC에 실제로 남아 있던 고아 둘로 확인한 것이다.
+
+| 물음 | 답 |
+|---|---|
+| 배포처가 한쪽 파일에만 등록된 플러그인을 `uninstall`이 걷는가 | **걷는다.** `settings.json`에 그 배포처가 없어도 설치 기록에서 항목이 지워진다 |
+| 배포처 등록을 지우는 수단이 있는가 | `claude plugin marketplace remove <이름>`이다. **`known_marketplaces.json`과 `extraKnownMarketplaces`와 클론 폴더를 한 번에 지운다** |
+| 자동 갱신 값이 한 파일에서 다른 파일로 옮겨 가는가 | **안 옮겨 간다.** `settings.json`에만 넣고 `marketplace update`를 돌려도 `known_marketplaces.json`은 그대로였다. 두 파일이 서로 독립이다 |
+
+`uninstall`이 고아를 걷는다는 것이 확인되어 은퇴한 플러그인을 감지에 올릴 수 있게 됐다. 자동 갱신은 두 파일이 독립이므로 **두 자리에 다 써야** 확실하다.
+
+재는 김에 이 PC의 고아 둘(`superpowers@superpowers-marketplace`와 `frontend-design@claude-code-plugins`)과 그 배포처 둘을 실제로 정리했다.
+
 **셋째 판이 여기서 깨진다.** 셋째 판은 `installed_plugins.json`을 감지에서 통째로 금지했고 근거는 "그 파일은 아무도 안 지우므로 은퇴 항목이 영원히 남는다"였다. 실측이 그 전제를 뒤집는다. `uninstall`이 그 항목을 지운다. 금지할 이유가 없어졌다.
 
 **대신 다른 것이 드러났다.** 두 파일은 서로 다른 물음에 답한다. `installed_plugins.json`은 깔렸는지에 답하고 `enabledPlugins`는 켜졌는지에 답한다. 이 PC에는 앞의 것에만 있고 뒤의 것에는 키가 없는 플러그인이 둘 있으며(`superpowers@superpowers-marketplace`와 `frontend-design@claude-code-plugins`), 뒤의 것이 `false`인데 앞의 것에는 정상 항목인 플러그인이 셋 있다.
@@ -208,7 +220,8 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 |---|---|---|
 | 필수 플러그인이 깔려 있나 | `installed_plugins.json`에 항목이 있고 그 `installPath`가 디스크에 있나 | 맞춤 걸음 2가 `claude plugin install` |
 | 필수 플러그인이 켜져 있나 | `enabledPlugins`의 값이 `true`인가 | 맞춤 걸음 2가 `claude plugin enable` |
-| 은퇴한 마켓플레이스가 남았나 | `known_marketplaces.json`과 `extraKnownMarketplaces` **두 자리 모두** | 맞춤 걸음 3이 두 자리를 함께 고친다 |
+| 은퇴한 플러그인이 남았나 | `installed_plugins.json`이나 `enabledPlugins` 가운데 어느 쪽에든 있나 | 맞춤 걸음 3이 `claude plugin uninstall` |
+| 은퇴한 배포처가 남았나 | `known_marketplaces.json`과 `extraKnownMarketplaces` **두 자리 모두** | 맞춤 걸음 3이 `claude plugin marketplace remove` |
 | 우리 마켓플레이스의 자동 갱신이 켜졌나 | 위와 같은 두 자리 모두 | 맞춤 걸음 1이 두 자리를 함께 고친다 |
 | 파이썬 라이브러리가 선언과 맞나 | `requirements.txt`의 해시와 상태 파일 | 맞춤 걸음 4 |
 | `PYTHONUTF8`이 세워졌나 | `HKCU\Environment`의 값 자체 | 맞춤 걸음 5 |
@@ -217,8 +230,6 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 | 은퇴한 훅이 남았나 | `settings.json`의 `hooks`에 옛 표식이 있나 | 맞춤 걸음 7 |
 
 **해시가 남은 자리는 라이브러리 하나뿐이다.** 예산 안에서 이 PC를 직접 못 읽는 것이 그것 하나이기 때문이다. 깔린 라이브러리를 세려면 파이썬을 띄워야 하는데 그것은 프로세스를 부르는 것이라 예산이 금한다. 나머지 여덟은 파일이나 레지스트리나 폴더를 그 자리에서 읽으면 답이 나온다.
-
-**은퇴한 플러그인 행은 아직 없다.** 그 행의 유일한 수단인 `claude plugin uninstall`이 등록에서 빠진 마켓플레이스의 플러그인을 걷는지 안 쟀다. 재기 전에 켜면 이 PC를 포함한 모든 기존 PC가 맞춤으로 끌 수 없는 알림을 받는다. 첫째 규칙이 금하는 바로 그것이다. 측정은 아래 「먼저 잴 것」이 갖는다.
 
 `suggested`는 재지 않는다. 이상이 없으면 아무 말도 하지 않는다. 어떤 경우에도 파일을 고치지 않고 세션을 막지 않으며 스스로 실패하면 조용히 물러난다.
 
@@ -266,7 +277,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 
 1. **마켓플레이스를 등록한다.** 선언의 셋을 `known_marketplaces.json`과 `extraKnownMarketplaces` **두 자리에 함께** 적는다. `ours`인 것의 자동 갱신이 꺼져 있으면 두 자리 모두 되켠다. **남의 마켓플레이스는 항목 자체가 없을 때만 넣고, 넣을 때 자동 갱신 키는 안 건드린다.** 그 키를 켜고 끄는 것은 언제나 사용자의 몫이다.
 2. **`required`를 깐다.** 안 깔린 것은 `install`, 깔렸는데 꺼진 것은 `enable`이다. **`suggested`는 이 PC에서 맞춤이 한 번도 안 돈 때에만 깐다.** 상태 파일에 그 표시가 있으면 두 번째부터는 아예 안 본다.
-3. **은퇴한 마켓플레이스를 걷는다.** `known_marketplaces.json`과 `extraKnownMarketplaces` 두 자리에서 함께 지운다. 은퇴한 플러그인은 아직 안 걷는다. 아래 「먼저 잴 것」의 측정이 끝난 뒤에 이 걸음에 붙인다.
+3. **은퇴한 플러그인과 배포처를 걷는다.** 플러그인은 `claude plugin uninstall`, 배포처는 `claude plugin marketplace remove`다. **플러그인을 먼저 걷고 배포처를 나중에 걷는다.** 배포처를 먼저 지우면 그 플러그인을 이름으로 못 부른다.
 4. **파이썬 라이브러리를 고정한 3.12에 맞춘다.**
 5. **`PYTHONUTF8`을 잰 뒤에 필요하면 세운다.** 설치기의 갈래를 그대로 들고 온다.
 6. **`CLAUDE.md`의 `# BEGIN AX 설치` 블록을 다시 쓴다.** 마커 바깥은 건드리지 않는다.
@@ -457,13 +468,11 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 - **`suggested`를 재지 않기로 해서, 처음 설치에 실패한 권장 플러그인은 아무도 알려 주지 않는다.** 사용자 결정을 존중하는 대가다.
 - **컨트롤 타워가 자기를 못 걷는다.** 되돌리기의 수단이 자기를 되돌리지 못한다. 그 경우 설치기가 걷는다.
 
-## 먼저 잴 것
+## 아직 안 잰 것
 
-**이행에 들어가기 전에 둘을 잰다.** 둘 다 이 PC의 상태를 바꿔야 답이 나와 읽기 전용 렌즈가 못 쟀고, 둘 다 감지 표의 행이 그 답에 걸려 있다. 앞 판은 이것을 「아직 안 잰 것」으로 적고 이행 첫째 걸음에 배정했는데, 첫째 걸음의 서술에는 그 일이 없었고 그 시점에는 잴 재료도 없다.
+**자동 갱신이 실제로 어느 파일을 보고 도는지는 모른다.** 두 파일이 서로 독립이라는 것까지는 쟀지만, 클로드 코드가 갱신을 돌릴 때 둘 중 어느 쪽 값을 읽는지는 갱신이 실제로 일어나는 것을 봐야 안다. **두 자리에 다 쓰기로 해서 어느 쪽이든 맞게 만들었으므로** 이 설계가 그 답을 안 기다린다.
 
-**`claude plugin uninstall`이 등록에서 빠진 마켓플레이스의 플러그인을 걷는가.** 이 PC의 `superpowers@superpowers-marketplace`와 `frontend-design@claude-code-plugins`가 그 경우다. 답이 아니오이면 은퇴 플러그인 행을 감지에 못 올리고 걸음 3을 다시 써야 한다. 답이 예이면 그 행을 켠다.
-
-**클로드 코드가 `known_marketplaces.json`을 다시 만들 때 `settings.json`의 `extraKnownMarketplaces`에서 도출하는가.** 이 PC에서 두 파일이 이미 어긋나 있으므로 관찰로 가릴 수 있다. 답에 따라 자동 갱신을 한 자리만 고쳐도 되는지 두 자리를 다 고쳐야 하는지가 갈린다.
+**세션 시작 훅이 실제로 몇 밀리초 걸리는지 안 쟀다.** 훅이 아직 없다. 만드는 즉시 이 PC에서 재고, 200밀리초 상한이 지켜지는지 본다.
 
 ## 하지 않는 것
 
