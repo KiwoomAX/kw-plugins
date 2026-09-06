@@ -112,10 +112,12 @@ Check '훅이 네트워크에 안 나간다' {
     $hookCode -notmatch 'Invoke-WebRequest|Invoke-RestMethod|System\.Net\.'
 }
 Check '훅이 아무 파일도 안 고친다 (자국 파일 둘은 뺀다)' {
-    # Out-File 은 느림 자국과 오류 자국 둘뿐이고 나머지 쓰기 명령은 없어야 한다.
-    $writes = [regex]::Matches($hookCode, 'Out-File')
-    ($writes.Count -eq 2) -and ($hookCode -notmatch 'Set-Content|Remove-Item|New-Item|Move-Item|Copy-Item')
+    # 쓰기는 느림 자국과 오류 자국 둘뿐이고 나머지 쓰기 명령은 없어야 한다.
+    ($hookCode -notmatch 'Set-Content|Remove-Item|New-Item|Move-Item|Copy-Item')
 }
+# 자국 파일이 영원히 자라면 그것도 이 PC 를 더럽히는 것이다.
+Check '느림 자국은 덧붙이지 않고 덮어쓴다' { $hookCode -match 'WriteAllText\(\$over' }
+Check '오류 자국은 스무 줄까지만 남긴다'   { $hookCode -match '\$keep\.Count -gt 20' }
 Check '훅이 5.1 전용 문법만 쓴다' {
     ($hookCode -notmatch '-AsHashtable') -and
     ($hookCode -notmatch '\?\?') -and
@@ -276,6 +278,10 @@ Write-Host ''
 Write-Host '/kw-sync 명령'
 $cmdSrc = Get-Content (Join-Path $plugin 'commands\kw-sync.md') -Raw
 Check '설명이 앞머리에 있다'            { $cmdSrc -match '(?s)^---\s*\r?\ndescription:' }
+# 플러그인이 나르는 명령은 언제나 '플러그인이름:명령이름' 으로 불린다. 알림이 짧은
+# 이름을 적으면 사용자가 없는 명령을 친다.
+Check '알림이 온전한 명령 이름을 말한다' { $hookCode.Contains('/kw-control-tower:kw-sync') }
+Check '알림이 짧은 이름을 안 쓴다'        { -not ($hookCode -match '(?<!tower:)(?<!-)/kw-sync') }
 Check '맞춤 스크립트를 부른다'          { $cmdSrc -match 'scripts/sync\.ps1' }
 Check '미리보기 방법을 적어 둔다'        { $cmdSrc -match '\-WhatIfOnly' }
 Check '되켠 것을 말하라고 적혀 있다'      { $cmdSrc -match '되켠 것' }

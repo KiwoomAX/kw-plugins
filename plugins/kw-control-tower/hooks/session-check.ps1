@@ -203,10 +203,16 @@ try {
 catch {
     # 사용자에게는 조용히 물러난다. 세션 시작을 훅의 사정으로 어지럽히지 않는다.
     # 다만 자국은 남긴다. 조용한 실패가 개발 중에 버그 하나를 통째로 가렸다.
+    # 여기는 덧붙인다. 같은 오류가 반복되는지가 원인을 가리기 때문이다. 다만 영원히
+    # 실패하는 PC 에서 파일이 자라지 않게 마지막 스무 줄만 남긴다.
     try {
         $log = Join-Path (Join-Path $env:USERPROFILE '.claude') 'kw-control-tower.error'
-        "$(Get-Date -Format o) $($_.Exception.GetType().Name): $($_.Exception.Message) @ $($_.InvocationInfo.ScriptLineNumber)" |
-            Out-File -LiteralPath $log -Encoding UTF8 -Append
+        $line = "$(Get-Date -Format o) $($_.Exception.GetType().Name): $($_.Exception.Message) @ $($_.InvocationInfo.ScriptLineNumber)"
+        $keep = @()
+        if (Test-Path -LiteralPath $log) { $keep = @(Get-Content -LiteralPath $log -Encoding UTF8) }
+        $keep = @($keep + $line)
+        if ($keep.Count -gt 20) { $keep = $keep[($keep.Count - 20)..($keep.Count - 1)] }
+        $keep | Out-File -LiteralPath $log -Encoding UTF8
     } catch { }
     exit 0
 }
@@ -214,11 +220,17 @@ catch {
 $sw.Stop()
 
 # 예산을 넘겼으면 그 사실을 남긴다. 알림에는 안 섞는다. 사용자가 고칠 것이 아니다.
+#
+# 덧붙이지 않고 덮어쓴다. 알고 싶은 것은 "요즘도 넘기는가"이지 넘긴 역사가 아니고,
+# 덧붙이면 찬 시작마다 한 줄씩 영원히 쌓인다. 세션이 처음 열릴 때 한 번은 넘길 수
+# 있다. 이 PC 에서 여덟 번을 재니 몸통이 다 200밀리초 안이었고 넘긴 것은 디스크가
+# 식어 있던 첫 회뿐이었다.
 if ($sw.ElapsedMilliseconds -gt 200) {
     try {
         $over = Join-Path (Join-Path $env:USERPROFILE '.claude') 'kw-control-tower.slow'
-        "$(Get-Date -Format o) $($sw.ElapsedMilliseconds)ms files=$($script:Budget.Files)" |
-            Out-File -LiteralPath $over -Encoding UTF8 -Append
+        [System.IO.File]::WriteAllText($over,
+            "$(Get-Date -Format o) $($sw.ElapsedMilliseconds)ms files=$($script:Budget.Files)`r`n",
+            (New-Object System.Text.UTF8Encoding($false)))
     } catch { }
 }
 
@@ -226,5 +238,7 @@ if ($notes.Count -eq 0) { exit 0 }   # 이상이 없으면 아무 말도 안 한
 
 Write-Output 'KW 컨트롤 타워: 이 PC가 사내 설정과 어긋난 곳이 있습니다.'
 foreach ($n in $notes) { Write-Output "  - $n" }
-Write-Output '고치려면 /kw-sync 를 실행하십시오. 이 알림은 아무것도 바꾸지 않았습니다.'
+# 플러그인이 나르는 명령은 언제나 '플러그인이름:명령이름' 으로 불린다. 짧은 이름을
+# 적으면 사용자가 없는 명령을 치게 된다.
+Write-Output '고치려면 /kw-control-tower:kw-sync 를 실행하십시오. 이 알림은 아무것도 바꾸지 않았습니다.'
 exit 0

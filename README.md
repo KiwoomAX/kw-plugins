@@ -37,7 +37,7 @@
 않는다.** 매 세션 도는 자리라 사용자에게 묻지 않고 PC를 바꾸면 안 되기 때문이다. 이상이
 없으면 아무 말도 하지 않는다.
 
-**`/kw-sync` 를 부르면 고친다.** 걸음이 여덟이고 저마다 독립이라 하나가 실패해도 나머지는
+**`/kw-control-tower:kw-sync` 를 부르면 고친다.** 걸음이 여덟이고 저마다 독립이라 하나가 실패해도 나머지는
 돈다. 배포처 등록, 필수 플러그인 설치와 되켜기, 더 안 쓰는 것 정리, 파이썬 라이브러리,
 `PYTHONUTF8`, `CLAUDE.md`의 사내 문안, 옛 스킬 사본과 훅 배선 정리, `python3` 판정이다.
 
@@ -57,7 +57,7 @@
 | 읽는 것 | 파일 여덟과 레지스트리 값 하나. 이 PC에서 합쳐 25KB 미만 |
 | 몸통 시간 | 200밀리초를 넘으면 그 값을 남기고 검사가 떨어진다 |
 
-이 PC에서 재 보니 프로세스까지 합쳐 365밀리초다. 훅을 `pwsh`가 아니라 `powershell.exe`로
+이 PC에서 여덟 번을 재니 프로세스까지 합쳐 399에서 496밀리초 사이이고 몸통은 다 200밀리초 안이었다. 세션이 처음 열릴 때 한 번은 넘길 수 있는데, 그때는 알림에 안 섞고 자국만 남긴다. 훅을 `pwsh`가 아니라 `powershell.exe`로
 거는 이유가 둘이다. 그쪽이 빠르고(7은 513밀리초), pwsh 7이 클로드가 찾는 세 자리에 없는
 PC에서도 훅이 죽지 않는다.
 
@@ -68,8 +68,8 @@ PC에서도 훅이 죽지 않는다.
 | `.claude-plugin/marketplace.json` | 마켓플레이스 `kiwoom-ax` 정의 |
 | `plugins/kw-control-tower/manifest.json` | **목록의 정본.** 새 플러그인은 여기에 더한다 |
 | `plugins/kw-control-tower/hooks/` | 세션 시작 알림, 도커 인증서 안내, `python3` 가드 |
-| `plugins/kw-control-tower/scripts/sync.ps1` | `/kw-sync` 가 부르는 본체 |
-| `plugins/kw-control-tower/commands/kw-sync.md` | `/kw-sync` 명령 |
+| `plugins/kw-control-tower/scripts/sync.ps1` | 그 명령이 부르는 본체 |
+| `plugins/kw-control-tower/commands/kw-sync.md` | `/kw-control-tower:kw-sync` 명령. 플러그인이 나르는 명령은 언제나 `플러그인이름:명령이름` 으로 불린다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `tests/test_control_tower.ps1` | 계약 검사. `pwsh -File tests\test_control_tower.ps1` |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
