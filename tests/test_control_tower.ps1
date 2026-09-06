@@ -327,6 +327,43 @@ Check '오래 잡힌 잠금은 빼앗는다'      { $syncSrc -match 'heldsince' 
 Check '남의 잠금은 안 지운다'          { $syncSrc -match "\`$owner -eq \`$token" }
 Check '줄바꿈을 대상 파일에 맞춘다'    { $syncSrc -match '\$nl' }
 
+# --- 문서와 코드를 맞댄다 ---------------------------------------------------
+Write-Host ''
+Write-Host '문서와 코드'
+# 설계 문서가 걸음을 일곱으로 세는데 코드가 여덟인 적이 있었다. 사람이 셀 일이
+# 아니라 맞대면 되는 일이다.
+$spec = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw
+$readme = Get-Content (Join-Path $repo 'README.md') -Raw
+
+$codeSteps = @([regex]::Matches($syncSrc, "(?m)^Write-Host '(\d+)\.")) | ForEach-Object { [int]$_.Groups[1].Value }
+Check '맞춤의 걸음 번호가 1부터 빠짐없이 이어진다' {
+    ($codeSteps.Count -gt 0) -and (@(1..$codeSteps.Count | Where-Object { $codeSteps -notcontains $_ }).Count -eq 0)
+}
+Check '설계 문서가 코드와 같은 수로 센다' {
+    $m = [regex]::Match($spec, '걸음 (\S+)이고 각각 독립이며 멱등이다')
+    $words = @{ '넷'=4; '다섯'=5; '여섯'=6; '일곱'=7; '여덟'=8; '아홉'=9; '열'=10 }
+    $m.Success -and $words[$m.Groups[1].Value] -eq $codeSteps.Count
+}
+Check '설계 문서의 걸음 목록이 코드와 같은 수다' {
+    $body = [regex]::Match($spec, "(?s)## 맞춤이 고친다.*?(?=`r?`n## )").Value
+    @([regex]::Matches($body, '(?m)^\d+\. \*\*')).Count -eq $codeSteps.Count
+}
+Check 'README 가 코드와 같은 수로 센다' {
+    $m = [regex]::Match($readme, '걸음이 (\S+)이고')
+    $words = @{ '넷'=4; '다섯'=5; '여섯'=6; '일곱'=7; '여덟'=8; '아홉'=9; '열'=10 }
+    $m.Success -and $words[$m.Groups[1].Value] -eq $codeSteps.Count
+}
+# 알림이 부르라고 하는 명령이 실제로 있는 파일이어야 한다.
+Check '알림이 가리키는 명령 파일이 실재한다' {
+    $m = [regex]::Match($hookCode, '/([a-z0-9-]+):([a-z0-9-]+) 를 실행')
+    $m.Success -and (Test-Path -LiteralPath (Join-Path $plugin ("commands\" + $m.Groups[2].Value + ".md")))
+}
+Check '알림이 가리키는 플러그인 이름이 자기 이름과 같다' {
+    $m = [regex]::Match($hookCode, '/([a-z0-9-]+):([a-z0-9-]+) 를 실행')
+    $pj = Get-Content (Join-Path $plugin '.claude-plugin\plugin.json') -Raw | ConvertFrom-Json
+    $m.Success -and $m.Groups[1].Value -eq $pj.name
+}
+
 # --- 결과 -----------------------------------------------------------------
 Write-Host ''
 if ($script:FailList.Count -eq 0) {
