@@ -1,0 +1,118 @@
+{
+  "lens": "adversarial",
+  "target": "2026-09-06-control-tower-design.md",
+  "findings": [
+    {
+      "failure_story": "새 라이브러리를 하나 더하려고 우산 레포의 requirements.txt에 한 줄을 넣고 커밋했다. 모든 PC가 다음 세션에 마켓플레이스를 갱신했지만 훅은 아무 말도 하지 않았다. 아무도 /kw-sync를 돌리지 않았고, 새 스킬이 그 라이브러리를 부르는 날 ImportError로 처음 알았다. 이 설계가 만들어진 바로 그 시나리오가 통째로 조용히 지나갔다.",
+      "root_cause": "훅이 재는 것을 「선언의 해시」 하나로 정한 결정과, 선언이 「목록이 아니라 가리킴」이라는 결정이 서로를 무력화한다. manifest.json은 requirements.txt를 가리키기만 하므로 라이브러리가 늘어도 manifest.json의 바이트는 그대로다. 문안(templates/personal-memory-ko.md)도 같다. 해시가 바뀌는 것은 플러그인 목록과 은퇴 목록이 바뀔 때뿐이라, 옮기기로 한 셋 중 둘이 알림 밖에 있다.",
+      "where": "「훅의 계약」의 첫 줄과 「결정한 것」의 '훅이 재는 것' 행. 「남는 위험」의 \"그 창을 메우는 것이 훅의 알림이다\"도 이 전제 위에 서 있다.",
+      "evidence": "D:\\projects\\kw_install\\requirements.txt는 목록 정본이며 주석에 판 제약의 이유가 붙어 있다. 문서 「선언 파일」의 manifest.json은 \"pythonRequirements\": \"requirements.txt\" 한 줄로 가리키기만 한다. 단순화 제안: 해시 대신 우산의 설치 판본을 비교하면(installed_plugins.json에 version과 gitCommitSha가 이미 있다) 가리킨 파일이 바뀌어도 판본이 함께 바뀌므로 같은 파일 하나 읽기로 세 대상을 다 덮는다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "/kw-sync를 돌렸는데 3번 걸음(pip)이 사내망 인증서 문제로 실패했다. 나머지 걸음은 돌았고 6번 걸음이 새 해시를 상태 파일에 적었다. 그 뒤로 훅은 영원히 조용하다. 라이브러리가 안 깔린 PC가 「이상 없음」으로 표시된 채 몇 달을 돈다.",
+      "root_cause": "걸음 여섯을 「각각 독립이며 하나가 실패해도 나머지는 돈다」로 만든 것과, 마지막 걸음이 조건 없이 해시를 기록하게 한 것이 겹쳤다. 독립 실행은 옳은 선택이지만 성공 기록까지 독립이 아니어서, 부분 성공이 완전 성공과 같은 흔적을 남긴다.",
+      "where": "「/kw-sync의 걸음」의 6번과 그 앞의 \"하나가 실패해도 나머지는 돈다\".",
+      "evidence": "문서 안에서 확인. 완화 제안: 걸음 전부가 성공했을 때만 해시를 적고, 부분 성공이면 상태 파일에 적지 않아 다음 세션에도 훅이 같은 알림을 내게 한다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "설치가 끝나고 세션을 열 때마다 훅이 \"kiwoom-ax의 자동 갱신이 꺼져 있다\"를 낸다. /kw-sync를 돌려도 사라지지 않는다. 사본 _ensure_autoupdate.sh가 marketplace.json을 못 찾고 경고 한 줄을 stderr로 흘린 뒤 0으로 돌아가기 때문이고, 그 경고는 훅도 스크립트도 실패로 치지 않는다.",
+      "root_cause": "우산을 레포 루트가 아니라 plugins/kw-control-tower/ 아래에 두기로 한 결정과, ensure_marketplace_autoupdate를 「그대로 받는다」로 정한 결정이 어긋난다. 그 함수는 마켓플레이스 이름을 <플러그인루트>/.claude-plugin/marketplace.json에서 읽는데, disciplined-coder는 플러그인 루트가 곧 레포 루트라 그 파일이 있고 우산은 없다. 더 나아가 그 함수는 이름 하나만 다루므로 claude-plugins-official과 anthropic-agent-skills를 켜는 일은 애초에 못 한다.",
+      "where": "「범용 함수의 사본」 표의 _ensure_autoupdate.sh 행과 「우산이 나르는 것」의 첫 문단.",
+      "evidence": "_ensure_autoupdate.sh:20 local home=\"$1\" root=\"$2\" mkt_json=\"$2/.claude-plugin/marketplace.json\" 그리고 없을 때 WARNING 뒤 return 0. disciplined-coder의 marketplace.json은 플러그인 source가 \"./\"다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "창을 둘 열어 두고 한쪽에서 /kw-sync를 돌리는 동안 다른 쪽 세션이 시작해 disciplined-coder의 훅이 돌았다. 둘 다 known_marketplaces.json을 읽고 고쳐 썼고, 둘 다 같은 임시 파일 이름을 썼다. 한쪽 결과가 사라졌고, 남은 .bak은 원본이 아니라 상대가 이미 고친 판이었다.",
+      "root_cause": "「멱등이면 겹쳐도 된다」로 경계를 그은 것이 원인이다. 멱등은 순차 실행의 성질이라 동시 read-modify-write를 막지 못한다. 문서는 잠금의 값을 CLAUDE.md에 대해서만 논하고, 두 체계가 함께 만지기로 명시한 known_marketplaces.json과 settings.json에는 잠금이 없다는 사실을 적지 않는다.",
+      "where": "「disciplined-coder와의 경계」의 멱등 문단과 경계 표의 settings.json·known_marketplaces.json 두 행.",
+      "evidence": "_ensure_autoupdate.sh의 _autoupdate_patch는 잠금을 잡지 않고 고정 이름의 임시 파일을 쓴다: local tmp=\"$1.dc-tmp\", cp \"$f\" \"$f.bak\". 같은 레포의 _managed_block.sh 주석이 바로 그 조합을 오답으로 적어 두었다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "이행 첫째 걸음에서 우산을 --plugin-dir로 얹어 두고 설치기를 다시 돌렸다. CLAUDE.md에 AX 블록이 두 벌 생겼고, 한 번은 설치기의 쓰기와 우산의 쓰기가 같은 순간에 겹쳐 사용자가 손으로 적은 줄이 조각났다.",
+      "root_cause": "\"이 시점에는 우산이 깔려도 하는 일이 설치기와 겹칠 뿐 해가 없다\"는 판단이 원인이다. 두 쓰기가 매칭 규칙도 다르고 직렬화 수단도 다르다. 설치기는 PowerShell이라 사본이 잡는 $uc.lock을 아예 모른다.",
+      "where": "「이행」 첫 문단과 그 아래 정규화 문단의 순서.",
+      "evidence": "setup.ps1:1633·1647의 접두 정규식이며 잠금 호출이 없다. 상대편은 _managed_block.sh의 전체 줄 비교와 lock=\"$uc.lock\"이다. 이 PC에 CLAUDE.md.pre-dedup 파일이 남아 있어 중복이 한 번 실제로 일어났음을 보인다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "우산을 깔고 나니 사내 인증서 스킬이 두 벌 실렸다. 개인 스킬 폴더의 옛 사본과 플러그인 안의 새 것이 같은 이름으로 뜬다.",
+      "root_cause": "register-corp-certs를 선언의 은퇴 목록에 적지 않기로 한 결정이다. \"우산이 자기 skills/에 담으면 개인 스킬 폴더에 복사할 일 자체가 없어진다\"는 새로 세우는 PC에만 참이다. 이미 설치기를 돌린 PC에는 사본이 이미 놓여 있고 그것을 걷는 자리가 설계 어디에도 없다.",
+      "where": "「선언 파일」 마지막 문단과 retiredSkills 값, 경계 표의 ~/.claude/skills/ 행.",
+      "evidence": "C:\\Users\\ho381\\.claude\\skills\\ 아래에 register-corp-certs 폴더가 실제로 있다. setup.ps1:282 주석이 \"other shipped skill (register-corp-certs) stays a personal skill by design\"이라 적는다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "/kw-sync의 5번 걸음이 개인 스킬 폴더에서 은퇴 이름의 폴더를 지웠는데, 그 안에 사용자가 손으로 더해 둔 파일이 함께 있었다. 백업이 없어 되돌릴 수 없었다. 게다가 대체 플러그인 설치가 그 회차에 실패했던 터라 문서 스킬이 아예 없는 PC가 됐다.",
+      "root_cause": "5번 걸음을 한 줄로 옮겨 적으면서, 지금 설치기가 그 삭제에 걸어 둔 조건 둘(대체 플러그인이 디스크에 확인됐을 때만, 그리고 설치기가 쓴 것 말고 아무것도 없을 때만)과 백업 디렉터리 인자를 함께 옮기지 않았다.",
+      "where": "「/kw-sync의 걸음」의 5번. 「테스트」 절에도 이 걸음의 보호 조건을 검사하는 자리가 없다.",
+      "evidence": "setup.ps1:2470-2500. $replaced 검사로 감싸고 -BackupDir $IconDir로 부르며 'kept' 갈래는 \"it holds files this installer did not write\"를 경고한다.",
+      "category": "irreversible"
+    },
+    {
+      "failure_story": "이행 둘째 걸음까지 하고 셋째 걸음 앞에서 며칠 멈췄다. 그 사이 이미 설치된 PC들이 세션을 열자 kw-doc-formats 마켓플레이스가 갱신되며 marketplace.json이 사라진 레포를 읽었다. 사내 문서 스킬이 전부 사라졌고, 그 PC들에는 우산이 아직 없어 /kw-sync로 복구할 수도 없었다.",
+      "root_cause": "발행처 이전을 둘째 걸음에 두고 설치기 개정을 셋째 걸음으로 미룬 순서다. 옛 등록을 걷는 수단을 선언의 retiredPlugins에 맡겼는데, 그것을 읽는 것은 우산이고 우산을 까는 것은 셋째 걸음의 새 설치기다. 걷어낼 주체가 걷어낼 대상보다 나중에 도착한다.",
+      "where": "「이행」의 둘째 걸음과 셋째 걸음의 순서.",
+      "evidence": "known_marketplaces.json의 kw-doc-formats 항목이 repo KiwoomAX/KW-doc-formats를 가리키고 autoUpdate가 true다. 완화 제안: 셋째 걸음이 선 뒤에 파일을 지운다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "설치기 9단계에서 bash를 불렀더니 WSL의 bash.exe가 잡혔다. 리눅스 쪽 홈에서 sync.sh가 돌아 ~/.claude를 새로 만들고 pip과 claude를 못 찾아 걸음 전부가 실패했다.",
+      "root_cause": "우산 스크립트를 셸로 정하면서 두 언어가 만나는 자리를 한 곳으로 요약하고, 그 한 자리에서 어느 bash를 어떻게 고르는지는 정하지 않았다.",
+      "where": "「우산이 나르는 것」의 두 언어가 만나는 자리 문장과 「남는 위험」의 Git Bash 항목.",
+      "evidence": "setup.ps1에는 bash.exe를 찾는 코드가 없다. 이 스크립트는 파이썬은 Resolve-PinnedPython으로 경로를 못 박고 pwsh도 세 자리를 명시해 찾는다(setup.ps1:964-966).",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "우산이 자리를 잡은 뒤 설치기를 다시 돌렸더니 settings.json의 extraKnownMarketplaces에서 공식 마켓플레이스 항목들이 사라졌다.",
+      "root_cause": "「경계」 표가 7단계 settings.json 쓰기를 통째로 설치기에 남기고, 셋째 걸음은 8·9단계만 새로 쓰기로 한 것이다. Merge-ClaudeSettings의 정리 규칙은 $script:Plugins를 진실로 삼는다.",
+      "where": "「경계」 표의 7단계 settings.json 행과 「이행」 셋째 걸음.",
+      "evidence": "setup.ps1:1412-1420. $live = @($script:Plugins | ForEach-Object { $_.Marketplace }) 뒤에 조건부 Remove.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "정본 쪽이 잠금 규약을 고쳤는데 우산의 사본은 그 앞 판이었다. 두 체계가 같은 CLAUDE.md.lock을 잡았지만 규약이 달라 배제가 안 됐다. 낡음 검사는 개발 PC의 테스트에만 있어 아무도 재지 않았다.",
+      "root_cause": "\"사본을 받는 실질 이득이 잠금에 있다\"는 근거와 \"낡음 검사는 테스트에만 둔다\"는 규율이 함께 서 있는 것이다. 잠금은 규약이라 같은 판일 때만 배제가 성립하는데, 판이 같은지를 사용자 PC에서는 아무도 재지 않는다.",
+      "where": "「범용 함수의 사본」의 잠금 이득 문단과 낡음 검사 항목.",
+      "evidence": "_managed_block.sh의 managed_block_unlock 주석이 그 실패를 그대로 적는다. 완화 제안: 잠금 규약이 바뀌면 잠금 디렉터리 이름을 바꾸도록 정본에 규약 판 번호를 두게 한다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "우산의 판본이 플러그인 캐시에서 갱신되지 않은 채 마켓플레이스 클론만 새것이 됐다. 설치기는 클론의 새 선언을 읽어 일을 끝냈는데 훅은 캐시의 옛 선언 해시를 비교해 매 세션 알림을 냈다.",
+      "root_cause": "\"파일 하나에 경로 둘\"이라는 결정이 두 경로를 같은 내용으로 전제한다. 실제로는 마켓플레이스 클론과 플러그인 캐시가 서로 다른 시점에 갱신되는 두 벌의 사본이다.",
+      "where": "「결정한 것」 표의 '선언의 자리' 행.",
+      "evidence": "cache/kw-doc-formats/kw-doc-formats/ 아래에 판본 폴더가 둘 남아 있어 캐시가 판본 단위로 따로 쌓인다는 것을 보인다.",
+      "category": "failure-mode"
+    },
+    {
+      "failure_story": "schema를 2로 올렸다. 그런데 막으려던 대상인 옛 설치기는 schema를 볼 줄 모르는 판이라 그대로 지나갔고, 멈춘 것은 새 설치기뿐이었다.",
+      "root_cause": "판 번호를 「옛 설치기를 든 PC」를 위해 두기로 한 것이다. 판 게이트는 읽는 쪽이 그 게이트를 이미 갖고 있을 때만 작동하는데, 여기서 보호 대상은 정의상 게이트가 없는 옛 판이다.",
+      "where": "「자동 갱신을 어디까지 켜나」 끝의 schema 문단과 「남는 위험」, 「테스트」의 첫 항목.",
+      "evidence": "문서 안에서 확인. 단순화 제안: schema 필드와 그 검사와 테스트를 빼고, 선언이 가리킨 파일이 없으면 멈추는 검사만 남긴다.",
+      "category": "yagni"
+    },
+    {
+      "failure_story": "우산을 접기로 했는데 되돌리는 절차가 없었다. 정규화로 지워진 옛 문구와 삭제된 개인 스킬 사본은 되돌릴 수 없었다.",
+      "root_cause": "설계에 되돌리기 절이 없고, 되돌릴 수 없는 걸음 셋(발행처 파일 삭제, CLAUDE.md 마커 일회 정규화, 개인 스킬 폴더 삭제)이 각각 다른 절에 흩어져 서로를 보지 못한다.",
+      "where": "「하지 않는 것」과 「이행」 사이.",
+      "evidence": "문서에 되돌리기를 다루는 문장이 없다. 대비로 setup.ps1은 되돌릴 수 없는 쓰기마다 사본을 남긴다(1668-1672, 2476).",
+      "category": "irreversible"
+    },
+    {
+      "failure_story": "사본 넷을 받는 장치를 다 만들고 나니 실제로 값을 낸 것은 _managed_block.sh 하나였다. 장치 유지에 드는 손이 사본이 아끼는 손보다 컸다.",
+      "root_cause": "\"다시 짜지 않고 사본으로 받는다\"를 넷 전부에 일률로 적용한 것이다. 사본 값은 파일마다 다른데 규율은 하나로 걸렸다.",
+      "where": "「범용 함수의 사본」의 표 넷과 사본 규율 목록.",
+      "evidence": "_ensure_autoupdate.sh는 이 설계의 요구를 못 채우고 _managed_block.sh만이 잠금 공유라는 대체 불가한 값을 갖는다. 단순화 제안: 사본을 _managed_block.sh 하나로 줄이고 나머지 셋은 우산 안에 직접 쓴다.",
+      "category": "overdesign"
+    }
+  ],
+  "could_not_check": [
+    "claude plugin install이 enabledPlugins를 settings.json에 적는지 다른 곳에 적는지 재지 못했다.",
+    "마켓플레이스 클론 갱신과 플러그인 캐시 갱신이 한 동작인지 따로인지는 확정하지 못했다.",
+    "우산의 sync.sh와 hooks/session-check.sh 실물이 아직 없어 문서의 서술로만 판정했다.",
+    "tests/test_setup.ps1의 전체 검사 목록은 훑지 않고 문서가 인용한 두 검사만 실재를 확인했다."
+  ],
+  "notes": "가장 무거운 뿌리 하나를 꼽으면 「감지의 범위와 옮기려는 것의 범위가 다르다」이다. 옮기는 것은 목록 셋인데 훅이 재는 것은 그중 하나만 바꾸는 파일 한 개의 해시이고, 그 해시를 적는 걸음은 부분 실패에도 적힌다. 첫 번째와 두 번째 발견이 같은 뿌리다. 기능 추가는 올리지 않았고 제안은 전부 단순화이거나 이미 이 레포에 있는 규율의 확장이다."
+}

@@ -1,0 +1,181 @@
+{
+  "lens": "grounding+consistency",
+  "target": "2026-09-06-control-tower-design.md",
+  "findings": [
+    {
+      "lens": "grounding",
+      "what": "라이브러리는 여덟이 아니라 일곱이다.",
+      "where": "「딛고 선 측정」의 '설치기가 지금 나르는 것' 칸과 「경계」 표의 3단계 행",
+      "evidence": "requirements.txt의 배포판은 openpyxl, python-docx, python-pptx, pypdf, markitdown[docx,pptx,pdf,xlsx,xls], chardet, pandas<3.0 으로 일곱이다. setup.ps1:419 Get-RequirementNames도 같은 일곱을 센다.",
+      "why_it_matters": "잰 값이라고 적힌 표에 안 맞는 수가 있다. 이행 뒤 '옮긴 것이 다 왔나'를 대조하는 기준이 되므로 여덟을 기대하고 일곱을 세면 하나가 빠진 것으로 읽힌다."
+    },
+    {
+      "lens": "grounding",
+      "what": "'자동 갱신은 Set-MarketplaceAutoUpdate가 레지스트리에 따로 넣는다'가 틀렸다. 그 함수는 윈도 레지스트리가 아니라 known_marketplaces.json을 쓰고, autoUpdate를 settings.json에 쓰는 자리가 Merge-ClaudeSettings 안에 따로 있다.",
+      "where": "「딛고 선 측정」의 'settings.json의 기록자' 칸",
+      "evidence": "setup.ps1:1478-1510 Set-MarketplaceAutoUpdate는 $RegistryPath(=known_marketplaces.json)를 쓴다. setup.ps1:1394-1399에 Merge-ClaudeSettings가 settings.json에도 autoUpdate를 쓰는 자리가 있다.",
+      "why_it_matters": "두 자리가 어긋난 원인을 '기록자가 둘이라서'로 설명하는데 실제 코드는 두 자리 모두에 쓴다. 진짜 원인(그 행이 붙은 뒤로 설정 병합이 이 PC에서 안 돌았다)이 가려진다. 같은 문서가 HKCU\\Environment도 '레지스트리'라 부르므로 낱말이 두 뜻으로 쓰인다."
+    },
+    {
+      "lens": "grounding",
+      "what": "사본 표가 _managed_block.sh를 '마커가 상수로 박혀 있어 리팩터를 기다린다'고 적었으나 마커는 처음부터 함수 인자이고 이름표는 이미 인자화됐다.",
+      "where": "「범용 함수의 사본」 표의 _managed_block.sh 행 '상태' 칸",
+      "evidence": "_managed_block.sh:3 Usage 주석, 152·178행이 begin/end를 인자로 받는다. 14행에 MANAGED_TAG가 이미 있다.",
+      "why_it_matters": "표가 이 사본을 '받을 수 없음'으로 세워 두는데 막는 것이 없다. 같은 문서 안 다른 문단이 '마커 자체는 이미 인자라 손댈 것이 없다'라고 반대로 적어 두 자리가 부딪친다."
+    },
+    {
+      "lens": "grounding",
+      "what": "_ensure_autoupdate.sh의 종료 코드 표가 공개 함수의 것이 아니다. ensure_marketplace_autoupdate는 어떤 경우에도 0으로 끝난다.",
+      "where": "「범용 함수의 사본」 표의 _ensure_autoupdate.sh 행과 '10은 …' 문단",
+      "evidence": "_ensure_autoupdate.sh:19-36은 rc를 받아 경고만 찍고 값을 안 돌려준다. 0/10/3/4/5 표는 내부 함수 _autoupdate_patch의 것이다.",
+      "why_it_matters": "'사본은 없으면 넣는다까지 쓰고 되켜기는 한 겹 얹는다'를 그 종료 코드로 갈라 쓸 작정인데, 공개 함수는 '고쳤다'와 '물러났다'를 호출자에게 알리지 않는다."
+    },
+    {
+      "lens": "grounding",
+      "what": "종료 코드 10의 뜻을 절반만 적었다. 10은 '항목이 아예 없다'도 함께 덮는다.",
+      "where": "「범용 함수의 사본」의 '10은 … 키가 있으니 값이 무엇이든 물러난다'",
+      "evidence": "_ensure_autoupdate.sh:52-53 if t is None or \"autoUpdate\" in t: sys.exit(10). pick은 이름이 없으면 None을 준다.",
+      "why_it_matters": "걸음 1은 '없으면 등록한다'와 '꺼져 있으면 되켠다'를 갈라야 하는데 사본이 그 둘을 같은 값으로 돌려준다."
+    },
+    {
+      "lens": "grounding",
+      "what": "사본 _ensure_autoupdate.sh는 플러그인 루트 아래 .claude-plugin/marketplace.json을 요구하는데 이 설계가 정한 우산의 자리에는 그 파일이 없다.",
+      "where": "「범용 함수의 사본」 표와 「우산이 나르는 것」의 첫 문단",
+      "evidence": "_ensure_autoupdate.sh:20-24가 없으면 경고 뒤 return 0. 문서는 우산이 plugins/kw-control-tower/ 아래 산다고 정했고 마켓플레이스 파일은 레포 루트에 놓인다.",
+      "why_it_matters": "CLAUDE_PLUGIN_ROOT를 그대로 넘기면 사본이 아무것도 안 한 채 0으로 끝난다. '되켜기만 못 한다'가 아니라 '넣는 것'도 못 한다."
+    },
+    {
+      "lens": "grounding",
+      "what": "'고아 BEGIN을 중화한다'는 지금 정본의 동작이 아니다.",
+      "where": "「범용 함수의 사본」 표의 _managed_block.sh 행 '계약' 칸",
+      "evidence": "_managed_block.sh:18-19 주석이 '새로 쓰지는 않는다 — 읽기 전용 하위호환'이라 적고, STRIP_AWK는 그 줄을 지우고 경고만 낸다.",
+      "why_it_matters": "계약을 잘못 적으면 우산 쪽 테스트가 없는 동작을 단언하게 된다."
+    },
+    {
+      "lens": "grounding",
+      "what": "'괄호 안 문구를 바꿔도 살아남게 하려던 것이라고 주석에 적혀 있다'는 근거 없다. 그런 주석이 없다.",
+      "where": "「이행」의 정규화 문단",
+      "evidence": "setup.ps1:1611-1614와 1631-1632의 주석만 있고 괄호 안 문구를 이야기하는 줄은 없다.",
+      "why_it_matters": "정규화가 필요한 사실 자체는 맞지만 이유를 없는 주석에 돌려 두면 검토자가 근거를 못 찾는다.",
+      "호출자_판정": "틀린 지적으로 걸렀다. setup.ps1:1616-1618에 'matching a prefix also survives somebody rewording the parenthetical'이 실제로 있다."
+    },
+    {
+      "lens": "grounding",
+      "what": "선언의 retiredPlugins가 설치기의 은퇴 목록 둘과 다르다. frontend-design@claude-code-plugins가 빠졌다.",
+      "where": "「선언 파일」의 retiredPlugins",
+      "evidence": "setup.ps1:272-275에 둘이 있고, 이 PC의 installed_plugins.json에 frontend-design@claude-code-plugins가 아직 남아 있다.",
+      "why_it_matters": "옮기면서 은퇴 하나가 사라진다. 옛 설치기를 돌린 PC에서 같은 플러그인이 두 마켓플레이스로 두 벌 실린다."
+    },
+    {
+      "lens": "grounding",
+      "what": "'가장 무거운 뿌리'라는 순위는 인용한 감사에 없다.",
+      "where": "「남는 위험」의 코드 사본 항목",
+      "evidence": "disciplined-coder의 2026-09-06-self-audit.md는 다섯 뿌리를 나열할 뿐 경중을 매기지 않는다. 소유자 규칙의 복제는 첫째로 적혔을 뿐이다.",
+      "why_it_matters": "재지 않은 순위를 잰 것처럼 적었다. 사본 규율을 정당화하는 근거가 실제보다 강하게 들린다."
+    },
+    {
+      "lens": "consistency",
+      "what": "설치기가 부를 스크립트의 이름이 sync.ps1과 sync.sh 둘로 갈린다.",
+      "where": "「경계」 절과 「우산이 나르는 것」의 네 자리",
+      "evidence": "결론 문단이 '우산의 스크립트는 셸로 쓴다'로 못 박으므로 sync.ps1이 남은 옛 이름이다.",
+      "why_it_matters": "설치기 9단계가 무엇을 부를지 문서로 정해지지 않는다. 테스트가 어느 이름을 단언할지도 갈린다."
+    },
+    {
+      "lens": "consistency",
+      "what": "「경계」 표가 우산의 settings.json 소유를 kiwoom-ax 한 항목으로 좁혀 놓았는데 선언과 걸음 1은 공식 마켓플레이스 둘까지 등록·유지해야 한다.",
+      "where": "「경계」 표의 settings.json 행과 바로 아래 known_marketplaces.json 행",
+      "evidence": "선언이 claude-plugins-official과 anthropic-agent-skills를 들고 있고 「자동 갱신을 어디까지 켜나」가 셋을 든다.",
+      "why_it_matters": "경계 표가 검사의 기준인데 기준이 좁아 실제로 우산이 쓸 항목 둘이 '남의 자리'로 분류된다. enabledPlugins 행이 아예 없어 걸음 2가 쓰는 자리는 소유가 안 정해졌다."
+    },
+    {
+      "lens": "consistency",
+      "what": "「결정한 것」의 되켜기 근거가 인용한 앞선 결정과 반대다.",
+      "where": "「결정한 것」 표의 '자동 갱신이 꺼져 있으면' 행 근거 칸",
+      "evidence": "PYTHONUTF8 spec은 '값이 있으면 그대로 두고', '0이면 초록으로 알린다', '사용자 값을 존중한다'로 되어 있다. 되켜기는 사용자가 false로 둔 값을 true로 되돌리는 것이라 정반대다.",
+      "why_it_matters": "같은 문서가 다른 절에서는 갈림을 인정한다. 결정 표만 '결이 같다'고 적어 나중에 되켜기 범위를 넓히는 근거가 될 수 있다."
+    },
+    {
+      "lens": "consistency",
+      "what": "/kw-sync 걸음 1이 결정 표의 되켜기 범위를 담지 못한다.",
+      "where": "「/kw-sync의 걸음」 1번",
+      "evidence": "결정 표는 '되켜는 것은 kiwoom-ax 하나'로 한정하는데 걸음 1의 문장에는 대상 한정이 없다. 선언의 plugins[].autoUpdate가 다섯 모두 true인 것도 부딪친다.",
+      "why_it_matters": "구현자가 걸음 1만 읽으면 사용자가 끈 마켓플레이스까지 되켠다. autoUpdate가 마켓플레이스 단위 값인데 플러그인 단위로 적혀 있다."
+    },
+    {
+      "lens": "consistency",
+      "what": "python3 가드 훅이 「우산이 나르는 것」에도 「경계」에도 「테스트」에도 없다.",
+      "where": "「이 설계에 흡수되는 것」",
+      "evidence": "「우산이 나르는 것」 표에 session-check.sh와 docker-cert-reminder.ps1만 있다.",
+      "why_it_matters": "흡수한다고 선언한 산출물의 자리와 확인 수단이 안 적혔다. 끄는 스위치를 두지 않기로 확정한 가드라 오작동했을 때 되돌릴 자리도 비어 있다."
+    },
+    {
+      "lens": "consistency",
+      "what": "scripts/vendor.sh가 「우산이 나르는 것」 표에 없고 표에 있는 scripts/vendor/와 이름이 거의 같다.",
+      "where": "「범용 함수의 사본」과 「우산이 나르는 것」 표",
+      "evidence": "표는 사본이 놓이는 디렉터리만 싣고 사본을 만드는 도구와 그 테스트와 낡음 검사가 사는 자리는 없다.",
+      "why_it_matters": "산출물 공백이다. 한 글자 차이라 문서 안에서 서로를 가리키는지 헷갈린다."
+    },
+    {
+      "lens": "consistency",
+      "what": "선언의 retiredSkills가 설치기의 은퇴 스킬 가드를 버려 걸음 5가 사용자 작업물을 지울 수 있는 형태가 됐다.",
+      "where": "「선언 파일」의 retiredSkills와 걸음 5",
+      "evidence": "setup.ps1:279-284와 913-960의 Remove-RetiredClaudeSkill이 ReplacedBy 확인과 $onlySkill 검사와 .bak 사본을 갖는다. 선언은 이름 문자열만 남긴다.",
+      "why_it_matters": "가드 셋을 표현할 자리가 선언에 없고 걸음 5에도 안 적혔다. 테스트도 걸음 5를 안 덮는다."
+    },
+    {
+      "lens": "consistency",
+      "what": "도커 훅이 우산으로 옮겨간 뒤 기존 PC의 settings.json에 남는 옛 훅 항목을 걷는 자리가 없다.",
+      "where": "「경계」 표의 도커 훅 행, 걸음 여섯, 「이행」 셋째 걸음",
+      "evidence": "setup.ps1:2404-2406에서 훅은 $BundleDir(%LOCALAPPDATA%\\corp-certs)로 복사되고 1260-1281이 그 절대 경로를 settings.json의 hooks.PreToolUse에 박는다. 선언에 은퇴 훅 칸이 없다.",
+      "why_it_matters": "알림이 두 번 뜨거나 사라진다. 「경계」 표의 '~/.claude/hooks/가 비는 것은…' 설명도 자리를 잘못 짚는다."
+    },
+    {
+      "lens": "consistency",
+      "what": "'옛 등록은 선언의 retiredPlugins가 걷어낸다'가 성립하지 않는다. retiredPlugins는 플러그인 id 목록이라 마켓플레이스 등록을 못 걷는다.",
+      "where": "「이행」의 마지막 문단",
+      "evidence": "setup.ps1:1406-1410은 enabledPlugins 키만 지운다. 마켓플레이스 항목을 지우는 것은 1413-1420의 별도 로직이고 known_marketplaces.json은 아예 안 건드린다.",
+      "why_it_matters": "옛 kw-doc-formats 항목이 두 자리에 남아 발행처를 옮긴 뒤에도 옛 레포를 계속 당긴다."
+    },
+    {
+      "lens": "consistency",
+      "what": "「테스트」 절이 이 문서가 정한 계약의 절반만 덮는다.",
+      "where": "「테스트」 절",
+      "evidence": "덮이지 않은 것: 사본의 낡음 검사와 대조 불가 알림, vendor.sh, 되켜기 한 겹과 그 요약, 걸음 5, python3 가드, 이름표 갈아 끼우기, 상대 자리 생존 검사.",
+      "why_it_matters": "'약속이 아니라 검사로 지킨다'고 못 박은 항목들이 테스트 목록에 없다. 이행 첫째 걸음의 완료 기준이 없다."
+    },
+    {
+      "lens": "consistency",
+      "what": "「경계」 표에 있는 0단계가 「순서」의 새 번호에 없다.",
+      "where": "「경계」 표 첫 행과 「순서」",
+      "evidence": "「순서」는 열 걸음을 1부터 센다. 설치기의 실제 표시는 0/9부터 9/9까지 열하나다.",
+      "why_it_matters": "「하지 않는 것」이 번호로 이행을 지시하므로 어느 번호 체계인지가 뜻을 바꾼다."
+    }
+  ],
+  "checked_and_ok": [
+    "자동 갱신이 켜진 넷(chshin-tools·claude-community·im-not-ai·kw-doc-formats)이 맞다.",
+    "꺼진 다섯(claude-plugins-official·superpowers-marketplace·anthropic-agent-skills·claude-code-plugins·karpathy-skills)이 맞다.",
+    "settings.json의 kw-doc-formats에 autoUpdate가 없다는 관찰 자체는 사실이다.",
+    "설치기 표에서 AutoUpdate가 붙은 것이 kw-doc-formats 하나뿐인 것이 맞다.",
+    "플러그인 다섯이 setup.ps1의 Id·Repo와 하나씩 대응한다.",
+    "스킬 하나와 도커 훅 하나와 개인 문안 파일이 맞다.",
+    "마켓플레이스 클론 아래에 레포 전체가 그대로 있다는 것이 맞다.",
+    "플러그인 사본의 자리가 맞다.",
+    "kw_install이 마커를 접두 정규식으로 찾는다는 것이 맞다.",
+    "받아 오는 사본이 전체 줄 일치로 찾는다는 것이 맞다.",
+    "_managed_block.sh의 잠금 경로가 대상 파일에서 나온다는 것이 맞고 두 체계가 같은 잠금을 잡는다는 결론도 성립한다.",
+    "이름표가 박힌 자리 넷의 개수가 맞다.",
+    "_json_valid.sh와 _resolve_home.sh의 계약이 맞다.",
+    "kw_install 테스트의 두 검사 이름이 실재한다.",
+    "CLAUDE.md에 마커 블록 둘이 있는 것이 맞다.",
+    "settings.json의 env에 PYTHONUTF8이 없고 남은 둘이 주인 없는 사용자 값인 것이 맞다.",
+    "선행 결정 1~5·7·11과 문서가 어긋나는 자리는 못 찾았다.",
+    "이름 드리프트는 못 찾았다."
+  ],
+  "could_not_check": [
+    "관리 설정이 없다는 것 가운데 HKLM 정책 키와 조직 계정 서버 쪽은 확인하지 않았다.",
+    "이쪽이 주기로 한 셋을 disciplined-coder가 실제로 받기로 했는지는 그쪽 문서에서 확인하지 않았다.",
+    "kw-plugins 레포의 현재 상태는 검토 대상 문서 하나만 열어 확인하지 않았다.",
+    "disciplined-coder가 _ensure_autoupdate.sh를 실제로 어떤 인자로 부르는지는 열지 않았다."
+  ],
+  "notes": "검토 중에 _managed_block.sh가 바뀌었다. 처음 읽었을 때는 MANAGED_TAG가 없었고 다시 읽었을 때 있었다. 선행 결정 10이 검토 시점에 이미 낡았다. 정본의 주석은 이름표를 '함수 인자'가 아니라 'source 앞에 세우는 환경변수'로 정의하므로 문서의 낱말을 고치는 것이 좋다. 종료 코드 관련 발견 셋은 한 뿌리다 — 사본의 계약을 함수 이름만 보고 적고 실제 호출 경계를 안 열어 봤다."
+}
