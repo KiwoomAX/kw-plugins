@@ -194,6 +194,14 @@ Write-Host '맞춤의 미리보기'
 $syncSrc = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
 Check '미리보기가 한 일처럼 적지 않는다' { $syncSrc -match '안 함 · 미리보기' }
 Check '안 깔린 것에만 install 을 쓴다'    { $syncSrc -match "if \(-not \`$onDisk\)" -and $syncSrc -match "'plugin', 'enable'" }
+# 파이썬을 다루는 걸음은 없을 때 알아듣게 말하는데 클로드를 다루는 걸음은 셸
+# 오류를 그대로 뱉고 있었다. 같은 규율을 건다.
+Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
+    ($syncSrc -match '\$script:ClaudeExe = \(Get-Command claude') -and
+    ($syncSrc -match '& \$script:ClaudeExe @ClaudeArgs') -and
+    ($syncSrc -notmatch '& claude @ClaudeArgs')
+}
+Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
 Check '되켠 것을 따로 적는다'              { $syncSrc -match '되켠 것' }
 # "한 번 돌았다" 표시는 권장 플러그인 갈래를 영영 닫는다. 첫 실행이 실패했는데도
 # 적어 버리면 사용자가 영영 모른 채 그 플러그인 없이 지낸다.
@@ -220,6 +228,26 @@ Check '정리 항목마다 언제 넣었는지 적혀 있다' {
 Check '은퇴 훅은 이름과 경로를 함께 갖는다' {
     @($mf.retiredHooks | Where-Object { -not $_.file -or -not $_.pathContains }).Count -eq 0
 }
+# 읽히는 것과 형식이 맞는 것은 다르다. 키 이름을 하나 잘못 적으면 JSON 으로는
+# 읽히고 그 목록만 조용히 비어, 아무것도 안 하고 성공으로 끝난다.
+$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks')
+Check '목록 파일에 있어야 할 칸이 다 있다' {
+    @($manifestKeys | Where-Object { $null -eq $mf.PSObject.Properties[$_] }).Count -eq 0
+}
+Check '맞춤이 칸이 빠진 목록에서 멈춘다' {
+    @($manifestKeys | Where-Object { $syncSrc -notmatch [regex]::Escape("'$_'") }).Count -eq 0 -and
+    ($syncSrc -match '목록 파일에 칸이 빠졌습니다')
+}
+Check '알림도 칸이 빠진 목록에서 물러난다' { $hookCode -match "목록 파일에 '\`$k' 칸이 없습니다" }
+
+$badManifest = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-bad-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path $badManifest | Out-Null
+Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
+    '{ "marketplaces": [], "required": [] }' | Set-Content -LiteralPath (Join-Path $badManifest 'manifest.json')
+    $out = & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$env:USERPROFILE'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
+}
+Remove-Item -LiteralPath $badManifest -Recurse -Force -ErrorAction SilentlyContinue
 # 이 마켓플레이스는 자기 레포 안의 것만 낸다. 외부 레포를 플러그인 원본으로
 # 가리키면 SSH 로 클론해 사내 PC 에서 실패하는 것을 2026-09-06 에 확인했다.
 Check '마켓플레이스가 외부 레포를 원본으로 안 가리킨다' {

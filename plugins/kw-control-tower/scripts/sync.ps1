@@ -84,9 +84,13 @@ function Save-Json {
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
 function Invoke-Claude {
+    # 클로드를 이름으로 부르지 않고 시작할 때 한 번 찾아 둔 절대 경로로 부른다.
+    # 못 찾았으면 셸 오류를 그대로 뱉는 대신 무엇이 없는지 말한다. 파이썬을 다루는
+    # 걸음 4 가 이미 그렇게 하고 있어 같은 규율을 여기에도 건다.
     param([string[]]$ClaudeArgs)
     if ($WhatIfOnly) { Say "[미리보기] claude $($ClaudeArgs -join ' ')"; return $true }
-    & claude @ClaudeArgs 2>&1 | ForEach-Object { Say $_ }
+    if (-not $script:ClaudeExe) { throw '클로드 코드를 못 찾았습니다. claude 가 PATH 에 있어야 합니다.' }
+    & $script:ClaudeExe @ClaudeArgs 2>&1 | ForEach-Object { Say $_ }
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -106,6 +110,17 @@ $backupDir    = Join-Path $cfg 'kw-control-tower-backups'
 $manifest = Read-Json (Join-Path $root 'manifest.json')
 if ($null -eq $manifest) { Write-Error "목록 파일을 못 읽었습니다: $root\manifest.json"; exit 1 }
 
+# 읽히는 것과 형식이 맞는 것은 다르다. 키 이름을 하나 잘못 적으면 JSON 으로는
+# 읽히고 그 목록만 조용히 비어, 아무것도 안 하고 성공으로 끝난다. 있어야 할 칸이
+# 다 있는지 보고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 안 본다.
+$required = @('marketplaces', 'required', 'suggested', 'retiredPlugins',
+              'retiredMarketplaces', 'retiredSkills', 'retiredHooks')
+$missing = @($required | Where-Object { $null -eq $manifest.PSObject.Properties[$_] })
+if ($missing.Count -gt 0) {
+    Write-Error "목록 파일에 칸이 빠졌습니다: $($missing -join ', ') — $root\manifest.json"
+    exit 1
+}
+
 # 상태 파일은 두 가지만 담는다. 라이브러리 목록의 해시와, 이 PC 에서 맞춤이 한 번이라도
 # 돌았는지다. 나머지 물음은 전부 이 PC 를 직접 읽어 판정하므로 적을 상태가 없다.
 $state = @{}
@@ -117,9 +132,15 @@ if (Test-Path -LiteralPath $statePath) {
 }
 $firstRun = -not $state.ContainsKey('ranOnce')
 
+$script:ClaudeExe = (Get-Command claude -ErrorAction SilentlyContinue).Source
+
 Write-Host ''
 Write-Host 'KW 컨트롤 타워 맞춤' -ForegroundColor Cyan
 Write-Host ''
+if (-not $script:ClaudeExe -and -not $WhatIfOnly) {
+    Write-Host '  클로드 코드를 못 찾았습니다. 플러그인을 다루는 걸음 셋은 건너뜁니다.' -ForegroundColor Yellow
+    Write-Host '  나머지 걸음은 그대로 돕니다.'
+}
 
 # ---------------------------------------------------------------- 걸음 1
 Write-Host '1. 배포처를 등록합니다.'

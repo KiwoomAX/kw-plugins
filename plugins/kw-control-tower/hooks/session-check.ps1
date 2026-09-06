@@ -71,6 +71,14 @@ try {
     $manifest = Read-Json (Join-Path $root 'manifest.json')
     if ($null -eq $manifest) { exit 0 }   # 목록을 못 읽으면 아무 말도 안 한다
 
+    # 읽히는 것과 형식이 맞는 것은 다르다. 칸이 빠진 목록으로 판정하면 그 물음만
+    # 조용히 사라져, 어긋난 PC 를 정상으로 본다. 맞춤은 이때 멈추고 말하지만 이
+    # 훅은 세션을 어지럽히지 않는 쪽이라 자국만 남기고 물러난다.
+    foreach ($k in @('marketplaces', 'required', 'suggested', 'retiredPlugins',
+                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks')) {
+        if ($null -eq $manifest.PSObject.Properties[$k]) { throw "목록 파일에 '$k' 칸이 없습니다." }
+    }
+
     $settings  = Read-Json (Join-Path $cfg     'settings.json')
     $installed = Read-Json (Join-Path $plugins 'installed_plugins.json')
     $known     = Read-Json (Join-Path $plugins 'known_marketplaces.json')
