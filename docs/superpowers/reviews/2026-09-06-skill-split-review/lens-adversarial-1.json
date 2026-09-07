@@ -1,0 +1,13 @@
+{"lens":"adversarial","issues":[
+{"n":1,"where":"여섯 스킬 표와 머리말 절","claim":"매 세션 실리고 열림을 결정하는 description 문안을 정하는 자리가 없다. 지금 스킬이 이기고 있는 명령문('반드시 연다')이 어디로 가는지도 없다","principle":"EXPLICIT"},
+{"n":2,"where":"xlsx 근거와 공용 여는 방법","claim":"CSV 작업은 공식 xlsx 설명에 걸리고 우리 쪽엔 csv 이름의 스킬이 없으며 공용은 좁게 쓰기로 해서, cp949 규칙이 영영 안 열린다","principle":"FAIL-LOUD"},
+{"n":3,"where":"남는 위험 둘째","claim":"이름 겹침의 실제 위험은 사람의 혼동이 아니라 모델이 공식만 열고 끝내는 것이다. 공식 설명은 배타적 명령문으로 끝난다","principle":"REVERSIBLE"},
+{"n":4,"where":"순서 2단계","claim":"'문안을 다시 쓰지 않는다'가 절 사이 상호 참조 세 문장을 깨진 채로 남긴다","principle":"SSOT"},
+{"n":5,"where":"목적 절","claim":"쪼갠 뒤가 더 비쌀 수 있다. 한국어 발표자료 한 건이 우리 pptx+공용+공식 pptx를 열면 지금 332줄보다 많다","principle":"SIMPLE"},
+{"n":6,"where":"결정 표 스킬 수, docx 절","claim":"docx에 담을 것을 재기 전에 여섯으로 확정했다","principle":"MEASURE-FIRST"},
+{"n":7,"where":"여섯 스킬 표 xlsx 행","claim":"xlsx에 남는 것이 12줄인데 함께 필요한 CSV 규칙은 공용으로 뗀다","principle":"SIMPLE"},
+{"n":8,"where":"남는 위험 셋째와 테스트 항목","claim":"테스트가 문자열 존재만 본다. 한 파일 안에서 공짜로 지켜지던 규칙이 스킬 경계를 넘는데 성공 기준이 없다","principle":"TDD"},
+{"n":9,"where":"kw_install 레포의 변경","claim":"setup.ps1 도움말과 3단계 주석, test_setup.ps1 주석이 사라질 스킬 이름을 플러그인 스킬로 부른다","principle":"SSOT"},
+{"n":10,"where":"순서 6·7","claim":"푸시와 kw_install 문서 수정 사이에 두 레포의 이름이 어긋난 구간이 있다","principle":"FAIL-LOUD"},
+{"n":11,"where":"남는 위험","claim":"자동 갱신을 꺼 둔 PC는 옛 스킬 하나만 가진 채 남는다. 위험 목록에 없다","principle":"MEASURE-FIRST"}],
+"notes":"절 열 개가 표에 모두 한 번씩 배정되어 통째로 사라지는 절은 없다. 확인 못 한 것 둘: 이미 깔린 플러그인에 재설치가 무엇을 하는지, 스킬 여섯일 때 validate가 무엇을 보는지."}

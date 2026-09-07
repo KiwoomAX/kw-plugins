@@ -1,0 +1,11 @@
+{"lens":"grounding","issues":[
+{"n":1,"where":"여섯 스킬 표 공용 행","claim":"공용이 받는 네 조각의 실제 합은 73줄인데 약 60으로 적었다. 나머지 넷은 실측과 정확히 맞다","principle":"MEASURE-FIRST"},
+{"n":2,"where":"딛고 선 사실 첫 근거","claim":"공식 pdf가 함께 나르는 reference.md에 pdftoppm 예제가 셋 있다. 본문만 보고 '없다'고 단정했다","principle":"MEASURE-FIRST"},
+{"n":3,"where":"같은 근거의 단서","claim":"'Extract specific pages'는 파일을 자르는 것이 아니라 pdftotext로 1-5쪽 텍스트만 꺼내는 예제다. 쪽을 고른다는 행위 자체는 공식에 있다","principle":"MEASURE-FIRST"},
+{"n":4,"where":"딛고 선 사실 총평","claim":"markitdown이 공식 xlsx와 pptx 본문에 이미 읽기 수단으로 있다","principle":"MEASURE-FIRST"},
+{"n":5,"where":"딛고 선 사실 총평","claim":"구형 오피스 변환도 공식 pptx와 docx가 soffice로 다룬다","principle":"MEASURE-FIRST"},
+{"n":6,"where":"딛고 선 사실 셋째","claim":"공식 pptx의 안전한 글꼴은 둘이 아니라 일곱이다. 다만 한글 획과 동아시아 슬롯을 안 다룬다는 결론은 맞다","principle":"MEASURE-FIRST"},
+{"n":7,"where":"kw_install 레포의 변경","claim":"setup.ps1의 두 자리와 test_setup.ps1 한 자리가 document-formats를 플러그인 스킬로 부른다. 고칠 곳을 문서 둘로 센 계산에서 빠졌다","principle":"MEASURE-FIRST"},
+{"n":8,"where":"docx 실측 블록","claim":"styles.xml 인용이 실제 요소와 다르다. 잰 것은 속성 셋이 붙은 한 요소이고 docDefaults 안에 있다는 것도 없다","principle":"MEASURE-FIRST"},
+{"n":9,"where":"목적 첫 문단","claim":"설명이 400자에 가깝다고 적었는데 실제 327자다","principle":"MEASURE-FIRST"}],
+"notes":"확인해 맞은 것: 공식 넷의 줄 수, hwp가 공식에 없음, 공식 xlsx 본문에 인코딩 없음, 공식 pdf가 reportlab을 권함, 절-줄수 표의 나머지 다섯, 2026-08-25 첫 공개."}

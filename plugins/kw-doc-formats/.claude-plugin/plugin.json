@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "kw-doc-formats",
+  "displayName": "KW Doc Formats",
+  "description": "사내 문서 형식 처리 스킬 여섯. common은 파일 인코딩을 다루고, hwp는 한글과 구형 오피스 파일을 바꾸며, pdf와 pptx와 xlsx와 docx는 공식 document-skills가 이 PC에서 틀리는 자리를 덮는다. kw_install이 깔아 주는 파이썬 라이브러리와 Poppler를 전제한다.",
+  "author": { "name": "KiwoomAX" },
+  "license": "UNLICENSED",
+  "keywords": ["documents", "hwp", "pdf", "pptx", "xlsx", "korean"]
+}
