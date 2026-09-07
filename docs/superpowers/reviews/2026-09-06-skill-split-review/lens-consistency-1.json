@@ -1,0 +1,10 @@
+{"lens":"consistency","issues":[
+{"n":1,"where":"형식 스킬 다섯의 머리말","claim":"다섯 모두 두 문장이라 해 놓고 세 줄 뒤에 hwp는 빼라고 한다","principle":"EXPLICIT"},
+{"n":2,"where":"테스트 이관 목록","claim":"지금 걸린 스킬 검사는 여섯인데 넷만 든다. '설명이 xlsx를 언급하는가'와 '본문에 엑셀 절 제목이 있는가'가 빠졌다","principle":"TDD"},
+{"n":3,"where":"테스트 항목과 여섯 스킬 표","claim":"utf-8-sig 검사가 xlsx로 갈지 common으로 갈지 정해지지 않았다","principle":"SSOT"},
+{"n":4,"where":"hwp 행과 가르는 기준","claim":"형식으로 가른다면서 hwp에 구형 오피스 절을 넣는다. hwp만 두 형식군을 담는다","principle":"FOCUSED"},
+{"n":5,"where":"공용 행과 하지 않는 것","claim":"일반론을 안 담기로 하고 markitdown 절을 그대로 받는다","principle":"SSOT"},
+{"n":6,"where":"남는 위험 첫째와 README 항목","claim":"완화책으로 든 '공식 플러그인을 함께 깔라'가 README 수정 요구에 없다","principle":"FAIL-LOUD"},
+{"n":7,"where":"docx 절과 테스트 항목","claim":"실측이 규칙을 하나도 못 내놨을 때 docx가 무엇을 담는지 갈래가 없다","principle":"TDD"},
+{"n":8,"where":"결정 표와 공용 이름 절","claim":"여섯째를 공용/common/kw-doc-formats:common 세 이름으로 부른다. 두 표에 폴더가 될 이름이 없다","principle":"NAME-ITEMS"}],
+"notes":"결정 표 여섯 행 가운데 넷은 본문과 맞고 가르는 기준만 hwp 배정과 어긋난다. 순서 여덟 걸음은 두 변경 절을 덮는다."}

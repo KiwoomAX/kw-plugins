@@ -218,7 +218,21 @@ try {
 
         if (-not $onDisk) {
             # 안 깔린 것에만 install 을 쓴다. install 은 사용자가 꺼 둔 값을 true 로 덮는다.
-            if (Invoke-Claude @('plugin', 'install', $id)) { Note "플러그인을 깔았습니다: $id" }
+            #
+            # id 가 바뀐 플러그인이 이 갈래로 온다. 새 id 에는 켜짐 키가 없어 "안 깔림" 으로
+            # 판정되기 때문이다. 그때 사용자가 옛 id 를 꺼 두었다면 install 이 그 뜻을 조용히
+            # 뒤집는다. 켜는 것 자체는 회사가 필수로 정했으니 맞지만, 말 없이 넘어가면 아래
+            # '되켠 것' 이 비어 사용자가 자기 결정이 뒤집힌 줄 모른다.
+            $wasOff = $false
+            foreach ($rp in @($manifest.retiredPlugins)) {
+                if ((Get-Prop $rp 'replacedBy') -ne $id) { continue }
+                $oldId = Get-Prop $rp 'id'
+                if ($oldId -and (Get-Prop $enabled $oldId) -eq $false) { $wasOff = $true }
+            }
+            if (Invoke-Claude @('plugin', 'install', $id)) {
+                Note "플러그인을 깔았습니다: $id"
+                if ($wasOff) { [void]$script:Reenab.Add("$id (옛 이름으로 꺼 두셨던 것입니다)") }
+            }
             else { Fail '2' "설치에 실패했습니다: $id" }
             continue
         }
@@ -296,6 +310,20 @@ try {
         $known    = Read-Json $knownPath
         $kr = Get-Prop $known 'marketplaces'; if ($null -eq $kr) { $kr = $known }
         $present = ($null -ne (Get-Prop (Get-Prop $settings 'extraKnownMarketplaces') $name)) -or ($null -ne (Get-Prop $kr $name))
+
+        # 그 배포처에서 온 플러그인이 아직 깔려 있으면 등록을 안 걷는다. 위의 플러그인
+        # 갈래가 대체를 못 찾아 건너뛰었을 때 여기만 걷히면, 옛 플러그인은 깔린 채
+        # 배포처만 사라진 PC 가 된다. 플러그인에만 대체 가드를 걸고 배포처에 안 건 것이
+        # 그 비대칭이었다. 남은 것이 없을 때만 걷는다.
+        $ipNow = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
+        $ipOf  = Get-Prop $ipNow 'plugins'
+        $left  = @()
+        if ($null -ne $ipOf) { $left = @($ipOf.PSObject.Properties.Name | Where-Object { $_ -like "*@$name" }) }
+        if ($left.Count -gt 0) {
+            Say "$name : 이 배포처에서 온 $($left -join ', ') 가 아직 깔려 있어 그대로 둡니다."
+            continue
+        }
+
         if ($present) {
             if (Invoke-Claude @('plugin', 'marketplace', 'remove', $name)) { Note "배포처를 걷었습니다: $name" }
             else { Fail '3' "배포처를 걷지 못했습니다: $name" }

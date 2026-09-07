@@ -1,8 +1,8 @@
 # kw-plugins
 
-키움 AX 팀이 사내 PC에 나눠 주는 클로드 코드 플러그인의 마켓플레이스다. 지금 여기서
-배포하는 것은 **컨트롤 타워** 하나이고, 나머지 사내 플러그인은 그 하나가 목록을 들고
-끌어온다.
+키움 AX 팀이 사내 PC에 나눠 주는 클로드 코드 플러그인의 마켓플레이스다. 여기서 배포하는
+것은 **컨트롤 타워**와 **문서 형식 스킬** 둘이고, 남의 저장소에 있는 플러그인은 컨트롤
+타워가 목록을 들고 끌어온다.
 
 ## 왜 이렇게 만들었나
 
@@ -14,20 +14,28 @@
 
 ## 새 사내 플러그인을 더하려면
 
-플러그인은 자기 저장소에 자기 마켓플레이스 정의(`.claude-plugin/marketplace.json`)를 갖는다.
-그다음 `plugins/kw-control-tower/manifest.json`에 두 줄을 더한다.
+**이 저장소 안에 둔다.** `plugins/이름/` 아래에 플러그인을 놓고 두 곳에 한 줄씩 더한다.
 
 ```jsonc
-"marketplaces": [
-  { "name": "kw-infra", "repo": "KiwoomAX/kw-infra", "ours": true }   // 배포처
-],
-"required": [ "kw-infra@kw-infra" ]                                    // 플러그인
+// .claude-plugin/marketplace.json — 무엇을 파는가
+{ "name": "kw-infra", "source": "./plugins/kw-infra" }
+
+// plugins/kw-control-tower/manifest.json — 각 PC가 그것을 갖춰야 하는가
+"required": [ "kw-infra@kiwoom-ax" ]
 ```
 
-**여기 있는 마켓플레이스 정의로 남의 저장소를 배포하지는 못한다.** 마켓플레이스가 외부
-저장소를 플러그인 원본으로 가리키면 클로드 코드가 SSH로 받으려 하고, 사내 PC에는 SSH 키가
-없어 실패한다. 2026-09-06에 재고 확인했다. 그래서 플러그인마다 자기 배포처를 갖고, 컨트롤
-타워의 목록이 그 배포처를 등록해 주는 모양으로 간다.
+배포처는 이미 등록돼 있으므로 `marketplaces`는 안 건드린다. 원본이 이 저장소 안의 경로라
+마켓플레이스를 받을 때 파일이 함께 오고, 설치가 네트워크를 안 쓴다.
+
+**원본을 `{ "source": "github", "repo": "소유자/저장소" }` 로 적지 마라.** 다섯 가지 원본
+형식 가운데 이것만 프로토콜을 안 받아서 클로드 코드가 주소를 조립하는데, 플러그인 설치 쪽
+조립기가 SSH를 골라 SSH 키가 없는 사내 PC에서 `Host key verification failed`로 끝난다.
+저장소가 퍼블릭인지는 무관하다 — 그 오류는 인가 이전인 호스트 키 검증에서 난다.
+2026-09-06에 재고 확인했다.
+
+정말로 남의 저장소를 가리켜야 한다면 `{ "source": "url", "url": "https://…git" }` 처럼
+**프로토콜이 든 완전한 주소**를 적는다. 공식 마켓플레이스가 외부 저장소 238곳을 그 형식으로
+가리키고 있고, 그 가운데 `superpowers`가 사내 PC에서 매번 깔린다.
 
 ## 컨트롤 타워가 하는 일
 
@@ -71,7 +79,9 @@ PC에서도 훅이 죽지 않는다.
 | `plugins/kw-control-tower/scripts/sync.ps1` | 그 명령이 부르는 본체 |
 | `plugins/kw-control-tower/commands/kw-sync.md` | `/kw-control-tower:kw-sync` 명령. 플러그인이 나르는 명령은 언제나 `플러그인이름:명령이름` 으로 불린다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
-| `tests/test_control_tower.ps1` | 계약 검사. `pwsh -File tests\test_control_tower.ps1` |
+| `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 여섯. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
+| `tests/test_control_tower.ps1` | 컨트롤 타워의 계약 검사 |
+| `tests/test_doc_formats.ps1` | 문서 형식 스킬의 계약 검사 |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
 | `docs/superpowers/reviews/` | 그 설계를 검토한 기록 |
 
@@ -83,4 +93,9 @@ PC에서도 훅이 죽지 않는다.
 **훅 스크립트는 5.1 문법만 쓴다.** `ConvertFrom-Json -AsHashtable`처럼 7에만 있는 것을 쓰면
 pwsh 7이 없는 PC에서 훅이 죽는다. 그리고 5.1은 `uint64` 곱셈이 넘칠 때 감싸지 않고 던진다.
 
-**고친 뒤에는 검사를 돌린다.** `pwsh -NoProfile -File tests\test_control_tower.ps1`
+**고친 뒤에는 검사를 둘 다 돌린다.**
+
+```
+pwsh -NoProfile -File tests\test_control_tower.ps1
+pwsh -NoProfile -File tests\test_doc_formats.ps1
+```

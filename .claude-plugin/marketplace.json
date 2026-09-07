@@ -1,16 +1,21 @@
 {
-  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
   "name": "kiwoom-ax",
   "description": "KiwoomAX 사내 플러그인 마켓플레이스. 컨트롤 타워가 나머지 플러그인 목록을 들고 각 PC를 그 목록에 맞춘다.",
   "owner": { "name": "KiwoomAX" },
 
-  "_kw-doc-formats_comment": "여기서 kw-doc-formats 를 배포하려 했으나 못 한다. 마켓플레이스 안에서 외부 레포를 플러그인 원본으로 가리키면 클로드 코드가 SSH 로 클론하고, 사내 PC 에는 SSH 키가 없어 'Host key verification failed' 로 끝난다. protocol 을 https 로 적어도 같다. 배포처를 통째로 등록하는 `claude plugin marketplace add` 는 SSH 가 없으면 HTTPS 로 물러서지만 이 자리는 안 물러선다. 2026-09-06 에 이 PC 에서 재고 확인했다. 그래서 kw-doc-formats 는 자기 배포처에 그대로 두고, 컨트롤 타워의 목록이 그 배포처를 등록해 준다.",
+  "_source_comment": "플러그인 원본은 이 레포 안의 상대 경로로 적는다. 그러면 마켓플레이스를 등록할 때 받은 클론에 파일이 이미 있어 설치가 네트워크를 안 쓴다. 외부 레포를 가리켜야 한다면 { \"source\": \"url\", \"url\": \"https://...git\" } 처럼 프로토콜이 든 완전한 URL 을 적고, { \"source\": \"github\", \"repo\": \"소유자/레포\" } 축약형은 쓰지 않는다. 그 축약형만 프로토콜을 안 받아 클로드 코드가 URL 을 조립하는데, 플러그인 설치 쪽 조립기가 SSH 를 골라 SSH 키가 없는 사내 PC 에서 'Host key verification failed' 로 끝난다. 2026-09-06 에 이 PC 에서 확인했다. 레포가 퍼블릭인지는 무관하다. 그 오류는 인가 이전 단계인 호스트 키 검증에서 난다. 마켓플레이스를 통째로 등록하는 `claude plugin marketplace add` 는 같은 축약형이어도 HTTPS 로 물러서므로 manifest.json 의 marketplaces 는 이 규칙에 안 걸린다.",
 
   "plugins": [
     {
       "name": "kw-control-tower",
       "source": "./plugins/kw-control-tower",
       "description": "사내 플러그인 목록을 들고 이 PC를 그 목록에 맞춘다. 세션이 시작할 때 어긋난 곳을 알리기만 하고, 고치는 것은 /kw-sync 명령이다."
+    },
+    {
+      "name": "kw-doc-formats",
+      "source": "./plugins/kw-doc-formats",
+      "description": "사내 문서 형식 처리 스킬 여섯. common은 파일 인코딩을 다루고, hwp는 한글과 구형 오피스 파일을 바꾸며, pdf와 pptx와 xlsx와 docx는 공식 document-skills가 이 PC에서 틀리는 자리를 덮는다. kw_install이 깔아 주는 파이썬 라이브러리와 Poppler를 전제한다."
     }
   ]
 }
