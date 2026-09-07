@@ -238,6 +238,18 @@ Check '필수 플러그인의 배포처가 목록에 등록되어 있다' {
     $mkNames = @($mf.marketplaces | ForEach-Object { $_.name })
     @($mf.required | Where-Object { $mkNames -notcontains ($_ -split '@')[1] }).Count -eq 0
 }
+# replacedBy 는 이 PC 가 실제로 갖게 될 플러그인 이름이어야 한다. 배포처 이름을
+# 하나 잘못 적으면 installed_plugins.json 의 키와 안 맞고, 걸음 7 이 "대체가 아직
+# 안 깔렸다"고 말하며 영원히 넘어간다. 옛 스킬 사본이 남아 같은 스킬이 두 벌 실리는데,
+# 화면에는 이유가 틀린 안내만 찍히므로 아무도 알아채지 못한다. 2026-09-06 에
+# document-formats 가 정확히 그 상태였다.
+Check 'replacedBy 가 이 PC 에 실제로 깔릴 플러그인을 가리킨다' {
+    # 컨트롤 타워 자신은 목록에 없다. 설치기가 깔고, 이 스크립트는 그 안에서 돈다.
+    $willHave = @($mf.required) + @($mf.suggested) + @('kw-control-tower@kiwoom-ax')
+    $named    = @(@($mf.retiredPlugins) + @($mf.retiredSkills) |
+                  Where-Object { $_.replacedBy } | ForEach-Object { $_.replacedBy })
+    @($named | Where-Object { $willHave -notcontains $_ }).Count -eq 0
+}
 Check '정리 항목마다 언제 넣었는지 적혀 있다' {
     $all = @($mf.retiredPlugins) + @($mf.retiredMarketplaces) + @($mf.retiredSkills) + @($mf.retiredHooks)
     @($all | Where-Object { -not $_.since }).Count -eq 0

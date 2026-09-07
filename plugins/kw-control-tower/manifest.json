@@ -29,7 +29,7 @@
   "retiredMarketplaces": [],
 
   "retiredSkills": [
-    { "name": "document-formats",    "replacedBy": "kw-doc-formats@kiwoom-ax",   "since": "2026-09-06" },
+    { "name": "document-formats",    "replacedBy": "kw-doc-formats@kw-doc-formats",   "since": "2026-09-06" },
     { "name": "register-corp-certs", "replacedBy": "kw-control-tower@kiwoom-ax", "since": "2026-09-06" }
   ],
 
