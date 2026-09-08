@@ -119,7 +119,25 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 
 클로드 코드에는 이 일을 위해 마련된 자리가 이미 있다. 관리 설정은 사용자 설정보다 위에 있어 사용자가 못 지우고 `extraKnownMarketplaces`와 `enabledPlugins`와 `claudeMd`를 담는다. 그것이 정공법이다.
 
-쓰지 않는 이유는 배포 수단이 없기 때문이다. 관리 설정은 조직 계정의 서버나 `HKLM\SOFTWARE\Policies\ClaudeCode`나 `C:\Program Files\ClaudeCode\managed-settings.json`에서 오고, 뒤의 둘은 관리자 권한과 배포 장치를 요구한다. 셋째 회차에서 셋 다 이 PC에 없는 것을 확인했다.
+**2026-09-08 정정.** 아래 문단은 전달 수단을 셋으로 적었는데 넷이다. 그리고 서버 경로의 조건도 틀리게 읽힌다. 고친 내용은 이렇다.
+
+| 전달 수단 | 관리자 권한 | 비고 |
+|---|---|---|
+| 서버 관리 설정 (claude.ai 콘솔) | 불필요 | PC를 안 건드린다. **Enterprise가 아니라 Team이면 된다.** Owner 권한 필요 |
+| MDM · `HKLM\SOFTWARE\Policies\ClaudeCode` | 필요 | |
+| 파일 `C:\Program Files\ClaudeCode\managed-settings.json` | 필요 | |
+| **`HKCU\SOFTWARE\Policies\ClaudeCode`** — 값 이름 `Settings`, `REG_SZ`에 JSON | **불필요** | 이 문서가 빠뜨린 넷째다. 설치기가 승격 없이 쓸 수 있다 |
+
+**그럼에도 지금은 쓰지 않는다. 근거가 "수단이 없다"에서 "값어치가 없다"로 바뀐 것이다.**
+
+- `HKCU`는 문서가 **관리 소스로 안 친다** — *"The HKCU registry is user-writable and isn't one."* 사용자가 지울 수 있으므로 "못 끄게"가 성립하지 않는다. 게다가 위 세 소스 중 하나라도 정책 키를 주면 아예 안 읽힌다.
+- 그래서 `HKCU`로 넣은 `claudeMd`는 컨트롤 타워의 `CLAUDE.md` 블록보다 **약하다.** 둘 다 사용자가 지울 수 있는데, 블록은 세션 훅이 어긋남을 매번 감지하고 맞춤이 되돌린다. `HKCU`에는 그 둘이 없다.
+- 서버 경로는 **회사 클로드 조직 계정으로 로그인한 사람에게만** 내려간다. 그것을 보장하는 수단(`forceLoginOrgUUID`)도 같은 채널로 오므로 스스로 부트스트랩하지 못한다. 첫 고리는 PC 쪽에서 걸어야 한다.
+- 2026-09-08 기준 회사는 Team 구독이 아니다.
+
+아래는 원래 적혀 있던 문단이며, 위 표가 그것을 대체한다.
+
+> 쓰지 않는 이유는 배포 수단이 없기 때문이다. 관리 설정은 조직 계정의 서버나 `HKLM\SOFTWARE\Policies\ClaudeCode`나 `C:\Program Files\ClaudeCode\managed-settings.json`에서 오고, 뒤의 둘은 관리자 권한과 배포 장치를 요구한다. 셋째 회차에서 셋 다 이 PC에 없는 것을 확인했다.
 
 **그래서 무엇도 잠글 수 없다.** 이 설계가 만드는 것은 "못 끄게"가 아니라 "조용히 못 끄게"다.
 
