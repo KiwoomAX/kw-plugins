@@ -14,8 +14,16 @@ $ErrorActionPreference = 'Stop'
 # 플러그인이 나르는 훅은 그렇게 못 한다. 배선이 목록 파일에 박혀 있고 PC 마다 갈리지
 # 않기 때문이다. 그래서 판정을 훅 자신이 한다. 등록 시점이 아니라 부를 때마다 보므로,
 # 나중에 번들이 생긴 PC 에서는 저절로 살아난다는 것이 덤이다.
-$bundleDir = Join-Path $env:LOCALAPPDATA 'corp-certs'
-if (-not (Test-Path -LiteralPath (Join-Path $bundleDir 'ca-bundle.pem'))) { exit 0 }
+#
+# 어디 있는지는 설치기가 1단계에서 세우는 SSL_CERT_FILE 이 안다. 경로를 여기 박아 두면
+# 설치기가 그것을 옮길 때 이 훅만 옛 곳을 가리킨 채 남는다. 실제로 그렇게 됐다.
+# 설치기가 번들을 D:\corp-certs 로 옮겼는데 이 줄은 %LOCALAPPDATA%\corp-certs 를 보고
+# 있어서, 새로 설치한 PC 에서는 이 안내가 통째로 사라질 참이었다. 설계 문서
+# 2026-09-06-control-tower-design.md 가 처음부터 인증서 환경변수에서 읽으라고 정했는데
+# 구현이 그것을 안 따르고 있었다.
+$bundleFile = $env:SSL_CERT_FILE
+if (-not $bundleFile -or -not (Test-Path -LiteralPath $bundleFile)) { exit 0 }
+$bundleDir = Split-Path -Parent $bundleFile
 
 function Write-Context {
     param([string]$Text)
@@ -44,7 +52,7 @@ $RunAdvice = @'
 그 경우 지금이 인증서를 넣을 마지막 기회다. 컨테이너가 뜨고 나면 마운트를 추가할 수 없어
 docker exec 로도 고치지 못한다. 아래를 더하라.
 
-    -v "%LOCALAPPDATA%\corp-certs:/certs:ro"
+    -v "__BUNDLE_DIR__:/certs:ro"
     -e SSL_CERT_FILE=/certs/ca-bundle.pem
     -e REQUESTS_CA_BUNDLE=/certs/ca-bundle.pem
     -e NODE_EXTRA_CA_CERTS=/certs/ca-bundle.pem
@@ -84,7 +92,9 @@ try {
 
     if ($cmd -match 'docker\s+(container\s+)?run\b|docker\s+compose\s+(up|run)\b') {
         if ($cmd -match $alreadyHandled) { exit 0 }
-        Write-Context $RunAdvice
+        # 안내 문안은 작은따옴표 here-string 이라 그대로 실려 온다. 번들 폴더만 여기서
+        # 끼워 넣는다. 문안 안에 $ 가 들어와도 흔들리지 않게 보간이 아니라 치환으로 한다.
+        Write-Context $RunAdvice.Replace('__BUNDLE_DIR__', $bundleDir)
         exit 0
     }
     if ($cmd -match 'docker\s+(image\s+)?build\b|docker\s+compose\s+build\b|docker\s+buildx\s+build\b') {

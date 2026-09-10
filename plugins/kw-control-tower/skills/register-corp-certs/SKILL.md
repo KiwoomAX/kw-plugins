@@ -39,7 +39,7 @@ VSCode를 껐다 켜라**고 알려라. 환경변수는 이미 떠 있는 프로
 이미지든 그 안의 파이썬과 Node가 사내 인증서를 신뢰한다.
 
 ```powershell
-docker run -v "${env:LOCALAPPDATA}\corp-certs:/certs:ro" `
+docker run -v "$(Split-Path -Parent $env:SSL_CERT_FILE):/certs:ro" `
            -e SSL_CERT_FILE=/certs/ca-bundle.pem `
            -e REQUESTS_CA_BUNDLE=/certs/ca-bundle.pem `
            -e NODE_EXTRA_CA_CERTS=/certs/ca-bundle.pem `
@@ -47,6 +47,9 @@ docker run -v "${env:LOCALAPPDATA}\corp-certs:/certs:ro" `
            -e GIT_SSL_CAINFO=/certs/ca-bundle.pem `
            <이미지>
 ```
+
+번들이 놓인 곳을 적지 않고 `SSL_CERT_FILE`에서 꺼내는 이유는, 설치기가 그 위치를 옮겨도
+이 명령이 따라가게 하려는 것이다. 설치기 1단계가 번들을 구우면서 그 변수를 세운다.
 
 변수가 다섯인 이유는 소비자마다 읽는 이름이 다르기 때문이다. 파이썬 표준 라이브러리는
 `SSL_CERT_FILE`, requests는 `REQUESTS_CA_BUNDLE`, Node는 `NODE_EXTRA_CA_CERTS`, `curl`은

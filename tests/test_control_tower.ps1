@@ -380,22 +380,47 @@ $dockerHook = Join-Path $plugin 'hooks\docker-cert-reminder.ps1'
 $dockerSrc  = Get-Content $dockerHook -Raw
 # 옛 설치기는 번들이 없는 PC 에 이 훅을 아예 안 걸었다. 플러그인 훅은 배선이 PC 마다
 # 갈리지 않으므로 그 판정을 훅 자신이 해야 한다.
-Check '번들이 없으면 아무 말도 안 한다' { $dockerSrc -match "ca-bundle\.pem'\)\)\) \{ exit 0 \}" }
+Check '번들이 없으면 아무 말도 안 한다' { $dockerSrc -match 'Test-Path -LiteralPath \$bundleFile\)\) \{ exit 0 \}' }
 Check '어떤 경우에도 호출을 안 막는다'   { $dockerSrc -notmatch "permissionDecision" }
+# 번들 위치를 박아 두면 설치기가 그것을 옮길 때 이 훅만 옛 곳을 가리킨 채 남는다.
+# 실제로 그렇게 됐다. 설치기가 D:\corp-certs 로 옮겼는데 훅은 %LOCALAPPDATA% 를 보고
+# 있어서, 새로 설치한 PC 에서 이 안내가 통째로 사라질 참이었다.
+Check '번들 위치를 환경변수에서 읽는다'  { $dockerSrc -match '\$env:SSL_CERT_FILE' }
+# 주석은 빼고 본다. 왜 이렇게 바뀌었는지 설명하려면 옛 경로를 적을 수밖에 없는데,
+# 그것까지 걸면 이유를 적지 말라는 검사가 된다.
+Check '번들 위치를 코드에 안 박는다' {
+    $codeOnly = (($dockerSrc -split "`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    $codeOnly -notmatch 'LOCALAPPDATA'
+}
+# 안내에 적히는 마운트 경로도 그 변수에서 와야 한다. 판정만 고치고 문안을 두면
+# 훅은 옳게 켜지면서 사용자에게는 없는 폴더를 마운트하라고 시킨다.
+Check '안내 문안의 경로도 실제 번들 폴더다' {
+    ($dockerSrc -match '__BUNDLE_DIR__') -and ($dockerSrc -match "Replace\('__BUNDLE_DIR__', \`$bundleDir\)")
+}
 
 $noBundle = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-nb-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path $noBundle | Out-Null
 Check '번들 없는 PC 에서 실제로 조용하다' {
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
-    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:LOCALAPPDATA='$noBundle'; & '$dockerHook'" 2>&1
+    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE=''; & '$dockerHook'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
+# 번들이 어디 있든 따라가야 하므로, 흉내 내는 곳도 %LOCALAPPDATA% 아래가 아닌
+# 임시 폴더로 둔다. 경로가 코드에 박혀 있으면 이 검사가 실패한다.
+$bundleStub = Join-Path $noBundle 'somewhere\ca-bundle.pem'
 Check '번들 있는 PC 에서는 말한다' {
-    New-Item -ItemType Directory -Force -Path (Join-Path $noBundle 'corp-certs') | Out-Null
-    Set-Content -LiteralPath (Join-Path $noBundle 'corp-certs\ca-bundle.pem') -Value '# stand-in'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $bundleStub) | Out-Null
+    Set-Content -LiteralPath $bundleStub -Value '# stand-in'
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
-    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:LOCALAPPDATA='$noBundle'; & '$dockerHook'" 2>&1
+    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE='$bundleStub'; & '$dockerHook'" 2>&1
     ($out | Out-String) -match 'additionalContext'
+}
+# 안내에 실제 번들 폴더가 적혀 나오는지까지 본다. 치환을 빠뜨리면 사용자가 받는 명령에
+# __BUNDLE_DIR__ 이 그대로 남는다.
+Check '안내에 그 PC 의 번들 폴더가 적힌다' {
+    $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
+    $out = ($payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE='$bundleStub'; & '$dockerHook'" 2>&1 | Out-String)
+    ($out -notmatch '__BUNDLE_DIR__') -and ($out -match 'somewhere')
 }
 Remove-Item -LiteralPath $noBundle -Recurse -Force -ErrorAction SilentlyContinue
 
