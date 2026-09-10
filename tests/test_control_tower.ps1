@@ -53,6 +53,31 @@ Check 'plugin.json 이 JSON 이다'      { $null -ne (Get-Content (Join-Path $pl
 Check 'manifest.json 이 JSON 이다'    { $null -ne (Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json) }
 Check 'hooks.json 이 JSON 이다'       { $null -ne (Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json) }
 
+# 클로드 코드가 읽는 JSON 에 밑줄 접두 키를 두지 않는다. 한동안 그것으로 주석을 흉내
+# 냈는데 형식에 없는 키라, 플러그인을 적재할 때마다 "unknown keys ignored" 경고가 떴다.
+# 이상이 없으면 아무 말도 안 한다는 이 플러그인의 첫째 규율을 그 경고가 매 세션 어겼다.
+# 적을 것은 이 검사들의 주석과 README 에 있고, 거기서는 설명에 그치지 않고 강제된다.
+#
+# manifest.json 은 뺀다. 그것은 클로드 코드가 안 읽고 sync.ps1 이 읽는 우리 파일이라
+# 경고를 내지 않고, 그 주석들은 목록을 고칠 사람이 바로 보는 자리다.
+#
+# 아는 키를 나열해 견주지 않고 밑줄만 막는다. 나열하면 형식에 키가 하나 늘 때마다
+# 사람이 이 목록을 맞춰야 하고, 안 맞추면 멀쩡한 키에서 검사가 떨어진다.
+Check '클로드 코드가 읽는 JSON 에 밑줄 주석 키가 없다' {
+    $files = @(
+        (Join-Path $repo   '.claude-plugin\marketplace.json')
+        (Join-Path $plugin '.claude-plugin\plugin.json')
+        (Join-Path $plugin 'hooks\hooks.json')
+        (Join-Path $repo   'plugins\kw-doc-formats\.claude-plugin\plugin.json')
+    )
+    $bad = 0
+    foreach ($f in $files) {
+        $j = Get-Content $f -Raw | ConvertFrom-Json
+        $bad += @($j.PSObject.Properties.Name | Where-Object { $_.StartsWith('_') }).Count
+    }
+    $bad -eq 0
+}
+
 # 판본을 감지에 안 쓰기로 했으므로 plugin.json 에 version 을 안 적는다.
 Check 'plugin.json 에 version 이 없다' {
     $j = Get-Content (Join-Path $plugin '.claude-plugin\plugin.json') -Raw | ConvertFrom-Json
