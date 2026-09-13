@@ -69,6 +69,7 @@ Check '클로드 코드가 읽는 JSON 에 밑줄 주석 키가 없다' {
         (Join-Path $plugin '.claude-plugin\plugin.json')
         (Join-Path $plugin 'hooks\hooks.json')
         (Join-Path $repo   'plugins\kw-doc-formats\.claude-plugin\plugin.json')
+        (Join-Path $repo   'plugins\kw-devops\.claude-plugin\plugin.json')
     )
     $bad = 0
     foreach ($f in $files) {
