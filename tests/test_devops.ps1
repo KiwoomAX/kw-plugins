@@ -41,26 +41,49 @@ Assert "the control tower requires $PluginId" ($null -ne $manifest -and @($manif
 
 Write-Host '--- skill ---'
 $md = Join-Path $SkillDir 'SKILL.md'
-$py = Join-Path $SkillDir 'pick_port.py'
+$py = Join-Path $SkillDir 'scripts/pick_port.py'
 Assert 'SKILL.md ships' (Test-Path $md)
-Assert 'pick_port.py ships next to it' (Test-Path $py)
+Assert 'pick_port.py ships under scripts/' (Test-Path $py)
 $text = if (Test-Path $md) { [IO.File]::ReadAllText($md) } else { '' }
 $name = ([regex]::Match($text, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value
 Assert 'frontmatter name matches the folder' ($name -eq 'deploying-kiwoom-service')
 
+# The body was split so a port question does not load compose templates and log
+# tables. A reference file that SKILL.md does not link is never opened.
+$refs = @('compose-and-env.md', 'jenkins-logs.md', 'server-facts.md')
+foreach ($ref in $refs) {
+    Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
+    Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))
+}
+$refText = @($refs | ForEach-Object { $p = Join-Path $SkillDir $_; if (Test-Path $p) { [IO.File]::ReadAllText($p) } }) -join "`n"
+$allText = $text + "`n" + $refText
+
 # The plugin cache path differs per PC and per commit. Claude Code substitutes
-# ${CLAUDE_SKILL_DIR} in a skill body, so every call must go through it.
-Assert 'the body does not point at a personal skills folder' (-not ($text -match '~/\.claude'))
+# ${CLAUDE_SKILL_DIR} in SKILL.md only; a reference file opened with Read keeps
+# the literal text. So every call lives in SKILL.md and goes through it.
+Assert 'no skill file points at a personal skills folder' (-not ($allText -match '~/\.claude'))
 $calls = [regex]::Matches($text, '(?m)^python\b.*pick_port\.py.*$')
-Assert 'every pick_port.py call goes through CLAUDE_SKILL_DIR' ($calls.Count -gt 0 -and @($calls | Where-Object { $_.Value -notmatch '\$\{CLAUDE_SKILL_DIR\}/pick_port\.py' }).Count -eq 0)
+Assert 'every pick_port.py call goes through CLAUDE_SKILL_DIR' ($calls.Count -gt 0 -and @($calls | Where-Object { $_.Value -notmatch '\$\{CLAUDE_SKILL_DIR\}/scripts/pick_port\.py' }).Count -eq 0)
+Assert 'reference files carry no CLAUDE_SKILL_DIR (not substituted there)' (-not ($refText -match 'CLAUDE_SKILL_DIR'))
 # The control tower's python3 guard denies python3 on PCs where it is the Store
-# redirector, so a python3 line in the body would be refused there.
-Assert 'the body never calls python3' (-not ($text -match '\bpython3\b'))
+# redirector, so a python3 line in any skill file would be refused there.
+Assert 'no skill file calls python3' (-not ($allText -match '\bpython3\b'))
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.
 $null = & python $py --check 2>&1 | Out-String
 Assert 'pick_port.py --check exits 0' ($LASTEXITCODE -eq 0)
+
+# A tool call reads stdout through a pipe. On a Korean Windows PC without
+# PYTHONUTF8 that pipe is cp949, which has no en dash or em dash, and the script
+# printed both and died after the network work was done. PYTHONIOENCODING forces
+# the same encoding on any machine; --check prints the band label.
+$env:PYTHONIOENCODING = 'cp949'
+try {
+    $null = & python $py --check 2>&1 | Out-String
+    $cpCode = $LASTEXITCODE
+} finally { Remove-Item Env:PYTHONIOENCODING }
+Assert 'pick_port.py prints on a cp949 console' ($cpCode -eq 0)
 
 Write-Host '--- claude plugin validate ---'
 Push-Location $Repo

@@ -80,7 +80,7 @@ PC에서도 훅이 죽지 않는다.
 | `plugins/kw-control-tower/commands/kw-sync.md` | `/kw-control-tower:kw-sync` 명령. 플러그인이 나르는 명령은 언제나 `플러그인이름:명령이름` 으로 불린다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 여섯. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
-| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 부르는 `pick_port.py` |
+| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 부르는 `scripts/pick_port.py` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워의 계약 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬의 계약 검사 |
 | `tests/test_devops.ps1` | 배포 스킬의 계약 검사 |

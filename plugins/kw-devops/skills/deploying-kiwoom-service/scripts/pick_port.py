@@ -222,10 +222,16 @@ def 검사() -> None:
     assert 조직 == ["KiwoomAM", "KiwoomAX"], 조직
     줄들 = [{"port": 8080, "container": "kw-dashboard-web", "repo": None}]
     assert 주인(줄들, 8080)["container"] == "kw-dashboard-web" and 주인(줄들, 9002) is None
-    print("검사 통과")
+    # 기본 모드가 찍는 대역 이름을 그대로 찍는다. 출력 인코딩이 이 글자들을 못 담으면 여기서 죽는다.
+    print(f"검사 통과 — {빈포트(set())[0][0]}")
 
 
 if __name__ == "__main__":
+    # 출력을 UTF-8 로 못 박는다. 도구가 파이프로 받으면 한국어 윈도우의 기본은 cp949 이고, 거기에는
+    # 아래에서 찍는 `–`·`—` 가 없어 망 작업을 다 마친 뒤 출력에서 죽는다. 컨트롤 타워가
+    # PYTHONUTF8=1 을 세우는 것과 같은 결과이고, 그 값이 없는 PC 에서도 같게 돈다.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     인자 = sys.argv[1:]
     if "--check" in 인자:
         검사()
