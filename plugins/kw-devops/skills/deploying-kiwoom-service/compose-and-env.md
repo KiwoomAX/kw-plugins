@@ -53,7 +53,6 @@ secrets:
 | 비밀이 아닌 것 — 다른 서비스 주소·포트·워커 수 | compose 의 `environment:` 에 `${VAR:-기본값}`. 파일이 없어도 돈다 |
 | 비밀 — 키·토큰·비밀번호 | Jenkins 자격증명 **`<저장소 이름>-env`**. 키 이름은 코드가 읽는 그대로 두고 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 AX 팀에 넣어 달라고 한다 |
 | 이 repo 만 쓰는 파일 — JSON 키 같은 것 | `extraCredentials` 로 워크스페이스에 복원 |
-| 이 repo 만의 `.env` 가 필요하면 | `envCredId` 로 새 자격증명을 가리킨다 |
 | 여러 자격증명을 합쳐 쓰려면 | SKILL.md 파라미터 표의 `envCredIds` 행을 따른다 |
 
 **복원된 `.env` 에는 `global-env` 의 키와 이 저장소 자격증명의 키가 차례로 들어 있다.** `global-env` 는
