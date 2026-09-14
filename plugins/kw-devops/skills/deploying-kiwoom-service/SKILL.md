@@ -157,6 +157,9 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 | 이미 도는 서비스를 넘겨받을 때 | 지금 쓰는 마운트 경로를 받는 법과 첫 배포가 컨테이너를 내린다는 안내 |
 | compose 가 저장소 루트에 없어도 된다 · 프로젝트 이름은 `name:` 으로 박아 둔다 | compose 파일 위치와 프로젝트 이름 |
 
+**비밀 키 목록을 담당자에게 확인받으면 「AX 팀에 등록 요청 보내기」를 따른다.** 비밀 키가 없으면
+아래 Jenkinsfile 틀의 `envCredIds` 줄을 지운다.
+
 **`Jenkinsfile`**
 
 ```groovy
@@ -169,10 +172,11 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 kiwoomDeploy(
     healthContainer: 'kiwoom-<이름>',
     composeFiles:    ['docker-compose.yml', 'docker-compose.jenkins.yml'],
+    envCredIds:      ['global-env', '<저장소 이름>-env'],   // 이 저장소만 쓰는 비밀 키가 없으면 지운다
 )
 ```
 
-넘길 일이 있는 파라미터는 이 다섯이 거의 전부다. 안 넘기면 기본값이 걸리므로 필요한 것만 적는다.
+넘길 일이 있는 파라미터는 이 여섯이 거의 전부다. 안 넘기면 기본값이 걸리므로 필요한 것만 적는다.
 
 | 파라미터 | 언제 넘기나 |
 |---|---|
@@ -181,11 +185,12 @@ kiwoomDeploy(
 | `services` | compose 에 배포할 서비스가 여럿일 때 그 목록. 적힌 것만 빌드하고 띄우므로, cron 이 부르는 수집기처럼 상시 뜨지 않는 서비스는 뺀다. 헬스는 여전히 `healthContainer` 한 곳만 본다 |
 | `conflictContainers` | 안 넘기면 `healthContainer` 하나다. 서비스가 여럿일 때 나머지 `container_name` 까지 함께 넘긴다. 배포 직전 이 이름의 컨테이너를 어느 프로젝트 것이든 지운다 |
 | `extraCredentials` | 공통 셋 말고 이 repo 만 쓰는 비밀 파일이 있을 때. `[[id: '<자격증명 ID>', file: '<경로>']]` |
+| `envCredIds` | 이 저장소만 쓰는 비밀 키가 있을 때 `['global-env', '<저장소 이름>-env']` 로 넘긴다. 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다. `<저장소 이름>-env` 는 환경변수 등록 요청을 받은 AX 팀이 만든다 |
 
 `changedOnly` 는 넣지 않는다 — 선별 빌드는 push 트리거에서만 켜지는데 이 Jenkins 에는 그 트리거가 없다.
 
 **전체 목록은 `jenkins-shared-lib` README 에 있지만 그 저장소는 담당자가 못 연다.** KiwoomAX 전용
-계정으로는 안 열리므로, 위 넷으로 안 되는 것을 만나면 뒤지지 말고 관리자에게 묻는다.
+계정으로는 안 열리므로, 위 여섯으로 안 되는 것을 만나면 뒤지지 말고 관리자에게 묻는다.
 
 `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `certs/` 앞의 `/` 를 빼면 저장소 안 다른 폴더
 (`docker/certs/` 같은 것)까지 가려진다.
@@ -265,6 +270,45 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 repo 쪽은 `main` 에 push 한다(4단계 기본 길로 갔다면 이미 했다). 그리고 **잡이 생기는 것과 배포가
 도는 것이 다르다는 것을 알린다.** 잡은 15분 안에 생기지만, 배포는 그날 KST 자정 cron 이 돌 때
 일어난다. 지금 띄우려면 Jenkins 화면에서 그 잡을 수동으로 빌드한다.
+
+**compose 에 Jenkinsfile 이 띄우지 않는 서비스가 있으면 push 한 뒤 「AX 팀에 등록 요청 보내기」를
+따른다.**
+
+## AX 팀에 등록 요청 보내기
+
+**담당자는 Jenkins 자격증명과 서버를 볼 수 없으므로 두 등록은 AX 팀에 메일로 요청한다.** 스크립트가
+확인 없이 바로 보낸다. 제목과 본문 블록과 고정 문장은 [ax-requests.md](ax-requests.md) 가 정한다.
+
+| 요청 | 언제 보내나 |
+|---|---|
+| 환경변수 등록 요청 | 3단계에서 비밀 키 목록을 담당자에게 확인받은 직후에 보낸다. 비밀 키가 없으면 보내지 않는다 |
+| 스케줄 등록 요청 | 5단계에서 `main` 에 push 한 뒤에 보낸다. Jenkinsfile 이 띄우지 않는 compose 서비스마다 한 통씩 보낸다 |
+
+Jenkinsfile 이 띄우지 않는 서비스는 `services` 를 넘겼으면 거기 없는 서비스이고, 넘기지 않았으면
+`service`(기본값 `backend`)가 아닌 서비스다. 스케줄 등록 요청의 실행 주기와 예상 실행 시간은 코드로
+알 수 없으므로 담당자에게 묻고 채운다.
+
+**`.env` 를 열지 않는다.** 열면 비밀 값이 대화 기록에 남는다. 키 이름만 넘기면 스크립트가 원본에서
+그 키만 뽑아 첨부를 만들고, 화면에는 키 이름만 찍는다.
+
+본문 JSON 을 저장소 밖(`%TEMP%` 같은 곳)에 Write 로 만든 뒤 부른다. `-EnvKeys` 는 쉼표로 이은 문자열
+하나로 넘긴다. 공백으로 나누면 둘째 키가 다른 인자로 샌다. 스케줄 등록 요청은 `-EnvSource` 와
+`-EnvKeys` 를 빼고 부른다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<저장소>/.env" -EnvKeys "<키1>,<키2>"
+```
+
+종료 코드로 다음을 정한다.
+
+| 종료 코드 | 어떻게 한다 |
+|---|---|
+| 0 | "SMTP 가 받아들였다"고만 알린다. `[첨부 제외]` 줄에 찍힌 키는 값이 가지 않았으니 담당자가 AX 팀에 직접 전달해야 한다고 알린다 |
+| 8 | 원본 `.env` 에 요청한 키가 하나도 없다. 본문의 `p` 블록을 「첨부 없음 문장」으로 바꾸고 `-EnvSource`·`-EnvKeys` 없이 다시 부른다 |
+| 그 밖 | 코드와 스크립트가 찍은 사유를 눈에 띄게 알린다. 만든 본문을 담당자에게 보여 직접 전달하게 하고, 비밀 값은 AX 팀과 전달 방법을 정하라고 알린다. 원본 `.env` 를 대화에 붙여 넣으라고 하지 않는다. 배포 절차는 멈추지 않고 이어 간다 |
+
+**환경변수 등록 요청이 첨부와 함께 0 으로 끝났는지 기억해 둔다.** 스케줄 등록 요청의 `note` 에서
+그렇다면 「값은 첨부에 있음」을, 아니면 「값은 따로 전달」을 쓴다.
 
 ## 증상으로 찾을 때
 

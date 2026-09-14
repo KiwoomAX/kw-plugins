@@ -51,16 +51,14 @@ secrets:
 | 무엇 | 어디에 두나 |
 |---|---|
 | 비밀이 아닌 것 — 다른 서비스 주소·포트·워커 수 | compose 의 `environment:` 에 `${VAR:-기본값}`. 파일이 없어도 돈다 |
-| 비밀 — 키·토큰·비밀번호 | Jenkins 자격증명 **`global-env`**. 관리자가 그 파일에 넣는다 |
+| 비밀 — 키·토큰·비밀번호 | Jenkins 자격증명 **`<저장소 이름>-env`**. 키 이름은 코드가 읽는 그대로 두고 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 AX 팀에 넣어 달라고 한다 |
 | 이 repo 만 쓰는 파일 — JSON 키 같은 것 | `extraCredentials` 로 워크스페이스에 복원 |
 | 이 repo 만의 `.env` 가 필요하면 | `envCredId` 로 새 자격증명을 가리킨다 |
-| 여러 자격증명을 합쳐 쓰려면 | `envCredIds: ['global-env', '<다른 것>']` — 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다 |
+| 여러 자격증명을 합쳐 쓰려면 | SKILL.md 파라미터 표의 `envCredIds` 행을 따른다 |
 
-**`global-env` 는 모든 잡이 함께 쓰는 파일 하나다**. 그래서 둘을 지킨다.
-
-- **이름에 서비스 접두를 붙인다.** `API_KEY` 로 넣으면 남의 것과 부딪힌다. `MYSVC_API_KEY` 로 둔다.
-- **`env_file: .env` 는 그 파일 전체를 컨테이너에 넣는다.** 내 컨테이너가 남의 키까지 갖게 되므로,
-  비밀이 아닌 값을 굳이 거기 넣지 않는다.
+**복원된 `.env` 에는 `global-env` 의 키와 이 저장소 자격증명의 키가 차례로 들어 있다.** `global-env` 는
+모든 잡이 함께 쓴다. `env_file: .env` 는 그 파일 전체를 컨테이너에 넣으므로 내 컨테이너가 공용 키까지
+갖는다. 비밀이 아닌 값을 굳이 거기 넣지 않는다.
 
 **필요한 키는 compose 에 적어 없으면 멈추게 한다.** 파이프라인은 `test -s .env` 로 **비어
 있지 않은지만** 본다 — 내 키가 들었는지는 안 본다. 그냥 두면 키가 빠져도 Build 가 초록불로
@@ -72,15 +70,15 @@ compose 의 `${VAR:?메시지}` 가 이것을 막는다. 없으면 **Build 첫 �
 ```yaml
     environment:
       # 이 서비스가 반드시 필요로 하는 키. 없으면 여기서 멈춘다.
-      - MYSVC_API_KEY=${MYSVC_API_KEY:?이 값이 서버에 등록돼 있지 않습니다. AX 팀에 "MYSVC_API_KEY 등록 요청" 이라고 전달해 주세요}
+      - PARTNER_API_KEY=${PARTNER_API_KEY:?이 값이 서버에 등록돼 있지 않습니다. AX 팀에 "PARTNER_API_KEY 등록 요청" 이라고 전달해 주세요}
       # 없어도 되는 것은 기본값을 준다.
       - UVICORN_WORKERS=${UVICORN_WORKERS:-2}
 ```
 
 ```
 error while interpolating services.backend.environment.[]:
-  required variable MYSVC_API_KEY is missing a value:
-  이 값이 서버에 등록돼 있지 않습니다. AX 팀에 "MYSVC_API_KEY 등록 요청" 이라고 전달해 주세요
+  required variable PARTNER_API_KEY is missing a value:
+  이 값이 서버에 등록돼 있지 않습니다. AX 팀에 "PARTNER_API_KEY 등록 요청" 이라고 전달해 주세요
 ```
 
 **메시지는 담당자가 읽는다.** 그 사람은 개발자가 아니고 `global-env` 가 무엇인지 모른다. 그래서
@@ -94,8 +92,9 @@ error while interpolating services.backend.environment.[]:
 | `credential missing` | 한국어 존댓말로 쓴다 — 이 줄은 사람에게 하는 말이다 |
 
 **코드에서 읽는 환경변수를 먼저 살펴 목록을 만든다**(`os.getenv`·`settings`·`env`). Jenkins 가
-띄우는 서비스의 코드만 본다 — cron 이 따로 부르는 수집기 같은 것은 이 배포와 상관없다. 그 목록을
-사용자에게 보여 어느 것이 비밀이고 어느 것이 기본값으로 충분한지 확인받은 뒤 compose 를 쓴다.
+띄우는 서비스의 코드를 본다. 스케줄 등록 요청을 보낼 서비스가 있으면 그 코드도 본다. 스케줄
+서비스의 비밀도 같은 환경변수 등록 요청으로 보내기 때문이다. 그 목록을 사용자에게 보여 어느 것이
+비밀이고 어느 것이 기본값으로 충분한지 확인받은 뒤 compose 를 쓴다.
 
 **빌드 산출물이 저장소에 없으면 멀티스테이지로 바꾼다.**
 
@@ -171,6 +170,17 @@ services:
     volumes: !override
       # 자료만 남긴다. 설정은 이미지에 구웠고 코드는 이미지에 있다.
       - /home/chshin84/opt/<저장소 이름>/data:/srv/data:ro
+```
+
+스케줄 등록 요청을 보낼 서비스가 자료를 쓰면 **그 서비스의 자료 마운트도 이 파일에 같은 규약 경로로
+적는다.** 서버 crontab 이 이 덮어쓰기 파일을 함께 넘겨 돌리므로 화면 컨테이너와 그 서비스가 한 폴더를
+본다.
+
+```yaml
+services:
+  collector:
+    volumes: !override
+      - /home/chshin84/opt/<저장소 이름>/data:/srv/data
 ```
 
 **폴더를 먼저 만들라고 알린다.** 없으면 도커가 컨테이너를 띄우며 **root 소유로** 만들어 버리고,
