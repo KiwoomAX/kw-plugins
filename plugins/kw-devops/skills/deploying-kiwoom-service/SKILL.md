@@ -14,15 +14,10 @@ repo 하나를 공용 Jenkins 파이프라인에 태운다. **만드는 것은 �
 | `docker-compose.jenkins.yml` | Jenkins(DooD) 전용 override. 바인드 마운트가 없으면 안 만든다 |
 | `Jenkinsfile` | `kiwoomDeploy(...)` 호출 대여섯 줄 |
 
-로직 정본은 `~/Kiwoom/jenkins-shared-lib/vars/kiwoomDeploy.groovy` 이고, 파라미터 목록은 같은
-repo 의 `README.md` 다. **AX 팀이 고칠 때 보는 곳이다.** 담당자는 그 저장소를 열 수 없으므로, 이
-스킬을 쓰는 데 필요한 동작은 이 문서에 옮겨 적었다.
-
 ## 서버에서 이미 되어 있는 것
 
 **공용 라이브러리 등록·자격증명·조직 폴더 잡이 모두 구축돼 있다. 셋업부터 하자고 접근하지 않는다.**
-`main` 에 `Jenkinsfile` 을 올리면 15분 안에 잡이 저절로 생긴다. 서버 동작의 실측 근거는
-[server-facts.md](server-facts.md) 에 있다. 사용자가 「왜 그런가」를 물으면 그 파일을 연다.
+`main` 에 `Jenkinsfile` 을 올리면 15분 안에 잡이 저절로 생긴다.
 
 ## 절대 규칙
 
@@ -33,12 +28,7 @@ repo 의 `README.md` 다. **AX 팀이 고칠 때 보는 곳이다.** 담당자�
   있을 뿐이고, 없다고 설치를 요구하거나 검증을 건너뛰지 않는다. 「도커가 있을 것」을 전제로 한
   문장을 스킬 어디에도 두지 않는다.
 - **포트는 `pick_port.py` 로 정하고, 정했으면 `--register` 로 넣는다.** 등록부와 실측을 함께 봐야
-  한다. 마크다운 표를 쓰던 때 표는 `kw-dashboard-web` 을 `9001` 로 적고 「`8080` 이 다시 비었다」고
-  했는데 서버의 그 컨테이너는 `8080` 에서 돌고 있었다 — 그 표를 믿고 8080 을 가져갔으면 대시보드가
-  죽는다.
-- **값을 SQL 에 박지 않는다.** 등록은 `%(name)s` 바인드로만 넘긴다. `kiwoom-rdb-manager` SDK 를
-  쓰지 않는 것은 그 패키지가 사는 저장소가 private 이라 AX 전용 개발자가 설치할 수 없어서이고,
-  계약(바인드·자격증명 없음·엔드포인트 고정)은 그대로 지킨다.
+  한다.
 - **`healthContainer` 로 지정한 컨테이너는 healthcheck 를 가져야 한다.** compose 의 `healthcheck:`
   이든 Dockerfile 의 `HEALTHCHECK` 이든 하나는 있어야 한다. 없으면 `docker inspect` 의
   `.State.Health` 가 비어 영영 `healthy` 가 못 되고, 파이프라인이 100초를 기다린 뒤 멀쩡한 배포를
@@ -82,9 +72,8 @@ Get-ChildItem -Recurse -File -Filter '*compose*.y*ml' | Where-Object FullName -n
 python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<container_name> …]
 ```
 
-**저장소 이름 하나로는 못 찾는 서비스가 있다.** 등록부의 옛 줄은 `repo` 칸이 비어 있다 — 임원실
-대시보드의 `kw-dashboard-web` 두 줄이 그렇고, `--find Executive_dashboard` 는 「등록부에 없다」고
-답한다(2026-09-10 실측). 그 답을 믿으면 이미 도는 서비스에 새 포트를 쥐여 준다.
+**저장소 이름 하나로는 못 찾는 서비스가 있다.** 등록부의 옛 줄은 `repo` 칸이 비어 있어 저장소 이름으로
+찾으면 「등록부에 없다」고 답한다. 그 답을 믿으면 이미 도는 서비스에 새 포트를 쥐여 준다.
 
 찾은 줄마다 서버에서 **지금 뜨는지**도 함께 찍는다. 뜨는 줄이 있으면 이 서비스는 이미 서버에서
 돌고 있으므로 3단계의 「이미 도는 서비스를 넘겨받을 때」를 따른다.
@@ -93,7 +82,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<co
 |---|---|
 | 없다 | 처음 올리는 서비스다. 조사를 마치고 **2단계로 간다** |
 | 한 줄 있다 | 그 포트를 그대로 쓴다. **2단계를 건너뛰고 3단계로 간다** |
-| 여러 줄 있다 | 어느 것을 쓸지 사용자에게 묻는다. `kw-dashboard-web` 이 `8080`·`9001` 둘을 갖고 있는 것이 그런 상태다 |
+| 여러 줄 있다 | 어느 것을 쓸지 사용자에게 묻는다 |
 
 찾은 포트가 저장소 compose 의 `ports` 왼쪽 값과 다르면 3단계에서 찾은 포트로 고친다.
 
@@ -137,7 +126,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 보고, 뜨는데 등록 안 된 포트를 등록부는 모른다. 그래서 **차이를 먼저 찍는다.**
 
 ```
-[차이] 등록됐지만 안 뜬다: 9001 kw-dashboard-web
+[차이] 등록됐지만 안 뜬다: 9001 kiwoom-<이름>
 위 차이를 사람에게 알린 뒤 포트를 고른다.
 ```
 
@@ -193,7 +182,7 @@ kiwoomDeploy(
 | `conflictContainers` | 안 넘기면 `healthContainer` 하나다. 서비스가 여럿일 때 나머지 `container_name` 까지 함께 넘긴다. 배포 직전 이 이름의 컨테이너를 어느 프로젝트 것이든 지운다 |
 | `extraCredentials` | 공통 셋 말고 이 repo 만 쓰는 비밀 파일이 있을 때. `[[id: '<자격증명 ID>', file: '<경로>']]` |
 
-`changedOnly` 는 넣지 않는다 — 선별 빌드는 push 트리거에서만 켜지는데 그 트리거가 없다(실측: [server-facts.md](server-facts.md)).
+`changedOnly` 는 넣지 않는다 — 선별 빌드는 push 트리거에서만 켜지는데 이 Jenkins 에는 그 트리거가 없다.
 
 **전체 목록은 `jenkins-shared-lib` README 에 있지만 그 저장소는 담당자가 못 연다.** KiwoomAX 전용
 계정으로는 안 열리므로, 위 넷으로 안 되는 것을 만나면 뒤지지 말고 관리자에게 묻는다.
@@ -242,7 +231,7 @@ docker inspect --format='{{.State.Health.Status}}' kiwoom-<이름>              
 
 **`.env` 와 `certs/` 는 Jenkins 가 빌드마다 복원하는 것이라 이 PC 에는 없다.** compose 나 Dockerfile 이
 그중 하나라도 쓰면(`env_file`·`secrets`·`COPY certs/…`) 이 길을 쓰지 않는다. `.env` 가 없으면
-`docker compose config` 부터 `env file not found` 로 멈추고, pem 이 없으면 build 에서 멈춘다(실측).
+`docker compose config` 부터 `env file not found` 로 멈추고, pem 이 없으면 build 에서 멈춘다.
 기본 길로 충분하다.
 
 **이 PC 에 같은 이름의 컨테이너가 이미 있으면 `build`·`up`·`down` 은 돌리지 않는다**
@@ -255,8 +244,7 @@ docker inspect --format='{{.State.Health.Status}}' kiwoom-<이름>              
 python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이너> <service_type> [org [repo]]
 ```
 
-**역할과 조직이 두 칸으로 갈려 있다.** 한 칸에 섞여 있던 때는 AX 프론트엔드가 어느 값인지
-정할 수 없었는데, 이제 `frontend` + `KiwoomAX` 로 그냥 적는다.
+**역할과 조직을 두 칸에 나눠 적는다.** AX 프론트엔드라면 `frontend` + `KiwoomAX` 다.
 
 | 칸 | 쓸 수 있는 값 |
 |---|---|

@@ -43,8 +43,7 @@ secrets:
 
 프론트엔드(nginx)면 `build.args` 로 `VITE_*` 를 넘기고 `ports` 를 `"<호스트>:80"` 으로 두며
 `healthcheck` 는 `["CMD", "wget", "-qO-", "http://127.0.0.1/"]` 로 바꾼다. `localhost` 로 적으면 컨테이너
-안에서 `::1` 로 먼저 풀려, IPv4 에만 붙은 nginx 가 거부하고 늘 unhealthy 가 된다(임원실 대시보드
-compose 의 주석이 그 기록이다).
+안에서 `::1` 로 먼저 풀려, IPv4 에만 붙은 nginx 가 거부하고 늘 unhealthy 가 된다.
 
 **환경변수가 어디서 오는지 먼저 정한다.** `.env` 없이는 서비스가 안 도는데, 그 파일은 repo 에
 없다 — 파이프라인이 Jenkins 자격증명에서 빌드마다 복원한다.
@@ -57,7 +56,7 @@ compose 의 주석이 그 기록이다).
 | 이 repo 만의 `.env` 가 필요하면 | `envCredId` 로 새 자격증명을 가리킨다 |
 | 여러 자격증명을 합쳐 쓰려면 | `envCredIds: ['global-env', '<다른 것>']` — 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다 |
 
-**`global-env` 는 모든 잡이 함께 쓰는 파일 하나다**(2026-09-10 실측). 그래서 둘을 지킨다.
+**`global-env` 는 모든 잡이 함께 쓰는 파일 하나다**. 그래서 둘을 지킨다.
 
 - **이름에 서비스 접두를 붙인다.** `API_KEY` 로 넣으면 남의 것과 부딪힌다. `MYSVC_API_KEY` 로 둔다.
 - **`env_file: .env` 는 그 파일 전체를 컨테이너에 넣는다.** 내 컨테이너가 남의 키까지 갖게 되므로,
@@ -68,7 +67,7 @@ compose 의 주석이 그 기록이다).
 지나가고 Health check 에서야 죽는데, 그 로그에는 원인이 안 보인다.
 
 compose 의 `${VAR:?메시지}` 가 이것을 막는다. 없으면 **Build 첫 명령에서 변수 이름과 함께
-멈춘다**(실측: `config`·`build`·`up` 모두 종료 1).
+멈춘다**.
 
 ```yaml
     environment:
@@ -106,11 +105,11 @@ error while interpolating services.backend.environment.[]:
 
 **사내망이 HTTPS 를 가로채 컨테이너 안에서 `npm ci`·`pip install` 이 인증서 오류로 죽는데,
 파이프라인이 그 해결책을 이미 워크스페이스에 놓아 준다** — Prepare secrets 가 복원하는
-`certs/ePrism.crt` 가 사내 CA 다. 사내 저장소들이 이미 이 파일을 쓴다(`Kiwoom-STT`·`Kiwoom-pdfCollector`).
+`certs/ePrism.crt` 가 사내 CA 다.
 
 **CA 를 넣는 방법은 이미지마다 다르다.** node 는 시스템 인증서 저장소를 보지 않고
 `NODE_EXTRA_CA_CERTS` 변수 하나만 본다. 게다가 `node:22-alpine` 에는 `update-ca-certificates` 가
-없다(실측: 종료 127). 파이썬 이미지는 `Kiwoom-STT` 처럼 시스템 번들 뒤에 붙이고
+없다. 파이썬 이미지는 시스템 번들 뒤에 붙이고
 `REQUESTS_CA_BUNDLE`·`SSL_CERT_FILE` 로 그 번들을 가리킨다.
 
 저장소에 같은 CA 가 이미 커밋돼 있으면(예: `docker/certs/ePrism.crt`) 그것을 `COPY` 해도 된다.

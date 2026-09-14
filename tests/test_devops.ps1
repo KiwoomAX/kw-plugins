@@ -50,7 +50,7 @@ Assert 'frontmatter name matches the folder' ($name -eq 'deploying-kiwoom-servic
 
 # The body was split so a port question does not load compose templates and log
 # tables. A reference file that SKILL.md does not link is never opened.
-$refs = @('compose-and-env.md', 'jenkins-logs.md', 'server-facts.md')
+$refs = @('compose-and-env.md', 'jenkins-logs.md')
 foreach ($ref in $refs) {
     Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
     Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))
@@ -68,6 +68,10 @@ Assert 'reference files carry no CLAUDE_SKILL_DIR (not substituted there)' (-not
 # The control tower's python3 guard denies python3 on PCs where it is the Store
 # redirector, so a python3 line in any skill file would be refused there.
 Assert 'no skill file calls python3' (-not ($allText -match '\bpython3\b'))
+# The skill carries what a deploy needs, not how each rule was found. Build
+# history (dates, measurement notes, how things used to be) goes stale and is
+# loaded on every run.
+Assert 'skill documents carry no build-history notes' (-not ($allText -match '\b20\d\d-\d\d-\d\d\b|\(실측|실측\)|쓰던 때|섞여 있던'))
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.
