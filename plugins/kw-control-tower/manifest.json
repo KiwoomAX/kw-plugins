@@ -8,15 +8,15 @@
   ],
 
   "required": [
-    "kw-doc-formats@kiwoom-ax"
+    "kw-doc-formats@kiwoom-ax",
+    "kw-devops@kiwoom-ax"
   ],
 
   "suggested": [
     "superpowers@claude-plugins-official",
     "document-skills@anthropic-agent-skills",
     "playwright@claude-plugins-official",
-    "frontend-design@claude-plugins-official",
-    "kw-devops@kiwoom-ax"
+    "frontend-design@claude-plugins-official"
   ],
 
   "_retired_comment": "항목마다 언제 넣었는지를 적는다. 두 해가 지나면 뺀다. 그때까지 안 돌아온 PC 는 다시 세우는 편이 빠르고, 목록이 자라기만 하면 새 PC 가 가진 적 없는 것을 매번 확인한다.",
