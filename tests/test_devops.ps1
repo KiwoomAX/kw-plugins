@@ -89,6 +89,150 @@ try {
 } finally { Remove-Item Env:PYTHONIOENCODING }
 Assert 'pick_port.py prints on a cp949 console' ($cpCode -eq 0)
 
+Write-Host '--- request-ax.ps1 ---'
+# The script mails AX-team requests through the shared renderer and sender. The
+# tests swap both for fakes through two environment variables, so no real mail
+# leaves and no shared folder is needed. The child runs in Windows PowerShell
+# 5.1 because that is the shell a deploy PC is guaranteed to have.
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$ax      = Join-Path $SkillDir 'scripts/request-ax.ps1'
+$axText  = if (Test-Path $ax) { [IO.File]::ReadAllText($ax) } else { '' }
+$axBytes = if (Test-Path $ax) { [IO.File]::ReadAllBytes($ax) } else { @() }
+Assert 'request-ax.ps1 ships under scripts/' (Test-Path $ax)
+Assert 'request-ax.ps1 has a UTF-8 BOM (5.1 reads Korean as cp949 otherwise)' ($axBytes.Count -ge 3 -and $axBytes[0] -eq 0xEF -and $axBytes[1] -eq 0xBB -and $axBytes[2] -eq 0xBF)
+$Recipient = ([regex]::Match($axText, '(?m)^\$Recipient\s*=\s*''([^'']+)''')).Groups[1].Value
+Assert 'request-ax.ps1 names one recipient' ($Recipient -match '^[^@\s]+@[^@\s]+$')
+# Two failure paths are hard to provoke from a test; check the code carries them.
+Assert 'a failed work-folder delete warns without changing the exit code' ($axText -match '\[경고\] 작업 폴더를 지우지 못했다')
+Assert 'work-folder setup and attachment writing both map to exit 7' ([regex]::Matches($axText, '\$script:Stage = 7').Count -ge 2)
+
+$Fake         = Join-Path ([IO.Path]::GetTempPath()) ('kwdevops-test-' + [guid]::NewGuid().ToString('N'))
+$FakeRenderer = Join-Path $Fake 'renderer'
+$FakeSender   = Join-Path $Fake 'send-mail.ps1'
+$Capture      = Join-Path $Fake 'capture'
+$ChildTemp    = Join-Path $Fake 'temp'
+$Utf8Bom      = New-Object Text.UTF8Encoding $true
+$Utf8NoBom    = New-Object Text.UTF8Encoding $false
+$null = New-Item -ItemType Directory -Force (Join-Path $FakeRenderer 'formats'), (Join-Path $FakeRenderer 'scripts'), $ChildTemp
+
+[IO.File]::WriteAllText((Join-Path $FakeRenderer 'formats/plain.js'), @'
+const fs = require('fs');
+const [, , input, out] = process.argv;
+const mode = process.env.FAKE_RENDER || '';
+if (mode === 'fail') { console.error('fake render failure'); process.exit(1); }
+JSON.parse(fs.readFileSync(input, 'utf8'));
+fs.writeFileSync(out, mode === 'empty' ? '' : '<html><body><table><tr><td>ok</td></tr></table></body></html>');
+'@, $Utf8NoBom)
+[IO.File]::WriteAllText((Join-Path $FakeRenderer 'scripts/verify-outlook.js'), @'
+process.exit(process.env.FAKE_VERIFY === 'fail' ? 1 : 0);
+'@, $Utf8NoBom)
+[IO.File]::WriteAllText($FakeSender, @'
+param([string[]]$To, [string]$Subject, [string]$HtmlPath, [string[]]$Attach = @())
+if ($env:FAKE_SEND_THROW) { throw 'fake smtp failure' }
+$null = New-Item -ItemType Directory -Force $env:FAKE_CAPTURE
+@{ To = @($To); Subject = $Subject } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $env:FAKE_CAPTURE 'call.json')
+foreach ($a in $Attach) { Copy-Item -LiteralPath $a (Join-Path $env:FAKE_CAPTURE 'attach.env') }
+'@, $Utf8Bom)
+
+$Body    = Join-Path $Fake 'body.json'
+$NotJson = Join-Path $Fake 'not-json.json'
+$EnvOk   = Join-Path $Fake 'ok.env'
+$EnvOpen = Join-Path $Fake 'open-quote.env'
+$Blocker = Join-Path $Fake 'blocker.txt'
+[IO.File]::WriteAllText($Body, '{"blocks":[{"type":"p","text":"시험 본문"}]}', $Utf8NoBom)
+[IO.File]::WriteAllText($NotJson, 'this is not json', $Utf8NoBom)
+[IO.File]::WriteAllText($Blocker, 'a file, so nothing can be created beneath it', $Utf8NoBom)
+$envLines = @('# 주석 줄', 'A_KEY=alpha-secret', 'API_KEY=first-secret', 'export B_KEY = "값 1"', '', 'API_KEY=second-secret', 'UNRELATED=unrelated-secret', 'EMPTY_KEY=')
+[IO.File]::WriteAllText($EnvOk, (($envLines -join "`r`n") + "`r`n"), $Utf8NoBom)
+[IO.File]::WriteAllText($EnvOpen, "Q_KEY=`"open-secret`r`n", $Utf8NoBom)
+
+$PsExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+function Invoke-Ax([hashtable]$EnvOverride, [string[]]$ArgList) {
+    $ErrorActionPreference = 'Continue'   # 5.1 turns a child's stderr into a terminating error under Stop
+    $old = @{}
+    foreach ($k in $EnvOverride.Keys) { $old[$k] = [Environment]::GetEnvironmentVariable($k); Set-Item "Env:$k" $EnvOverride[$k] }
+    try {
+        # A seam that points anywhere but the test folder would send real mail.
+        foreach ($v in @($env:KW_DEVOPS_MAIL_RENDERER, $env:KW_DEVOPS_MAIL_SENDER)) {
+            if (-not $v -or -not $v.StartsWith($Fake)) { Write-Host "STOP  a mail seam points outside the test folder: '$v'" -ForegroundColor Red; exit 2 }
+        }
+        if (Test-Path $Capture) { Remove-Item $Capture -Recurse -Force }
+        $out = & $PsExe -NoProfile -ExecutionPolicy Bypass -File $ax @ArgList 2>&1 | Out-String
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out; Sent = (Test-Path (Join-Path $Capture 'call.json')) }
+    } finally {
+        foreach ($k in $EnvOverride.Keys) {
+            if ($null -eq $old[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } else { Set-Item "Env:$k" $old[$k] }
+        }
+    }
+}
+
+$saved = @{ R = $env:KW_DEVOPS_MAIL_RENDERER; S = $env:KW_DEVOPS_MAIL_SENDER; C = $env:FAKE_CAPTURE; T = $env:TEMP }
+$env:KW_DEVOPS_MAIL_RENDERER = $FakeRenderer
+$env:KW_DEVOPS_MAIL_SENDER   = $FakeSender
+$env:FAKE_CAPTURE            = $Capture
+$env:TEMP                    = $ChildTemp
+$okArgs = @('-Subject', '시험 제목', '-BodyPath', $Body)
+try {
+    Assert 'blank -Subject exits 2'          ((Invoke-Ax @{} @('-Subject', ' ', '-BodyPath', $Body)).Code -eq 2)
+    Assert 'missing -BodyPath file exits 2'  ((Invoke-Ax @{} @('-Subject', 'x', '-BodyPath', (Join-Path $Fake 'none.json'))).Code -eq 2)
+    Assert 'a body that is not JSON exits 2' ((Invoke-Ax @{} @('-Subject', 'x', '-BodyPath', $NotJson)).Code -eq 2)
+    Assert '-EnvSource alone exits 2'        ((Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk))).Code -eq 2)
+    Assert '-EnvKeys alone exits 2'          ((Invoke-Ax @{} ($okArgs + @('-EnvKeys', 'A_KEY'))).Code -eq 2)
+    Assert 'missing -EnvSource file exits 2' ((Invoke-Ax @{} ($okArgs + @('-EnvSource', (Join-Path $Fake 'none.env'), '-EnvKeys', 'A_KEY'))).Code -eq 2)
+
+    $h = [IO.File]::Open($EnvOk, 'Open', 'ReadWrite', 'None')
+    try { $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'A_KEY')) } finally { $h.Dispose() }
+    Assert 'an -EnvSource locked by another process exits 2' ($r.Code -eq 2)
+
+    $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOpen, '-EnvKeys', 'Q_KEY'))
+    Assert 'an unclosed quote exits 2 and names the key' ($r.Code -eq 2 -and $r.Out -match 'Q_KEY' -and $r.Out -notmatch 'open-secret')
+
+    $noNode = (($env:Path -split ';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'node.exe')) }) -join ';'
+    Assert 'no node on PATH exits 3'   ((Invoke-Ax @{ Path = $noNode } $okArgs).Code -eq 3)
+    Assert 'a missing renderer exits 3' ((Invoke-Ax @{ KW_DEVOPS_MAIL_RENDERER = (Join-Path $Fake 'no-renderer') } $okArgs).Code -eq 3)
+    Assert 'a missing sender exits 3'   ((Invoke-Ax @{ KW_DEVOPS_MAIL_SENDER = (Join-Path $Fake 'no-sender.ps1') } $okArgs).Code -eq 3)
+    Assert 'a failing render exits 4'   ((Invoke-Ax @{ FAKE_RENDER = 'fail' } $okArgs).Code -eq 4)
+    Assert 'an empty render exits 4'    ((Invoke-Ax @{ FAKE_RENDER = 'empty' } $okArgs).Code -eq 4)
+    $r = Invoke-Ax @{ FAKE_VERIFY = 'fail' } $okArgs
+    Assert 'a failing Outlook check exits 5 and sends nothing' ($r.Code -eq 5 -and -not $r.Sent)
+    Assert 'a sender exception exits 6' ((Invoke-Ax @{ FAKE_SEND_THROW = '1' } $okArgs).Code -eq 6)
+    Assert 'an unwritable TEMP exits 7' ((Invoke-Ax @{ TEMP = (Join-Path $Blocker 'sub') } $okArgs).Code -eq 7)
+    $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'NOPE_KEY'))
+    Assert 'no requested key in the source exits 8 and sends nothing' ($r.Code -eq 8 -and -not $r.Sent)
+
+    $locked = Join-Path $ChildTemp 'kwdevops-mail-locked'
+    $null = New-Item -ItemType Directory -Force $locked
+    $h = [IO.File]::Open((Join-Path $locked 'held.txt'), 'Create', 'ReadWrite', 'None')
+    try {
+        (Get-Item $locked).LastWriteTime = (Get-Date).AddHours(-2)
+        $r = Invoke-Ax @{} $okArgs
+    } finally { $h.Dispose(); Remove-Item $locked -Recurse -Force }
+    Assert 'an old work folder that cannot be deleted only warns' ($r.Code -eq 0 -and $r.Out -match 'kwdevops-mail-locked')
+
+    $old = Join-Path $ChildTemp 'kwdevops-mail-old'
+    $null = New-Item -ItemType Directory -Force $old
+    (Get-Item $old).LastWriteTime = (Get-Date).AddHours(-2)
+    $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'A_KEY,api_key,B_KEY,EMPTY_KEY,MISSING_KEY'))
+    Assert 'a full request exits 0' ($r.Code -eq 0)
+    $call = if ($r.Sent) { Get-Content -Raw -Encoding UTF8 (Join-Path $Capture 'call.json') | ConvertFrom-Json } else { $null }
+    Assert 'the sender got the recipient constant and the subject' ($null -ne $call -and (@($call.To) -join ',') -eq $Recipient -and $call.Subject -eq '시험 제목')
+    $attPath  = Join-Path $Capture 'attach.env'
+    $attBytes = if (Test-Path $attPath) { [IO.File]::ReadAllBytes($attPath) } else { @() }
+    $attText  = if (Test-Path $attPath) { [IO.File]::ReadAllText($attPath) } else { '' }
+    Assert 'the attachment holds only the requested keys, last value wins, key case from the source' ($attText -ceq "A_KEY=alpha-secret`nAPI_KEY=second-secret`nB_KEY=`"값 1`"`n")
+    Assert 'the attachment has no BOM and no CR' ($attBytes.Count -gt 3 -and -not ($attBytes[0] -eq 0xEF -and $attBytes[1] -eq 0xBB) -and -not ($attBytes -contains 13))
+    Assert 'keys left out are named' ($r.Out -match 'EMPTY_KEY' -and $r.Out -match 'MISSING_KEY')
+    $leaked = @('alpha-secret', 'first-secret', 'second-secret', '값 1', 'unrelated-secret') | Where-Object { $r.Out -match [regex]::Escape($_) }
+    Assert 'no value is printed' (@($leaked).Count -eq 0)
+    Assert 'no work folder is left behind and the old one is gone' (@(Get-ChildItem $ChildTemp -Directory -Filter 'kwdevops-mail-*').Count -eq 0)
+} finally {
+    $env:KW_DEVOPS_MAIL_RENDERER = $saved.R
+    $env:KW_DEVOPS_MAIL_SENDER   = $saved.S
+    $env:FAKE_CAPTURE            = $saved.C
+    $env:TEMP                    = $saved.T
+    Remove-Item $Fake -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host '--- claude plugin validate ---'
 Push-Location $Repo
 try {
