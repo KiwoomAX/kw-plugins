@@ -57,6 +57,15 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --doctor
 화살표로 함께 적고 종료 코드 1 로 끝난다. **막는 것이 있으면 거기서 멈추고 사용자에게 그 줄을
 그대로 보여 준다.** 도커가 없는 것은 막는 것이 아니다 — 검증은 원래 Jenkins 가 한다.
 
+**4단계의 빠른 길을 쓸 수 있는지도 여기서 정해 알린다.** 도커가 있고 사내 인증서 번들이 있을 때만
+쓸 수 있다. 번들은 `kw_install` 설치기가 만들어 사용자 환경변수 `SSL_CERT_FILE` 에 경로를 적어 둔 파일이다.
+
+```powershell
+$bundle = [Environment]::GetEnvironmentVariable('SSL_CERT_FILE', 'User'); $bundle; if ($bundle) { Test-Path $bundle }
+```
+
+둘 중 하나라도 없으면 검증은 Jenkins 에서 하는 기본 길 하나뿐이라고 알리고, 뒤에서 말을 바꾸지 않는다.
+
 **남의 저장소를 읽지 않는다.** 담당자는 자기 레포 권한만 갖는다. **ssh 계정도 필요 없다.**
 등록부는 `kw_deploy.port` 테이블이고 `kiwoom-rdb-handler`(8700)를
 거쳐 읽으므로 사내망에 닿기만 하면 된다.
@@ -157,7 +166,8 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 | 이미 도는 서비스를 넘겨받을 때 | 지금 쓰는 마운트 경로를 받는 법과 첫 배포가 컨테이너를 내린다는 안내 |
 | compose 가 저장소 루트에 없어도 된다 · 프로젝트 이름은 `name:` 으로 박아 둔다 | compose 파일 위치와 프로젝트 이름 |
 
-**비밀 키 목록을 담당자에게 확인받으면 「AX 팀에 등록 요청 보내기」를 따른다.** 비밀 키가 없으면
+**비밀 키 목록을 담당자에게 확인받으면 「AX 팀에 등록 요청 보내기」를 따른다.** 그때 값이 든 파일이
+무엇인지(`.env`·`.env.local` 같은 것)도 함께 확인받는다. 파일 이름만 보고 열지 않는다. 비밀 키가 없으면
 아래 Jenkinsfile 틀의 `envCredIds` 줄을 지운다.
 
 **`Jenkinsfile`**
@@ -224,20 +234,28 @@ kiwoomDeploy(
 **로그를 못 읽겠으면 Console Output 을 통째로 붙여 넣게 한다.** Claude 가 읽어 준다 — 이것이
 자동화 대신 두는 길이고, 토큰도 권한도 필요 없다. 그 표는 자주 나오는 줄을 먼저 걸러 주는 것뿐이다.
 
-#### 빠른 길 — 이 PC 에 도커가 있을 때만
+#### 빠른 길 — 0단계에서 쓸 수 있다고 정했을 때만
 
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.jenkins.yml config | Out-Null   # 문법·병합
-docker compose up -d --build backend
-docker inspect --format='{{.State.Health.Status}}' kiwoom-<이름>                        # healthy 여야 한다
-```
+**저장소를 `$env:TEMP` 아래로 복사해 거기서 돌린다.** `.env` 와 `certs/` 는 Jenkins 가 빌드마다 복원하는
+것이라 저장소에 없고, 저장소 안에서 `.env` 를 만들면 담당자의 진짜 값 파일을 덮을 수 있다.
 
-`healthy` 가 안 나오면 파이프라인에서도 안 나온다. 확인이 끝나면 `docker compose down` 으로 내린다.
+1. 저장소를 `$env:TEMP\kwdevops-verify-<저장소 이름>` 으로 복사한다. `.git`·`.env*`·`node_modules` 는 뺀다.
+2. 0단계의 번들을 복사본의 `certs/ePrism.crt` 로 복사한다. Jenkins 가 자격증명 `eprism-crt` 에서 복원하는
+   파일과 같은 이름이다.
+3. 복사본에 `.env` 를 새로 만들고 compose 가 `${VAR:?}` 로 요구하는 키만 가짜 값으로 채운다. 진짜 값은 쓰지 않는다.
+4. 복사본에서 돌린다.
 
-**`.env` 와 `certs/` 는 Jenkins 가 빌드마다 복원하는 것이라 이 PC 에는 없다.** compose 나 Dockerfile 이
-그중 하나라도 쓰면(`env_file`·`secrets`·`COPY certs/…`) 이 길을 쓰지 않는다. `.env` 가 없으면
-`docker compose config` 부터 `env file not found` 로 멈추고, pem 이 없으면 build 에서 멈춘다.
-기본 길로 충분하다.
+   ```powershell
+   docker compose -f docker-compose.yml -f docker-compose.jenkins.yml config | Out-Null   # 문법·병합
+   docker compose up -d --build <서비스>
+   docker inspect --format='{{.State.Health.Status}}' kiwoom-<이름>                        # healthy 여야 한다
+   ```
+
+5. 확인이 끝나면 `docker compose down` 으로 내리고 복사본 폴더를 지운다.
+
+`healthy` 가 안 나오면 파이프라인에서도 안 나온다. 값이 가짜라서 외부 API 나 데이터베이스가 붙는지는
+여기서 알 수 없다 — 그것은 기본 길에서 본다. `certs/kiwoom.pem`(`secrets`)을 쓰는 이미지는 그 파일이 이
+PC 에 없으므로 이 길을 쓰지 않는다.
 
 **이 PC 에 같은 이름의 컨테이너가 이미 있으면 `build`·`up`·`down` 은 돌리지 않는다**
 (`docker ps -a --filter name=<container_name>`). 그 컨테이너와 이미지를 덮어쓰거나 내린다. `config` 는
@@ -248,6 +266,9 @@ docker inspect --format='{{.State.Health.Status}}' kiwoom-<이름>              
 ```powershell
 python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이너> <service_type> [org [repo]]
 ```
+
+**넣지 못해 담당자에게 넘길 때는 스크립트의 전체 경로로 명령을 적는다.** `${CLAUDE_SKILL_DIR}` 를 푼
+절대경로다. 담당자는 `pick_port.py` 가 어디 있는지 모른다.
 
 **역할과 조직을 두 칸에 나눠 적는다.** AX 프론트엔드라면 `frontend` + `KiwoomAX` 다.
 
@@ -269,10 +290,33 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 
 repo 쪽은 `main` 에 push 한다(4단계 기본 길로 갔다면 이미 했다). 그리고 **잡이 생기는 것과 배포가
 도는 것이 다르다는 것을 알린다.** 잡은 15분 안에 생기지만, 배포는 그날 KST 자정 cron 이 돌 때
-일어난다. 지금 띄우려면 Jenkins 화면에서 그 잡을 수동으로 빌드한다.
+일어난다. 지금 띄우려면 Jenkins 화면에서 그 잡을 수동으로 빌드한다. 그다음 6단계로 간다.
 
-**compose 에 Jenkinsfile 이 띄우지 않는 서비스가 있으면 push 한 뒤 「AX 팀에 등록 요청 보내기」를
-따른다.**
+### 6. 스케줄이 필요한지 본다 — 배포를 마친 뒤에
+
+**1~5단계는 대시보드를 배포하는 것만 한다.** 스케줄은 배포가 끝난 뒤에 묻는다. 그 전에 스케줄 때문에
+배포 방식을 바꾸자고 하지 않는다.
+
+저장소에서 정해진 시각에 도는 것을 찾는다.
+
+| 흔적 | 무엇이 도는가 | 요청 종류 |
+|---|---|---|
+| compose 에 Jenkinsfile 이 띄우지 않는 서비스 | 그 컨테이너를 한 번 돌리고 끝낸다 | 컨테이너 실행형 |
+| `vercel.json` 의 `crons`, 스케줄러가 부르는 `/api/cron/…` 같은 라우트 | 스케줄러가 앱의 주소를 부르면 앱이 그 요청 안에서 일한다 | 주소 호출형 |
+
+Jenkinsfile 이 띄우지 않는 서비스는 `services` 를 넘겼으면 거기 없는 서비스이고, 넘기지 않았으면
+`service`(기본값 `backend`)가 아닌 서비스다.
+
+**찾은 것이 없으면 「스케줄로 도는 것이 없다」고만 알리고 끝낸다.** 있으면 담당자에게 보여 주고 서버에서
+돌릴지 묻는다. 지금 Vercel 같은 다른 곳에서 돌고 있으면 두 곳에서 같은 일이 돌지 않게 어느 쪽에 둘지도
+함께 묻는다. 돌리겠다고 한 것마다 스케줄 등록 요청을 한 통씩 보낸다. 실행 주기와 예상 실행 시간은
+코드로 알 수 없으므로 담당자에게 묻는다. `vercel.json` 의 `schedule` 은 UTC 이므로 한국 시간으로 옮겨 적는다.
+
+**컨테이너 실행형이 자료를 쓰면 보내기 전에 덮어쓰기 파일부터 고친다.** [compose-and-env.md](compose-and-env.md) 의
+`docker-compose.jenkins.yml` 절을 따라 자료 마운트를 적고 push 한다.
+
+**스케줄에만 쓰는 비밀 키가 있으면 환경변수 등록 요청을 한 통 더 보낸다.** 3단계에서 보낸 키는 빼고 새 키만
+담는다. 주소 호출형이 헤더에 싣는 `CRON_SECRET` 같은 키가 그렇다.
 
 ## AX 팀에 등록 요청 보내기
 
@@ -282,21 +326,18 @@ repo 쪽은 `main` 에 push 한다(4단계 기본 길로 갔다면 이미 했다
 | 요청 | 언제 보내나 |
 |---|---|
 | 환경변수 등록 요청 | 3단계에서 비밀 키 목록을 담당자에게 확인받은 직후에 보낸다. 비밀 키가 없으면 보내지 않는다 |
-| 스케줄 등록 요청 | 5단계에서 `main` 에 push 한 뒤에 보낸다. Jenkinsfile 이 띄우지 않는 compose 서비스마다 한 통씩 보낸다 |
+| 스케줄 등록 요청 | 6단계에서 담당자가 서버에서 돌리겠다고 한 스케줄마다 한 통씩 보낸다 |
 
-Jenkinsfile 이 띄우지 않는 서비스는 `services` 를 넘겼으면 거기 없는 서비스이고, 넘기지 않았으면
-`service`(기본값 `backend`)가 아닌 서비스다. 스케줄 등록 요청의 실행 주기와 예상 실행 시간은 코드로
-알 수 없으므로 담당자에게 묻고 채운다.
-
-**`.env` 를 열지 않는다.** 열면 비밀 값이 대화 기록에 남는다. 키 이름만 넘기면 스크립트가 원본에서
-그 키만 뽑아 첨부를 만들고, 화면에는 키 이름만 찍는다.
+**값이 든 파일을 열지 않는다.** 3단계에서 확인받은 파일(`.env`·`.env.local` 같은 것)이다. 열면 비밀 값이
+대화 기록에 남는다. 키 이름만 넘기면 스크립트가 그 파일에서 그 키만 뽑아 첨부를 만들고, 화면에는 키
+이름만 찍는다.
 
 본문 JSON 을 저장소 밖(`$env:TEMP` 가 가리키는 폴더의 절대경로 같은 곳)에 Write 로 만든 뒤 부른다. `-EnvKeys` 는 쉼표로 이은 문자열
 하나로 넘긴다. 공백으로 나누면 둘째 키가 다른 인자로 샌다. 스케줄 등록 요청은 `-EnvSource` 와
 `-EnvKeys` 를 빼고 부른다.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<저장소>/.env" -EnvKeys "<키1>,<키2>"
+powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<값이 든 파일>" -EnvKeys "<키1>,<키2>"
 ```
 
 종료 코드로 다음을 정한다.
@@ -304,10 +345,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts
 | 종료 코드 | 어떻게 한다 |
 |---|---|
 | 0 | "SMTP 가 받아들였다"고만 알린다. `[첨부 제외]` 줄에 찍힌 키는 값이 가지 않았으니 담당자가 AX 팀에 직접 전달해야 한다고 알린다 |
-| 8, 또는 2 이고 사유가 `-EnvSource 파일이 없다` | 원본 `.env` 가 없거나 요청한 키가 하나도 없다. 본문의 `p` 블록을 「첨부 없음 문장」으로 바꾸고 `-EnvSource`·`-EnvKeys` 없이 다시 부른다 |
+| 8, 또는 2 이고 사유가 `-EnvSource 파일이 없다` | 값이 든 파일이 없거나 요청한 키가 하나도 없다. 본문의 `p` 블록을 「첨부 없음 문장」으로 바꾸고 `-EnvSource`·`-EnvKeys` 없이 다시 부른다 |
 | 2 이고 사유가 `-Subject`·`-BodyPath`·`-EnvKeys`·`함께 줘야 한다` 이거나 본문 JSON 을 읽지 못한 것 | 부르는 쪽의 실수이고 메일은 나가지 않았다. 사유대로 인자나 본문 JSON 을 고쳐 한 번만 다시 부른다 |
 | 4 이고 사유가 `렌더러가 종료 코드` | 본문 블록이 렌더러 형식과 다르고 메일은 나가지 않았다. [ax-requests.md](ax-requests.md) 의 블록 이름과 칸에 맞춰 고친 뒤 한 번만 다시 부른다 |
-| 그 밖, 또는 다시 부른 뒤에도 실패 | 코드와 스크립트가 찍은 사유를 눈에 띄게 알린다. 만든 본문을 담당자에게 보여 직접 전달하게 하고, 비밀 값은 AX 팀과 전달 방법을 정하라고 알린다. 원본 `.env` 를 대화에 붙여 넣으라고 하지 않는다. 배포 절차는 멈추지 않고 이어 간다 |
+| 그 밖, 또는 다시 부른 뒤에도 실패 | 코드와 스크립트가 찍은 사유를 눈에 띄게 알린다. 만든 본문을 담당자에게 보여 직접 전달하게 하고, 비밀 값은 AX 팀과 전달 방법을 정하라고 알린다. 값이 든 파일을 대화에 붙여 넣으라고 하지 않는다. 배포 절차는 멈추지 않고 이어 간다 |
 
 **환경변수 등록 요청이 첨부와 함께 0 으로 끝났는지 기억해 둔다.** 스케줄 등록 요청의 `note` 에서
 그렇다면 「값은 첨부에 있음」을, 아니면 「값은 따로 전달」을 쓴다.
