@@ -50,7 +50,7 @@ Assert 'frontmatter name matches the folder' ($name -eq 'deploying-kiwoom-servic
 
 # The body was split so a port question does not load compose templates and log
 # tables. A reference file that SKILL.md does not link is never opened.
-$refs = @('compose-and-env.md', 'jenkins-logs.md')
+$refs = @('compose-and-env.md', 'jenkins-logs.md', 'ax-requests.md')
 foreach ($ref in $refs) {
     Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
     Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))
@@ -72,6 +72,14 @@ Assert 'no skill file calls python3' (-not ($allText -match '\bpython3\b'))
 # history (dates, measurement notes, how things used to be) goes stale and is
 # loaded on every run.
 Assert 'skill documents carry no build-history notes' (-not ($allText -match '\b20\d\d-\d\d-\d\d\b|\(실측|실측\)|쓰던 때|섞여 있던'))
+
+# The model copies these examples into a body file, so a broken example is a
+# broken mail.
+$axDocPath = Join-Path $SkillDir 'ax-requests.md'
+$axDoc = if (Test-Path $axDocPath) { [IO.File]::ReadAllText($axDocPath) } else { '' }
+$examples = @([regex]::Matches($axDoc, '(?s)```json\r?\n(.*?)```') | ForEach-Object { $_.Groups[1].Value })
+$badExamples = @($examples | Where-Object { try { $null = $_ | ConvertFrom-Json; $false } catch { $true } })
+Assert 'ax-requests.md example bodies parse as JSON' ($examples.Count -gt 0 -and $badExamples.Count -eq 0)
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.
