@@ -131,16 +131,31 @@ const [, , input, out] = process.argv;
 const mode = process.env.FAKE_RENDER || '';
 if (mode === 'fail') { console.error('fake render failure'); process.exit(1); }
 JSON.parse(fs.readFileSync(input, 'utf8'));
-fs.writeFileSync(out, mode === 'empty' ? '' : '<html><body><table><tr><td>ok</td></tr></table></body></html>');
+const T = require(require('path').join(__dirname, '..', 'lib', 'tokens.js'));
+fs.writeFileSync(out, mode === 'empty' ? '' : `<html><body><table><tr><td style="font-family:${T.SERIF};">ok</td></tr></table></body></html>`);
 '@, $Utf8NoBom)
 [IO.File]::WriteAllText((Join-Path $FakeRenderer 'scripts/verify-outlook.js'), @'
 process.exit(process.env.FAKE_VERIFY === 'fail' ? 1 : 0);
+'@, $Utf8NoBom)
+# The real renderer keeps its fonts in lib/tokens.js. The script swaps SERIF for SANS in its copy.
+$null = New-Item -ItemType Directory -Force (Join-Path $FakeRenderer 'lib')
+[IO.File]::WriteAllText((Join-Path $FakeRenderer 'lib/tokens.js'), @'
+const SANS = "'Malgun Gothic',sans-serif";
+const SERIF = "Georgia,serif";
+module.exports = { SANS, SERIF };
+'@, $Utf8NoBom)
+$NoSerifRenderer = Join-Path $Fake 'renderer-noserif'
+Copy-Item -Recurse $FakeRenderer $NoSerifRenderer
+[IO.File]::WriteAllText((Join-Path $NoSerifRenderer 'lib/tokens.js'), @'
+const SANS = "'Malgun Gothic',sans-serif";
+module.exports = { SANS, SERIF: SANS };
 '@, $Utf8NoBom)
 [IO.File]::WriteAllText($FakeSender, @'
 param([string[]]$To, [string]$Subject, [string]$HtmlPath, [string[]]$Attach = @())
 if ($env:FAKE_SEND_THROW) { throw 'fake smtp failure' }
 $null = New-Item -ItemType Directory -Force $env:FAKE_CAPTURE
 @{ To = @($To); Subject = $Subject } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $env:FAKE_CAPTURE 'call.json')
+Copy-Item -LiteralPath $HtmlPath (Join-Path $env:FAKE_CAPTURE 'body.html')
 foreach ($a in $Attach) { Copy-Item -LiteralPath $a (Join-Path $env:FAKE_CAPTURE 'attach.env') }
 '@, $Utf8Bom)
 
@@ -203,6 +218,8 @@ try {
     Assert 'a missing sender exits 3'   ((Invoke-Ax @{ KW_DEVOPS_MAIL_SENDER = (Join-Path $Fake 'no-sender.ps1') } $okArgs).Code -eq 3)
     Assert 'a failing render exits 4'   ((Invoke-Ax @{ FAKE_RENDER = 'fail' } $okArgs).Code -eq 4)
     Assert 'an empty render exits 4'    ((Invoke-Ax @{ FAKE_RENDER = 'empty' } $okArgs).Code -eq 4)
+    $r = Invoke-Ax @{ KW_DEVOPS_MAIL_RENDERER = $NoSerifRenderer } $okArgs
+    Assert 'a renderer without a SERIF line exits 4 and sends nothing' ($r.Code -eq 4 -and -not $r.Sent)
     $r = Invoke-Ax @{ FAKE_VERIFY = 'fail' } $okArgs
     Assert 'a failing Outlook check exits 5 and sends nothing' ($r.Code -eq 5 -and -not $r.Sent)
     Assert 'a sender exception exits 6' ((Invoke-Ax @{ FAKE_SEND_THROW = '1' } $okArgs).Code -eq 6)
@@ -226,6 +243,9 @@ try {
     Assert 'a full request exits 0' ($r.Code -eq 0)
     $call = if ($r.Sent) { Get-Content -Raw -Encoding UTF8 (Join-Path $Capture 'call.json') | ConvertFrom-Json } else { $null }
     Assert 'the sender got the recipient constant and the subject' ($null -ne $call -and (@($call.To) -join ',') -eq $Recipient -and $call.Subject -eq '시험 제목')
+    $bodyPath = Join-Path $Capture 'body.html'
+    $bodyHtml = if (Test-Path $bodyPath) { [IO.File]::ReadAllText($bodyPath) } else { '' }
+    Assert 'the rendered body uses the Gothic stack in place of the serif stack' ($bodyHtml -match 'Malgun Gothic' -and $bodyHtml -notmatch 'Georgia')
     $attPath  = Join-Path $Capture 'attach.env'
     $attBytes = if (Test-Path $attPath) { [IO.File]::ReadAllBytes($attPath) } else { @() }
     $attText  = if (Test-Path $attPath) { [IO.File]::ReadAllText($attPath) } else { '' }

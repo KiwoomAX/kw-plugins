@@ -95,6 +95,12 @@ try {
 
     # 5. 렌더링과 아웃룩 호환 검사
     $script:Stage = 4
+    # 등록 요청 메일은 고딕 하나로 쓴다. 공유 렌더러의 명조(SERIF)를 작업 폴더 복사본에서만 고딕(SANS)으로 바꾼다.
+    $tokens = Join-Path $work 'renderer\lib\tokens.js'
+    $tokensText = [IO.File]::ReadAllText($tokens, $Utf8NoBom)
+    $serifLine = [regex]'(?m)^const SERIF = .*$'
+    if (-not $serifLine.IsMatch($tokensText)) { throw '렌더러 lib/tokens.js 에서 SERIF 줄을 찾지 못했다. 공유 렌더러의 모양이 바뀌었는지 확인하라.' }
+    [IO.File]::WriteAllText($tokens, $serifLine.Replace($tokensText, 'const SERIF = SANS;', 1), $Utf8NoBom)
     $html = Join-Path $work 'body.html'
     & node (Join-Path $work 'renderer\formats\plain.js') $BodyPath $html
     if ($LASTEXITCODE -ne 0) { throw "렌더러가 종료 코드 $LASTEXITCODE 로 끝났다." }
