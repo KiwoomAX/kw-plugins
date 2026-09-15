@@ -1,6 +1,6 @@
 # 3단계 — compose 파일과 환경변수
 
-SKILL.md 의 3단계에서 연다. `Jenkinsfile` 틀은 SKILL.md 에 있다.
+SKILL.md 의 3단계에서 연다. `Jenkinsfile` 틀은 jenkinsfile.md 에 있다.
 
 아래 틀을 그대로 두고 이름·포트·경로만 바꾼다. 안 쓰는 줄은 지운다 — 주석까지 그대로 옮겨
 붙이지 않는다.
@@ -56,7 +56,7 @@ secrets:
 | 비밀이 아닌 것 — 다른 서비스 주소·포트·워커 수 | compose 의 `environment:` 에 `${VAR:-기본값}`. 파일이 없어도 돈다 |
 | 비밀 — 키·토큰·비밀번호 | Jenkins 자격증명 **`env-<서비스>`**. 키 이름은 코드가 읽는 그대로 두고 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 AX 팀에 넣어 달라고 한다 |
 | 파일 키 — 서비스 계정 JSON 같은 것 | base64 한 줄로 바꿔 `.env` 에 `<이름>_B64` 로 넣는다. 아래 「비밀을 넘기는 통로」 |
-| 여러 자격증명을 합쳐 쓰려면 | SKILL.md 파라미터 표의 `envCredIds` 행을 따른다 |
+| 여러 자격증명을 합쳐 쓰려면 | jenkinsfile.md 파라미터 표의 `envCredIds` 행을 따른다 |
 
 **복원된 `.env` 에는 `global-env`(전사 공통)·`env-<조직>`(조직 공통)·`env-<서비스>` 의 키가 차례로 들어 있다.**
 앞의 둘은 여러 잡이 함께 쓴다. `env_file: .env` 는 그 파일 전체를 컨테이너에 넣으므로 내 컨테이너가 공용 키까지
@@ -146,7 +146,7 @@ print(json.loads(urlopen(req).read())['token'])") && \
 ```
 
 **파일 키는 경로 대신 환경변수를 받게 코드를 고친다.** 이미지에 JSON 을 복사하고 경로로 읽던 코드라면 이렇게 바꾼다.
-값을 만들어 환경변수 등록 요청에 싣는 법은 SKILL.md 의 「AX 팀에 등록 요청 보내기」에 있다.
+값을 만들어 환경변수 등록 요청에 싣는 법은 ax-requests.md 의 「보내는 법」에 있다.
 
 ```python
 creds = Credentials.from_service_account_info(

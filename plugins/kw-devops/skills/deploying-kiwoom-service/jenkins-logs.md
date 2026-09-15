@@ -12,7 +12,7 @@ SKILL.md 의 4단계에서 빌드가 `Finished: SUCCESS` 로 끝나지 않았을
 | `Gate: main 외 브랜치(…) → 빌드/배포 안 함` | 브랜치를 잘못 올렸다 | `main` 에 올린다 |
 | `Gate: 스케줄이지만 최근 24h 커밋 없음 → 건너뜀` | 자정 cron 인데 그날 커밋이 없다 | 정상이다. 지금 띄우려면 수동 빌드 |
 | `Gate: 실행 조건 불충족 → 이후 stage 건너뜀` · `Finished: NOT_BUILT` | 위 둘 중 하나로 걸러졌다 | 위 두 줄을 먼저 본다 |
-| `kiwoomDeploy: healthContainer 파라미터는 필수입니다` | Jenkinsfile 에 그 값을 안 넣었다 | 3단계의 틀을 다시 본다 |
+| `kiwoomDeploy: healthContainer 파라미터는 필수입니다` | Jenkinsfile 에 그 값을 안 넣었다 | jenkinsfile.md 의 틀을 다시 본다 |
 | `Waiting for … (status: not_found)` 가 열 번 | **컨테이너 이름이 안 맞는다** | `healthContainer` 와 compose 의 `container_name` 을 같게 |
 | `Waiting for … (status: unhealthy)` 가 열 번 | 컨테이너는 떴는데 healthcheck 명령이 실패한다 | 아래 컨테이너 로그 30줄이 이유를 말한다. 포트·경로를 먼저 본다 |
 | `Waiting for … (status: starting)` 가 열 번 | 100초 안에 앱이 못 떴다 | `start_period` 를 늘리거나 앱 기동을 본다 |
