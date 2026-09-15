@@ -50,7 +50,7 @@ Assert 'frontmatter name matches the folder' ($name -eq 'deploying-kiwoom-servic
 
 # The body was split so a port question does not load compose templates and log
 # tables. A reference file that SKILL.md does not link is never opened.
-$refs = @('compose-and-env.md', 'jenkins-logs.md', 'ax-requests.md', 'jenkinsfile.md', 'local-verify.md')
+$refs = @('compose-and-env.md', 'jenkins-logs.md', 'ax-requests.md', 'jenkinsfile.md', 'local-verify.md', 'secrets.md')
 foreach ($ref in $refs) {
     Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
     Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))

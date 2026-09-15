@@ -1,6 +1,6 @@
 ---
 name: deploying-kiwoom-service
-description: Use when a Kiwoom repo has to deploy through the shared Jenkins CI/CD pipeline on server 192.7.9.45 but has no docker-compose.yml and no Jenkinsfile yet. Picks a host port that will not collide by reading the kw_deploy.port registry through the rdb-handler and probing the server's live listeners, writes docker-compose.yml, the docker-compose.jenkins.yml DooD override, and a Jenkinsfile that only calls kiwoomDeploy, then registers the port. Reads the registry over HTTP, so it needs no repo access beyond the user's own. Needs no ssh account and no Docker on the user's PC. Triggers on 배포 붙여줘·CI/CD 태워줘·젠킨스 붙이기·파이프라인 연결·Jenkinsfile 만들어줘·docker compose 만들어줘·포트 뭐 쓰지·새 서비스 배포.
+description: Use when a KiwoomAX or KiwoomAM repo has to be deployed through the shared Jenkins CI/CD pipeline on server 192.7.9.45 and lacks a Dockerfile, docker-compose.yml or Jenkinsfile, when a new service needs a host port that will not collide, or when a deployed service's secrets or scheduled jobs must be registered with the AX team. Triggers on 배포 붙여줘·CI/CD 태워줘·젠킨스 붙이기·파이프라인 연결·Jenkinsfile 만들어줘·docker compose 만들어줘·포트 뭐 쓰지·새 서비스 배포.
 ---
 
 # deploying-kiwoom-service
@@ -30,7 +30,7 @@ repo 하나를 공용 Jenkins 파이프라인에 태운다. **파이프라인 �
 - **파이프라인 로직을 Jenkinsfile 에 복제하지 않는다.** stage 가 필요하면 그것은 shared-lib 에 넣을 변경이다.
 - **`.env` 와 `certs/` 를 커밋하지 않는다.** 파이프라인이 자격증명에서 빌드마다 복원한다.
 - **비밀을 이미지에 넣지 않는다.** `.env`·`kiwoom.pem`·서비스 계정 JSON 을 `COPY` 하지 않는다. 키 종류별 통로는
-  [compose-and-env.md](compose-and-env.md) 의 「비밀을 넘기는 통로」에 있다.
+  [secrets.md](secrets.md) 에 있다.
 - **값이 든 파일(`.env`·`.env.local` 같은 것)을 열지 않는다.** 열면 비밀 값이 대화 기록에 남는다.
 - **담당자의 답을 기다리는 곳은 셋뿐이다.** 1단계에서 같은 서비스가 여러 줄 나올 때, 3단계에서 compose 를 쓰기
   전, 6단계에서 스케줄을 찾았을 때다. 포트와 Dockerfile 은 묻지 않고 정한 뒤 알린다.
@@ -83,7 +83,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<co
 | 런타임에 읽는 호스트 파일 | 코드가 여는 절대경로 | Jenkins 덮어쓰기 |
 | `COPY` 하는 경로가 `.gitignore` 에 있는가 | `.gitignore` 와 `COPY` 대조 | 있으면 Jenkins 빌드가 거기서 죽는다. 3단계에서 멀티스테이지로 바꾼다 |
 | 바인드 마운트가 각각 무엇인가 | `volumes:` 한 줄씩 | 설정·코드·자료마다 처리가 다르다 |
-| Dockerfile 이 비밀을 넣거나 TLS 검증을 끄는가 | `COPY` 의 `.env`·`*.pem`·키 JSON, `sslVerify false`·URL 에 박힌 토큰 | 3단계에서 「비밀을 넘기는 통로」대로 고친다 |
+| Dockerfile 이 비밀을 넣거나 TLS 검증을 끄는가 | `COPY` 의 `.env`·`*.pem`·키 JSON, `sslVerify false`·URL 에 박힌 토큰 | 3단계에서 secrets.md 대로 고친다 |
 
 **Dockerfile 이 없으면** `package.json`·`pyproject.toml`·`requirements.txt`·`go.mod` 로 스택을 보고 **묻지 않고
 만든다.** `EXPOSE` 와 `CMD` 를 반드시 적는다. 스택을 알아볼 수 없으면 멈추고 알린다. 빌드는 어차피 Jenkins 가
@@ -113,8 +113,8 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 답을 받으면 차례로 한다.
 
 1. 비밀 키가 있으면 「AX 팀에 등록 요청 보내기」로 환경변수 등록 요청을 보낸다.
-2. [compose-and-env.md](compose-and-env.md) 를 끝까지 읽고 `docker-compose.yml` 과, 필요하면 덮어쓰기 파일과
-   Dockerfile 수정을 쓴다.
+2. [compose-and-env.md](compose-and-env.md) 와 [secrets.md](secrets.md) 를 끝까지 읽고 `docker-compose.yml` 과,
+   필요하면 덮어쓰기 파일과 Dockerfile 수정을 쓴다.
 3. [jenkinsfile.md](jenkinsfile.md) 의 틀로 `Jenkinsfile` 을 쓴다.
 4. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
 
