@@ -39,6 +39,10 @@ repo 하나를 공용 Jenkins 파이프라인에 태운다. **만드는 것은 �
   shared-lib 에 넣을 변경이다.
 - **`.env` 와 `certs/` 를 커밋하지 않는다.** 파이프라인이 자격증명에서 빌드마다 복원한다.
   `.gitignore` 에 둘을 넣는 것까지가 이 스킬의 몫이다.
+- **비밀을 이미지에 넣지 않는다.** `.env`·`kiwoom.pem`·서비스 계정 JSON 을 `COPY` 하지 않는다. 개인키는
+  빌드 때 BuildKit secret `ghpem` 으로만 보이고, `.env` 값은 실행 때 `env_file` 로 들어간다. 파이프라인은
+  실행이 끝나면 워크스페이스의 `.env` 와 `certs/kiwoom.pem` 을 지운다. 키 종류별 통로는
+  [compose-and-env.md](compose-and-env.md) 의 「비밀을 넘기는 통로」에 있다.
 - **포트를 정했으면 같은 작업 안에서 등록부에 넣는다.** 미루면 다음 사람이 같은 포트를 고르고,
   나중에 뜨는 쪽이 조용히 죽는다.
 
@@ -99,7 +103,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<co
 옮겨 가고 옛 줄은 등록부에 남아 썩는다. `container` 에 유일 제약이 없어(한 컨테이너가 포트 여럿을
 갖는 것이 실제로 있다) 데이터베이스가 막아 주지 않는다.
 
-그다음 repo 에서 여섯을 확인하고, 확인한 값을 사용자에게 보여 준 뒤 다음으로 간다.
+그다음 repo 에서 일곱을 확인하고, 확인한 값을 사용자에게 보여 준 뒤 다음으로 간다.
 
 | 확인할 것 | 어디서 | 왜 필요한가 |
 |---|---|---|
@@ -109,6 +113,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<co
 | 런타임에 읽는 호스트 파일 | 코드가 여는 절대경로 | Jenkins 덮어쓰기를 어떻게 쓸지 |
 | **Dockerfile 이 `COPY` 하는 경로가 `.gitignore` 에 있는가** | `.gitignore` 와 `COPY` 줄을 대조 | 있으면 그 산출물이 저장소에 없다는 뜻이다. **Jenkins 는 clone 만 하므로 Build 가 거기서 죽는다** — 3단계에서 멀티스테이지로 바꾼다 |
 | **compose 의 바인드 마운트가 각각 무엇인가** | `volumes:` 를 한 줄씩 | 설정·코드·자료 셋으로 갈리고 처리가 다르다(3단계) |
+| **Dockerfile 이 비밀을 이미지에 넣거나 TLS 검증을 끄는가** | `COPY` 줄의 `.env`·`*.pem`·키 JSON, `sslVerify false`·검증을 끈 연결·URL 에 박힌 토큰 | 있으면 3단계에서 「비밀을 넘기는 통로」대로 고친다 |
 
 **Dockerfile 이 없으면 스택을 알아볼 수 있는지 본다.** 담당자는 개발자가 아니라서 「Dockerfile 을
 만들어 오세요」로 끝내면 갈 곳이 없다. 그리고 **이미지를 빌드하는 것은 어차피 Jenkins 다** — 여기서
@@ -156,7 +161,8 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 ### 3. 세 파일 작성
 
 **compose 를 쓰기 전에 한 번 멈춘다.** 코드가 읽는 키 목록과 값이 든 파일을 담당자에게 보여 확인받고, 답을
-받은 뒤에 compose 를 쓰고 4·5단계로 간다. 1~5단계에서 담당자의 답을 기다리는 곳은 여기와 1단계의
+받은 뒤에 compose 를 쓰고 4·5단계로 간다. 서비스 자격증명 `env-<서비스>` 에 쓸 짧은 서비스 이름도 제안해
+함께 확인받는다. 1~5단계에서 담당자의 답을 기다리는 곳은 여기와 1단계의
 「여러 줄 있다」뿐이다.
 
 **`docker-compose.yml` 과 Dockerfile 을 쓰기 전에 [compose-and-env.md](compose-and-env.md) 를 끝까지 읽는다.**
@@ -166,14 +172,15 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 |---|---|
 | `docker-compose.yml` | 서비스 정의 틀과 프론트엔드(nginx)일 때 바꿀 것 |
 | 환경변수가 어디서 오는지 먼저 정한다 | 비밀과 기본값을 둘 곳, 키가 없으면 `${VAR:?}` 로 멈추게 하는 법 |
+| 비밀을 넘기는 통로 | 개인키·`.env` 값·파일 키·사내 CA 를 빌드와 실행에 넘기는 법, `.dockerignore` 의 마지막 방어선 |
 | 빌드 산출물이 저장소에 없으면 멀티스테이지로 바꾼다 | 사내 CA 를 이미지에 넣는 법과 `.dockerignore` |
 | `docker-compose.jenkins.yml` | 바인드 마운트를 한 줄씩 처리하는 법과 런타임 자료 경로 |
 | 이미 도는 서비스를 넘겨받을 때 | 지금 쓰는 마운트 경로를 받는 법과 첫 배포가 컨테이너를 내린다는 안내 |
 | compose 가 저장소 루트에 없어도 된다 · 프로젝트 이름은 `name:` 으로 박아 둔다 | compose 파일 위치와 프로젝트 이름 |
 
 **비밀 키 목록을 담당자에게 확인받으면 「AX 팀에 등록 요청 보내기」를 따른다.** 그때 값이 든 파일이
-무엇인지(`.env`·`.env.local` 같은 것)도 함께 확인받는다. 파일 이름만 보고 열지 않는다. 비밀 키가 없으면
-아래 Jenkinsfile 틀의 `envCredIds` 줄을 지운다.
+무엇인지(`.env`·`.env.local` 같은 것)도 함께 확인받는다. 파일 이름만 보고 열지 않는다. 이 서비스만 쓰는
+비밀 키가 없으면 아래 Jenkinsfile 틀의 `envCredIds` 에서 `env-<서비스>` 를 뺀다.
 
 **`Jenkinsfile`**
 
@@ -187,7 +194,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 kiwoomDeploy(
     healthContainer: 'kiwoom-<이름>',
     composeFiles:    ['docker-compose.yml', 'docker-compose.jenkins.yml'],
-    envCredIds:      ['global-env', '<저장소 이름>-env'],   // 이 저장소만 쓰는 비밀 키가 없으면 지운다
+    envCredIds:      ['global-env', 'env-ax', 'env-<서비스>'],   // KiwoomAM 이면 env-am. 서비스 전용 비밀 키가 없으면 마지막을 뺀다
 )
 ```
 
@@ -199,8 +206,8 @@ kiwoomDeploy(
 | `service` | compose 의 서비스 키가 `backend` 가 아니면 **반드시** 넘긴다. 기본값이 `backend` 라, 안 넘기면 Build 가 없는 서비스를 빌드하려다 멈춘다 |
 | `services` | compose 에 배포할 서비스가 여럿일 때 그 목록. 적힌 것만 빌드하고 띄우므로, cron 이 부르는 수집기처럼 상시 뜨지 않는 서비스는 뺀다. 헬스는 여전히 `healthContainer` 한 곳만 본다 |
 | `conflictContainers` | 안 넘기면 `healthContainer` 하나다. 서비스가 여럿일 때 나머지 `container_name` 까지 함께 넘긴다. 배포 직전 이 이름의 컨테이너를 어느 프로젝트 것이든 지운다 |
-| `extraCredentials` | 공통 셋 말고 이 repo 만 쓰는 비밀 파일이 있을 때. `[[id: '<자격증명 ID>', file: '<경로>']]` |
-| `envCredIds` | 이 저장소만 쓰는 비밀 키가 있을 때 `['global-env', '<저장소 이름>-env']` 로 넘긴다. 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다. `<저장소 이름>-env` 는 환경변수 등록 요청을 받은 AX 팀이 만든다 |
+| `extraCredentials` | 비밀 파일에는 쓰지 않는다. 서비스 계정 JSON 같은 파일 키는 base64 한 줄로 `.env` 에 넣는다([compose-and-env.md](compose-and-env.md) 의 「비밀을 넘기는 통로」) |
+| `envCredIds` | 늘 넘긴다. `['global-env', 'env-<조직>', 'env-<서비스>']` 이고 조직은 KiwoomAX 면 `env-ax`, KiwoomAM 이면 `env-am` 이다. 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다. `env-<서비스>` 는 환경변수 등록 요청을 받은 AX 팀이 만들고, 서비스 이름은 3단계에서 담당자와 정한 짧은 이름이다 |
 
 `changedOnly` 는 넣지 않는다 — 선별 빌드는 push 트리거에서만 켜지는데 이 Jenkins 에는 그 트리거가 없다.
 
@@ -337,6 +344,14 @@ Jenkinsfile 이 띄우지 않는 서비스는 `services` 를 넘겼으면 거기
 **값이 든 파일을 열지 않는다.** 3단계에서 확인받은 파일(`.env`·`.env.local` 같은 것)이다. 열면 비밀 값이
 대화 기록에 남는다. 키 이름만 넘기면 스크립트가 그 파일에서 그 키만 뽑아 첨부를 만들고, 화면에는 키
 이름만 찍는다.
+
+**파일 키는 보내기 전에 base64 한 줄로 바꿔 값이 든 파일에 붙인다.** 담당자에게 키 파일(서비스 계정 JSON
+같은 것)의 경로만 받고 그 파일은 열지 않는다. 아래 명령은 값을 화면에 찍지 않는다. 붙인 `<이름>_B64` 를
+`-EnvKeys` 에 함께 넘긴다.
+
+```powershell
+Add-Content -LiteralPath "<값이 든 파일>" -Value ("`n<이름>_B64=" + [Convert]::ToBase64String([IO.File]::ReadAllBytes("<키 파일>")))
+```
 
 본문 JSON 을 저장소 밖(`$env:TEMP` 가 가리키는 폴더의 절대경로 같은 곳)에 Write 로 만든 뒤 부른다. `-EnvKeys` 는 쉼표로 이은 문자열
 하나로 넘긴다. 공백으로 나누면 둘째 키가 다른 인자로 샌다. 스케줄 등록 요청은 `-EnvSource` 와

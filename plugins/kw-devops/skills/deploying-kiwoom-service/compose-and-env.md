@@ -19,8 +19,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # Kiwoom-Manager 를 GitHub 에서 설치하는 이미지만 필요하다. 아니면 secrets 째로 지운다.
-      secrets:
+      # 사설 저장소(Kiwoom-Manager 같은 것)를 설치하는 이미지만 필요하다. 아니면 args·secrets 째로 지운다.
+      args:
+        GITHUB_APP_ID: ${GITHUB_APP_ID:-2826312}
+        GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:-108948292}
+      secrets:                              # 빌드 때만 보인다. 컨테이너에는 들어가지 않는다
         - ghpem
     ports:
       - "<배정한 호스트 포트>:<컨테이너 포트>"
@@ -51,12 +54,12 @@ secrets:
 | 무엇 | 어디에 두나 |
 |---|---|
 | 비밀이 아닌 것 — 다른 서비스 주소·포트·워커 수 | compose 의 `environment:` 에 `${VAR:-기본값}`. 파일이 없어도 돈다 |
-| 비밀 — 키·토큰·비밀번호 | Jenkins 자격증명 **`<저장소 이름>-env`**. 키 이름은 코드가 읽는 그대로 두고 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 AX 팀에 넣어 달라고 한다 |
-| 이 repo 만 쓰는 파일 — JSON 키 같은 것 | `extraCredentials` 로 워크스페이스에 복원 |
+| 비밀 — 키·토큰·비밀번호 | Jenkins 자격증명 **`env-<서비스>`**. 키 이름은 코드가 읽는 그대로 두고 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 AX 팀에 넣어 달라고 한다 |
+| 파일 키 — 서비스 계정 JSON 같은 것 | base64 한 줄로 바꿔 `.env` 에 `<이름>_B64` 로 넣는다. 아래 「비밀을 넘기는 통로」 |
 | 여러 자격증명을 합쳐 쓰려면 | SKILL.md 파라미터 표의 `envCredIds` 행을 따른다 |
 
-**복원된 `.env` 에는 `global-env` 의 키와 이 저장소 자격증명의 키가 차례로 들어 있다.** `global-env` 는
-모든 잡이 함께 쓴다. `env_file: .env` 는 그 파일 전체를 컨테이너에 넣으므로 내 컨테이너가 공용 키까지
+**복원된 `.env` 에는 `global-env`(전사 공통)·`env-<조직>`(조직 공통)·`env-<서비스>` 의 키가 차례로 들어 있다.**
+앞의 둘은 여러 잡이 함께 쓴다. `env_file: .env` 는 그 파일 전체를 컨테이너에 넣으므로 내 컨테이너가 공용 키까지
 갖는다. 비밀이 아닌 값을 굳이 거기 넣지 않는다.
 
 **필요한 키는 compose 에 적어 없으면 멈추게 한다.** 파이프라인은 `test -s .env` 로 **비어
@@ -94,6 +97,62 @@ error while interpolating services.backend.environment.[]:
 띄우는 서비스의 코드를 본다. 스케줄에만 쓰는 키는 SKILL.md 의 6단계가 따로 요청한다. 그 목록을 사용자에게 보여 어느 것이
 비밀이고 어느 것이 기본값으로 충분한지 확인받은 뒤 compose 를 쓴다.
 
+**비밀을 넘기는 통로** — 비밀은 이미지에 넣지 않고 Jenkins 자격증명에서 꺼내 필요한 순간에만 쓴다. 같은
+종류의 키는 어느 저장소든 같은 통로를 쓴다. 기존 Dockerfile 이 이와 다르면 이 표대로 고친다.
+
+| 키 종류 | 쓰는 때 | 통로 |
+|---|---|---|
+| GitHub App 개인키 `certs/kiwoom.pem` | 빌드 때 사설 저장소를 설치할 토큰을 받을 때 | compose `build.secrets` 의 `ghpem` 을 `RUN --mount=type=secret,id=ghpem,required=true` 로 그 명령 동안만 본다 |
+| `.env` 값 — API 키·DB 접속 정보 | 컨테이너 실행 때 | `envCredIds` 자격증명을 이어 붙인 `.env` 를 compose `env_file` 이 환경변수로 넣는다 |
+| 파일 키 — Google 서비스 계정 JSON 같은 것 | 컨테이너 실행 때 | JSON 을 base64 한 줄로 바꿔 `.env` 에 `<이름>_B64` 로 넣고 코드가 디코드해 읽는다 |
+| 사내 CA `certs/ePrism.crt` | 빌드·실행 때 TLS 검증 | 비밀이 아닌 공개 인증서라 이미지에 넣는다. 파이프라인이 빌드마다 복원하고 지우지 않는다 |
+
+**개인키는 `COPY` 하지 않는다.** `COPY` 한 뒤 `rm` 해도 레이어에 남아 `docker save` 로 꺼낼 수 있다. secret
+마운트는 그 `RUN` 동안만 파일을 보여 주고 레이어에 남기지 않는다. `required=true` 가 있어 키가 없으면 빌드가
+조용히 넘어가지 않고 바로 실패한다. 토큰은 설치 URL 에 박지 않고 `insteadOf` 로 넣었다가 설치 뒤 지운다.
+TLS 검증은 끄지 않는다(`http.sslVerify false`·검증을 끈 연결을 쓰지 않는다) — 사내 CA 를 먼저 등록하면 된다.
+
+```dockerfile
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 사내 CA 를 시스템에 등록한다 — 아래 토큰 발급과 git clone 이 TLS 검증을 켠 채 돈다
+COPY certs/ePrism.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# 개인키는 secret 으로만 받는다. App ID·Installation ID 는 compose build args 로 받는다.
+ARG GITHUB_APP_ID=""
+ARG GITHUB_INSTALLATION_ID=""
+RUN --mount=type=secret,id=ghpem,required=true \
+    uv pip install --system --no-cache PyJWT cryptography && \
+    GITHUB_TOKEN=$(python -c "\
+import jwt, time, json; \
+from urllib.request import Request, urlopen; \
+key = open('/run/secrets/ghpem').read(); \
+now = int(time.time()); \
+tok = jwt.encode({'iat': now-60, 'exp': now+600, 'iss': '${GITHUB_APP_ID}'}, key, algorithm='RS256'); \
+req = Request('https://api.github.com/app/installations/${GITHUB_INSTALLATION_ID}/access_tokens', method='POST', headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}); \
+print(json.loads(urlopen(req).read())['token'])") && \
+    git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+    uv pip install --system --no-cache "git+https://github.com/KiwoomAM/Kiwoom-Manager.git@main#subdirectory=<패키지>" && \
+    git config --global --unset-all url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf && \
+    uv pip uninstall --system PyJWT cryptography
+```
+
+**파일 키는 경로 대신 환경변수를 받게 코드를 고친다.** 이미지에 JSON 을 복사하고 경로로 읽던 코드라면 이렇게 바꾼다.
+값을 만들어 환경변수 등록 요청에 싣는 법은 SKILL.md 의 「AX 팀에 등록 요청 보내기」에 있다.
+
+```python
+creds = Credentials.from_service_account_info(
+    json.loads(base64.b64decode(os.environ["GSHEET_CREDS_B64"])), scopes=SCOPES)
+```
+
 **빌드 산출물이 저장소에 없으면 멀티스테이지로 바꾼다.**
 
 1단계에서 「`COPY` 하는 경로가 `.gitignore` 에 있다」가 나왔으면 그 산출물은 **누군가 자기 PC 에서
@@ -106,8 +165,8 @@ error while interpolating services.backend.environment.[]:
 
 **CA 를 넣는 방법은 이미지마다 다르다.** node 는 시스템 인증서 저장소를 보지 않고
 `NODE_EXTRA_CA_CERTS` 변수 하나만 본다. 게다가 `node:22-alpine` 에는 `update-ca-certificates` 가
-없다. 파이썬 이미지는 시스템 번들 뒤에 붙이고
-`REQUESTS_CA_BUNDLE`·`SSL_CERT_FILE` 로 그 번들을 가리킨다.
+없다. 파이썬 이미지는 위 「비밀을 넘기는 통로」의 Dockerfile 처럼 `update-ca-certificates` 로 시스템 저장소에
+등록하고 `REQUESTS_CA_BUNDLE`·`SSL_CERT_FILE`·`CURL_CA_BUNDLE` 로 그 번들을 가리킨다.
 
 저장소에 같은 CA 가 이미 커밋돼 있으면(예: `docker/certs/ePrism.crt`) 그것을 `COPY` 해도 된다.
 파이프라인 복원에 기대지 않으므로 이 PC 에서도 빌드된다.
@@ -133,7 +192,8 @@ compose 의 `context` 가 하위 폴더를 가리키고 있으면 루트로 올�
 다른 이미지용이면 고치지 않는다 — 그 이미지의 빌드가 깨진다. 대신 Dockerfile 옆에
 `<Dockerfile 이름>.dockerignore`(예: `docker/Dockerfile.dockerignore`)를 새로 둔다. BuildKit 은 그
 파일을 루트 것보다 먼저 본다. 어느 쪽이든 `*` 로 닫고 실제로 `COPY` 하는 것만 연다 — 안 닫으면
-`.env`·`data/` 까지 올라간다. 원래 하위 폴더에 있던 `.dockerignore`(예: `web/.dockerignore`)는 더는
+`.env`·`data/` 까지 올라간다. **파일 끝에는 `.env` 와 `**/*.pem` 을 다시 막는 두 줄을 둔다.** 실수로 연 경로나
+`COPY . .` 가 있어도 비밀이 빌드 컨텍스트에 실리지 않게 하는 마지막 방어선이다. 원래 하위 폴더에 있던 `.dockerignore`(예: `web/.dockerignore`)는 더는
 쓰이지 않으므로 지운다.
 
 **`docker-compose.jenkins.yml`** — 바인드 마운트가 있을 때만 만든다.
