@@ -59,9 +59,8 @@ try {
     } catch { Write-Host "[경고] 지난 작업 폴더를 살펴보지 못했다: $($_.Exception.Message)" }
     $work = Join-Path $env:TEMP ('kwdevops-mail-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $work
+    # 렌더러만 복사한다. 5단계에서 tokens.js 를 고쳐야 하기 때문이다. 발송기는 곁의 파일을 읽을 수 있으니 원래 위치에서 부른다.
     Copy-Item -LiteralPath $Renderer -Destination (Join-Path $work 'renderer') -Recurse
-    $senderCopy = Join-Path $work 'send-mail.ps1'
-    Copy-Item -LiteralPath $Sender -Destination $senderCopy
 
     # 4. 첨부 만들기 — 값은 파일에만 쓰고 화면에는 키 이름만 찍는다.
     $attach = $null
@@ -84,6 +83,8 @@ try {
             if (($q -eq '"' -or $q -eq "'") -and $v.IndexOf($q, 1) -lt 0) {
                 throw "따옴표가 같은 줄에서 닫히지 않는다: $($e.Name) — 여러 줄 값은 지원하지 않는다."
             }
+            # 값은 원본 그대로 옮긴다. 파이프라인이 이 첨부를 .env 에 그대로 이어 붙이고 compose 가 같은 규칙
+            # (따옴표 없는 값의 ` #` 주석과 뒤 공백을 뗌)으로 읽으므로, 여기서 다듬으면 규칙이 두 벌이 된다.
             $lines += "$($e.Name)=$v"
         }
         if ($absent.Count) { Write-Host ('[첨부 제외] 원본에 없거나 값이 빈 키: ' + ($absent -join ', ')) }
@@ -113,7 +114,10 @@ try {
     $script:Stage = 6
     $send = @{ To = @($Recipient); Subject = $Subject; HtmlPath = $html }
     if ($attach) { $send.Attach = @($attach) }
-    & $senderCopy @send
+    # 발송기는 throw 로 실패를 알리지만 exit 로 끝나도 성공으로 보고하지 않는다.
+    $global:LASTEXITCODE = 0
+    & $Sender @send
+    if ($LASTEXITCODE -ne 0) { throw "발송기가 종료 코드 $LASTEXITCODE 로 끝났다." }
     Write-Host "발송 성공: $Recipient"
     $code = 0
 } catch {

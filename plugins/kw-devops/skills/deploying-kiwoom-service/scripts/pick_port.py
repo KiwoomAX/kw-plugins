@@ -103,6 +103,11 @@ def 찾기(이름: str) -> list[dict]:
     })["rows"]
 
 
+def 찾아모으기(이름들: list[str]) -> list[dict]:
+    """여러 이름으로 찾은 줄을 포트 하나에 한 줄씩 모은다. 저장소 이름과 컨테이너 이름이 같은 줄을 함께 찾기 때문이다."""
+    return sorted({r["port"]: r for n in 이름들 for r in 찾기(n)}.values(), key=lambda r: r["port"])
+
+
 def 주인(줄들: list[dict], 포트: int) -> dict | None:
     """그 포트를 이미 가진 줄. 없으면 None."""
     return next((r for r in 줄들 if r["port"] == 포트), None)
@@ -121,11 +126,15 @@ def 등록(포트: int, 컨테이너: str, 종류: str,
         if 먼저["container"].lower() != 컨테이너.lower():
             raise SystemExit(f"남이 먼저 잡았다: {포트} {먼저['container']}\n  2단계로 돌아가 다시 센다.")
         if 저장소 and not 먼저["repo"]:
-            _부르기("/v1/dml/update", {
+            # 위 조건이 None 과 "" 를 함께 비었다고 보므로 SQL 도 둘 다 잡는다.
+            바뀐 = _부르기("/v1/dml/update", {
                 "sql": "update kw_deploy.port set repo = %(repo)s "
-                       "where port = %(port)s and repo is null",
+                       "where port = %(port)s and (repo is null or repo = '')",
                 "params": {"repo": 저장소, "port": 포트},
             })
+            if 바뀐.get("rowcount") != 1:
+                raise SystemExit(f"repo 칸을 채우지 못했다: {포트} {먼저['container']} "
+                                 f"(바뀐 줄 {바뀐.get('rowcount')})\n  등록부를 --find 로 다시 확인한다.")
             print(f"이미 등록돼 있다: {포트} {먼저['container']} — 비어 있던 repo 칸을 {저장소} 로 채웠다")
         else:
             print(f"이미 등록돼 있다: {포트} {먼저['container']} — 넣을 것이 없다")
@@ -222,8 +231,64 @@ def 검사() -> None:
     assert 조직 == ["KiwoomAM", "KiwoomAX"], 조직
     줄들 = [{"port": 8080, "container": "kw-dashboard-web", "repo": None}]
     assert 주인(줄들, 8080)["container"] == "kw-dashboard-web" and 주인(줄들, 9002) is None
+    등록부검사()
     # 기본 모드가 찍는 대역 이름을 그대로 찍는다. 출력 인코딩이 이 글자들을 못 담으면 여기서 죽는다.
     print(f"검사 통과 — {빈포트(set())[0][0]}")
+
+
+def 등록부검사() -> None:
+    """등록부 읽기·쓰기 계약. 핸들러를 가짜로 바꿔 망 없이 본다."""
+    global _부르기
+    진짜 = _부르기
+    기록: list[tuple[str, dict]] = []
+    표 = [{"port": 9001, "container": "kw-a", "service_type": "dashboard", "org": "KiwoomAX", "repo": None},
+          {"port": 9002, "container": "kw-b", "service_type": "dashboard", "org": "KiwoomAX", "repo": ""},
+          {"port": 9003, "container": "kw-c", "service_type": "dashboard", "org": "KiwoomAX", "repo": "c"}]
+    바뀐줄 = {"수": 1}
+
+    def 가짜(길: str, 몸: dict) -> dict:
+        기록.append((길, 몸))
+        if 길 == "/v1/query/all-dict":
+            이름 = (몸.get("params") or {}).get("이름")
+            if 이름 is None:
+                return {"rows": 표}
+            return {"rows": [r for r in 표 if 이름.lower() in (r["container"].lower(), (r["repo"] or "").lower())]}
+        return {"rowcount": 바뀐줄["수"]}
+
+    def 멈춤(일) -> str:
+        try:
+            일()
+        except SystemExit as 탈:
+            return str(탈)
+        return ""
+
+    _부르기 = 가짜
+    try:
+        assert "남이 먼저" in 멈춤(lambda: 등록(9001, "kw-other", "dashboard")), "남의 포트는 막는다"
+        기록.clear()
+        등록(9001, "KW-A", "dashboard", "KiwoomAX", "a")
+        길, 몸 = 기록[-1]
+        assert 길 == "/v1/dml/update" and "repo is null" in 몸["sql"] and "repo = ''" in 몸["sql"], 몸
+        기록.clear()
+        등록(9002, "kw-b", "dashboard", "KiwoomAX", "b")
+        assert 기록[-1][0] == "/v1/dml/update", "빈 문자열 repo 도 채운다"
+        기록.clear()
+        등록(9003, "kw-c", "dashboard", "KiwoomAX", "c2")
+        assert [g for g, _ in 기록] == ["/v1/query/all-dict"], "차 있는 repo 는 건드리지 않는다"
+        바뀐줄["수"] = 0
+        assert "채우지 못했다" in 멈춤(lambda: 등록(9001, "kw-a", "dashboard", "KiwoomAX", "a")), "바뀐 줄이 없으면 멈춘다"
+        바뀐줄["수"] = 1
+        assert "service_type" in 멈춤(lambda: 등록(9010, "kw-n", "web")), "없는 service_type 은 막는다"
+        assert "org" in 멈춤(lambda: 등록(9010, "kw-n", "dashboard", "KiwoomXX")), "없는 org 는 막는다"
+        기록.clear()
+        등록(9010, "kw-n", "dashboard", "KiwoomAX", "n")
+        길, 몸 = 기록[-1]
+        assert 길 == "/v1/dml/insert" and 몸["params"] == {
+            "port": 9010, "container": "kw-n", "service_type": "dashboard", "org": "KiwoomAX", "repo": "n"}, 몸
+        assert "%(port)s" in 몸["sql"] and "9010" not in 몸["sql"], "값은 바인드로만 넘긴다"
+        assert [r["port"] for r in 찾아모으기(["c", "kw-c", "kw-a"])] == [9001, 9003], "같은 줄은 한 번만 모은다"
+    finally:
+        _부르기 = 진짜
 
 
 if __name__ == "__main__":
@@ -243,8 +308,7 @@ if __name__ == "__main__":
         남은 = 인자[인자.index("--find") + 1:]
         if not 남은:
             raise SystemExit("쓰임: --find <저장소 이름> [<container_name> …]")
-        찾은 = sorted({r["port"]: r for n in 남은 for r in 찾기(n)}.values(),
-                    key=lambda r: r["port"])
+        찾은 = 찾아모으기(남은)
         묶음 = ", ".join(남은)
         if not 찾은:
             print(f"등록부에 없다: {묶음}")

@@ -153,7 +153,9 @@ module.exports = { SANS, SERIF: SANS };
 [IO.File]::WriteAllText($FakeSender, @'
 param([string[]]$To, [string]$Subject, [string]$HtmlPath, [string[]]$Attach = @())
 if ($env:FAKE_SEND_THROW) { throw 'fake smtp failure' }
+if ($env:FAKE_SEND_EXIT) { exit [int]$env:FAKE_SEND_EXIT }
 $null = New-Item -ItemType Directory -Force $env:FAKE_CAPTURE
+Set-Content -Encoding UTF8 (Join-Path $env:FAKE_CAPTURE 'root.txt') $PSScriptRoot
 @{ To = @($To); Subject = $Subject } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $env:FAKE_CAPTURE 'call.json')
 Copy-Item -LiteralPath $HtmlPath (Join-Path $env:FAKE_CAPTURE 'body.html')
 foreach ($a in $Attach) { Copy-Item -LiteralPath $a (Join-Path $env:FAKE_CAPTURE 'attach.env') }
@@ -223,6 +225,9 @@ try {
     $r = Invoke-Ax @{ FAKE_VERIFY = 'fail' } $okArgs
     Assert 'a failing Outlook check exits 5 and sends nothing' ($r.Code -eq 5 -and -not $r.Sent)
     Assert 'a sender exception exits 6' ((Invoke-Ax @{ FAKE_SEND_THROW = '1' } $okArgs).Code -eq 6)
+    # A sender that fails with exit instead of throw must not be reported as sent.
+    $r = Invoke-Ax @{ FAKE_SEND_EXIT = '1' } $okArgs
+    Assert 'a sender that exits non-zero exits 6 without claiming success' ($r.Code -eq 6 -and $r.Out -notmatch '발송 성공')
     Assert 'an unwritable TEMP exits 7' ((Invoke-Ax @{ TEMP = (Join-Path $Blocker 'sub') } $okArgs).Code -eq 7)
     $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'NOPE_KEY'))
     Assert 'no requested key in the source exits 8 and sends nothing' ($r.Code -eq 8 -and -not $r.Sent)
@@ -242,6 +247,9 @@ try {
     $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'A_KEY,api_key,B_KEY,EMPTY_KEY,MISSING_KEY'))
     Assert 'a full request exits 0' ($r.Code -eq 0)
     $call = if ($r.Sent) { Get-Content -Raw -Encoding UTF8 (Join-Path $Capture 'call.json') | ConvertFrom-Json } else { $null }
+    # The shared sender may read files next to itself, so it runs where it lives.
+    $root = if ($r.Sent) { (Get-Content -Raw -Encoding UTF8 (Join-Path $Capture 'root.txt')).Trim() } else { '' }
+    Assert 'the sender runs from its own folder, not a copy' ($root -eq $Fake)
     Assert 'the sender got the recipient constant and the subject' ($null -ne $call -and (@($call.To) -join ',') -eq $Recipient -and $call.Subject -eq '시험 제목')
     $bodyPath = Join-Path $Capture 'body.html'
     $bodyHtml = if (Test-Path $bodyPath) { [IO.File]::ReadAllText($bodyPath) } else { '' }
