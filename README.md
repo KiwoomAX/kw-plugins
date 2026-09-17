@@ -1,7 +1,7 @@
 # kw-plugins
 
 키움 AX 팀이 사내 PC에 나눠 주는 클로드 코드 플러그인의 마켓플레이스다. 여기서 배포하는
-것은 **컨트롤 타워**와 **문서 형식 스킬** 둘이고, 남의 저장소에 있는 플러그인은 컨트롤
+것은 **컨트롤 타워**와 **문서 형식 스킬**과 **배포 스킬** 셋이고, 남의 저장소에 있는 플러그인은 컨트롤
 타워가 목록을 들고 끌어온다.
 
 ## 왜 이렇게 만들었나
@@ -80,8 +80,10 @@ PC에서도 훅이 죽지 않는다.
 | `plugins/kw-control-tower/commands/kw-sync.md` | `/kw-control-tower:kw-sync` 명령. 플러그인이 나르는 명령은 언제나 `플러그인이름:명령이름` 으로 불린다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 여섯. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
+| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 부르는 `scripts/pick_port.py`·`scripts/request-ax.ps1` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워의 계약 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬의 계약 검사 |
+| `tests/test_devops.ps1` | 배포 스킬의 계약 검사 |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
 | `docs/superpowers/reviews/` | 그 설계를 검토한 기록 |
 
@@ -93,9 +95,10 @@ PC에서도 훅이 죽지 않는다.
 **훅 스크립트는 5.1 문법만 쓴다.** `ConvertFrom-Json -AsHashtable`처럼 7에만 있는 것을 쓰면
 pwsh 7이 없는 PC에서 훅이 죽는다. 그리고 5.1은 `uint64` 곱셈이 넘칠 때 감싸지 않고 던진다.
 
-**고친 뒤에는 검사를 둘 다 돌린다.**
+**고친 뒤에는 검사를 셋 다 돌린다.**
 
 ```
 pwsh -NoProfile -File tests\test_control_tower.ps1
 pwsh -NoProfile -File tests\test_doc_formats.ps1
+pwsh -NoProfile -File tests\test_devops.ps1
 ```

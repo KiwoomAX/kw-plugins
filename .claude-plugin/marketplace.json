@@ -14,6 +14,11 @@
       "name": "kw-doc-formats",
       "source": "./plugins/kw-doc-formats",
       "description": "사내 문서 형식 처리 스킬 여섯. common은 파일 인코딩을 다루고, hwp는 한글과 구형 오피스 파일을 바꾸며, pdf와 pptx와 xlsx와 docx는 공식 document-skills가 이 PC에서 틀리는 자리를 덮는다. kw_install이 깔아 주는 파이썬 라이브러리와 Poppler를 전제한다."
+    },
+    {
+      "name": "kw-devops",
+      "source": "./plugins/kw-devops",
+      "description": "사내 배포 스킬. deploying-kiwoom-service는 레포 하나를 서버 192.7.9.45의 공용 젠킨스 파이프라인에 태운다. 포트 등록부와 서버 실측을 함께 보고 겹치지 않는 포트를 고른 뒤 docker-compose.yml과 Jenkinsfile을 쓴다. 사내망과 파이썬을 전제한다."
     }
   ]
 }
