@@ -271,6 +271,54 @@ try {
     Remove-Item $Fake -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+Write-Host '--- searching-winus ---'
+# The manifest lives in the internal MongoDB, not in this repo: fetch_manifest.py pulls it at
+# run time and caches it under ~/.claude/cache. This repo is public, so the publisher and the
+# registry DDL are kept out of it entirely — they carry the kw_deploy table definitions and the
+# SQL that reads them, and only someone who may register a query needs them.
+$DbDir   = Join-Path $PluginDir 'skills/searching-winus'
+$dbMd    = Join-Path $DbDir 'SKILL.md'
+$dbFetch = Join-Path $DbDir 'scripts/fetch_manifest.py'
+Assert 'searching-winus SKILL.md ships' (Test-Path $dbMd)
+Assert 'fetch_manifest.py ships under scripts/' (Test-Path $dbFetch)
+$dbStray = @(Get-ChildItem $Repo -Recurse -File -Include 'build_manifest.py','schema.sql' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' })
+Assert 'the manifest publisher is nowhere in this public repo' (@($dbStray).Count -eq 0)
+Assert 'no manifest copy ships in the repo' (-not (Test-Path (Join-Path $DbDir 'references/manifest.md')))
+# fetch_manifest.py is the only thing the skill may carry: nothing else, and no kw_deploy SQL.
+$dbShipped = @(Get-ChildItem (Join-Path $DbDir 'scripts') -File -ErrorAction SilentlyContinue)
+Assert 'the skill ships fetch_manifest.py and nothing else' (@($dbShipped).Count -eq 1 -and $dbShipped[0].Name -eq 'fetch_manifest.py')
+$dbText  = if (Test-Path $dbMd) { [IO.File]::ReadAllText($dbMd) } else { '' }
+$fetText = if (Test-Path $dbFetch) { [IO.File]::ReadAllText($dbFetch) } else { '' }
+$dbAll   = $dbText + "`n" + $fetText
+$dbName  = ([regex]::Match($dbText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value
+Assert 'searching-winus frontmatter name matches the folder' ($dbName -eq 'searching-winus')
+Assert 'searching-winus files point at no personal skills folder' (-not ($dbAll -match '~/\.claude/skills'))
+Assert 'searching-winus files call no python3' (-not ($dbAll -match '\bpython3\b'))
+Assert 'searching-winus files carry no build-history notes' (-not ($dbAll -match '\b20\d\d-\d\d-\d\d\b|실측'))
+Assert 'nothing shipped to skill users names the registry tables' (-not ($dbText + "`n" + $fetText -match 'kw_deploy'))
+# The skill reads the manifest and nothing else: publishing it is somebody else's job elsewhere.
+Assert 'the skill says nothing about publishing the manifest' (-not ($dbAll -match '관리자|build_manifest'))
+# Where the manifest comes from and how long a copy is kept is the script's business. The reader
+# only needs the command and what to do with a warning line, so the skill must not describe either.
+Assert 'the skill does not describe the cache or its source' (-not ($dbText -match 'MongoDB|\.claude|캐시|TTL'))
+# The skill is read-only: every registered query is a SELECT and the Gateway takes GET alone.
+Assert 'the skill asks for no write' (-not ($dbText -match '\bPOST\b|\bPUT\b|\bPATCH\b|\bDELETE\b|execute_dml|insert_one'))
+# Screen numbers and report names are internal detail, and which query feeds which argument is
+# the manifest's 값을 얻는 곳 column — the skill must not carry a second copy that can go stale.
+Assert 'the skill names no WINUS screen numbers' (-not ($dbText -match '\b0\d{5}\b'))
+# The manifest names its tables 인자 키 and 결과 항목; 출력 was the wording before normalisation.
+Assert 'the skill points at the manifest sections by their current names' (-not ($dbText -match '`출력`'))
+# The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
+$fetCalls = [regex]::Matches($dbText, '(?m)^uv run\b.*fetch_manifest\.py.*$')
+Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
+Assert 'SKILL.md tells the reader to fetch the manifest before writing code' ($dbText -match 'fetch_manifest\.py')
+# The cache must not land in the plugin folder (replaced on update) or in the user's repo.
+Assert 'fetch_manifest.py caches under the Claude config dir' ($fetText -match 'CLAUDE_CONFIG_DIR' -and $fetText -match '"cache"')
+Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECONDS = 3600$')
+# Publishing an expiring document would delete the manifest; the SDK ttl argument must stay out.
+Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match '(?m)^\s*(def|class)\s+[^\x00-\x7F]'))
+Assert 'fetch_manifest.py asks for no document TTL' (-not ($fetText -match '(?m)^\s*[^#\n]*\bttl\s*='))
+
 Write-Host '--- claude plugin validate ---'
 Push-Location $Repo
 try {
