@@ -1,4 +1,4 @@
-﻿# 이 PC 를 manifest.json 에 맞춘다. /kw-sync 와 설치기 9단계가 부른다.
+# 이 PC 를 manifest.json 에 맞춘다. 세션 시작 알림 훅과 설치기 9단계가 부른다.
 #
 # 걸음은 저마다 독립이고 멱등이다. 한 걸음이 실패해도 나머지는 돈다.
 # 무엇을 했는지 마지막에 요약하고, 사용자가 끈 것을 되켰으면 그것을 따로 적는다.
@@ -67,17 +67,6 @@ function Save-Json {
 
     $json = ($Object | ConvertTo-Json -Depth 30)
 
-    # 5.1 의 ConvertTo-Json 은 아스키가 아닌 글자를 전부 \uXXXX 로 바꾼다. 내용은
-    # 같지만 사용자가 여는 파일이 못 읽는 글자로 덮인다. 되돌려 쓴다.
-    #
-    # 되돌려도 5.1 에서 쓴 파일은 7 에서 쓴 것보다 크다. 이 PC 에서 4785자가
-    # 9260자가 된다. 그것은 이스케이프가 아니라 배열을 줄 나누는 방식 차이이고
-    # 읽는 데 지장이 없어 그대로 둔다. 이 함수가 도는 것은 배포처를 등록하거나
-    # 자동 갱신을 켤 때뿐이라 자주 있는 일도 아니다.
-    $json = [regex]::Replace($json, '\\u([0-9a-fA-F]{4})', {
-        param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16)
-    })
-
     # 다시 안 읽힐 것은 안 쓴다. 사용자 설정을 잃느니 이 걸음을 실패로 두는 편이 낫다.
     $null = $json | ConvertFrom-Json
 
@@ -101,6 +90,28 @@ function Invoke-Claude {
 
 $userHome = $env:USERPROFILE
 if ([string]::IsNullOrEmpty($userHome)) { Write-Error '윈도가 아닙니다. 이 스크립트는 윈도 전용입니다.'; exit 1 }
+
+function Get-MarketplaceHead {
+    # 배포처 사본이 받아 둔 판본을 읽는다. 알림 훅의 같은 이름 함수와 같은 것을 본다.
+    # 둘이 다른 값을 보면 알림이 말한 것을 맞춤이 못 고치는 PC 가 생긴다.
+    param([string]$Dir)
+    $g = Join-Path $Dir '.git'
+    $h = Join-Path $g 'HEAD'
+    if (Test-Path -LiteralPath $h) {
+        $line = (Get-Content -LiteralPath $h -Raw -Encoding UTF8).Trim()
+        if ($line.StartsWith('ref: ')) {
+            $refFile = Join-Path $g ($line.Substring(5).Replace('/', ''))
+            if (Test-Path -LiteralPath $refFile) {
+                return (Get-Content -LiteralPath $refFile -Raw -Encoding UTF8).Trim()
+            }
+            return $null
+        }
+        return $line
+    }
+    $gcs = Join-Path $Dir '.gcs-sha'
+    if (Test-Path -LiteralPath $gcs) { return (Get-Content -LiteralPath $gcs -Raw -Encoding UTF8).Trim() }
+    return $null
+}
 
 $root = $env:CLAUDE_PLUGIN_ROOT
 if ([string]::IsNullOrEmpty($root)) { $root = Split-Path -Parent $PSScriptRoot }
@@ -136,6 +147,7 @@ if (Test-Path -LiteralPath $statePath) {
     }
 }
 $firstRun = -not $state.ContainsKey('ranOnce')
+$script:Refreshed = $false
 
 $script:ClaudeExe = (Get-Command claude -ErrorAction SilentlyContinue).Source
 
@@ -148,7 +160,7 @@ if (-not $script:ClaudeExe -and -not $WhatIfOnly) {
 }
 
 # ---------------------------------------------------------------- 걸음 1
-Write-Host '1. 배포처를 등록합니다.'
+Write-Host '1. 배포처를 등록하고 최신으로 받아옵니다.'
 try {
     $settings = Read-Json $settingsPath
     if ($null -eq $settings) { throw "settings.json 을 못 읽었습니다." }
@@ -195,8 +207,22 @@ try {
             $wrote = $true
         }
         if ($wrote) { Note "자동 갱신을 켰습니다: $name" }
+
+        # 자동 갱신을 켜 두어도 사본이 최신이 되지는 않는다. 2026-09-19 에 이 PC 에서
+        # 자동 갱신이 켜진 배포처 둘이 각각 다른 단계에서 멈춰 있는 것을 확인했다.
+        # 하나는 사본을 받아 놓고 설치본을 안 옮겼고, 다른 하나는 사본이 26일째
+        # 안 움직였다. 그래서 여기서 직접 받아온다.
+        if (-not $WhatIfOnly) {
+            if (Invoke-Claude @('plugin', 'marketplace', 'update', $name)) {
+                $script:Refreshed = $true
+            } else { Fail '1' "배포처를 받아오지 못했습니다: $name" }
+        } else { Say "$name : 배포처를 받아옵니다." }
     }
 } catch { Fail '1' $_.Exception.Message }
+
+# 받아온 시각을 적는다. 알림이 이 값을 보고 오래 안 받아왔는지 판정한다. 저장소에
+# 새 커밋이 없어 사본이 안 움직이는 때에도 이 값은 움직이므로 알림이 되풀이되지 않는다.
+if ($script:Refreshed) { $state['refreshed'] = (Get-Date -Format o) }
 
 # ---------------------------------------------------------------- 걸음 2
 Write-Host '2. 필수 플러그인을 맞춥니다.'
@@ -263,6 +289,29 @@ try {
         }
     } else {
         Say '권장 플러그인은 처음 한 번만 깝니다. 건너뜁니다.'
+    }
+
+    # 우리 배포처에서 온 것이 사본보다 뒤처졌으면 옮긴다. 자동 갱신이 해 주기로 되어
+    # 있는 일인데 실제로는 멈추는 것을 확인했다. install 은 이미 깔린 것에 안 쓴다.
+    # 사용자가 꺼 둔 값을 true 로 덮기 때문이고, 판본만 옮기는 것은 update 다.
+    $ipNow = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
+    $ipOf  = Get-Prop $ipNow 'plugins'
+    foreach ($mk in @($manifest.marketplaces)) {
+        if ((Get-Prop $mk 'ours') -ne $true) { continue }
+        $mkName = Get-Prop $mk 'name'
+        $head = Get-MarketplaceHead (Join-Path (Join-Path $pluginsDir 'marketplaces') $mkName)
+        if (-not $head -or $null -eq $ipOf) { continue }
+        foreach ($pluginId in @($ipOf.PSObject.Properties.Name)) {
+            if (-not $pluginId.EndsWith("@$mkName")) { continue }
+            $behind = $false
+            foreach ($scope in @(Get-Prop $ipOf $pluginId)) {
+                $sha = Get-Prop $scope 'gitCommitSha'
+                if ($sha -and -not $head.StartsWith($sha) -and -not $sha.StartsWith($head)) { $behind = $true }
+            }
+            if (-not $behind) { continue }
+            if (Invoke-Claude @('plugin', 'update', $pluginId)) { Note "설치본을 새 판으로 옮겼습니다: $pluginId" }
+            else { Fail '2' "설치본을 못 옮겼습니다: $pluginId" }
+        }
     }
 } catch { Fail '2' $_.Exception.Message }
 
@@ -383,9 +432,30 @@ try {
 } catch { Fail '5' $_.Exception.Message }
 
 # ---------------------------------------------------------------- 걸음 6
-Write-Host '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
+Write-Host '6. CLAUDE.md 의 사내 문안 블록과 딸린 파일을 맞춥니다.'
+
+# 문안이 @import 로 부르는 파일을 먼저 갖다 놓는다. 블록만 쓰고 이것을 빼먹으면
+# CLAUDE.md 가 없는 파일을 가리킨다. 마커 안을 고치는 것보다 먼저 한다.
 try {
-    $tpl = Join-Path $root 'templates\personal-memory-ko.md'
+    $sideDir = Join-Path $userHome '.claude\kw-ax'
+    $utf8s   = New-Object System.Text.UTF8Encoding($false)
+    foreach ($name in @('korean-banned-words.md')) {
+        $src = Join-Path $root (Join-Path 'templates' $name)
+        if (-not (Test-Path -LiteralPath $src)) { throw "딸린 파일이 없습니다: $src" }
+        $dst = Join-Path $sideDir $name
+        $want = [System.IO.File]::ReadAllText($src, $utf8s)
+        $have = ''
+        if (Test-Path -LiteralPath $dst) { $have = [System.IO.File]::ReadAllText($dst, $utf8s) }
+        if ($want -eq $have) { Say "$name 은 이미 배포된 것과 같습니다."; continue }
+        if ($WhatIfOnly) { Note "$name 을 갖다 놓습니다: $dst"; continue }
+        if (-not (Test-Path -LiteralPath $sideDir)) { New-Item -ItemType Directory -Path $sideDir -Force | Out-Null }
+        [System.IO.File]::WriteAllText($dst, $want, $utf8s)
+        Note "$name 을 갖다 놓았습니다: $dst"
+    }
+} catch { Fail '6' $_.Exception.Message }
+
+try {
+    $tpl = Join-Path $root 'templates\claude-md-ko.md'
     if (-not (Test-Path -LiteralPath $tpl)) { throw "문안 템플릿이 없습니다: $tpl" }
 
     $utf8  = New-Object System.Text.UTF8Encoding($false)
