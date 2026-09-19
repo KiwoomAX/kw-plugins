@@ -18,7 +18,3 @@
 # 그림은 손대지 않는다.
 *.png  binary
 *.ico  binary
-
-# 데이터 사본은 원본 저장소가 LF 로 두므로 그대로 받는다. CRLF 로 바꾸면 그 저장소가
-# 여는 PR 마다 온 파일이 바뀐 것으로 보인다.
-data/*.json  text eol=lf
