@@ -443,7 +443,28 @@ try {
 } catch { Fail '5' $_.Exception.Message }
 
 # ---------------------------------------------------------------- 걸음 6
-Write-Host '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
+Write-Host '6. CLAUDE.md 의 사내 문안 블록과 딸린 파일을 맞춥니다.'
+
+# 문안이 @import 로 부르는 파일을 먼저 갖다 놓는다. 블록만 쓰고 이것을 빼먹으면
+# CLAUDE.md 가 없는 파일을 가리킨다. 마커 안을 고치는 것보다 먼저 한다.
+try {
+    $sideDir = Join-Path $userHome '.claude\kw-ax'
+    $utf8s   = New-Object System.Text.UTF8Encoding($false)
+    foreach ($name in @('korean-banned-words.md')) {
+        $src = Join-Path $root (Join-Path 'templates' $name)
+        if (-not (Test-Path -LiteralPath $src)) { throw "딸린 파일이 없습니다: $src" }
+        $dst = Join-Path $sideDir $name
+        $want = [System.IO.File]::ReadAllText($src, $utf8s)
+        $have = ''
+        if (Test-Path -LiteralPath $dst) { $have = [System.IO.File]::ReadAllText($dst, $utf8s) }
+        if ($want -eq $have) { Say "$name 은 이미 배포된 것과 같습니다."; continue }
+        if ($WhatIfOnly) { Note "$name 을 갖다 놓습니다: $dst"; continue }
+        if (-not (Test-Path -LiteralPath $sideDir)) { New-Item -ItemType Directory -Path $sideDir -Force | Out-Null }
+        [System.IO.File]::WriteAllText($dst, $want, $utf8s)
+        Note "$name 을 갖다 놓았습니다: $dst"
+    }
+} catch { Fail '6' $_.Exception.Message }
+
 try {
     $tpl = Join-Path $root 'templates\personal-memory-ko.md'
     if (-not (Test-Path -LiteralPath $tpl)) { throw "문안 템플릿이 없습니다: $tpl" }

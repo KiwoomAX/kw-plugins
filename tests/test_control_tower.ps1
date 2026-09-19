@@ -427,6 +427,28 @@ Check '맞춤을 부를지는 notes 만 보고 정한다' {
 }
 # 상태에 따라 갈리는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
 # 사람은 읽고 넘겨도 아무 일이 없다. 그런 것은 점검이 맡는다.
+# 문안이 @import 로 부르는 파일이 실제로 있어야 한다. 없으면 CLAUDE.md 가 없는 파일을
+# 가리키고, 그 상태를 아무도 못 본다.
+Check '문안이 부르는 파일이 템플릿에 있다' {
+    $tplSrc0 = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
+    $ok = $true
+    foreach ($m in [regex]::Matches($tplSrc0, '(?m)^@(\S+)')) {
+        $rel = $m.Groups[1].Value -replace '^kw-ax/', ''
+        if (-not (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $rel)))) { $ok = $false }
+    }
+    $ok
+}
+# 경로에 공백이 들어가면 어디까지가 경로인지 갈리지 않는다.
+Check '@import 경로에 공백이 없다' {
+    $tplSrc1 = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
+    -not ($tplSrc1 -match '(?m)^@[^\r\n]* ')
+}
+# 갖다 놓는 것은 맞춤의 일이다. 템플릿에만 있고 맞춤이 안 옮기면 아무 PC 에도 안 생긴다.
+Check '맞춤이 그 파일을 갖다 놓는다' {
+    $syncSrc3 = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
+    ($syncSrc3 -match 'korean-banned-words\.md') -and ($syncSrc3 -match 'kw-ax')
+}
+
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
     $tplSrc -notmatch 'gh auth login'
