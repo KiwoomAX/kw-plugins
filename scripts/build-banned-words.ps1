@@ -79,14 +79,20 @@ foreach ($cat in $data.categories) {
 
     # 화살표를 세로로 맞춘다. 왼쪽이 가장 긴 것에 맞추되, 한글은 글자 하나가 두 칸으로
     # 보이므로 글자 수가 아니라 표시 너비로 센다.
+    #
+    # 맞추는 폭에 상한을 둔다. '걸다' 처럼 조사까지 적은 구가 스물셋인 항목이 있어서,
+    # 그것에 맞추면 그 분류의 모든 줄이 이백 칸 넘게 벌어져 통째로 안 읽힌다. 상한을
+    # 넘는 줄은 혼자 길어지고 나머지는 서로 맞는다.
+    $cap = 44
     $pairs = foreach ($e in $rows) {
         $right = if ($e.replace) { ($e.replace -join ' · ') } else { $e.instruction }
         [pscustomobject]@{ Left = ($e.banned -join ' · '); Right = $right }
     }
-    $widths = foreach ($p in $pairs) { (Get-DisplayWidth $p.Left) }
-    $max = ($widths | Measure-Object -Maximum).Maximum
+    $fit = @($pairs | ForEach-Object { Get-DisplayWidth $_.Left } | Where-Object { $_ -le $cap })
+    $max = if ($fit.Count -gt 0) { ($fit | Measure-Object -Maximum).Maximum } else { 0 }
     foreach ($p in $pairs) {
-        $pad = ' ' * ($max - (Get-DisplayWidth $p.Left) + 3)
+        $w = Get-DisplayWidth $p.Left
+        $pad = if ($w -le $max) { ' ' * ($max - $w + 3) } else { '   ' }
         Add-Line "$($p.Left)$pad→   $($p.Right)"
     }
     Add-Line '```'
