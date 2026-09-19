@@ -455,7 +455,7 @@ try {
 } catch { Fail '6' $_.Exception.Message }
 
 try {
-    $tpl = Join-Path $root 'templates\personal-memory-ko.md'
+    $tpl = Join-Path $root 'templates\claude-md-ko.md'
     if (-not (Test-Path -LiteralPath $tpl)) { throw "문안 템플릿이 없습니다: $tpl" }
 
     $utf8  = New-Object System.Text.UTF8Encoding($false)
