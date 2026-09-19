@@ -1,0 +1,79 @@
+# 금지어 목록을 KiwoomAX/korean-banned-words 에서 받아 온다.
+#
+# 목록의 원본은 그 저장소의 데이터이고, 마크다운을 만드는 것도 그 저장소가 한다.
+# 여기는 만들어진 것을 받아 제자리에 놓기만 한다. 만드는 곳이 둘이면 목록은 한 곳에서
+# 나오는데 그것을 어떻게 쓰라는 안내가 두 곳에서 따로 쓰인다. 실제로 그렇게 갈라졌다.
+#
+# 받은 것이 지금 파일과 다르면 PR 을 연다. 곧바로 밀어 넣지 않는 것은, 이 파일이
+# 병합되는 순간 사내 전 PC 가 다음 세션에 그것을 물어 가기 때문이다. 사람이 한 번
+# 보는 단계를 남긴다.
+#
+# Actions 가 PR 을 열려면 저장소나 조직 설정에서 "Allow GitHub Actions to create and
+# approve pull requests" 가 켜져 있어야 한다. 꺼져 있으면 마지막 단계가 실패한다.
+
+name: 금지어 목록 받아 오기
+
+on:
+  schedule:
+    - cron: '17 21 * * *'   # 매일 06:17 KST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  SOURCE: https://raw.githubusercontent.com/KiwoomAX/korean-banned-words/main/dist/korean-banned-words-ax.md
+  TARGET: plugins/kw-control-tower/templates/korean-banned-words.md
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 받아서 줄바꿈을 맞춘다
+        run: |
+          set -euo pipefail
+          curl -fsSL "$SOURCE" -o /tmp/incoming.md
+          test -s /tmp/incoming.md
+          # 원본은 LF 로 낸다. 이 저장소는 .gitattributes 가 CRLF 를 강제하므로 맞춰 둔다.
+          # 맞추지 않으면 내용이 같아도 매일 다르다고 나와 PR 이 끝없이 열린다.
+          sed -i 's/\r$//' /tmp/incoming.md
+          sed -i 's/$/\r/' /tmp/incoming.md
+
+      - name: 지금 파일과 견준다
+        id: diff
+        run: |
+          set -euo pipefail
+          if [ -f "$TARGET" ] && cmp -s /tmp/incoming.md "$TARGET"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "같습니다. 열 PR 이 없습니다."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "다릅니다."
+            diff <(sed 's/\r$//' "$TARGET" 2>/dev/null || true) <(sed 's/\r$//' /tmp/incoming.md) || true
+          fi
+
+      - name: PR 을 연다
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/banned-words-$(date -u +%Y%m%d-%H%M)"
+          cp /tmp/incoming.md "$TARGET"
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add "$TARGET"
+          git commit -m 'chore: 금지어 목록을 원본에서 받아 온다' \
+                     -m "원본: $SOURCE" \
+                     -m '이 저장소는 만들지 않고 받기만 한다. 목록을 고치려면 KiwoomAX/korean-banned-words 의 데이터를 고친다.'
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title '금지어 목록을 원본에서 받아 온다' \
+            --body "$(printf '%s\n' \
+              '`KiwoomAX/korean-banned-words` 의 `dist/korean-banned-words-ax.md` 가 바뀌어 받아 왔습니다.' '' \
+              '이 파일은 생성물입니다. 여기서 고치지 마십시오. 고치려면 원본 저장소의 데이터를 고치면 다음 실행이 다시 받아 옵니다.' '' \
+              '병합하면 사내 PC 들이 다음 세션에 새 목록을 물어 가고, 그 다음 세션부터 그것으로 돕니다.')"
