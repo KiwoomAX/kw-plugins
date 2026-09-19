@@ -1,4 +1,4 @@
-﻿# 세션 시작 알림. 이 PC가 manifest.json 과 어긋난 곳을 말하기만 한다.
+# 세션 시작 알림. 이 PC가 manifest.json 과 어긋난 곳을 말하기만 한다.
 #
 # 계약 다섯을 지킨다. 세션 시작에 도는 훅은 이것 하나이고, 외부 프로세스를 안 부르고,
 # 네트워크에 안 나가고, 파일 여덟과 레지스트리 값 하나만 읽고, 몸통이 200밀리초를
@@ -16,8 +16,10 @@
 Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
 
-# 이 파일은 UTF-8 BOM 으로 저장한다. BOM 이 없으면 5.1 이 본문을 ANSI 로 읽어
-# 한글 문자열이 깨진 채 출력된다. 나가는 쪽도 UTF-8 로 맞춘다.
+# BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽는다. 붙이지 않는 편이 낫기까지
+# 한데, BOM 이 없으면 5.1 로 돌렸을 때 한글이 조용히 깨지는 것이 아니라 파싱 오류로
+# 죽어서 잘못 부른 것이 그 자리에서 드러난다. 나가는 쪽 인코딩은 그대로 맞춘다.
+# 콘솔 코드페이지는 7 에서도 윈도 기본을 따르는 때가 있기 때문이다.
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
 $script:Budget = @{ Files = 0; Registry = 0 }
@@ -25,8 +27,7 @@ $script:Budget = @{ Files = 0; Registry = 0 }
 function Get-CheapHash {
     # MD5 를 직접 부른다. 이 PC 에서 8ms 이고 Get-FileHash 명령은 72ms 다. 아홉 배다.
     # 파일이 바뀌었는지만 가리므로 암호 강도는 필요 없다.
-    # 손으로 FNV-1a 를 돌리는 길은 막혀 있다. 5.1 은 uint64 곱셈이 넘칠 때 감싸지
-    # 않고 던진다. .NET 의 문자열 해시는 프로세스마다 시드가 달라 못 쓴다.
+    # .NET 의 문자열 해시는 프로세스마다 시드가 달라 못 쓴다.
     param([string]$Path)
     $md5 = [System.Security.Cryptography.MD5]::Create()
     try {
@@ -48,7 +49,12 @@ function Read-Json {
 }
 
 function Get-Prop {
-    # PSCustomObject 에서 이름으로 값을 꺼낸다. 5.1 에는 null 조건 연산자가 없다.
+    # PSCustomObject 에서 이름으로 값을 꺼낸다. 없는 이름이면 $null 이다.
+    #
+    # 7 의 null 조건 연산자로 한 줄로 줄이려다 되돌렸다. PowerShell 의 ?. 은 C# 과 달리
+    # 사슬 전체를 건너뛰지 않고 바로 뒤의 멤버 접근 하나만 막는다. $Object?.PSObject 로
+    # 쓰면 $Object 가 $null 일 때 그다음 .Properties[$Name] 이 그대로 돌아 "null 배열로
+    # 인덱싱할 수 없습니다" 로 던진다. 검사가 그것을 잡았다.
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
     $p = $Object.PSObject.Properties[$Name]

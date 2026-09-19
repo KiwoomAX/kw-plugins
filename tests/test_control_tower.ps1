@@ -179,10 +179,16 @@ Check '훅이 5.1 을 부르지 않는다' {
 # --- 한글이 안 깨진다 ---------------------------------------------
 Write-Host ''
 Write-Host '한글'
-foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plugin 'scripts\sync.ps1'))) {
-    Check "UTF-8 BOM 이 있다: $(Split-Path $f -Leaf)" {
+# BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽고, BOM 이 없으면 5.1 로 돌렸을 때
+# 한글이 조용히 깨지는 것이 아니라 파싱 오류로 죽어서 잘못 부른 것이 그 자리에서 드러난다.
+foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plugin 'scripts\sync.ps1'),
+                 (Join-Path $plugin 'hooks\python3-guard.ps1'), (Join-Path $plugin 'hooks\docker-cert-reminder.ps1'))) {
+    Check "UTF-8 BOM 이 없다: $(Split-Path $f -Leaf)" {
         $b = [System.IO.File]::ReadAllBytes($f)
-        $b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191
+        -not ($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191)
+    }
+    Check "한글이 성한 채로 읽힌다: $(Split-Path $f -Leaf)" {
+        (Get-Content -LiteralPath $f -Raw -Encoding UTF8) -match '[가-힣]'
     }
 }
 
@@ -386,7 +392,6 @@ Write-Host '사용자 파일 쓰기'
 # settings.json 은 사용자 파일이다. 통째로 다시 쓰므로 셋을 지켜야 한다.
 Check '고치기 전에 사본을 남긴다'        { $syncSrc.Contains('Copy-Item -LiteralPath $Path -Destination "$Path.bak"') }
 Check '다시 안 읽힐 것은 안 쓴다'        { $syncSrc.Contains('$null = $json | ConvertFrom-Json') }
-Check '5.1 이 만든 이스케이프를 되돌린다' { $syncSrc.Contains("[regex]::Replace(`$json, '\\u([0-9a-fA-F]{4})'") }
 Check '임시 파일에 쓰고 옮긴다'          { $syncSrc -match '\$Path\.kwtmp' -and $syncSrc -match 'Move-Item' }
 Check 'BOM 없이 쓴다'                    { $syncSrc -match 'UTF8Encoding\(\$false\)' }
 # 없는 것과 못 읽는 것은 다르다. 삼키면 망가진 설정을 가진 PC 에서 맞춤이
