@@ -415,6 +415,29 @@ Write-Host '훅이 맞춤을 부른다'
 Check '훅이 맞춤 스크립트를 부른다'      { $hookCode -match 'sync\.ps1' }
 Check '훅이 부르는 스크립트가 실재한다'  { Test-Path -LiteralPath (Join-Path $plugin 'scripts\sync.ps1') }
 # 어긋난 곳이 없으면 맞춤을 안 부른다. 이 경계가 사라지면 모든 세션이 맞춤 값을 문다.
+# 사용자가 직접 해야 하는 것은 맞춤을 안 부른다. 부르면 로그인 안 한 PC 에서 매 세션
+# 맞춤이 돌고도 아무것도 못 고친다.
+Check '직접 할 일과 맞춤이 고칠 것을 나눠 담는다' {
+    ($hookCode -match '\$asks\s*=\s*New-Object') -and ($hookCode -match '\$notes\s*=\s*New-Object')
+}
+Check '맞춤을 부를지는 notes 만 보고 정한다' {
+    $hookCode -match '\$notes\.Count -eq 0[^
+]*\}\s*(#[^
+]*)?'
+}
+# 상태에 따라 갈리는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
+# 사람은 읽고 넘겨도 아무 일이 없다. 그런 것은 점검이 맡는다.
+Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
+    $tplSrc -notmatch 'gh auth login'
+}
+Check '점검이 GitHub 로그인을 확인한다' {
+    ($hookCode -match 'hosts\.yml') -and ($hookCode -match 'gh auth login')
+}
+Check '맞춤은 GitHub 로그인을 건드리지 않는다' {
+    (Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw) -notmatch 'gh auth login'
+}
+
 Check '맞춤 호출이 경계 뒤에 있다' {
     $g2 = $hookCode.IndexOf('$notes.Count -eq 0')
     $s2 = $hookCode.IndexOf('sync.ps1')

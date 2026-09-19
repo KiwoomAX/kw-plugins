@@ -86,7 +86,8 @@ function Get-MarketplaceHead {
 }
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$notes = New-Object System.Collections.ArrayList
+$notes = New-Object System.Collections.ArrayList   # 맞춤이 고칠 수 있는 것
+$asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
 
 try {
     $userHome = $env:USERPROFILE
@@ -311,6 +312,31 @@ try {
     if ($stale) {
         [void]$notes.Add('배포처 사본을 열나흘 넘게 받아오지 않았습니다.')
     }
+
+    # --- 물음 13. 사내 GitHub 로그인이 되어 있나 ---------------------------
+    # 이것만 $asks 로 간다. 브라우저 승인이 필요해 맞춤이 대신 못 한다. $notes 에
+    # 넣으면 로그인 안 한 PC 에서 매 세션 맞춤이 돌고도 아무것도 못 고친다.
+    #
+    # "고칠 수 있는 것만 확인한다" 는 규칙의 예외다. 그 규칙을 둔 이유는 못 고치는
+    # 것을 알리면 끌 수 없는 소음이 되기 때문인데, 이것은 사용자가 고칠 수 있고
+    # 고치면 멈춘다. 예전에는 이 안내가 CLAUDE.md 에 있어서 로그인을 끝낸 사람도
+    # 매 세션 읽었고, 안 한 사람은 읽고 넘겨도 아무 일이 없었다.
+    #
+    # 파일이 말해 주는 것은 "로그인한 적 있다" 까지다. 토큰이 만료되거나 취소돼도
+    # 파일은 남는다. 그것까지 보려면 gh 를 띄우고 네트워크에 나가야 한다.
+    $script:Budget.Files++
+    $ghHosts = Join-Path (Join-Path $env:APPDATA 'GitHub CLI') 'hosts.yml'
+    $loggedIn = $false
+    if (Test-Path -LiteralPath $ghHosts) {
+        foreach ($line in (Get-Content -LiteralPath $ghHosts -Encoding UTF8)) {
+            if ($line -match '^\s*github\.com\s*:') { $loggedIn = $true; break }
+        }
+    }
+    if (-not $loggedIn) {
+        [void]$asks.Add('사내 GitHub 로그인이 아직입니다. 브라우저 승인이 필요해 대신 해 드릴 수 없으니 아래를 직접 실행해 주십시오.')
+        [void]$asks.Add('    gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
+        [void]$asks.Add('조직에 아직 초대되지 않았다면 초대 메일을 먼저 수락하셔야 합니다.')
+    }
 }
 catch {
     # 사용자에게는 조용히 물러난다. 세션 시작을 훅의 사정으로 어지럽히지 않는다.
@@ -396,7 +422,15 @@ if ($changed.Count -gt 0) {
     if ($notes.Count -gt 0) { Write-Output '' }
 }
 
-if ($notes.Count -eq 0) { exit 0 }   # 이상이 없으면 아무 말도 안 하고 아무것도 안 고친다
+# 사용자가 직접 해야 하는 것을 먼저 말한다. 맞춤이 뒤에 길게 찍으므로, 뒤에 두면
+# 사람이 할 일이 출력 맨 아래로 밀려 안 읽힌다.
+if ($asks.Count -gt 0) {
+    Write-Output 'KW 컨트롤 타워: 직접 해 주셔야 하는 것이 있습니다.'
+    foreach ($a in $asks) { Write-Output "  $a" }
+    if ($notes.Count -gt 0) { Write-Output '' }
+}
+
+if ($notes.Count -eq 0) { exit 0 }   # 맞춤이 고칠 것이 없으면 맞춤을 안 부른다
 
 Write-Output 'KW 컨트롤 타워: 이 PC가 사내 설정과 어긋난 곳이 있습니다.'
 foreach ($n in $notes) { Write-Output "  - $n" }
