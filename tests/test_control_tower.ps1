@@ -504,6 +504,25 @@ Check '읽기 전용 자동 변수를 안 쓴다' {
     ($hookSrc -notmatch '\$pid\b') -and ((Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw) -notmatch '\$pid\b')
 }
 
+# --- 훅이 표준입력을 읽는 방식 ---------------------------------------------
+Write-Host ''
+Write-Host '표준입력'
+# [Console]::In 은 콘솔 코드페이지로 해석한다. 한국어 윈도는 949 라 클로드가 보내는
+# UTF-8 한글이 깨지고 따옴표 짝이 틀어져 JSON 이 무너진다. 그러면 가드가 판정을 못 하고
+# 통과시켜, 한글이 든 명령만 골라 샌다. 2026-09-19 에 949 와 65001 로 확인했다.
+foreach ($h in @('python3-guard.ps1', 'docker-cert-reminder.ps1')) {
+    $src = Get-Content (Join-Path $plugin (Join-Path 'hooks' $h)) -Raw
+    Check "표준입력을 UTF-8 로 직접 읽는다: $h" {
+        ($src -match 'OpenStandardInput') -and ($src -notmatch '\$Console\]::In\.ReadToEnd')
+    }
+}
+# 5.1 의 ConvertFrom-Json 은 예외 메시지에 입력 전체를 담는다. 그대로 적으면 명령 전문과
+# 세션 기록 경로가 자국에 쌓인다.
+Check '가드가 예외 메시지를 통째로 남기지 않는다' {
+    $src = Get-Content (Join-Path $plugin 'hooks\python3-guard.ps1') -Raw
+    $src -match 'Substring\(0, 120\)'
+}
+
 # --- 도커 인증서 안내 -------------------------------------------------------
 Write-Host ''
 Write-Host '도커 인증서 안내'

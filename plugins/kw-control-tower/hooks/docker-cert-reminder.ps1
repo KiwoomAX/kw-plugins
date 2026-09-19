@@ -78,7 +78,13 @@ $BuildAdvice = @'
 '@
 
 try {
-    $raw = [Console]::In.ReadToEnd()
+    # 표준입력을 UTF-8 로 직접 읽는다. [Console]::In 은 콘솔 코드페이지로 해석하는데
+    # 한국어 윈도에서는 949 라, 클로드가 보내는 UTF-8 한글이 깨지고 따옴표 짝이 틀어져
+    # JSON 이 무너진다. 그러면 가드가 판정을 못 하고 통과시켜, 한글이 든 명령만 골라
+    # 샌다. 2026-09-19 에 코드페이지 949 와 65001 로 각각 돌려 확인했다.
+    $stdin  = [Console]::OpenStandardInput()
+    $reader = New-Object System.IO.StreamReader($stdin, (New-Object System.Text.UTF8Encoding($false)))
+    try { $raw = $reader.ReadToEnd() } finally { $reader.Dispose() }
     if (-not $raw) { exit 0 }
     $j = $raw | ConvertFrom-Json
 

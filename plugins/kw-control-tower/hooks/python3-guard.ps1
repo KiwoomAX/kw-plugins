@@ -32,7 +32,13 @@ try {
     }
     if ($verdict -ne 'redirector') { exit 0 }   # 파이썬으로 풀리거나, 없거나, 아직 안 쟀다
 
-    $raw = [Console]::In.ReadToEnd()
+    # 표준입력을 UTF-8 로 직접 읽는다. [Console]::In 은 콘솔 코드페이지로 해석하는데
+    # 한국어 윈도에서는 949 라, 클로드가 보내는 UTF-8 한글이 깨지고 따옴표 짝이 틀어져
+    # JSON 이 무너진다. 그러면 가드가 판정을 못 하고 통과시켜, 한글이 든 명령만 골라
+    # 샌다. 2026-09-19 에 코드페이지 949 와 65001 로 각각 돌려 확인했다.
+    $stdin  = [Console]::OpenStandardInput()
+    $reader = New-Object System.IO.StreamReader($stdin, (New-Object System.Text.UTF8Encoding($false)))
+    try { $raw = $reader.ReadToEnd() } finally { $reader.Dispose() }
     if ([string]::IsNullOrWhiteSpace($raw)) { exit 0 }
     $payload = $raw | ConvertFrom-Json
     $cmd = $payload.tool_input.command
@@ -79,7 +85,12 @@ catch {
     # 가드가 스스로 실패했다고 사용자의 명령을 막지 않는다. 자국만 남긴다.
     try {
         $log = Join-Path (Join-Path $env:USERPROFILE '.claude') 'kw-control-tower.error'
-        "$(Get-Date -Format o) python3-guard $($_.Exception.Message)" | Out-File -LiteralPath $log -Encoding UTF8 -Append
+        # 예외 메시지를 그대로 적지 않는다. 5.1 의 ConvertFrom-Json 은 예외 메시지에
+        # 입력 전체를 담는다. 그래서 이 자국에 명령 전문과 세션 기록 경로가 통째로
+        # 쌓여 있었다. 종류와 앞머리만 남긴다.
+        $msg = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
+        if ($msg.Length -gt 120) { $msg = $msg.Substring(0, 120) + " …(줄임)" }
+        "$(Get-Date -Format o) python3-guard $msg" | Out-File -LiteralPath $log -Encoding UTF8 -Append
     } catch { }
     exit 0
 }
