@@ -39,7 +39,6 @@ foreach ($rel in @(
     'hooks\hooks.json',
     'hooks\session-check.ps1',
     'scripts\sync.ps1',
-    'commands\kw-sync.md',
     'requirements.txt'
 )) {
     Check "있다: $rel" { Test-Path -LiteralPath (Join-Path $plugin $rel) }
@@ -98,6 +97,14 @@ function Get-CodeOnly {
 }
 $hookCode = Get-CodeOnly $hookSrc
 
+# 예산은 감지에만 걸린다. 어긋난 곳을 찾은 뒤 맞춤을 부르는 것은 예산 밖이라고
+# 설계가 정했으므로, 그 경계 앞의 코드만 떼어 예산 검사를 건다. 경계는 알릴 것이
+# 없을 때 그대로 끝내는 줄이다.
+$guard = '$notes.Count -eq 0'
+$gi = $hookCode.IndexOf($guard)
+$hookDetect = if ($gi -ge 0) { $hookCode.Substring(0, $gi) } else { $hookCode }
+Check '감지와 맞춤을 가르는 경계가 있다' { $gi -ge 0 }
+
 Check '세션 시작 훅이 하나뿐이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     @($j.hooks.SessionStart).Count -eq 1 -and @($j.hooks.SessionStart[0].hooks).Count -eq 1
@@ -128,11 +135,13 @@ Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
     }
     $bad -eq 0
 }
-Check '훅이 외부 프로그램을 안 부른다' {
-    ($hookCode -notmatch '(?m)^\s*&\s') -and
-    ($hookCode -notmatch 'Start-Process') -and
-    ($hookCode -notmatch 'claude\s+plugin') -and
-    ($hookCode -notmatch 'Get-FileHash')
+# 감지가 외부 프로그램을 부르면 어긋난 곳이 없는 세션까지 값을 문다. 맞춤을 부르는
+# 것은 이 검사 뒤의 코드이고, 그것은 어긋난 세션에서만 돈다.
+Check '감지가 외부 프로그램을 안 부른다' {
+    ($hookDetect -notmatch '(?m)^\s*&\s') -and
+    ($hookDetect -notmatch 'Start-Process') -and
+    ($hookDetect -notmatch 'claude\s+plugin') -and
+    ($hookDetect -notmatch 'Get-FileHash')
 }
 Check '훅이 네트워크에 안 나간다' {
     $hookCode -notmatch 'Invoke-WebRequest|Invoke-RestMethod|System\.Net\.'
@@ -147,7 +156,7 @@ Check '오류 자국은 스무 줄까지만 남긴다'   { $hookCode -match '\$k
 # 감지 표가 적은 물음을 훅이 다 재야 한다. CLAUDE.md 문안 검사가 표에는 있고
 # 훅에는 없어서, 사내 문안을 손으로 고쳐도 아무도 모르는 상태였다.
 Check '훅이 감지 표의 물음을 다 잰다' {
-    $spec2 = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw
+    $spec2 = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw -Encoding UTF8
     # 표 머리에 바로 붙여 잡는다. 절 머리부터 잡으면 표 앞 문단에서 끊긴다.
     $tbl = [regex]::Match($spec2, "(?s)\| 물음 \| 어디서 재나 \|.*?(?=\r?\n\r?\n)").Value
     $rows = @([regex]::Matches($tbl, "(?m)^\|(?!-)")).Count - 1   # 머리 줄을 뺀다
@@ -309,6 +318,19 @@ Check '마켓플레이스가 외부 레포를 원본으로 안 가리킨다' {
     $mk = Get-Content (Join-Path $repo '.claude-plugin\marketplace.json') -Raw | ConvertFrom-Json
     @($mk.plugins | Where-Object { $_.source -isnot [string] -or -not $_.source.StartsWith('./') }).Count -eq 0
 }
+# required 에 적은 것이 배포처 목록에 없으면 이름으로 못 부른다. 올리기 전에는 아무도
+# 안 잡고, 사내 PC 마다 맞춤이 설치에 실패하면서 드러난다. 고칠 곳이 둘인데 한 곳만
+# 고치기 쉬워서 계약으로 못 박는다.
+Check '필수 목록의 플러그인이 배포처 목록에도 있다' {
+    $mk2 = Get-Content (Join-Path $repo '.claude-plugin\marketplace.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $sold = @($mk2.plugins | ForEach-Object { $_.name })
+    $bad = @()
+    foreach ($id in @($mf.required) + @($mf.suggested)) {
+        if ($id -notlike '*@kiwoom-ax') { continue }   # 남의 배포처는 여기서 못 본다
+        if ($sold -notcontains $id.Split('@')[0]) { $bad += $id }
+    }
+    $bad.Count -eq 0
+}
 # 먼저 걷고 설치가 실패하면 그 플러그인이 아예 없는 PC 가 된다. 실제로 그렇게
 # 됐던 자리라 계약으로 못 박는다.
 Check '정리할 플러그인에는 대체자가 적혀 있다' {
@@ -384,20 +406,36 @@ Check '망가진 설정에서 알림은 조용하고 자국을 남긴다' {
 }
 Remove-Item -LiteralPath $brokenHome -Recurse -Force -ErrorAction SilentlyContinue
 
-# --- /kw-sync 명령 ----------------------------------------------------------
+# --- 훅이 맞춤을 부른다 -----------------------------------------------------
 Write-Host ''
-Write-Host '/kw-sync 명령'
-$cmdSrc = Get-Content (Join-Path $plugin 'commands\kw-sync.md') -Raw
-Check '설명이 앞머리에 있다'            { $cmdSrc -match '(?s)^---\s*\r?\ndescription:' }
-# 플러그인이 나르는 명령은 언제나 '플러그인이름:명령이름' 으로 불린다. 알림이 짧은
-# 이름을 적으면 사용자가 없는 명령을 친다.
-Check '알림이 온전한 명령 이름을 말한다' { $hookCode.Contains('/kw-control-tower:kw-sync') }
-Check '알림이 짧은 이름을 안 쓴다'        { -not ($hookCode -match '(?<!tower:)(?<!-)/kw-sync') }
-Check '맞춤 스크립트를 부른다'          { $cmdSrc -match 'scripts/sync\.ps1' }
-Check '미리보기 방법을 적어 둔다'        { $cmdSrc -match '\-WhatIfOnly' }
-Check '되켠 것을 말하라고 적혀 있다'      { $cmdSrc -match '되켠 것' }
-# 명령과 스킬이 같은 말을 두 곳에서 하면 곧 어긋난다. 부르는 자리는 명령 하나다.
+Write-Host '훅이 맞춤을 부른다'
+# 사람이 부르는 명령을 없앴다. 알림을 읽고 명령을 치는 사람이 없으면 감지가
+# 아무것도 바꾸지 못하기 때문이다. 부르는 곳은 훅 하나이고, 설치기 9단계는
+# 예전처럼 같은 스크립트를 직접 부른다.
+Check '훅이 맞춤 스크립트를 부른다'      { $hookCode -match 'sync\.ps1' }
+Check '훅이 부르는 스크립트가 실재한다'  { Test-Path -LiteralPath (Join-Path $plugin 'scripts\sync.ps1') }
+# 어긋난 곳이 없으면 맞춤을 안 부른다. 이 경계가 사라지면 모든 세션이 맞춤 값을 문다.
+Check '맞춤 호출이 경계 뒤에 있다' {
+    $g2 = $hookCode.IndexOf('$notes.Count -eq 0')
+    $s2 = $hookCode.IndexOf('sync.ps1')
+    ($g2 -ge 0) -and ($s2 -gt $g2)
+}
+# 맞춤이 실패해도 세션을 막지 않는다. 훅은 언제나 0 으로 끝난다.
+Check '맞춤을 감싸 두고 0 으로 끝난다' {
+    ($hookCode -match 'catch') -and ($hookCode.TrimEnd().EndsWith('exit 0'))
+}
+# 없앤 명령과 그 이름의 스킬이 남아 있으면 부르는 곳이 둘이 되어 곧 어긋난다.
+Check '없앤 명령 파일이 남아 있지 않다'   { -not (Test-Path -LiteralPath (Join-Path $plugin 'commands\kw-sync.md')) }
 Check '같은 이름의 스킬이 남아 있지 않다' { -not (Test-Path -LiteralPath (Join-Path $plugin 'skills\kw-sync')) }
+# 알림과 맞춤이 사본의 판본을 서로 다르게 읽으면, 알림이 말한 것을 맞춤이 못 고친다.
+Check '알림과 맞춤이 같은 함수로 사본 판본을 읽는다' {
+    $syncSrc2 = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
+    ($hookSrc -match 'function Get-MarketplaceHead') -and ($syncSrc2 -match 'function Get-MarketplaceHead')
+}
+# 읽기 전용 자동 변수를 덮어쓰면 그 블록이 통째로 죽는다. 실제로 그렇게 됐다.
+Check '읽기 전용 자동 변수를 안 쓴다' {
+    ($hookSrc -notmatch '\$pid\b') -and ((Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw) -notmatch '\$pid\b')
+}
 
 # --- 도커 인증서 안내 -------------------------------------------------------
 Write-Host ''
@@ -479,8 +517,8 @@ Write-Host ''
 Write-Host '문서와 코드'
 # 설계 문서가 걸음을 일곱으로 세는데 코드가 여덟인 적이 있었다. 사람이 셀 일이
 # 아니라 맞대면 되는 일이다.
-$spec = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw
-$readme = Get-Content (Join-Path $repo 'README.md') -Raw
+$spec = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw -Encoding UTF8
+$readme = Get-Content (Join-Path $repo 'README.md') -Raw -Encoding UTF8
 
 $codeSteps = @([regex]::Matches($syncSrc, "(?m)^Write-Host '(\d+)\.")) | ForEach-Object { [int]$_.Groups[1].Value }
 Check '맞춤의 걸음 번호가 1부터 빠짐없이 이어진다' {
@@ -500,15 +538,10 @@ Check 'README 가 코드와 같은 수로 센다' {
     $words = @{ '넷'=4; '다섯'=5; '여섯'=6; '일곱'=7; '여덟'=8; '아홉'=9; '열'=10 }
     $m.Success -and $words[$m.Groups[1].Value] -eq $codeSteps.Count
 }
-# 알림이 부르라고 하는 명령이 실제로 있는 파일이어야 한다.
-Check '알림이 가리키는 명령 파일이 실재한다' {
-    $m = [regex]::Match($hookCode, '/([a-z0-9-]+):([a-z0-9-]+) 를 실행')
-    $m.Success -and (Test-Path -LiteralPath (Join-Path $plugin ("commands\" + $m.Groups[2].Value + ".md")))
-}
-Check '알림이 가리키는 플러그인 이름이 자기 이름과 같다' {
-    $m = [regex]::Match($hookCode, '/([a-z0-9-]+):([a-z0-9-]+) 를 실행')
-    $pj = Get-Content (Join-Path $plugin '.claude-plugin\plugin.json') -Raw | ConvertFrom-Json
-    $m.Success -and $m.Groups[1].Value -eq $pj.name
+# 알림이 부르는 맞춤 스크립트가 이 플러그인 안에 있어야 한다. 밖을 가리키면 플러그인을
+# 옮기거나 지운 PC 에서 알림만 뜨고 아무것도 안 고쳐진다.
+Check '알림이 자기 플러그인 안의 맞춤을 부른다' {
+    $hookCode -match 'Split-Path -Parent \$PSScriptRoot'
 }
 
 # --- 결과 -----------------------------------------------------------------
