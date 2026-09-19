@@ -5,7 +5,13 @@
 # 넘으면 그 값을 상태 파일에 남긴다.
 #
 # 아무것도 고치지 않는다. 세션을 막지 않는다. 스스로 실패하면 조용히 물러난다.
-# Windows PowerShell 5.1 에서도 돌아야 하므로 7 전용 문법을 쓰지 않는다.
+# PowerShell 7 을 전제한다. 설치기가 7 을 winget 으로 깔고, 그래도 없으면 아무것도
+# 안 깔고 끝내므로, 7 이 없는 PC 에는 이 훅도 없다.
+#
+# 5.1 은 매 세션 204밀리초를 아꼈지만(357 대 561) 우회를 열한 군데 만들었다.
+# 한국어를 ANSI 로 읽고, JSON 의 한글을 유니코드 이스케이프로 바꾸고, null 조건
+# 연산자가 없다. 그중 하나는 문서와 코드를 대조하는 검사 넷을 한 번도 통과하지
+# 못하게 하고 있었고 아무도 몰랐다. 2026-09-19 에 사용자가 7 로 정했다.
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
@@ -457,7 +463,7 @@ if (-not (Test-Path -LiteralPath $sync)) {
 
 Write-Output ''
 try {
-    $out = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $sync 2>&1
+    $out = & pwsh -NoProfile -NonInteractive -File $sync 2>&1
     foreach ($line in $out) { Write-Output "$line" }
     # 새로 깐 것이 있을 때만 다시 켜라고 말한다. 클로드 코드는 시작할 때 플러그인을
     # 읽으므로 방금 깐 것은 이 세션에 안 실린다. 맞춤이 그 문구를 낼 때만 붙인다.

@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Continue'
 
 $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
-$ps51   = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기가 7 없이는 아무것도 안 깐다.
 
 $script:Pass = 0
 $script:FailList = New-Object System.Collections.ArrayList
@@ -109,16 +109,16 @@ Check '세션 시작 훅이 하나뿐이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     @($j.hooks.SessionStart).Count -eq 1 -and @($j.hooks.SessionStart[0].hooks).Count -eq 1
 }
-Check '훅을 powershell.exe 로 건다 (pwsh 7 이 없어도 돈다)' {
+Check '훅을 pwsh 로 건다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
-    $j.hooks.SessionStart[0].hooks[0].command -eq 'powershell.exe'
+    $j.hooks.SessionStart[0].hooks[0].command -eq 'pwsh'
 }
 # 한 문자열로 적으면 셸이 그것을 다시 가르고, 사용자 이름에 공백이 든 PC 에서
 # 플러그인 경로가 거기서 깨진다. 나눠 적으면 셸을 안 거친다.
 Check '명령과 인자를 나눠 적는다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $all = @($j.hooks.SessionStart[0].hooks) + @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
-    @($all | Where-Object { $_.command -ne 'powershell.exe' -or @($_.args).Count -lt 6 }).Count -eq 0
+    @($all | Where-Object { $_.command -ne 'pwsh' -or @($_.args).Count -lt 6 }).Count -eq 0
 }
 # matcher 는 도구 이름만 거른다. 명령 내용을 거르는 것은 if 이고, 이것이 없으면
 # 도커도 python3 도 아닌 명령마다 프로세스가 뜬다.
@@ -170,13 +170,13 @@ Check '훅이 감지 표의 물음을 다 잰다' {
 Check '훅이 CLAUDE.md 문안을 견준다' {
     ($hookCode -match 'personal-memory-ko\.md') -and ($hookCode -match 'BEGIN AX')
 }
-Check '훅이 5.1 전용 문법만 쓴다' {
-    ($hookCode -notmatch '-AsHashtable') -and
-    ($hookCode -notmatch '\?\?') -and
-    ($hookCode -notmatch '\?\.')
+# 5.1 을 버렸으므로 그 문법 제약을 더 지킬 이유가 없다. 대신 되돌아가지 않았는지를 본다.
+# 훅이 powershell.exe 로 돌면 한국어가 ANSI 로 읽혀 조용히 깨진다.
+Check '훅이 5.1 을 부르지 않는다' {
+    ($hookCode -notmatch 'powershell\.exe') -and ($hookCode -match 'pwsh')
 }
 
-# --- 한글이 5.1 에서 안 깨진다 ---------------------------------------------
+# --- 한글이 안 깨진다 ---------------------------------------------
 Write-Host ''
 Write-Host '한글'
 foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plugin 'scripts\sync.ps1'))) {
@@ -205,7 +205,7 @@ $fake = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-" + [guid]::NewGuid()
 New-Item -ItemType Directory -Force -Path (Join-Path $fake '.claude\plugins') | Out-Null
 
 Check '설정 파일이 하나도 없으면 조용히 물러난다' {
-    $out = & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
 & '$plugin\hooks\session-check.ps1'
 "@ 2>&1
@@ -216,7 +216,7 @@ Check '설정 파일이 하나도 없으면 조용히 물러난다' {
 Check '목록 파일이 없으면 아무 말도 안 한다' {
     $empty = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-empty-" + [guid]::NewGuid().ToString('n').Substring(0,8))
     New-Item -ItemType Directory -Force -Path $empty | Out-Null
-    $out = & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$empty'
 & '$plugin\hooks\session-check.ps1'
 "@ 2>&1
@@ -227,7 +227,7 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
 Check '몸통이 200밀리초 안에 끝난다' {
     $slow = Join-Path $fake '.claude\kw-control-tower.slow'
     Remove-Item -LiteralPath $slow -ErrorAction SilentlyContinue
-    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
+    & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
 & '$plugin\hooks\session-check.ps1'
 "@ 2>&1 | Out-Null
@@ -308,7 +308,7 @@ $badManifest = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-bad-" + [guid]
 New-Item -ItemType Directory -Force -Path $badManifest | Out-Null
 Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
     '{ "marketplaces": [], "required": [] }' | Set-Content -LiteralPath (Join-Path $badManifest 'manifest.json')
-    $out = & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$env:USERPROFILE'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$env:USERPROFILE'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 Remove-Item -LiteralPath $badManifest -Recurse -Force -ErrorAction SilentlyContinue
@@ -362,7 +362,7 @@ function Invoke-Guard {
         Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state') -ErrorAction SilentlyContinue
     }
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
-    return ($payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; & '$guard'" 2>&1 | Out-String)
+    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; & '$guard'" 2>&1 | Out-String)
 }
 
 Check '맨 앞의 python3 을 막는다'            { (Invoke-Guard 'python3 -c "print(1)"') -match 'deny' }
@@ -400,7 +400,7 @@ $brokenHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-brk-" + [guid]:
 New-Item -ItemType Directory -Force -Path (Join-Path $brokenHome '.claude\plugins') | Out-Null
 '{ not json' | Set-Content -LiteralPath (Join-Path $brokenHome '.claude\settings.json')
 Check '망가진 설정에서 알림은 조용하고 자국을 남긴다' {
-    $out = & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$plugin\hooks\session-check.ps1'" 2>&1
     ([string]::IsNullOrWhiteSpace(($out | Out-String).Trim())) -and
     (Test-Path -LiteralPath (Join-Path $brokenHome '.claude\kw-control-tower.error'))
 }
@@ -511,7 +511,7 @@ $noBundle = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-nb-" + [guid]::Ne
 New-Item -ItemType Directory -Force -Path $noBundle | Out-Null
 Check '번들 없는 PC 에서 실제로 조용하다' {
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
-    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE=''; & '$dockerHook'" 2>&1
+    $out = $payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE=''; & '$dockerHook'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 # 번들이 어디 있든 따라가야 하므로, 흉내 내는 곳도 %LOCALAPPDATA% 아래가 아닌
@@ -521,14 +521,14 @@ Check '번들 있는 PC 에서는 말한다' {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $bundleStub) | Out-Null
     Set-Content -LiteralPath $bundleStub -Value '# stand-in'
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
-    $out = $payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE='$bundleStub'; & '$dockerHook'" 2>&1
+    $out = $payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE='$bundleStub'; & '$dockerHook'" 2>&1
     ($out | Out-String) -match 'additionalContext'
 }
 # 안내에 실제 번들 폴더가 적혀 나오는지까지 본다. 치환을 빠뜨리면 사용자가 받는 명령에
 # __BUNDLE_DIR__ 이 그대로 남는다.
 Check '안내에 그 PC 의 번들 폴더가 적힌다' {
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = 'docker run alpine' } } | ConvertTo-Json -Compress
-    $out = ($payload | & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE='$bundleStub'; & '$dockerHook'" 2>&1 | Out-String)
+    $out = ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:SSL_CERT_FILE='$bundleStub'; & '$dockerHook'" 2>&1 | Out-String)
     ($out -notmatch '__BUNDLE_DIR__') -and ($out -match 'somewhere')
 }
 Remove-Item -LiteralPath $noBundle -Recurse -Force -ErrorAction SilentlyContinue
