@@ -227,7 +227,7 @@ try {
     # 이것이 감지 표에 있는데 훅에 없었다. 사내 문안을 손으로 고쳐도 아무도 모르는
     # 상태였다. 판본이나 해시가 아니라 글자를 견준다. 줄바꿈은 두 파일이 서로 다를
     # 수 있고 그것은 다름이 아니므로 맞춘 뒤에 견준다.
-    $tpl = Join-Path $root 'templates\personal-memory-ko.md'
+    $tpl = Join-Path $root 'templates\claude-md-ko.md'
     $mem = Join-Path $cfg 'CLAUDE.md'
     $script:Budget.Files += 2
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {

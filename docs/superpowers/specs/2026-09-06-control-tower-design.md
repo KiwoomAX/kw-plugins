@@ -152,7 +152,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 | `scripts/sync.ps1` | 실제로 고친다. 맞춤 명령과 설치기 9단계가 부른다 |
 | `hooks/session-check.ps1` | 알리기만 한다 |
 | `requirements.txt` | 파이썬 라이브러리 일곱. `kw_install`에서 옮겨 온다 |
-| `templates/personal-memory-ko.md` | `CLAUDE.md`의 `# BEGIN AX 설치` 블록 |
+| `templates/claude-md-ko.md` | `CLAUDE.md`의 `# BEGIN AX 설치` 블록 |
 | `skills/register-corp-certs/` | `kw_install`에서 옮겨 온다 |
 | `hooks/docker-cert-reminder.ps1` | 옮겨 온다 |
 | `hooks/python3-guard.ps1` | 새로 만든다 |
@@ -474,7 +474,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 
 **셋째, `CLAUDE.md` 걸음을 만든다.** 마커 블록을 다루는 코드를 PowerShell로 새로 쓰고, 잠금 파일의 이름과 규약을 `disciplined-coder`의 것과 맞춘다.
 
-**정규화 걸음은 두지 않는다.** 앞 판은 각 PC의 옛 블록을 접두로 찾아 한 번 정규화한다고 적었고 근거는 "드리프트가 각 PC에 있다"였다. 넷째 회차가 그 전제를 실물로 확인했다. `templates/personal-memory-ko.md`의 첫 줄은 커밋 넷(`8f823dd`·`c087fa8`·`d779b55`·`df7d5fe`) 전부에서 한 글자도 안 바뀌었고, 이 PC의 `CLAUDE.md`에도 그 한 쌍만 있다. **정규화할 드리프트가 없으므로 되돌릴 수 없는 걸음을 매 PC에 넣지 않는다.**
+**정규화 걸음은 두지 않는다.** 앞 판은 각 PC의 옛 블록을 접두로 찾아 한 번 정규화한다고 적었고 근거는 "드리프트가 각 PC에 있다"였다. 넷째 회차가 그 전제를 실물로 확인했다. `templates/claude-md-ko.md`의 첫 줄은 커밋 넷(`8f823dd`·`c087fa8`·`d779b55`·`df7d5fe`) 전부에서 한 글자도 안 바뀌었고, 이 PC의 `CLAUDE.md`에도 그 한 쌍만 있다. **정규화할 드리프트가 없으므로 되돌릴 수 없는 걸음을 매 PC에 넣지 않는다.**
 
 대신 새 걸음도 설치기와 같은 **접두로 찾는다.** 문구가 나중에 바뀌어도 블록이 하나로 남고, 실제로 어긋난 PC를 만나면 그때 정규화를 따로 논한다. 설치기 쪽의 `CLAUDE.md` 코드는 이때 걷는다.
 

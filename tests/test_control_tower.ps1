@@ -168,7 +168,7 @@ Check '훅이 감지 표의 물음을 다 잰다' {
     ($asked -gt 0) -and (($nums | Measure-Object -Maximum).Maximum -eq $rows)
 }
 Check '훅이 CLAUDE.md 문안을 견준다' {
-    ($hookCode -match 'personal-memory-ko\.md') -and ($hookCode -match 'BEGIN AX')
+    ($hookCode -match 'claude-md-ko\.md') -and ($hookCode -match 'BEGIN AX')
 }
 # 5.1 을 버렸으므로 그 문법 제약을 더 지킬 이유가 없다. 대신 되돌아가지 않았는지를 본다.
 # 훅이 powershell.exe 로 돌면 한국어가 ANSI 로 읽혀 조용히 깨진다.
@@ -435,7 +435,7 @@ Check '맞춤을 부를지는 notes 만 보고 정한다' {
 # 문안이 @import 로 부르는 파일이 실제로 있어야 한다. 없으면 CLAUDE.md 가 없는 파일을
 # 가리키고, 그 상태를 아무도 못 본다.
 Check '문안이 부르는 파일이 템플릿에 있다' {
-    $tplSrc0 = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
+    $tplSrc0 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     $ok = $true
     foreach ($m in [regex]::Matches($tplSrc0, '(?m)^@(\S+)')) {
         $rel = $m.Groups[1].Value -replace '^kw-ax/', ''
@@ -445,7 +445,7 @@ Check '문안이 부르는 파일이 템플릿에 있다' {
 }
 # 경로에 공백이 들어가면 어디까지가 경로인지 갈리지 않는다.
 Check '@import 경로에 공백이 없다' {
-    $tplSrc1 = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
+    $tplSrc1 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     -not ($tplSrc1 -match '(?m)^@[^\r\n]* ')
 }
 # 갖다 놓는 것은 맞춤의 일이다. 템플릿에만 있고 맞춤이 안 옮기면 아무 PC 에도 안 생긴다.
@@ -455,7 +455,7 @@ Check '맞춤이 그 파일을 갖다 놓는다' {
 }
 
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
-    $tplSrc = Get-Content (Join-Path $plugin 'templates\personal-memory-ko.md') -Raw -Encoding UTF8
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     $tplSrc -notmatch 'gh auth login'
 }
 Check '점검이 GitHub 로그인을 확인한다' {
