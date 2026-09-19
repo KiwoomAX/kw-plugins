@@ -1,0 +1,692 @@
+{
+  "schema": 1,
+  "updated": "2026-09-19",
+  "scopes": {
+    "answer": "사용자에게 보내는 답",
+    "artifact": "사용자가 요구한 산출물 문서",
+    "living-doc": "저장소의 살아 있는 문서"
+  },
+  "categories": [
+    {
+      "id": "native-verb",
+      "title": "한자어를 고유어로 되돌린 것"
+    },
+    {
+      "id": "too-broad",
+      "title": "무엇이든 가리킬 수 있는 넓은 말"
+    },
+    {
+      "id": "english-literal",
+      "title": "영어를 그대로 옮긴 것"
+    },
+    {
+      "id": "coined",
+      "title": "뜻을 정하지 않고 지어낸 표현"
+    },
+    {
+      "id": "ui-text",
+      "title": "안내 문구"
+    }
+  ],
+  "entries": [
+    {
+      "id": "jaeda",
+      "category": "native-verb",
+      "match": "forms",
+      "banned": [
+        "재다",
+        "잰다",
+        "재는",
+        "재지",
+        "재어지다"
+      ],
+      "replace": [
+        "측정",
+        "확인",
+        "관측",
+        "계산"
+      ],
+      "scope": [
+        "answer",
+        "artifact",
+        "living-doc"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "user",
+        "date": "2026-08-30",
+        "quote": "몇가지만 수정하고 싶은데, 재다 -> 측정하다 오히려 더 편한 말이야. 자리 -> 각 작업에 더 맞게 내로우하게 해줘. 선다 -> 이것또한 적절히. 이런 어구를 너가 요즘 많이 써... 쉬운말로 쓰라해서 쉬운말로 쓴느데, 오히려 그 쉬운말이 어울리지 않아. 이건 심지어 구어체도 아니야."
+      }
+    },
+    {
+      "id": "jipda",
+      "category": "native-verb",
+      "match": "fragment",
+      "banned": [
+        "짚"
+      ],
+      "replace": [
+        "지적",
+        "언급"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 158건, 만 자당 2.1"
+      }
+    },
+    {
+      "id": "hultda",
+      "category": "native-verb",
+      "match": "fragment",
+      "banned": [
+        "훑"
+      ],
+      "replace": [
+        "검토",
+        "확인"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 63건, 만 자당 0.8"
+      }
+    },
+    {
+      "id": "matdaeda",
+      "category": "native-verb",
+      "match": "fragment",
+      "banned": [
+        "맞대",
+        "맞댄",
+        "맞댔"
+      ],
+      "replace": [
+        "대조",
+        "비교"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 41건, 만 자당 0.5"
+      }
+    },
+    {
+      "id": "ttuiuda",
+      "category": "native-verb",
+      "match": "forms",
+      "banned": [
+        "띄우다",
+        "띄운다",
+        "띄워"
+      ],
+      "replace": [
+        "실행",
+        "호출"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-08-30",
+        "quote": "살아 있는 문서 53개 전수 측정에서 띄운다·뜬다 27건, 전부 실제 용례"
+      }
+    },
+    {
+      "id": "gullida",
+      "category": "native-verb",
+      "match": "forms",
+      "banned": [
+        "굴리다",
+        "굴린다",
+        "굴려"
+      ],
+      "replace": [
+        "실행",
+        "처리"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "jaengida",
+      "category": "native-verb",
+      "match": "forms",
+      "banned": [
+        "쟁이다",
+        "쟁여"
+      ],
+      "replace": [
+        "축적",
+        "보관"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "gareuda",
+      "category": "native-verb",
+      "match": "forms",
+      "banned": [
+        "가르다",
+        "가른다",
+        "갈라"
+      ],
+      "replace": [
+        "구분",
+        "분리"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-08-30",
+        "quote": "살아 있는 문서 53개 전수 측정에서 갈라·가른다 27건, 전부 실제 용례"
+      }
+    },
+    {
+      "id": "seonda",
+      "category": "native-verb",
+      "match": "forms",
+      "banned": [
+        "선다"
+      ],
+      "instruction": "순서를 말하면 '뒤에 온다', 성립을 말하면 '성립한다'로 쓴다",
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": false,
+      "disabled_reason": "단어 하나로는 잡히지 않는다. 2026-09-19 집계에서 17건 가운데 대부분이 이 규칙 자체를 인용한 것이고, 실제 오용은 '줄을 선다'처럼 구 단위여서 단어 목록으로 못 잡는다.",
+      "evidence": {
+        "kind": "user",
+        "date": "2026-08-30",
+        "quote": "선다 -> 이것또한 적절히"
+      }
+    },
+    {
+      "id": "seunda",
+      "category": "native-verb",
+      "match": "fragment",
+      "banned": [
+        "세우",
+        "세운",
+        "세워",
+        "세웠"
+      ],
+      "replace": [
+        "설정",
+        "지정",
+        "수립"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 90건, 만 자당 1.2"
+      }
+    },
+    {
+      "id": "jari",
+      "category": "too-broad",
+      "match": "forms",
+      "banned": [
+        "자리"
+      ],
+      "instruction": "가리키는 대상의 이름을 그대로 쓴다",
+      "scope": [
+        "answer",
+        "artifact",
+        "living-doc"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "user",
+        "date": "2026-08-23",
+        "quote": "자리라는 단어는 국어에서는 그렇게 사용하지 않는다. 자리라는 단어를 정말 많이 활용하는데 이러한 직역되어 사용되는 단어를 주의할 방법은 없나?"
+      }
+    },
+    {
+      "id": "bubun",
+      "category": "too-broad",
+      "match": "forms",
+      "banned": [
+        "부분",
+        "영역"
+      ],
+      "instruction": "가리키는 대상의 이름을 그대로 쓴다",
+      "scope": [
+        "answer",
+        "artifact",
+        "living-doc"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-08-30",
+        "quote": "살아 있는 문서 53개 전수 측정에서 부분 15건(실제 용례 12), 영역 13건(실제 용례 10)"
+      }
+    },
+    {
+      "id": "gyeongu",
+      "category": "too-broad",
+      "match": "forms",
+      "banned": [
+        "경우"
+      ],
+      "replace": [
+        "조건",
+        "상황"
+      ],
+      "scope": [
+        "answer",
+        "artifact",
+        "living-doc"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-08-30",
+        "quote": "살아 있는 문서 53개 전수 측정에서 경우 12건(실제 용례 9)"
+      }
+    },
+    {
+      "id": "mureum",
+      "category": "too-broad",
+      "match": "forms",
+      "banned": [
+        "물음"
+      ],
+      "replace": [
+        "질문"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "georeum",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "걸음"
+      ],
+      "replace": [
+        "단계"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-06",
+        "quote": "2026-09-06 최근 30세션 Claude 발화 52만 9천 자 집계에서 173건, 만 자당 3.3"
+      }
+    },
+    {
+      "id": "ppuri",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "뿌리"
+      ],
+      "replace": [
+        "원인",
+        "근본 원인"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-06",
+        "quote": "2026-09-06 최근 30세션 Claude 발화 52만 9천 자 집계에서 146건, 만 자당 2.8"
+      }
+    },
+    {
+      "id": "kkol",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "꼴"
+      ],
+      "replace": [
+        "형태",
+        "형식"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-06",
+        "quote": "2026-09-06 최근 30세션 Claude 발화 52만 9천 자 집계에서 109건, 만 자당 2.1"
+      }
+    },
+    {
+      "id": "gallae",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "갈래"
+      ],
+      "replace": [
+        "종류",
+        "분기"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-06",
+        "quote": "2026-09-06 최근 30세션 Claude 발화 52만 9천 자 집계에서 94건, 만 자당 1.8"
+      }
+    },
+    {
+      "id": "gallimgil",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "갈림길",
+        "갈래 길"
+      ],
+      "replace": [
+        "선택지"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "bulgeojida",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "붉어지다",
+        "붉어진"
+      ],
+      "replace": [
+        "실패"
+      ],
+      "scope": [
+        "answer",
+        "artifact",
+        "living-doc"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 23건, 만 자당 0.3"
+      }
+    },
+    {
+      "id": "heotdolda",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "헛돌다",
+        "헛돈다"
+      ],
+      "replace": [
+        "무의미"
+      ],
+      "scope": [
+        "answer",
+        "artifact",
+        "living-doc"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 7건, 만 자당 0.1"
+      }
+    },
+    {
+      "id": "pumi-deulda",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "품이 들다",
+        "품이 든"
+      ],
+      "replace": [
+        "수고",
+        "노력"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-19",
+        "quote": "2026-09-19 세션 기록 41개의 Claude 발화 75만 6천 자 집계 (코드블록과 백틱 안 제외)에서 7건, 만 자당 0.1"
+      }
+    },
+    {
+      "id": "gakdo",
+      "category": "english-literal",
+      "match": "forms",
+      "banned": [
+        "각도"
+      ],
+      "replace": [
+        "관점"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "hoecha",
+      "category": "coined",
+      "match": "forms",
+      "banned": [
+        "회차",
+        "째 판",
+        "이번 판"
+      ],
+      "instruction": "무엇의 몇 번째인지를 그 이름과 함께 적는다",
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "user",
+        "date": "2026-09-06",
+        "quote": "판 회차 등 너가 너무 표현을 친숙하지 않고 불편한 방식으로 다양하게 활용하고 있어 혼란스럽다. 넷째 판은 뭘 의미하나?"
+      }
+    },
+    {
+      "id": "natmal",
+      "category": "coined",
+      "match": "forms",
+      "banned": [
+        "낱말"
+      ],
+      "replace": [
+        "단어"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": false,
+      "disabled_reason": "사용자 본인이 쓰는 말이다. 2026-09-19 에 '내가 너에게 고쳐달라고 하는 낱말들 찾아줘봐'라고 직접 썼다.",
+      "evidence": {
+        "kind": "measured",
+        "date": "2026-09-06",
+        "quote": "2026-09-06 최근 30세션 Claude 발화 52만 9천 자 집계에서 79건, 만 자당 1.5"
+      }
+    },
+    {
+      "id": "beoryeoya-haneun-geot",
+      "category": "coined",
+      "match": "forms",
+      "banned": [
+        "버려야 하는 것",
+        "살아남는 것"
+      ],
+      "replace": [
+        "버릴 것",
+        "남길 것"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "da-dwaetseumnida",
+      "category": "ui-text",
+      "match": "forms",
+      "banned": [
+        "다 됐습니다"
+      ],
+      "replace": [
+        "완료되었습니다"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "badagagi",
+      "category": "ui-text",
+      "match": "forms",
+      "banned": [
+        "받아 가기"
+      ],
+      "replace": [
+        "다운로드"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "saero-mandeulgi",
+      "category": "ui-text",
+      "match": "forms",
+      "banned": [
+        "새로 만들기"
+      ],
+      "replace": [
+        "재생성"
+      ],
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "id": "ohiryeo-bullet",
+      "text": "불릿 첫머리에 '오히려'를 쓰지 않는다. '중요한 것은' 으로 쓴다.",
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "no-metaphor",
+      "text": "비유로 설명하지 않는다. 대상의 이름과 실제 동작을 그대로 적는다.",
+      "scope": [
+        "answer",
+        "artifact"
+      ],
+      "enabled": true,
+      "evidence": {
+        "kind": "reasoned"
+      }
+    }
+  ]
+}

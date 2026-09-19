@@ -432,6 +432,23 @@ Check '맞춤을 부를지는 notes 만 보고 정한다' {
 }
 # 상태에 따라 갈리는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
 # 사람은 읽고 넘겨도 아무 일이 없다. 그런 것은 점검이 맡는다.
+# 금지어 목록은 KiwoomAX/korean-banned-words 의 데이터에서 만든 생성물이다. 손으로
+# 고치면 다음에 다시 만들 때 조용히 날아간다. 다시 만들어 글자로 대조한다.
+Check '금지어 목록이 데이터와 맞는다' {
+    $gen = Join-Path $repo 'scripts\build-banned-words.ps1'
+    if (-not (Test-Path -LiteralPath $gen)) { return $false }
+    & pwsh -NoProfile -NonInteractive -File $gen -Check *> $null
+    $LASTEXITCODE -eq 0
+}
+Check '금지어 목록이 생성물이라고 밝힌다' {
+    $bw = Get-Content (Join-Path $plugin 'templates\korean-banned-words.md') -Raw -Encoding UTF8
+    ($bw -match '이 파일은 생성물이다') -and ($bw -match 'korean-banned-words')
+}
+# 데이터 사본이 없으면 생성기가 못 돈다. 검사가 그것을 먼저 말한다.
+Check '데이터 사본이 저장소에 있다' {
+    Test-Path -LiteralPath (Join-Path $repo 'data\korean-banned-words.json')
+}
+
 # 문안이 @import 로 부르는 파일이 실제로 있어야 한다. 없으면 CLAUDE.md 가 없는 파일을
 # 가리키고, 그 상태를 아무도 못 본다.
 Check '문안이 부르는 파일이 템플릿에 있다' {
