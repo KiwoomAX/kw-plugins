@@ -470,13 +470,12 @@ if (-not (Test-Path -LiteralPath $sync)) {
 Write-Output ''
 try {
     $out = & pwsh -NoProfile -NonInteractive -File $sync 2>&1
+    # 맞춤이 찍는 것을 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
+    #
+    # 여기서 문구를 찾아 판정하던 것을 그만뒀다. 맞춤이 재시작을 부르는 일을 다섯 가지
+    # 하는데 이 정규식은 그중 둘만 잡고 있었다. 갱신과 되켜기와 걷어내기가 빠졌다.
+    # 무엇이 재시작을 부르는지는 그 일을 하는 곳이 안다.
     foreach ($line in $out) { Write-Output "$line" }
-    # 새로 깐 것이 있을 때만 다시 켜라고 말한다. 클로드 코드는 시작할 때 플러그인을
-    # 읽으므로 방금 깐 것은 이 세션에 안 실린다. 맞춤이 그 문구를 낼 때만 붙인다.
-    if (($out | Out-String) -match '플러그인을 깔았습니다') {
-        Write-Output ''
-        Write-Output '새로 깐 플러그인은 클로드 코드를 다시 켜야 실립니다.'
-    }
 } catch {
     Write-Output "맞춤을 돌리지 못했습니다: $($_.Exception.Message)"
 }

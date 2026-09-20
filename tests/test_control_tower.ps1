@@ -534,6 +534,21 @@ Check '여는 마커 수와 짝 수를 견준다' {
     ($syncSrc.Contains('$opens -gt $pairs')) -and ($syncSrc.Contains('$opens2 -gt $pairs2'))
 }
 
+# 클로드 코드는 켤 때 플러그인을 읽는다. 깔거나 옮기거나 켜거나 걷은 것은 그 세션에
+# 안 실린다. 훅이 맞춤의 출력에서 문구를 찾아 판정하던 때는 다섯 중 둘만 잡고 있었다.
+Check '플러그인을 바꾸는 곳마다 재시작 깃발을 세운다' {
+    $calls = @([regex]::Matches($syncSrc, "Invoke-Claude @\('plugin', '(install|update|enable|uninstall)'")).Count
+    $flags = @([regex]::Matches($syncSrc, '\$script:Restart = \$true')).Count
+    ($calls -gt 0) -and ($calls -eq $flags)
+}
+Check '맞춤이 다시 켜라고 알린다' {
+    $syncSrc -match '다시 켜야 실립니다'
+}
+# 훅이 문구로 판정하면 문구가 늘 때마다 함께 고쳐야 하고, 실제로 빠졌다.
+Check '훅은 문구로 재시작을 판정하지 않는다' {
+    $hookCode -notmatch '플러그인을 깔았습니다'
+}
+
 # --- 금지어 공용 블록 -------------------------------------------------------
 Write-Host ''
 Write-Host '금지어 공용 블록'
