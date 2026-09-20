@@ -523,6 +523,17 @@ Check '가드가 예외 메시지를 통째로 남기지 않는다' {
     $src -match 'Substring\(0, 120\)'
 }
 
+# 짝 없는 BEGIN 이 있으면 손대지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이 새 블록의
+# END 와 짝지어져 둘 사이의 사용자 글이 통째로 지워진다. 재현했다. 블록을 세는 검사는
+# 이것을 못 잡는다. 세어 보면 하나가 맞기 때문이다.
+Check '짝 없는 BEGIN 을 만나면 멈춘다' {
+    ($syncSrc -match "END 가 없는 '# BEGIN AX'") -and
+    ($syncSrc -match "END 가 없는 '# BEGIN korean-banned-words'")
+}
+Check '여는 마커 수와 짝 수를 견준다' {
+    ($syncSrc.Contains('$opens -gt $pairs')) -and ($syncSrc.Contains('$opens2 -gt $pairs2'))
+}
+
 # --- 금지어 공용 블록 -------------------------------------------------------
 Write-Host ''
 Write-Host '금지어 공용 블록'

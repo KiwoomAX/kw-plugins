@@ -547,6 +547,16 @@ try {
         # 블록이 둘 이상이면 먼저 하나로 줄인다. 안 그러면 이 아래 정규식이 첫 블록만
         # 보고 "이미 같다" 로 끝나, 중복이 조용히 남는다. 지우는 것은 우리 마커 사이뿐이라
         # 사용자가 쓴 것은 안 건드린다. 첫 것을 남기고 뒤엣것을 걷는다.
+        # 짝 없는 BEGIN 이 있으면 손대지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이
+        # 새 블록의 END 와 짝지어져, 둘 사이의 사용자 글이 통째로 지워진다. 실제로
+        # 재현했다. 두 번째 실행에서 사라진다. 블록을 세는 검사는 이것을 못 잡는다.
+        # 세어 보면 하나가 맞기 때문이다.
+        $opens = @([regex]::Matches($original, '(?m)^#\s*BEGIN AX\b')).Count
+        $pairs = @([regex]::Matches($original, $reBlock)).Count
+        if ($opens -gt $pairs) {
+            throw "CLAUDE.md 에 END 가 없는 '# BEGIN AX' 가 있습니다. 손대지 않았습니다. 그 줄을 지우거나 '# END AX 설치' 를 짝지어 주십시오."
+        }
+
         $blocks = @([regex]::Matches($original, $reBlock))
         if ($blocks.Count -gt 1) {
             for ($i = $blocks.Count - 1; $i -ge 1; $i--) {
@@ -607,6 +617,13 @@ try {
         $mineVer = Get-ListVersion $myPath
         $reason  = ''
         $take    = $false
+
+        # 공용 블록도 같은 함정이 있다. 짝 없는 BEGIN 이 있으면 만들지 않고 알린다.
+        $opens2 = @([regex]::Matches($now2, '(?m)^#\s*BEGIN korean-banned-words\b')).Count
+        $pairs2 = @([regex]::Matches($now2, $reShared)).Count
+        if ($opens2 -gt $pairs2) {
+            throw "CLAUDE.md 에 END 가 없는 '# BEGIN korean-banned-words' 가 있습니다. 손대지 않았습니다."
+        }
 
         $m2 = [regex]::Match($now2, $reShared)
         if (-not $m2.Success) {
