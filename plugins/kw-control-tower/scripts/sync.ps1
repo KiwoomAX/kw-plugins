@@ -41,7 +41,7 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } 
 function Get-ListVersion {
     # 금지어 목록 파일의 판 표시를 읽는다. 머리 스무 줄 안에 있고 없으면 $null 이다.
     #
-    #   <!-- 원본 판: schema 1, 2026-09-20 -->
+    #   <!-- 원본 버전: schema 2, 2026-09-20 -->
     #
     # 규약은 KiwoomAX/korean-banned-words 의 import-protocol.md 가 소유한다. 이 값으로
     # 공용 블록이 어느 쪽 목록을 가리킬지 정한다. 표시가 없는 파일은 낡은 것으로 본다.
@@ -49,7 +49,7 @@ function Get-ListVersion {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     foreach ($l in @(Get-Content -LiteralPath $Path -TotalCount 20 -Encoding UTF8)) {
-        $m = [regex]::Match($l, '원본 판:\s*schema\s*(\d+),\s*(\d{4}-\d{2}-\d{2})(?:,\s*([0-9a-f]{12}))?')
+        $m = [regex]::Match($l, '원본 (?:버전|판):\s*schema\s*(\d+),\s*(\d{4}-\d{2}-\d{2})(?:,\s*([0-9a-f]{12}))?')
         if ($m.Success) {
             return @{
                 Schema = [int]$m.Groups[1].Value

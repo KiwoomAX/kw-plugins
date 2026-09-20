@@ -566,7 +566,7 @@ Check '문안에 목록 @import 가 없다' {
 # 판 표시가 없으면 언제나 낡은 것으로 취급되어 상대 파일이 선택된다.
 Check '배포하는 목록에 판 표시가 머리 스무 줄 안에 있다' {
     $head = @(Get-Content (Join-Path $plugin 'templates\korean-banned-words.md') -TotalCount 20 -Encoding UTF8)
-    ($head -join "`n") -match '원본 판:\s*schema\s*\d+'
+    ($head -join "`n") -match '원본 (?:버전|판):\s*schema\s*\d+'
 }
 # 지문이 다를 때 덮어쓰면 두 설치기가 세션마다 서로를 덮어 번갈아 바뀐다.
 Check '판이 같고 지문이 다르면 안 덮어쓴다' {
