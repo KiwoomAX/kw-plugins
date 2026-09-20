@@ -31,6 +31,31 @@ function Fail { param([string]$step, [string]$m) [void]$script:Failed.Add("$step
 
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
+function Get-ListVersion {
+    # 금지어 목록 파일의 판 표시를 읽는다. 머리 스무 줄 안에 있고 없으면 $null 이다.
+    #
+    #   <!-- 원본 판: schema 1, 2026-09-20 -->
+    #
+    # 규약은 KiwoomAX/korean-banned-words 의 import-protocol.md 가 소유한다. 이 값으로
+    # 공용 블록이 어느 쪽 목록을 가리킬지 정한다. 표시가 없는 파일은 낡은 것으로 본다.
+    # 양쪽 훅이 머리 스무 줄만 읽기로 했으므로 그 안에 있어야 한다.
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    foreach ($l in @(Get-Content -LiteralPath $Path -TotalCount 20 -Encoding UTF8)) {
+        $m = [regex]::Match($l, '원본 판:\s*schema\s*(\d+),\s*(\d{4}-\d{2}-\d{2})(?:,\s*([0-9a-f]{12}))?')
+        if ($m.Success) {
+            return @{
+                Schema = [int]$m.Groups[1].Value
+                Date   = $m.Groups[2].Value
+                # 지문은 데이터의 sha256 앞 열두 글자다. 순서를 정하지 못하고 다른지만 말한다.
+                # 하루에 열두 번 바뀐 날이 있어 날짜만으로는 판을 못 가린다.
+                Print  = $m.Groups[3].Value
+            }
+        }
+    }
+    return $null
+}
+
 function Get-CheapHash {
     # 알림 훅과 글자 그대로 같은 계산이어야 한다. 다르면 고쳐도 알림이 안 꺼진다.
     param([string]$Path)
@@ -560,6 +585,96 @@ try {
                 throw "쓴 뒤에 블록이 하나가 아닙니다. 사본이 $target.bak 에 있습니다."
             }
             Note "CLAUDE.md 의 사내 문안 블록을 $mode. 마커 바깥은 안 건드렸습니다."
+        }
+
+        # --- 공용 블록: 금지어 목록 -----------------------------------------
+        #
+        # 규약은 KiwoomAX/korean-banned-words 의 import-protocol.md 가 소유한다.
+        # disciplined-coder 도 같은 블록을 쓴다. 어느 쪽 훅이 먼저 돌든 결과가 같아야 한다.
+        #
+        # AX 블록 바깥에 둔다. 그 블록은 매번 템플릿으로 통째로 갈리므로 안에 두면 상대가
+        # 쓴 것이 날아간다. 바깥은 글자 그대로 보존한다.
+        #
+        # 잠금을 다시 잡지 않는다. 위의 잠금 안이라 같은 보호를 받는다.
+        $cfgDir   = Split-Path -Parent $target
+        $reShared = '(?ms)^#\s*BEGIN korean-banned-words\b.*?^#\s*END korean-banned-words[^\r\n]*'
+        $myImport = '@kw-ax/korean-banned-words.md'
+        $myPath   = Join-Path $cfgDir 'kw-ax\korean-banned-words.md'
+
+        $now2 = ''
+        if (Test-Path -LiteralPath $target) { $now2 = [System.IO.File]::ReadAllText($target, $utf8) }
+
+        $mineVer = Get-ListVersion $myPath
+        $reason  = ''
+        $take    = $false
+
+        $m2 = [regex]::Match($now2, $reShared)
+        if (-not $m2.Success) {
+            $take = $true; $reason = '없어서 만들었습니다'
+        } else {
+            $curImport = ([regex]::Match($m2.Value, '(?m)^@(\S+)')).Groups[1].Value
+            if (-not $curImport) {
+                $take = $true; $reason = '가리키는 것이 없어 채웠습니다'
+            } elseif ("@$curImport" -eq $myImport) {
+                $reason = '이미 제 목록을 가리킵니다'
+            } else {
+                # .NET 의 Replace 를 쓴다. -replace 는 바꿀 값도 정규식으로 읽어서
+                # 역슬래시 하나가 이스케이프로 먹힌다.
+                $curPath = Join-Path $cfgDir $curImport.Replace('/', [char]92)
+                $curVer  = Get-ListVersion $curPath
+                if (-not (Test-Path -LiteralPath $curPath)) {
+                    $take = $true; $reason = "가리키는 파일이 없어 바꿨습니다: $curImport"
+                } elseif ($null -eq $curVer) {
+                    $take = $true; $reason = "가리키는 것에 판 표시가 없어 바꿨습니다: $curImport"
+                } elseif ($null -eq $mineVer) {
+                    $reason = '제 목록에 판 표시가 없어 그대로 둡니다'
+                } elseif ($mineVer.Schema -gt $curVer.Schema -or
+                          ($mineVer.Schema -eq $curVer.Schema -and $mineVer.Date -gt $curVer.Date)) {
+                    $take = $true; $reason = "제 것이 더 새것이라 바꿨습니다: $curImport -> $myImport"
+                } elseif ($mineVer.Schema -eq $curVer.Schema -and $mineVer.Date -eq $curVer.Date -and
+                          $mineVer.Print -and $curVer.Print -and $mineVer.Print -ne $curVer.Print) {
+                    # 지문이 다르면 내용이 다른데 어느 것이 새것인지 알 수 없다. 덮어쓰면 두
+                    # 설치기가 세션마다 서로를 덮어 번갈아 바뀌고 끝나지 않는다. 알리기만 한다.
+                    $reason = "판은 같은데 내용이 다릅니다. 어느 것이 새것인지 알 수 없어 그대로 둡니다: $curImport ($($curVer.Print)) / 제 것 ($($mineVer.Print))"
+                } else {
+                    $reason = "상대 것이 같거나 더 새것이라 그대로 둡니다: $curImport"
+                }
+            }
+        }
+
+        if ($take) {
+            $sharedBlock = @(
+                '# BEGIN korean-banned-words (shared — do not edit)'
+                $myImport
+                '# END korean-banned-words (shared — do not edit)'
+            ) -join $nl
+
+            if ($m2.Success) { $merged2 = [regex]::Replace($now2, $reShared, { $sharedBlock }) }
+            elseif ($now2.Trim()) { $merged2 = $now2.TrimEnd() + $nl + $nl + $sharedBlock + $nl }
+            else { $merged2 = $sharedBlock + $nl }
+
+            if ($WhatIfOnly) { Say "[미리보기] 금지어 공용 블록을 $reason" }
+            elseif ($merged2 -eq $now2) { Say '금지어 공용 블록은 이미 같습니다.' }
+            else {
+                $cnt2 = @([regex]::Matches($merged2, $reShared)).Count
+                if ($cnt2 -ne 1) { throw "금지어 공용 블록이 하나여야 하는데 $cnt2 개가 됩니다. CLAUDE.md 를 안 고쳤습니다." }
+                [System.IO.File]::WriteAllText($target, $merged2, $utf8)
+                Note "금지어 공용 블록을 $reason"
+                $now2 = $merged2
+            }
+        } else {
+            Say "금지어 공용 블록: $reason"
+        }
+
+        # 블록 바깥에 같은 목록을 싣는 줄이 있으면 알리기만 한다. 사용자가 손으로 넣은
+        # 것일 수 있어 지우지 않는다. 규약이 정한 것이다.
+        $outside = @()
+        foreach ($l in ([regex]::Replace($now2, $reShared, '') -split "`r?`n")) {
+            if ($l -match '^@[^\s]*korean-banned-words') { $outside += $l.Trim() }
+        }
+        if ($outside.Count -gt 0) {
+            Say "블록 바깥에 같은 목록을 싣는 줄이 있습니다: $($outside -join ', ')"
+            Say '  지우지 않았습니다. 두 벌이 실리니 손으로 지우십시오.'
         }
     } finally {
         if ($held) {
