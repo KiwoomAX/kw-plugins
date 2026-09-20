@@ -442,7 +442,7 @@ Check '금지어 목록이 생성물이라고 밝힌다' {
 # 받아 오는 장치가 없으면 원본이 바뀌어도 아무도 모른다.
 Check '목록을 받아 오는 워크플로가 있다' {
     $wf = Join-Path $repo '.github\workflows\sync-banned-words.yml'
-    (Test-Path -LiteralPath $wf) -and ((Get-Content $wf -Raw -Encoding UTF8) -match 'korean-banned-words-ax\.md')
+    (Test-Path -LiteralPath $wf) -and ((Get-Content $wf -Raw -Encoding UTF8) -match 'korean-banned-words\.md')
 }
 # 여기서 만들면 안내가 두 벌이 된다.
 Check '이 저장소에 생성기가 없다' {

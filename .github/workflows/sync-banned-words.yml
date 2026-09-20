@@ -23,7 +23,7 @@ permissions:
   pull-requests: write
 
 env:
-  SOURCE: https://raw.githubusercontent.com/KiwoomAX/korean-banned-words/main/dist/korean-banned-words-ax.md
+  SOURCE: https://raw.githubusercontent.com/KiwoomAX/korean-banned-words/main/dist/korean-banned-words.md
   TARGET: plugins/kw-control-tower/templates/korean-banned-words.md
 
 jobs:
@@ -74,6 +74,6 @@ jobs:
           gh pr create \
             --title '금지어 목록을 원본에서 받아 온다' \
             --body "$(printf '%s\n' \
-              '`KiwoomAX/korean-banned-words` 의 `dist/korean-banned-words-ax.md` 가 바뀌어 받아 왔습니다.' '' \
+              '`KiwoomAX/korean-banned-words` 의 `dist/korean-banned-words.md` 가 바뀌어 받아 왔습니다.' '' \
               '이 파일은 생성물입니다. 여기서 고치지 마십시오. 고치려면 원본 저장소의 데이터를 고치면 다음 실행이 다시 받아 옵니다.' '' \
               '병합하면 사내 PC 들이 다음 세션에 새 목록을 물어 가고, 그 다음 세션부터 그것으로 돕니다.')"
