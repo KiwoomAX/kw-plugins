@@ -523,6 +523,34 @@ Check '가드가 예외 메시지를 통째로 남기지 않는다' {
     $src -match 'Substring\(0, 120\)'
 }
 
+# --- 금지어 공용 블록 -------------------------------------------------------
+Write-Host ''
+Write-Host '금지어 공용 블록'
+# 규약은 KiwoomAX/korean-banned-words 의 import-protocol.md 가 소유한다.
+# disciplined-coder 도 같은 블록을 쓴다. 어느 쪽이 먼저 돌든 결과가 같아야 한다.
+Check '맞춤이 공용 블록을 다룬다' {
+    ($syncSrc -match 'BEGIN korean-banned-words') -and ($syncSrc -match 'END korean-banned-words')
+}
+# AX 블록은 매번 템플릿으로 통째로 갈린다. 공용 블록을 그 안에 두면 상대가 쓴 것이
+# 날아가고, 문안에 @import 를 두면 공용 블록과 합쳐 두 벌이 실린다.
+Check '문안에 목록 @import 가 없다' {
+    $tplSrc2 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
+    $tplSrc2 -notmatch '(?m)^@[^\r\n]*korean-banned-words'
+}
+# 판 표시가 없으면 언제나 낡은 것으로 취급되어 상대 파일이 선택된다.
+Check '배포하는 목록에 판 표시가 머리 스무 줄 안에 있다' {
+    $head = @(Get-Content (Join-Path $plugin 'templates\korean-banned-words.md') -TotalCount 20 -Encoding UTF8)
+    ($head -join "`n") -match '원본 판:\s*schema\s*\d+'
+}
+# 지문이 다를 때 덮어쓰면 두 설치기가 세션마다 서로를 덮어 번갈아 바뀐다.
+Check '판이 같고 지문이 다르면 안 덮어쓴다' {
+    $syncSrc -match '어느 것이 새것인지 알 수 없어'
+}
+# 규약은 바깥 줄을 지우지 말고 알리라고 한다. 사용자가 손으로 넣은 것일 수 있다.
+Check '블록 바깥의 줄은 알리기만 한다' {
+    ($syncSrc -match '블록 바깥에 같은 목록') -and ($syncSrc -match '지우지 않았습니다')
+}
+
 # --- 도커 인증서 안내 -------------------------------------------------------
 Write-Host ''
 Write-Host '도커 인증서 안내'
