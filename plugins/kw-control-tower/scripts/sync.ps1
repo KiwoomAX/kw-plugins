@@ -15,6 +15,13 @@ Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 $script:SuggestedIncomplete = $false
+# 플러그인이 바뀌면 참이 된다. 클로드 코드는 켤 때 플러그인을 읽으므로 이 실행에서
+# 깔거나 옮기거나 켜거나 걷은 것은 이 세션에 안 실린다. 마지막에 한 줄로 알린다.
+#
+# 알림 훅이 이 스크립트의 출력에서 문구를 찾아 판정하던 것을 그만두고 여기로 옮겼다.
+# 문구가 늘 때마다 훅의 정규식을 함께 고쳐야 했는데 실제로 셋이 빠져 있었다. 갱신과
+# 되켜기와 걷어내기다. 무엇이 재시작을 부르는지는 그 일을 하는 곳이 안다.
+$script:Restart = $false
 $script:Did      = New-Object System.Collections.ArrayList
 $script:Reenab   = New-Object System.Collections.ArrayList
 $script:Failed   = New-Object System.Collections.ArrayList
@@ -282,6 +289,7 @@ try {
             }
             if (Invoke-Claude @('plugin', 'install', $id)) {
                 Note "플러그인을 깔았습니다: $id"
+                $script:Restart = $true
                 if ($wasOff) { [void]$script:Reenab.Add("$id (옛 이름으로 꺼 두셨던 것입니다)") }
             }
             else { Fail '2' "설치에 실패했습니다: $id" }
@@ -291,6 +299,7 @@ try {
         if ((Get-Prop $enabled $id) -ne $true) {
             if (Invoke-Claude @('plugin', 'enable', $id)) {
                 Note "꺼져 있던 필수 플러그인을 다시 켰습니다: $id"
+                $script:Restart = $true
                 [void]$script:Reenab.Add($id)
             } else { Fail '2' "다시 켜지 못했습니다: $id" }
         }
@@ -303,7 +312,7 @@ try {
         foreach ($id in @($manifest.suggested)) {
             $entry = Get-Prop $installedOf $id
             if ($null -ne $entry) { continue }
-            if (Invoke-Claude @('plugin', 'install', $id)) { Note "권장 플러그인을 깔았습니다: $id" }
+            if (Invoke-Claude @('plugin', 'install', $id)) { Note "권장 플러그인을 깔았습니다: $id"; $script:Restart = $true }
             else {
                 Fail '2' "권장 플러그인 설치에 실패했습니다: $id"
                 # 하나라도 못 깔았으면 "한 번 돌았다" 를 안 적는다. 적어 버리면 다음
@@ -334,7 +343,7 @@ try {
                 if ($sha -and -not $head.StartsWith($sha) -and -not $sha.StartsWith($head)) { $behind = $true }
             }
             if (-not $behind) { continue }
-            if (Invoke-Claude @('plugin', 'update', $pluginId)) { Note "설치본을 새 판으로 옮겼습니다: $pluginId" }
+            if (Invoke-Claude @('plugin', 'update', $pluginId)) { Note "설치본을 새 판으로 옮겼습니다: $pluginId"; $script:Restart = $true }
             else { Fail '2' "설치본을 못 옮겼습니다: $pluginId" }
         }
     }
@@ -373,7 +382,7 @@ try {
             }
         }
 
-        if (Invoke-Claude @('plugin', 'uninstall', $id)) { Note "플러그인을 걷었습니다: $id" }
+        if (Invoke-Claude @('plugin', 'uninstall', $id)) { Note "플러그인을 걷었습니다: $id"; $script:Restart = $true }
         else { Fail '3' "걷지 못했습니다: $id" }
     }
 
@@ -854,6 +863,13 @@ if ($script:Reenab.Count -gt 0) {
     Write-Host '되켠 것' -ForegroundColor Yellow
     Write-Host "  꺼져 있던 필수 플러그인을 다시 켰습니다: $($script:Reenab -join ', ')"
     Write-Host '  회사가 필수로 정한 것이라 되켭니다. 이 줄은 그것을 조용히 안 하려고 적습니다.'
+}
+
+if ($script:Restart) {
+    Write-Host ''
+    Write-Host '다시 켜야 합니다' -ForegroundColor Cyan
+    Write-Host '  플러그인이 바뀌었습니다. 클로드 코드는 켤 때 플러그인을 읽으므로, 방금 바뀐 것은'
+    Write-Host '  이 세션에 안 실립니다. 다시 켜야 실립니다.'
 }
 
 if ($script:Failed.Count -gt 0) {
