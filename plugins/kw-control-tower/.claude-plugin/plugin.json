@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "kw-control-tower",
   "displayName": "KW Control Tower",
-  "description": "사내 플러그인 목록을 들고 이 PC를 그 목록에 맞춘다. 세션이 시작할 때 어긋난 곳을 알리기만 하고, 고치는 것은 /kw-sync 명령이다.",
+  "description": "사내 플러그인 목록을 들고 이 PC를 그 목록에 맞춘다. 세션이 시작할 때 어긋난 곳을 찾고, 어긋난 곳이 있을 때만 맞춤을 돌려 고친다.",
   "author": { "name": "KiwoomAX" },
   "license": "UNLICENSED",
   "keywords": ["kiwoom", "control-tower", "plugin-list", "environment"]

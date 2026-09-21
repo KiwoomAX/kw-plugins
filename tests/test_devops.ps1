@@ -102,14 +102,17 @@ Assert 'pick_port.py prints on a cp949 console' ($cpCode -eq 0)
 Write-Host '--- request-ax.ps1 ---'
 # The script mails AX-team requests through the shared renderer and sender. The
 # tests swap both for fakes through two environment variables, so no real mail
-# leaves and no shared folder is needed. The child runs in Windows PowerShell
-# 5.1 because that is the shell a deploy PC is guaranteed to have.
+# leaves and no shared folder is needed. The child runs in PowerShell 7: the
+# installer refuses to set up a PC without it, so 7 is what a deploy PC has.
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $ax      = Join-Path $SkillDir 'scripts/request-ax.ps1'
 $axText  = if (Test-Path $ax) { [IO.File]::ReadAllText($ax) } else { '' }
 $axBytes = if (Test-Path $ax) { [IO.File]::ReadAllBytes($ax) } else { @() }
 Assert 'request-ax.ps1 ships under scripts/' (Test-Path $ax)
-Assert 'request-ax.ps1 has a UTF-8 BOM (5.1 reads Korean as cp949 otherwise)' ($axBytes.Count -ge 3 -and $axBytes[0] -eq 0xEF -and $axBytes[1] -eq 0xBB -and $axBytes[2] -eq 0xBF)
+# No BOM: 7 reads UTF-8 without one, and its absence makes a 5.1 run fail loudly
+# with a parse error instead of quietly mangling the Korean.
+Assert 'request-ax.ps1 has no BOM' (-not ($axBytes.Count -ge 3 -and $axBytes[0] -eq 0xEF -and $axBytes[1] -eq 0xBB -and $axBytes[2] -eq 0xBF))
+Assert 'request-ax.ps1 keeps its Korean intact' ($axText -match '[가-힣]')
 $Recipient = ([regex]::Match($axText, '(?m)^\$Recipient\s*=\s*''([^'']+)''')).Groups[1].Value
 Assert 'request-ax.ps1 names one recipient' ($Recipient -match '^[^@\s]+@[^@\s]+$')
 # Two failure paths are hard to provoke from a test; check the code carries them.
@@ -173,9 +176,9 @@ $envLines = @('# 주석 줄', 'A_KEY=alpha-secret', 'API_KEY=first-secret', 'exp
 [IO.File]::WriteAllText($EnvOk, (($envLines -join "`r`n") + "`r`n"), $Utf8NoBom)
 [IO.File]::WriteAllText($EnvOpen, "Q_KEY=`"open-secret`r`n", $Utf8NoBom)
 
-$PsExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$PsExe = 'pwsh'
 function Invoke-Ax([hashtable]$EnvOverride, [string[]]$ArgList) {
-    $ErrorActionPreference = 'Continue'   # 5.1 turns a child's stderr into a terminating error under Stop
+    $ErrorActionPreference = 'Continue'   # a child's stderr must not become a terminating error here
     $old = @{}
     foreach ($k in $EnvOverride.Keys) { $old[$k] = [Environment]::GetEnvironmentVariable($k); Set-Item "Env:$k" $EnvOverride[$k] }
     try {

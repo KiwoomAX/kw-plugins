@@ -18,3 +18,7 @@
 # 그림은 손대지 않는다.
 *.png  binary
 *.ico  binary
+# 워크플로는 리눅스 러너에서 돈다. eol=crlf 가 체크아웃에도 걸려서 셸 스크립트가
+# 캐리지리턴이 붙은 채로 내려가면 bash 가 줄마다 실패한다.
+*.yml   text eol=lf
+*.yaml  text eol=lf

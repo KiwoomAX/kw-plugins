@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
+            "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/session-check.ps1"],
-            "timeout": 10
+            "timeout": 90
           }
         ]
       }
@@ -19,14 +19,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
+            "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/docker-cert-reminder.ps1"],
             "if": "Bash(docker *)",
             "timeout": 20
           },
           {
             "type": "command",
-            "command": "powershell.exe",
+            "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1"],
             "if": "Bash(python3*)",
             "timeout": 10
@@ -38,14 +38,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
+            "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/docker-cert-reminder.ps1"],
             "if": "PowerShell(docker *)",
             "timeout": 20
           },
           {
             "type": "command",
-            "command": "powershell.exe",
+            "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1"],
             "if": "PowerShell(python3*)",
             "timeout": 10

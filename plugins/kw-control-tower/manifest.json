@@ -1,5 +1,5 @@
-{
-  "_comment": "이 파일이 목록의 정본이다. 새 플러그인을 더하는 일은 여기에 한 줄 더하고 커밋하는 것이다. 각 PC는 다음 세션에 알림을 받고 /kw-sync 로 받아 간다.",
+﻿{
+  "_comment": "이 파일이 목록의 정본이다. 새 플러그인을 더하는 일은 여기에 한 줄 더하고 커밋하는 것이다. 각 PC는 다음 세션에 알림을 받고 그 자리에서 받아 간다.",
 
   "marketplaces": [
     { "name": "kiwoom-ax", "repo": "KiwoomAX/kw-plugins", "ours": true },
