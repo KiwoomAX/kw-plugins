@@ -14,13 +14,13 @@ PC 자체는 한 번 등록해 두면 파이썬과 pip와 Node가 그냥 동작�
 
 ## PC에 등록하기
 
-한 줄이면 끝난다. 스크립트가 판단과 검증을 모두 갖고 있으니 조립하거나 나누지 마라.
+한 줄이면 끝난다. 스크립트가 판단과 검증을 모두 포함하고 있으니 조립하거나 나누지 마라.
 
 ```
 pwsh -NoProfile -ExecutionPolicy Bypass -File "\\cifs\ai\projects\kw_install\setup.ps1"
 ```
 
-이것은 설치기 전체이고 인증서 등록이 그 첫 단계다. 인증서만 다시 세우고 싶으면 뒤에
+이것은 설치기 전체이고 인증서 등록이 그 첫 단계다. 인증서만 다시 설정하고 싶으면 뒤에
 `-SkipPrograms -SkipPythonLibs -SkipClaudeInstall -SkipPlugins`를 붙인다.
 
 여러 번 실행해도 안전하다. 파이썬이 없어도 된다. 끝나면 사용자에게 **터미널과 클로드 코드와
@@ -49,7 +49,7 @@ docker run -v "$(Split-Path -Parent $env:SSL_CERT_FILE):/certs:ro" `
 ```
 
 번들이 놓인 곳을 적지 않고 `SSL_CERT_FILE`에서 꺼내는 이유는, 설치기가 그 위치를 옮겨도
-이 명령이 따라가게 하려는 것이다. 설치기 1단계가 번들을 구우면서 그 변수를 세운다.
+이 명령이 따라가게 하려는 것이다. 설치기 1단계가 번들을 구우면서 그 변수를 설정한다.
 
 변수가 다섯인 이유는 소비자마다 읽는 이름이 다르기 때문이다. 파이썬 표준 라이브러리는
 `SSL_CERT_FILE`, requests는 `REQUESTS_CA_BUNDLE`, Node는 `NODE_EXTRA_CA_CERTS`, `curl`은
@@ -61,24 +61,24 @@ docker run -v "$(Split-Path -Parent $env:SSL_CERT_FILE):/certs:ro" `
 
 파일 하나가 아니라 **폴더를 마운트한다.** 도커 데스크톱에서 윈도우 경로의 단일 파일 마운트는
 불안정하고, 무엇보다 `setup.ps1`이 번들을 다시 구우면 파일이 통째로 교체되기 때문에 파일
-마운트를 건 컨테이너는 옛 내용을 계속 보게 된다. 폴더로 걸면 그런 일이 없다.
+마운트를 건 컨테이너는 옛 내용을 계속 보게 된다. 폴더로 마운트하면 그런 일이 없다.
 
 `REQUESTS_CA_BUNDLE`을 함께 주는 이유는 requests가 `SSL_CERT_FILE`을 보지 않기 때문이다.
 그 번들은 공용 루트를 포함한 상위 집합이라 그대로 써도 안전하다.
 
 **이때가 마지막 기회다.** 컨테이너가 뜨고 나면 마운트를 추가할 수 없으므로 `docker exec`로는
-되돌리지 못한다. 반대로 위처럼 띄웠다면 뒤이어 `docker exec`로 안에서 파이썬을 돌릴 때는
+되돌리지 못한다. 반대로 위처럼 실행했다면 뒤이어 `docker exec`로 안에서 파이썬을 돌릴 때는
 아무것도 더 붙일 필요가 없다. `docker compose`를 쓴다면 같은 내용을 `volumes`와
 `environment`에 적는다.
 
-## Dockerfile을 고쳐야 하는 경우
+## Dockerfile을 고쳐야 하는 상황
 
 두 가지뿐이다. **빌드 중에** 가로채이는 곳으로 HTTPS를 내야 하거나, 그 이미지를 남에게 넘겨
 실행 인자 없이도 동작하게 만들고 싶을 때다. 빌드 중 주입은 실행 인자로 대신할 수 없다. 도커에는
 빌드 단계에 CA를 밖에서 넣는 수단이 없기 때문이다.
 
 가로채기는 선별적이다. 허용 목록이 "개발 인프라 전부"가 아니라 특정 집합이라, 빌드가 무엇을
-받아오느냐에 따라 갈린다. 이 사내망에서 실측한 결과는 이렇다.
+받아오느냐에 따라 달라진다. 이 사내망에서 실측한 결과는 이렇다.
 
 | 인증서 없이도 되는 곳 | 인증서가 필요한 곳 |
 |---|---|
@@ -90,7 +90,7 @@ docker run -v "$(Split-Path -Parent $env:SSL_CERT_FILE):/certs:ro" `
 | | `api.anthropic.com` |
 
 즉 `pip`과 `npm`만 쓰는 빌드는 그냥 되지만, `cargo build`나 `go mod download`가 든 빌드는
-인증서 없이 반드시 깨진다. 컨테이너 안에서 클로드나 Anthropic API를 쓰는 경우도 마찬가지다.
+인증서 없이 반드시 깨진다. 컨테이너 안에서 클로드나 Anthropic API를 쓰는 상황도 마찬가지다.
 
 고쳐야 한다면 블록을 `FROM` 바로 다음, 다른 설치 명령보다 **먼저** 둔다.
 
@@ -116,17 +116,17 @@ ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/eprism-root.crt
 
 그 번들은 공용 루트를 포함한 상위 집합이라 그대로 써도 안전하다. 컨테이너 안의 `curl`이나
 `git`까지 덮으려면 마운트 지점을 `/etc/ssl/certs/ca-certificates.crt`로 잡아 배포판 번들을
-대체한다. 다만 그 이미지가 실행 중에 `update-ca-certificates`를 부르면 읽기 전용이라 실패한다.
+대체한다. 다만 그 이미지가 실행 중에 `update-ca-certificates`를 호출하면 읽기 전용이라 실패한다.
 
 ## WSL 안에서
 
 별개의 리눅스 환경이므로 같은 방식으로 인증서를 심는다. `ePrism-SSL-ROOT-CA.crt`를
-`/usr/local/share/ca-certificates/` 아래에 두고 `update-ca-certificates`를 부른 뒤,
-`~/.bashrc`에 `SSL_CERT_FILE`과 `REQUESTS_CA_BUNDLE`과 `NODE_EXTRA_CA_CERTS`를 세운다.
+`/usr/local/share/ca-certificates/` 아래에 두고 `update-ca-certificates`를 호출한 뒤,
+`~/.bashrc`에 `SSL_CERT_FILE`과 `REQUESTS_CA_BUNDLE`과 `NODE_EXTRA_CA_CERTS`를 설정한다.
 
 ## 인증서 오류를 만났을 때
 
-**코드에 CA 처리를 넣지 마라.** 그것을 없애려고 만든 구조다. 어디서 났는지로 갈린다.
+**코드에 CA 처리를 넣지 마라.** 그것을 없애려고 만든 구조다. 어디서 났는지로 구분한다.
 
 | 어디서 났는가 | 무엇을 한다 |
 |---|---|
@@ -137,7 +137,7 @@ ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/eprism-root.crt
 
 ## 하지 말아야 할 것
 
-- 스크립트 앞머리에 CA 번들 경로를 세우는 코드를 넣지 마라.
+- 스크립트 앞머리에 CA 번들 경로를 설정하는 코드를 넣지 마라.
 - 인증서 파일을 프로젝트마다 복사해 두지 마라. 도커 빌드 컨텍스트만 예외다.
 - `truststore`나 `pip-system-certs`를 설치하지 마라. 검토했고 기각했다. 이유는
   `\\cifs\ai\projects\backup\ssl_trust\docs\superpowers\specs\2026-08-06-corp-cert-setup-design.md`에 있다.
