@@ -317,7 +317,7 @@ Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -
 Assert 'SKILL.md tells the reader to fetch the manifest before writing code' ($dbText -match 'fetch_manifest\.py')
 # The cache must not land in the plugin folder (replaced on update) or in the user's repo.
 Assert 'fetch_manifest.py caches under the Claude config dir' ($fetText -match 'CLAUDE_CONFIG_DIR' -and $fetText -match '"cache"')
-Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECONDS = 3600$')
+Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECONDS = 3600\s*$')
 # Publishing an expiring document would delete the manifest; the SDK ttl argument must stay out.
 Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match '(?m)^\s*(def|class)\s+[^\x00-\x7F]'))
 Assert 'fetch_manifest.py asks for no document TTL' (-not ($fetText -match '(?m)^\s*[^#\n]*\bttl\s*='))
