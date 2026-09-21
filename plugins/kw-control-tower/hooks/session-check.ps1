@@ -82,7 +82,7 @@ function Get-MarketplaceHead {
     if (Test-Path -LiteralPath $h) {
         $line = (Get-Content -LiteralPath $h -Raw -Encoding UTF8).Trim()
         if ($line.StartsWith('ref: ')) {
-            $refFile = Join-Path $g ($line.Substring(5).Replace('/', ''))
+            $refFile = Join-Path $g ($line.Substring(5))
             $script:Budget.Files++
             if (Test-Path -LiteralPath $refFile) {
                 return (Get-Content -LiteralPath $refFile -Raw -Encoding UTF8).Trim()
@@ -468,6 +468,9 @@ if (-not (Test-Path -LiteralPath $sync)) {
 }
 
 Write-Output ''
+# 예산을 아흔 초로 늘린 만큼 세션 시작이 멈춘 것처럼 보인다. 무엇을 기다리는지
+# 먼저 말한다. 이 줄이 없으면 사용자는 클로드 코드가 죽은 줄 안다.
+Write-Output '어긋난 곳을 맞춥니다. 받아오고 까는 데 일 분 걸리니 잠시 기다려 주십시오.'
 try {
     $out = & pwsh -NoProfile -NonInteractive -File $sync 2>&1
     # 맞춤이 찍는 것을 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.

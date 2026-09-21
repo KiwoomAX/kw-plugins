@@ -8,7 +8,7 @@
             "type": "command",
             "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/session-check.ps1"],
-            "timeout": 10
+            "timeout": 90
           }
         ]
       }

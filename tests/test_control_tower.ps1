@@ -312,12 +312,23 @@ Check '알림도 칸이 빠진 목록에서 물러난다' { $hookCode -match "�
 
 $badManifest = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-bad-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path $badManifest | Out-Null
+# 홈도 가짜로 준다. 훅은 칸이 빠진 목록을 만나면 물러나면서 자국을 남기는데, 여기에
+# 진짜 USERPROFILE 을 넘기던 때에는 검사를 돌릴 때마다 사용자의 실제 프로필에 있는
+# kw-control-tower.error 가 자랐다. 이 파일 첫 줄의 "이 PC 를 안 바꾼다" 를 그것이 어겼다.
+$badHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-badhome-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path (Join-Path $badHome '.claude') | Out-Null
 Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
     '{ "marketplaces": [], "required": [] }' | Set-Content -LiteralPath (Join-Path $badManifest 'manifest.json')
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$env:USERPROFILE'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$badHome'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
+# 자국이 가짜 홈 안에 떨어져야 모래상자가 성립한다. 위 검사만으로는 훅이 조용한 것만
+# 보고 어디에 적었는지는 안 본다.
+Check '물러나며 남긴 자국이 가짜 홈 안에 떨어진다' {
+    Test-Path -LiteralPath (Join-Path $badHome '.claude\kw-control-tower.error')
+}
 Remove-Item -LiteralPath $badManifest -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $badHome -Recurse -Force -ErrorAction SilentlyContinue
 # 이 마켓플레이스는 자기 레포 안의 것만 낸다. 외부 레포를 플러그인 원본으로
 # 가리키면 SSH 로 클론해 사내 PC 에서 실패하는 것을 2026-09-06 에 확인했다.
 Check '마켓플레이스가 외부 레포를 원본으로 안 가리킨다' {
@@ -682,6 +693,77 @@ Check 'README 가 코드와 같은 수로 센다' {
 # 옮기거나 지운 PC 에서 알림만 뜨고 아무것도 안 고쳐진다.
 Check '알림이 자기 플러그인 안의 맞춤을 부른다' {
     $hookCode -match 'Split-Path -Parent \$PSScriptRoot'
+}
+
+# --- 뒤처짐 감지 ------------------------------------------------------------
+Write-Host ''
+Write-Host '뒤처짐 감지'
+$syncCode = Get-CodeOnly $syncSrc
+# 배포처 사본의 HEAD 를 읽으려면 .git\HEAD 가 가리키는 ref 파일을 찾아가야 한다.
+# 슬래시를 빈 문자열로 바꾸면 refs/heads/main 이 refsheadsmain 이 되어 언제나 없는
+# 파일을 가리키고, 뒤처짐 감지가 조용히 한 번도 발화하지 않는다. Join-Path 는
+# 슬래시를 그대로 받으므로 바꿀 것이 없다.
+foreach ($pair in @(@{ Name = '알림'; Src = $hookCode }, @{ Name = '맞춤'; Src = $syncCode })) {
+    Check "$($pair.Name)이 ref 경로에서 슬래시를 지우지 않는다" {
+        $pair.Src -notmatch "Replace\('/', ''\)"
+    }
+}
+# 두 파일이 같은 값을 봐야 알림이 말한 것을 맞춤이 고친다. 한쪽만 고치면 알림은
+# 뒤처졌다고 하는데 맞춤은 옮길 것이 없다고 하는 상태가 된다.
+Check '알림과 맞춤이 같은 방식으로 ref 를 읽는다' {
+    ($hookCode -match 'Join-Path \$g \(\$line\.Substring\(5\)\)') -and
+    ($syncCode -match 'Join-Path \$g \(\$line\.Substring\(5\)\)')
+}
+
+# --- 맞춤이 끝까지 간다 -----------------------------------------------------
+Write-Host ''
+Write-Host '맞춤이 끝까지 간다'
+# 맞춤은 네트워크와 pip 을 거치므로 감지의 십 초 예산 안에 안 끝난다. 훅이 그것을
+# 동기로 부르므로 예산이 짧으면 반쯤 하다 죽는다. 보통의 PC 가 한 번에 끝낼 만큼 준다.
+Check '세션 시작 훅의 예산이 맞춤을 끝낼 만큼이다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $j.hooks.SessionStart[0].hooks[0].timeout -ge 90
+}
+# 예산을 늘리면 그만큼 세션 시작이 멈춘 것처럼 보인다. 무엇을 기다리는지 먼저 말한다.
+Check '맞춤을 부르기 전에 기다리라고 말한다' {
+    $ci = $hookCode.IndexOf('-File $sync')
+    $wi = $hookCode.IndexOf('잠시 기다려')
+    ($ci -ge 0) -and ($wi -ge 0) -and ($wi -lt $ci)
+}
+# 상태를 마지막에 한 번만 적으면 예산에 걸려 죽은 실행이 아무것도 안 한 것으로 남아,
+# 다음 세션이 처음부터 다시 돌고 그것이 영영 되풀이된다. 걸음은 저마다 독립이고
+# 멱등이므로 걸음이 끝날 때마다 적어 거기까지의 진행을 남긴다.
+$stepBodies = @([regex]::Split($syncCode, "(?m)^Write-Host '\d+\. ") | Select-Object -Skip 1)
+Check '걸음 조각이 걸음 수와 같다' { $stepBodies.Count -eq $codeSteps.Count }
+Check '걸음마다 끝에서 상태를 적는다' {
+    @($stepBodies | Where-Object { $_ -notmatch '(?m)^Save-State\b' }).Count -eq 0
+}
+# 적는 자리가 걸음 안에 있기만 해서는 모자란다. 상태를 고치고 나서 적어야 한다.
+# 적고 나서 고치면 그 값은 다음 걸음이 끝날 때까지 디스크에 안 남아, 그 사이에
+# 죽으면 그대로 유실된다. 걸음 1 의 refreshed 가 실제로 그 자리에 있었다.
+Check '걸음마다 상태를 고친 뒤에 적는다' {
+    $bad = 0
+    foreach ($b in $stepBodies) {
+        $lastWrite = @([regex]::Matches($b, 'state\[''[^'']+''\] =')) | Select-Object -Last 1
+        $lastSave  = @([regex]::Matches($b, '(?m)^Save-State\b')) | Select-Object -Last 1
+        if ($null -eq $lastSave) { $bad++; continue }
+        if ($null -ne $lastWrite -and $lastWrite.Index -gt $lastSave.Index) { $bad++ }
+    }
+    $bad -eq 0
+}
+# 적는 곳이 여럿이면 한 곳만 고쳐지고 나머지가 옛 방식으로 남는다.
+Check '상태 파일을 적는 곳이 한 곳이다' {
+    @([regex]::Matches($syncCode, 'Out-File -LiteralPath \$statePath')).Count -eq 1
+}
+
+# --- 검사가 이 PC 를 안 바꾼다 ----------------------------------------------
+Write-Host ''
+Write-Host '검사가 이 PC 를 안 바꾼다'
+# 훅을 부르는 검사는 홈을 반드시 가짜로 준다. 진짜 USERPROFILE 을 넘기면 훅이 남기는
+# 자국이 사용자의 프로필에 쌓이고, 그것을 보는 검사가 없어 아무도 모른다.
+Check '훅을 부르는 검사가 진짜 홈을 안 넘긴다' {
+    $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
+    $self -notmatch "USERPROFILE='\`$env:USERPROFILE'"
 }
 
 # --- 결과 -----------------------------------------------------------------

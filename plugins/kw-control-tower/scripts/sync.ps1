@@ -132,7 +132,7 @@ function Get-MarketplaceHead {
     if (Test-Path -LiteralPath $h) {
         $line = (Get-Content -LiteralPath $h -Raw -Encoding UTF8).Trim()
         if ($line.StartsWith('ref: ')) {
-            $refFile = Join-Path $g ($line.Substring(5).Replace('/', ''))
+            $refFile = Join-Path $g ($line.Substring(5))
             if (Test-Path -LiteralPath $refFile) {
                 return (Get-Content -LiteralPath $refFile -Raw -Encoding UTF8).Trim()
             }
@@ -180,6 +180,19 @@ if (Test-Path -LiteralPath $statePath) {
 }
 $firstRun = -not $state.ContainsKey('ranOnce')
 $script:Refreshed = $false
+
+# 걸음이 끝날 때마다 부른다. 훅의 예산에 걸려 도중에 죽더라도 거기까지의 진행이
+# 디스크에 남아 다음 세션이 이어받는다. 마지막에 한 번만 적던 때에는 죽은 실행이
+# 아무것도 안 한 것으로 남아, 같은 반쪽 실행이 매 세션 되풀이됐다.
+#
+# 걸음을 건너뛰지는 않는다. 걸음은 한 번 하고 마는 이행이 아니라 이 PC 가 목록과
+# 같은지 보는 확인이라, 건너뛰면 사이에 사용자가 지운 것을 못 되돌린다. 멱등이라
+# 다시 돌아도 해가 없고, 이 기록이 막는 것은 알림이 같은 것을 다시 부르는 일이다.
+function Save-State {
+    if ($WhatIfOnly) { return }
+    $lines = foreach ($k in $state.Keys) { "$k=$($state[$k])" }
+    $lines | Out-File -LiteralPath $statePath -Encoding UTF8
+}
 
 $script:ClaudeExe = (Get-Command claude -ErrorAction SilentlyContinue).Source
 
@@ -255,6 +268,7 @@ try {
 # 받아온 시각을 적는다. 알림이 이 값을 보고 오래 안 받아왔는지 판정한다. 저장소에
 # 새 커밋이 없어 사본이 안 움직이는 때에도 이 값은 움직이므로 알림이 되풀이되지 않는다.
 if ($script:Refreshed) { $state['refreshed'] = (Get-Date -Format o) }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 2
 Write-Host '2. 필수 플러그인을 맞춥니다.'
@@ -348,6 +362,7 @@ try {
         }
     }
 } catch { Fail '2' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 3
 Write-Host '3. 더 안 쓰는 플러그인과 배포처를 정리합니다.'
@@ -413,6 +428,7 @@ try {
         }
     }
 } catch { Fail '3' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 4
 Write-Host '4. 파이썬 라이브러리를 맞춥니다.'
@@ -439,6 +455,7 @@ try {
         $state['requirements'] = $newHash
     }
 } catch { Fail '4' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 5
 Write-Host '5. PYTHONUTF8 을 봅니다.'
@@ -464,6 +481,7 @@ try {
         }
     }
 } catch { Fail '5' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 6
 Write-Host '6. CLAUDE.md 의 사내 문안 블록과 딸린 파일을 맞춥니다.'
@@ -711,6 +729,7 @@ try {
         }
     }
 } catch { Fail '6' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 7
 Write-Host '7. 더 안 쓰는 스킬 사본과 훅 배선을 정리합니다.'
@@ -798,6 +817,7 @@ try {
         }
     }
 } catch { Fail '7' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 걸음 8
 Write-Host '8. python3 이 이 PC 에서 무엇으로 풀리는지 잽니다.'
@@ -842,6 +862,7 @@ try {
         default      { Say '판정하지 못했습니다.' }
     }
 } catch { Fail '8' $_.Exception.Message }
+Save-State
 
 # ---------------------------------------------------------------- 마무리
 if (-not $WhatIfOnly) {
@@ -849,9 +870,8 @@ if (-not $WhatIfOnly) {
     # 영영 닫으므로, 못 깐 것이 있으면 다음 실행이 다시 해 볼 수 있게 열어 둔다.
     if (-not $script:SuggestedIncomplete) { $state['ranOnce'] = (Get-Date -Format o) }
     else { Say '권장 플러그인을 다 못 깔아 다음 실행에서 다시 해 봅니다.' }
-    $lines = foreach ($k in $state.Keys) { "$k=$($state[$k])" }
-    $lines | Out-File -LiteralPath $statePath -Encoding UTF8
 }
+Save-State
 
 Write-Host ''
 Write-Host '요약' -ForegroundColor Cyan
