@@ -1,7 +1,7 @@
 # kw-plugins
 
 키움 AX 팀이 사내 PC에 나눠 주는 클로드 코드 플러그인의 마켓플레이스다. 여기서 배포하는
-것은 **컨트롤 타워**와 **문서 형식 스킬**과 **배포 스킬** 셋이고, 남의 저장소에 있는 플러그인은 컨트롤
+것은 **컨트롤 타워**와 **문서 형식 스킬**과 **배포 스킬**과 **대시보드 스킬** 넷이고, 남의 저장소에 있는 플러그인은 컨트롤
 타워가 목록을 들고 끌어온다.
 
 **이름이 둘인 것이 헷갈리기 쉽다.** 저장소 이름과 클로드 코드에 등록되는 이름이 다르다.
@@ -102,7 +102,9 @@ PC에서 362밀리초다.
 | `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, Query Gateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워의 계약 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬의 계약 검사 |
+| `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `moving-existing-dashboard.md` |
 | `tests/test_devops.ps1` | 배포 스킬과 Query Gateway 스킬의 계약 검사 |
+| `tests/test_dashboard.ps1` | 대시보드 스킬의 계약 검사 |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
 | `docs/superpowers/reviews/` | 그 설계를 검토한 기록 |
 
@@ -118,10 +120,11 @@ PC에서 362밀리초다.
 
 **`powershell.exe`를 호출하지 않는다.** 훅도 맞춤도 `pwsh`로만 돈다.
 
-**고친 뒤에는 검사를 셋 다 돌린다.**
+**고친 뒤에는 검사를 넷 다 돌린다.**
 
 ```
 pwsh -NoProfile -File tests\test_control_tower.ps1
 pwsh -NoProfile -File tests\test_doc_formats.ps1
 pwsh -NoProfile -File tests\test_devops.ps1
+pwsh -NoProfile -File tests\test_dashboard.ps1
 ```

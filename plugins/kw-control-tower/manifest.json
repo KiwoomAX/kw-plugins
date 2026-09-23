@@ -9,7 +9,8 @@
 
   "required": [
     "kw-doc-formats@kiwoom-ax",
-    "kw-devops@kiwoom-ax"
+    "kw-devops@kiwoom-ax",
+    "kw-dashboard@kiwoom-ax"
   ],
 
   "suggested": [

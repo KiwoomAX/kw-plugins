@@ -19,6 +19,11 @@
       "name": "kw-devops",
       "source": "./plugins/kw-devops",
       "description": "사내 배포·데이터 연동 스킬. deploying-kiwoom-service는 레포 하나를 서버 192.7.9.45의 공용 젠킨스 파이프라인에 태운다. 포트 등록부와 서버 실측을 함께 보고 겹치지 않는 포트를 고른 뒤 docker-compose.yml과 Jenkinsfile을 쓴다. searching-winus는 사내 Query Gateway에 등록된 쿼리를 번호와 인자로 부르는 클라이언트 코드를 쓴다. 사내망과 파이썬을 전제한다."
+    },
+    {
+      "name": "kw-dashboard",
+      "source": "./plugins/kw-dashboard",
+      "description": "본부 · 팀 대시보드 스킬. building-kiwoom-dashboard는 KiwoomAX/dashboard-template 으로 만든 대시보드 레포에서 기능을 붙이고, 알림 서랍을 채우고, 내용 구획의 색 · 글자 크기 · 배치를 고르는 규칙과 이미 만든 대시보드를 템플릿으로 옮기는 법을 안내한다."
     }
   ]
 }
