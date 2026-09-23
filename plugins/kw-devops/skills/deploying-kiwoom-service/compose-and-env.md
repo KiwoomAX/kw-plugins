@@ -32,7 +32,7 @@ services:
     environment:
       - SERVICE_NAME=kiwoom-<이름>
     restart: unless-stopped
-    healthcheck:                            # 없으면 배포가 100초 뒤 오탐 실패한다
+    healthcheck:                            # 배포 성공 판정. 실패하면 직전 버전으로 되돌린다
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:<컨테이너 포트>/')"]
       interval: 30s
       timeout: 10s
