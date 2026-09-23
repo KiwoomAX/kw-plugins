@@ -27,7 +27,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 새 대시보드 시작
 
-1. GitHub 의 `KiwoomAX/dashboard-template` 에서 「Use this template」로 `KiwoomAX/dashboard-<본부 영문 이름>`
+1. GitHub 의 `KiwoomAX/dashboard-template` 에서 「Use this template」로 `KiwoomAX/<본부 영문 이름>-dashboard`
    비공개 레포를 만든다.
 2. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
    사이드바 무리 이름이 「본부 기능」이 되고, 「팀」으로 끝나면 「팀 기능」이 된다.
