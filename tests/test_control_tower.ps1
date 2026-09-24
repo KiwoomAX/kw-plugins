@@ -565,10 +565,10 @@ foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '
     $with    = Get-AxBlock $plugin "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n"
     $without = Get-AxBlock $plugin "앞`n"
     Check "$($pair.Name): disciplined-coder 가 있으면 템플릿만 싣는다" {
-        ($with -match '금융업 종사자') -and ($with -notmatch '답변 원칙') -and ($with -notmatch '한국어 금지어 목록')
+        ($with -match '금융업 종사자') -and ($with -notmatch '## 원칙') -and ($with -notmatch '한국어 금지어 목록')
     }
     Check "$($pair.Name): disciplined-coder 가 없으면 원칙과 목록을 END 앞에 싣는다" {
-        ($without -match '(?s)금융업 종사자.*답변 원칙.*한국어 지시사항.*한국어 금지어 목록.*\n# END AX')
+        ($without -match '(?s)금융업 종사자.*## 원칙.*## 한국어 지시사항.*한국어 금지어 목록.*\n# END AX')
     }
     Check "$($pair.Name): 조립한 블록에도 마커가 하나씩이다" {
         (@([regex]::Matches($without, '(?m)^#\s*BEGIN AX\b')).Count -eq 1) -and (@([regex]::Matches($without, '(?m)^#\s*END AX\b')).Count -eq 1)
