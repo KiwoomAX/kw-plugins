@@ -476,11 +476,6 @@ Check '@import 경로에 공백이 없다' {
     $tplSrc1 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     -not ($tplSrc1 -match '(?m)^@[^\r\n]* ')
 }
-# 보유하다 놓는 것은 맞춤의 일이다. 템플릿에만 있고 맞춤이 안 옮기면 아무 PC 에도 안 생긴다.
-Check '맞춤이 그 파일을 보유하다 놓는다' {
-    $syncSrc3 = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
-    ($syncSrc3 -match 'korean-banned-words\.md') -and ($syncSrc3 -match 'kw-ax')
-}
 
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
@@ -537,13 +532,8 @@ Check '가드가 예외 메시지를 통째로 남기지 않는다' {
 # 짝 없는 BEGIN 이 있으면 손대지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이 새 블록의
 # END 와 짝지어져 둘 사이의 사용자 글이 통째로 지워진다. 재현했다. 블록을 세는 검사는
 # 이것을 못 잡는다. 세어 보면 하나가 맞기 때문이다.
-Check '짝 없는 BEGIN 을 만나면 멈춘다' {
-    ($syncSrc -match "END 가 없는 '# BEGIN AX'") -and
-    ($syncSrc -match "END 가 없는 '# BEGIN korean-banned-words'")
-}
-Check '여는 마커 수와 짝 수를 견준다' {
-    ($syncSrc.Contains('$opens -gt $pairs')) -and ($syncSrc.Contains('$opens2 -gt $pairs2'))
-}
+Check '짝 없는 BEGIN 을 만나면 멈춘다' { $syncSrc -match "END 가 없는 '# BEGIN AX'" }
+Check '여는 마커 수와 짝 수를 견준다' { $syncSrc.Contains('$opens -gt $pairs') }
 
 # 클로드 코드는 켤 때 플러그인을 읽는다. 깔거나 옮기거나 켜거나 걷은 것은 그 세션에
 # 안 실린다. 훅이 맞춤의 출력에서 문구를 찾아 판정하던 때는 다섯 중 둘만 잡고 있었다.
@@ -560,32 +550,34 @@ Check '훅은 문구로 재시작을 판정하지 않는다' {
     $hookCode -notmatch '플러그인을 깔았습니다'
 }
 
-# --- 금지어 공용 블록 -------------------------------------------------------
+# --- 문안 조립 ---------------------------------------------------------------
 Write-Host ''
-Write-Host '금지어 공용 블록'
-# 규약은 KiwoomAX/korean-banned-words 의 import-protocol.md 가 소유한다.
-# disciplined-coder 도 같은 블록을 쓴다. 어느 쪽이 먼저 돌든 결과가 같아야 한다.
-Check '맞춤이 공용 블록을 다룬다' {
-    ($syncSrc -match 'BEGIN korean-banned-words') -and ($syncSrc -match 'END korean-banned-words')
+Write-Host '문안 조립'
+# 답변 원칙과 한국어 지시사항과 금지어 목록은 disciplined-coder 도 싣는다. 그쪽 블록이
+# CLAUDE.md 에 있으면 템플릿만 싣고, 없으면 AX 블록 안에 끼운다. 공용 블록은 쓰지 않는다.
+# 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '훅'; Path = 'hooks\session-check.ps1' })) {
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin $pair.Path), [ref]$null, [ref]$null)
+    $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxBlock' }, $true)
+    Check "$($pair.Name)에 Get-AxBlock 이 있다" { $null -ne $fn }
+    if ($null -eq $fn) { continue }
+    . ([scriptblock]::Create($fn.Extent.Text))
+    $with    = Get-AxBlock $plugin "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n"
+    $without = Get-AxBlock $plugin "앞`n"
+    Check "$($pair.Name): disciplined-coder 가 있으면 템플릿만 싣는다" {
+        ($with -match '금융업 종사자') -and ($with -notmatch '## 원칙') -and ($with -notmatch '한국어 금지어 목록')
+    }
+    Check "$($pair.Name): disciplined-coder 가 없으면 원칙과 목록을 END 앞에 싣는다" {
+        ($without -match '(?s)금융업 종사자.*## 원칙.*## 한국어 지시사항.*한국어 금지어 목록.*\n# END AX')
+    }
+    Check "$($pair.Name): 조립한 블록에도 마커가 하나씩이다" {
+        (@([regex]::Matches($without, '(?m)^#\s*BEGIN AX\b')).Count -eq 1) -and (@([regex]::Matches($without, '(?m)^#\s*END AX\b')).Count -eq 1)
+    }
 }
-# AX 블록은 매번 템플릿으로 통째로 교체된다. 공용 블록을 그 안에 두면 상대가 쓴 것이
-# 날아가고, 문안에 @import 를 두면 공용 블록과 합쳐 두 벌이 실린다.
-Check '문안에 목록 @import 가 없다' {
-    $tplSrc2 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
-    $tplSrc2 -notmatch '(?m)^@[^\r\n]*korean-banned-words'
-}
-# 버전 표시가 없으면 언제나 낡은 것으로 취급되어 상대 파일이 선택된다.
-Check '배포하는 목록에 버전 표시가 머리 스무 줄 안에 있다' {
-    $head = @(Get-Content (Join-Path $plugin 'templates\korean-banned-words.md') -TotalCount 20 -Encoding UTF8)
-    ($head -join "`n") -match '원본 (?:버전|판):\s*schema\s*\d+'
-}
-# 지문이 다를 때 덮어쓰면 두 설치기가 세션마다 서로를 덮어 번갈아 바뀐다.
-Check '버전이 같고 지문이 다르면 안 덮어쓴다' {
-    $syncSrc -match '어느 것이 새것인지 알 수 없어'
-}
-# 규약은 바깥 줄을 지우지 말고 알리라고 한다. 사용자가 손으로 넣은 것일 수 있다.
-Check '블록 바깥의 줄은 알리기만 한다' {
-    ($syncSrc -match '블록 바깥에 같은 목록') -and ($syncSrc -match '지우지 않았습니다')
+# 공용 블록을 쓰던 옛 버전의 흔적이 남으면 목록이 두 벌 실린다.
+Check '맞춤이 공용 블록을 새로 쓰지 않는다' { $syncSrc -notmatch "'# BEGIN korean-banned-words" }
+Check '맞춤이 옛 공용 블록을 disciplined-coder 가 없을 때만 걷는다' {
+    $syncSrc.Contains('if ($original -notmatch ''(?m)^#\s*BEGIN disciplined-coder\b'' -and $original -match $reShared)')
 }
 
 # --- 도커 인증서 안내 -------------------------------------------------------
