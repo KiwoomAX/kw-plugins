@@ -71,6 +71,19 @@ function Test-Marketplace {
     return @{ InSettings = ($null -ne $a); InKnown = ($null -ne $b); Settings = $a; Known = $b }
 }
 
+# 사내 문안 블록을 조립한다. 맞춤(sync.ps1)에도 같은 함수가 있다. 둘이 다르게
+# 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
+function Get-AxBlock([string]$root, [string]$claudeMd) {
+    $u8 = New-Object System.Text.UTF8Encoding($false)
+    $block = ([System.IO.File]::ReadAllText((Join-Path $root 'templates\claude-md-ko.md'), $u8)).Trim()
+    if ($claudeMd -match '(?m)^#\s*BEGIN disciplined-coder\b') { return $block }
+    $extra = @('claude-md-ko-principles.md', 'korean-banned-words.md') | ForEach-Object {
+        ([System.IO.File]::ReadAllText((Join-Path $root (Join-Path 'templates' $_)), $u8)).Trim()
+    }
+    $extra = $extra -join "`n`n"
+    return [regex]::Replace($block, '(?m)^#\s*END AX', { param($m) $extra + "`n`n" + $m.Value })
+}
+
 function Get-MarketplaceHead {
     # 배포처 사본이 받아 둔 버전을 읽는다. 네트워크에 안 나간다. 디스크에 이미 있다.
     # git 사본은 HEAD 가 가리키는 ref 파일에 커밋이 있고, git 이 아닌 배포처는
@@ -232,8 +245,8 @@ try {
     $script:Budget.Files += 2
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
         $u8 = New-Object System.Text.UTF8Encoding($false)
-        $block = ([System.IO.File]::ReadAllText($tpl, $u8)).Trim()
         $now   = [System.IO.File]::ReadAllText($mem, $u8)
+        $block = Get-AxBlock $root $now
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
         $found = [regex]::Match($now, $re)
         $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }
