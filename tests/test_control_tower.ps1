@@ -26,6 +26,19 @@ function Check {
     }
 }
 
+# 실패로 판정하지 않고 사용자에게 물을 것으로 모은다. 2026-09-25 에 사용자가 훅의 세
+# 제약(외부 프로세스, 네트워크, 몸통 200밀리초)을 금지에서 "개발할 때 먼저 묻는다" 로
+# 바꿨다. 이 검사가 걸리면 측정값이나 새 호출을 보이고 사용자 승인을 받은 뒤 승인
+# 목록을 고친다.
+$script:AskList = New-Object System.Collections.ArrayList
+function Ask {
+    param([string]$Name, [scriptblock]$Body)
+    $r = $false
+    try { $r = & $Body } catch { $r = $false }
+    if ($r) { $script:Pass++; Write-Host "  ok   $Name" -ForegroundColor Green }
+    else { [void]$script:AskList.Add($Name); Write-Host "  ASK  $Name" -ForegroundColor Yellow }
+}
+
 Write-Host ''
 Write-Host '컨트롤 타워 계약 검사' -ForegroundColor Cyan
 Write-Host ''
@@ -136,19 +149,53 @@ Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
     $bad -eq 0
 }
 # 감지가 외부 프로그램을 호출하면 불일치한 곳이 없는 세션까지 값을 문다. 맞춤을 호출하는
-# 것은 이 검사 뒤의 코드이고, 그것은 불일치한 세션에서만 돈다.
-Check '감지가 외부 프로그램을 안 호출한다' {
-    ($hookDetect -notmatch '(?m)^\s*&\s') -and
+# 것은 이 검사 뒤의 코드이고, 그것은 불일치한 세션에서만 돈다. 승인된 것은 원격 커밋을
+# 읽는 curl.exe 하나다. 그 밖의 것이 보이면 실패가 아니라 사용자에게 물을 것이다.
+Ask '감지의 외부 프로그램이 승인된 curl.exe 뿐이다' {
+    # & 뒤가 변수나 괄호면 스크립트 블록 호출이라 뺀다. 이름으로 부르는 것만 프로그램이다.
+    $calls = @([regex]::Matches($hookDetect, '(?m)^[^#\r\n]*?&\s*([A-Za-z][\w.\-]*)') | ForEach-Object { $_.Groups[1].Value })
+    (@($calls | Where-Object { $_ -ne 'curl.exe' }).Count -eq 0) -and
     ($hookDetect -notmatch 'Start-Process') -and
-    ($hookDetect -notmatch 'claude\s+plugin') -and
+    ($hookDetect -notmatch '(?m)^\s*(&\s*)?claude\s+plugin') -and
     ($hookDetect -notmatch 'Get-FileHash')
 }
-Check '훅이 네트워크에 안 나간다' {
-    $hookCode -notmatch 'Invoke-WebRequest|Invoke-RestMethod|System\.Net\.'
+# 감지가 나가는 네트워크는 원격 커밋을 읽는 요청 하나뿐이다. REST API 는 IP 하나에
+# 시간당 60회라 사내 PC 들이 나눠 쓰면 다 쓴다. 새 호출이 보이면 사용자에게 물을 것이다.
+Ask '훅의 네트워크가 승인된 info/refs 요청뿐이다' {
+    (@([regex]::Matches($hookCode, '&\s*curl\.exe')).Count -eq 1) -and
+    ($hookCode -notmatch 'Invoke-WebRequest|Invoke-RestMethod|api\.github\.com|System\.Net\.') -and
+    ($hookCode -match 'info/refs\?service=git-upload-pack')
 }
-Check '훅이 아무 파일도 안 고친다 (자국 파일 둘은 뺀다)' {
-    # 쓰기는 느림 자국과 오류 자국 둘뿐이고 나머지 쓰기 명령은 없어야 한다.
-    ($hookCode -notmatch 'Set-Content|Remove-Item|New-Item|Move-Item|Copy-Item')
+# 'curl' 은 Invoke-WebRequest 의 별칭이다. 제한시간이 없으면 망이 멈춘 PC 에서 세션 시작이
+# 함께 멈춘다. -f 가 없으면 401 응답 본문을 성공으로 읽는다.
+Check '원격 요청을 curl.exe 로 제한시간 2초와 -f 를 두고 적는다' { $hookCode -match '&\s*curl\.exe -s -f -m 2\b' }
+Check '네트워크 시간을 몸통에 안 센다' {
+    $hookCode -match '(?s)\$sw\.Stop\(\).{0,120}Get-RemoteHead.{0,120}\$sw\.Start\(\)'
+}
+# 허용하는 쓰기는 버전 기억 파일($seenFile)과 자국 파일 둘(느림 $over, 오류 $log)뿐이다.
+# 명령 이름만 보던 때에는 [IO.File]::WriteAllText 같은 .NET 쓰기를 못 잡았다. 쓰기 수단을
+# 줄마다 찾고, 그 줄이 허용한 파일을 가리키지 않으면 위반으로 센다.
+function Get-HookWriteViolations {
+    param([string]$Code)
+    $write = '\[(System\.)?IO\.File\]::(WriteAll\w+|Append\w+|Create\w*|Open\w*|Delete|Move|Copy|Replace)|' +
+             '\b(Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Tee-Object)\b|' +
+             '(?<![0-9])>>?\s*(?!\$null\b)[\$''"\w]'
+    @($Code -split "`n" | Where-Object { $_ -match $write -and $_ -notmatch '\$(seenFile|over|log)\b' })
+}
+Check '훅이 아무 파일도 안 고친다 (버전 기억 파일과 자국 파일 둘은 뺀다)' {
+    (Get-HookWriteViolations $hookCode).Count -eq 0
+}
+# 위 검사가 실제로 위반을 잡는지 쓰기 수단마다 한 줄씩 넣은 복사본으로 본다.
+Check '쓰기 검사가 쓰기 수단마다 위반을 잡는다' {
+    $bad = @(
+        "[System.IO.File]::WriteAllText('x', 'y')", "[IO.File]::WriteAllLines(`$p, `$l)",
+        "[System.IO.File]::AppendAllText(`$p, 'y')", "'y' | Out-File -LiteralPath `$p",
+        "Add-Content -LiteralPath `$p -Value 'y'", "Set-Content `$p 'y'",
+        "New-Item -ItemType File `$p", "Remove-Item -LiteralPath `$p", "'y' > `$p", "'y' >> `$p"
+    )
+    $missed = @($bad | Where-Object { (Get-HookWriteViolations ($hookCode + "`n" + $_)).Count -eq 0 })
+    if ($missed.Count -gt 0) { Write-Host "       못 잡은 줄: $($missed -join ' | ')" }
+    $missed.Count -eq 0
 }
 # 자국 파일이 영원히 자라면 그것도 이 PC 를 더럽히는 것이다.
 Check '느림 자국은 덧붙이지 않고 덮어쓴다' { $hookCode -match 'WriteAllText\(\$over' }
@@ -230,15 +277,34 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 
-Check '몸통이 200밀리초 안에 끝난다' {
+# 그냥 찍으면 Claude 맥락에만 실리고 사용자 화면에는 안 보인다. 할 말이 있으면 훅 JSON
+# 한 줄로 내고 systemMessage 와 additionalContext 를 둘 다 채운다.
+Check '할 말이 있으면 훅 JSON 으로 사용자와 Claude 에게 함께 낸다' {
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
+& '$plugin\hooks\session-check.ps1'
+"@ 2>&1
+    $lines = @($out | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
+    $j = $null
+    try { $j = ($lines -join "`n") | ConvertFrom-Json } catch { }
+    ($lines.Count -eq 1) -and $j -and $j.systemMessage -and
+    ($j.hookSpecificOutput.hookEventName -eq 'SessionStart') -and
+    ($j.hookSpecificOutput.additionalContext.StartsWith($j.systemMessage))
+}
+
+# 넘기면 실패가 아니라 측정값을 보이고 사용자에게 물을 것이다. 측정과 기록은 그대로다.
+$slowNote = ''
+Ask '몸통이 200밀리초 안에 끝난다' {
     $slow = Join-Path $fake '.claude\kw-control-tower.slow'
     Remove-Item -LiteralPath $slow -ErrorAction SilentlyContinue
     & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
 & '$plugin\hooks\session-check.ps1'
 "@ 2>&1 | Out-Null
+    if (Test-Path -LiteralPath $slow) { $script:slowNote = (Get-Content -LiteralPath $slow -Raw).Trim(); Write-Host "       측정값: $script:slowNote" }
     -not (Test-Path -LiteralPath $slow)
 }
+Check '몸통이 넘으면 측정값을 기록한다' { $hookCode -match 'kw-control-tower\.slow' -and $hookCode -match 'ElapsedMilliseconds -gt 200' }
 
 Check '훅이 스스로 오류를 남기지 않았다' {
     -not (Test-Path -LiteralPath (Join-Path $fake '.claude\kw-control-tower.error'))
@@ -543,7 +609,7 @@ Check '플러그인을 바꾸는 곳마다 재시작 깃발을 설정한다' {
     ($calls -gt 0) -and ($calls -eq $flags)
 }
 Check '맞춤이 다시 켜라고 알린다' {
-    $syncSrc -match '다시 켜야 실립니다'
+    $syncSrc -match '다시 켜야 새 버전이 적용됩니다'
 }
 # 훅이 문구로 판정하면 문구가 늘 때마다 함께 고쳐야 하고, 실제로 빠졌다.
 Check '훅은 문구로 재시작을 판정하지 않는다' {
@@ -707,6 +773,259 @@ Check '알림과 맞춤이 같은 방식으로 ref 를 읽는다' {
     ($syncCode -match 'Join-Path \$g \(\$line\.Substring\(5\)\)')
 }
 
+# info/refs 응답의 첫 줄은 네 자리 길이 접두사가 sha 앞에 붙는다. 접두사를 sha 로
+# 잘못 잡으면 매 세션 뒤처졌다고 나와 맞춤이 되풀이된다. 실제 응답의 첫 줄 형식으로 본다.
+Check '원격 커밋을 pkt-line 에서 바르게 읽는다' {
+    $fn = [regex]::Match($hookSrc, '(?s)function Get-RemoteHead \{.*?\n\}').Value
+    $sha = '811b47e87fec64c141e23ef69634eafb638b4d40'
+    $body = "001e# service=git-upload-pack`n0000" + "0155$sha HEAD`0multi_ack symref=HEAD:refs/heads/main`n" +
+            "003f$sha refs/heads/main`n0000"
+    $got = & {
+        function curl.exe { $global:LASTEXITCODE = 0; $body -split "`n" }
+        . ([scriptblock]::Create($fn))
+        Get-RemoteHead 'https://github.com/x/y.git'
+    }
+    $got -eq $sha
+}
+Check '원격을 못 읽으면 $null 을 돌려준다' {
+    $fn = [regex]::Match($hookSrc, '(?s)function Get-RemoteHead \{.*?\n\}').Value
+    $got = & {
+        function curl.exe { $global:LASTEXITCODE = 22; 'Unauthorized' }
+        . ([scriptblock]::Create($fn))
+        Get-RemoteHead 'https://github.com/x/y.git'
+    }
+    $null -eq $got
+}
+# 주소는 배포처 등록의 source 에서 만든다. 브랜치나 태그를 지정한 배포처를 원격 기본
+# 브랜치와 비교하면 매 세션 다르다고 나오므로 원격을 안 읽는다.
+Check '원격 주소를 source 에서 만들고 ref 가 있으면 안 만든다' {
+    $fn = [regex]::Match($hookSrc, '(?s)function Get-RemoteUrl \{.*?\n\}').Value
+    $gp = [regex]::Match($hookSrc, '(?s)function Get-Prop \{.*?\n\}').Value
+    & {
+        . ([scriptblock]::Create($gp)); . ([scriptblock]::Create($fn))
+        ((Get-RemoteUrl ([pscustomobject]@{ source = 'github'; repo = 'a/b' })) -eq 'https://github.com/a/b.git') -and
+        ((Get-RemoteUrl ([pscustomobject]@{ source = 'git'; url = 'https://h/x.git' })) -eq 'https://h/x.git') -and
+        ($null -eq (Get-RemoteUrl ([pscustomobject]@{ source = 'git'; url = 'git@h:x.git' }))) -and
+        ($null -eq (Get-RemoteUrl ([pscustomobject]@{ source = 'github'; repo = 'a/b'; ref = 'v1' })))
+    }
+}
+# 재시작 안내의 첫 줄은 disciplined-coder 와 같은 형식이다. 훅이 Claude 에게 주는 지시도
+# 같은 문구를 찾으라고 하므로, 한쪽만 바뀌면 Claude 가 재시작을 요청하지 않는다.
+Check '재시작 안내가 맞춘 형식이고 옛 커밋과 새 커밋을 적는다' {
+    ($syncCode -match "'kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.'") -and
+    ($hookCode -match "'kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.'") -and
+    ($hookCode -match "'kw-control-tower: 플러그인 버전 알림'") -and
+    ($syncCode -match '\$mv\.Old\.Substring\(0, 7\)\) → \$newShort')
+}
+# 맞춤이 옮긴 것을 버전 기억 파일에 안 적으면 다음 세션이 자동 갱신이 한 일로 또 알린다.
+Check '맞춤이 옮긴 설치본을 버전 기억 파일에 적는다' {
+    $syncCode -match "Join-Path \`$cfg 'kw-control-tower\.seen'"
+}
+Check '맞춤이 기록 파일을 지우지 않는다' {
+    $syncCode -notmatch 'Remove-Item[^\r\n]*(seenPath|statePath|kw-control-tower\.(seen|state))'
+}
+Check '못 옮긴 원격 커밋을 맞춤이 적고 알림이 읽는다' {
+    ($syncCode -match '\$state\["stuck-\$mkName"\]') -and
+    ($hookCode -match "'\^stuck-") -and
+    ($hookCode -match 'KWCT_REMOTE_HEAD') -and ($syncCode -match 'KWCT_REMOTE_HEAD')
+}
+
+# --- 원격 확인의 조건들 -----------------------------------------------------
+# 훅 복사본의 curl.exe 호출을 스텁으로 바꿔 가짜 홈에서 돌린다. 스텁은 길이 접두사와
+# NUL 이 섞인 pkt-line 을 내거나 실패한다. 복사본에는 맞춤이 없어 실제로 고치지 않는다.
+Write-Host ''
+Write-Host '원격 확인의 조건들'
+$scn = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-scn-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+$stub = Join-Path $scn 'curl-stub.ps1'
+New-Item -ItemType Directory -Force -Path $scn | Out-Null
+@'
+if ($env:KWCT_STUB -eq 'fail') { exit 22 }
+$sha = $env:KWCT_STUB
+[Console]::Out.Write("001e# service=git-upload-pack`n0000" + "0155$sha HEAD`0multi_ack symref=HEAD:refs/heads/main`n003f$sha refs/heads/main`n0000")
+exit 0
+'@ | Set-Content -LiteralPath $stub -Encoding UTF8
+$shaOld = 'c875eb136526601501928d8cb888b258cf04f366'
+$shaNew = '811b47e87fec64c141e23ef69634eafb638b4d40'
+
+function New-Root([string]$Leaf) {
+    # 이 플러그인의 폴더 이름이 곧 실행 중인 버전이다. 자동 갱신 판정이 그것을 본다.
+    $r = Join-Path $scn "root\$Leaf"
+    if (-not (Test-Path $r)) {
+        Copy-Item -LiteralPath $plugin -Destination $r -Recurse
+        Remove-Item -LiteralPath (Join-Path $r 'scripts\sync.ps1')
+        $h = Join-Path $r 'hooks\session-check.ps1'
+        $t = [System.IO.File]::ReadAllText($h)
+        $t = $t.Replace('& curl.exe -s -f -m 2 "$Url/info/refs?service=git-upload-pack"', "& pwsh -NoProfile -File '$stub'")
+        [System.IO.File]::WriteAllText($h, $t, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    $r
+}
+function Invoke-Scenario {
+    # 가짜 홈을 만들고 훅을 돌려 사용자에게 보일 본문을 돌려준다.
+    param([string]$Installed, [string]$Remote, [hashtable]$Source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' },
+          [string]$Clone, [string]$State, [string]$Seen, [string]$Version, [string]$Leaf = 'c875eb136526',
+          [string]$Other, [string]$OtherUpdated)
+    $home2 = Join-Path $scn ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    $pd = Join-Path $home2 '.claude\plugins'
+    New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
+    $ver = if ($Version) { $Version } else { $Installed.Substring(0, 12) }
+    $plug = @{ 'kw-control-tower@kiwoom-ax' = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $Installed; version = $ver; lastUpdated = '2000-01-01T00:00:00Z' }) }
+    if ($Other) { $plug['other@elsewhere'] = @(@{ installPath = (Join-Path $pd 'cache\x'); version = $Other; lastUpdated = $OtherUpdated }) }
+    @{ version = 2; plugins = $plug } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $pd 'installed_plugins.json')
+    @{ 'kiwoom-ax' = @{ source = $Source; autoUpdate = $true } } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $pd 'known_marketplaces.json')
+    if ($Clone) {
+        $g = Join-Path $pd 'marketplaces\kiwoom-ax\.git'
+        New-Item -ItemType Directory -Force -Path (Join-Path $g 'refs\heads') | Out-Null
+        'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
+        $Clone | Set-Content (Join-Path $g 'refs\heads\main')
+    }
+    if ($State) { $State | Set-Content (Join-Path $home2 '.claude\kw-control-tower.state') }
+    if ($Seen)  { $Seen  | Set-Content (Join-Path $home2 '.claude\kw-control-tower.seen') }
+    $root = New-Root $Leaf
+    $env:KWCT_STUB = $Remote
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$home2'; `$env:CLAUDE_PLUGIN_ROOT='$root'; & '$root\hooks\session-check.ps1'" 2>&1
+    Remove-Item Env:\KWCT_STUB
+    $txt = ($out | ForEach-Object { "$_" }) -join "`n"
+    try { return (($txt | ConvertFrom-Json).systemMessage) } catch { return $txt }
+}
+$late = '설치본이 원격보다 뒤처져 있습니다'
+
+Check '원격이 앞서면 뒤처졌다고 알린다' {
+    (Invoke-Scenario -Installed $shaOld -Remote $shaNew) -match $late
+}
+Check '원격과 같으면 뒤처졌다고 안 한다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew) -notmatch $late
+}
+Check '원격을 못 읽으면 사본과 비교한다' {
+    ((Invoke-Scenario -Installed $shaOld -Remote 'fail' -Clone $shaNew) -match $late) -and
+    ((Invoke-Scenario -Installed $shaOld -Remote 'fail' -Clone $shaOld) -notmatch $late)
+}
+Check 'ref 를 지정한 배포처는 원격 대신 사본과 비교한다' {
+    $src = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins'; ref = 'v1' }
+    (Invoke-Scenario -Installed $shaOld -Remote $shaNew -Source $src -Clone $shaOld) -notmatch $late
+}
+Check '같은 원격 커밋으로 실패했으면 맞춤을 다시 안 부르고 명령을 알린다' {
+    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "stuck-kiwoom-ax=$shaNew"
+    ($o -match '(?m)^kw-control-tower: 플러그인 버전 알림') -and
+    ($o -match '이미 갱신에 실패해 다시 시도하지 않았습니다') -and ($o -notmatch $late) -and
+    ($o -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
+    ($o -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax')
+}
+Check '원격에 새 커밋이 생기면 다시 시도한다' {
+    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "stuck-kiwoom-ax=0123456789012345678901234567890123456789"
+    ($o -match $late) -and ($o -notmatch '이미 갱신에 실패해')
+}
+Check '자동 갱신이 옮긴 새 버전으로 돌면 적용됐다고 알린다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Seen 'kw-control-tower@kiwoom-ax=c875eb136526' -Leaf '811b47e87fec'
+    ($o -match 'kw-control-tower: 플러그인 버전 알림') -and ($o -notmatch '다시 켜야') -and ($o -match 'c875eb1 → 811b47e')
+}
+Check '자동 갱신이 옮겼는데 옛 버전으로 돌면 다시 켜라고 한다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Seen 'kw-control-tower@kiwoom-ax=c875eb136526' -Leaf 'c875eb136526'
+    $o -match '(?m)^kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.'
+}
+Check '다른 플러그인이 세션 시작 뒤에 옮겨졌으면 다시 켜라고 한다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Other 'bbbbbbbbbbbb' -OtherUpdated '2999-01-01T00:00:00Z' `
+            -Seen "kw-control-tower@kiwoom-ax=811b47e87fec`nother@elsewhere=aaaaaaaaaaaa"
+    ($o -match '다시 켜야 새 버전이 적용됩니다') -and ($o -match 'other@elsewhere : aaaaaaa → bbbbbbb')
+}
+Check '처음 도는 PC 에서는 버전을 적기만 하고 알리지 않는다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec'
+    ($o -notmatch '플러그인 버전 알림') -and ($o -notmatch '다시 켜야')
+}
+Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- 맞춤의 갱신 기록 -------------------------------------------------------
+# 맞춤이 갱신에 성공하면 stuck 을 지우고 버전 기억 파일에 새 버전을 적는지, 실패하면
+# stuck 에 원격 커밋을 적고 버전 알림을 내는지 실제로 돌려 본다. PATH 앞에 claude.cmd
+# 스텁을 둔다. 맞춤은 단계 1·2 와 마무리만 떼어 돌린다. 나머지 단계는 파이썬을 깔고
+# 진짜 레지스트리를 건드려 가짜 홈으로 가둘 수 없다.
+Write-Host ''
+Write-Host '맞춤의 갱신 기록'
+$sy = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-sync-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path (Join-Path $sy 'bin') | Out-Null
+'@pwsh -NoProfile -NonInteractive -File "%~dp0claude-stub.ps1" %*' | Set-Content -LiteralPath (Join-Path $sy 'bin\claude.cmd') -Encoding ASCII
+@'
+$a = $args
+$pd = Join-Path $env:USERPROFILE '.claude\plugins'
+if ($a[0] -eq 'plugin' -and $a[1] -eq 'marketplace' -and $a[2] -eq 'update') {
+    if ($env:STUB_MK -eq 'fail') { exit 1 }
+    if ($a[3] -eq 'kiwoom-ax') { Set-Content -LiteralPath (Join-Path $pd 'marketplaces\kiwoom-ax\.git\refs\heads\main') $env:STUB_NEW }
+    exit 0
+}
+if ($a[0] -eq 'plugin' -and $a[1] -eq 'update') {
+    if ($env:STUB_UP -eq 'fail') { exit 1 }
+    $f = Join-Path $pd 'installed_plugins.json'
+    $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+    foreach ($s in @($j.plugins.($a[2]))) { $s.gitCommitSha = $env:STUB_NEW; $s.version = $env:STUB_NEW.Substring(0, 12) }
+    $j | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $f
+    exit 0
+}
+exit 0
+'@ | Set-Content -LiteralPath (Join-Path $sy 'bin\claude-stub.ps1') -Encoding UTF8
+$syncText = [System.IO.File]::ReadAllText((Join-Path $plugin 'scripts\sync.ps1'))
+$cut3 = $syncText.IndexOf('# ---------------------------------------------------------------- 단계 3')
+$cutEnd = $syncText.IndexOf('# ---------------------------------------------------------------- 마무리')
+$syncCut = Join-Path $sy 'sync-cut.ps1'
+Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -and ($cutEnd -gt $cut3) }
+[System.IO.File]::WriteAllText($syncCut, $syncText.Substring(0, $cut3) + $syncText.Substring($cutEnd), (New-Object System.Text.UTF8Encoding($false)))
+
+function Invoke-SyncScenario {
+    # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 버전 기억 파일과 설치본을 돌려준다.
+    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '')
+    $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    $pd = Join-Path $h '.claude\plugins'
+    New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
+    $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax')
+    $plug = @{}; $en = @{}
+    foreach ($id in $ids) {
+        $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })
+        $en[$id] = $true
+    }
+    @{ version = 2; plugins = $plug } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $pd 'installed_plugins.json')
+    @{ enabledPlugins = $en } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $h '.claude\settings.json')
+    @{ 'kiwoom-ax' = @{ source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' }; autoUpdate = $true } } |
+        ConvertTo-Json -Depth 5 | Set-Content (Join-Path $pd 'known_marketplaces.json')
+    $g = Join-Path $pd 'marketplaces\kiwoom-ax\.git'
+    New-Item -ItemType Directory -Force -Path (Join-Path $g 'refs\heads') | Out-Null
+    'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
+    $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
+    "ranOnce=2026-01-01`n$State".Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
+    ($ids | ForEach-Object { "$_=$($shaOld.Substring(0, 12))" }) | Set-Content (Join-Path $h '.claude\kw-control-tower.seen')
+    $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$sy\bin;' + `$env:PATH; & '$syncCut'" 2>&1
+    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
+    $ip = Get-Content (Join-Path $pd 'installed_plugins.json') -Raw | ConvertFrom-Json
+    @{
+        Out   = ($out | ForEach-Object { "$_" }) -join "`n"
+        State = (Get-Content (Join-Path $h '.claude\kw-control-tower.state') -Raw)
+        Seen  = (Get-Content (Join-Path $h '.claude\kw-control-tower.seen') -Raw)
+        Sha   = @($ip.plugins.'kw-control-tower@kiwoom-ax')[0].gitCommitSha
+    }
+}
+
+$r = Invoke-SyncScenario -State "stuck-kiwoom-ax=$shaNew"
+Check '갱신에 성공하면 설치본이 원격 커밋으로 옮겨진다' { $r.Sha -eq $shaNew }
+Check '갱신에 성공하면 stuck 을 지운다' { $r.State -notmatch 'stuck-kiwoom-ax' }
+Check '갱신에 성공하면 버전 기억 파일에 새 버전을 적는다' { $r.Seen -match "(?m)^kw-control-tower@kiwoom-ax=$($shaNew.Substring(0, 12))\s*$" }
+Check '갱신에 성공하면 재시작을 옛 커밋 → 새 커밋으로 안내한다' {
+    ($r.Out -match '(?m)^kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.') -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e')
+}
+
+$r = Invoke-SyncScenario -Up 'fail'
+Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
+Check 'plugin update 가 실패하면 재시작 대신 버전 알림과 명령을 낸다' {
+    ($r.Out -notmatch '다시 켜야 새 버전이 적용됩니다') -and ($r.Out -match '(?m)^kw-control-tower: 플러그인 버전 알림') -and
+    ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and ($r.Out -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax')
+}
+Check 'plugin update 가 실패하면 버전 기억 파일을 안 바꾼다' { $r.Seen -match "(?m)^kw-control-tower@kiwoom-ax=$($shaOld.Substring(0, 12))\s*$" }
+
+$r = Invoke-SyncScenario -Mk 'fail'
+Check '배포처를 못 받아와도 stuck 을 적고 원격 커밋으로 알린다' {
+    ($r.State -match "(?m)^stuck-kiwoom-ax=$shaNew") -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
+    ($r.Out -match '(?m)^\s+claude plugin marketplace update kiwoom-ax')
+}
+Remove-Item -LiteralPath $sy -Recurse -Force -ErrorAction SilentlyContinue
+
 # --- 맞춤이 끝까지 간다 -----------------------------------------------------
 Write-Host ''
 Write-Host '맞춤이 끝까지 간다'
@@ -716,11 +1035,10 @@ Check '세션 시작 훅의 예산이 맞춤을 끝낼 만큼이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $j.hooks.SessionStart[0].hooks[0].timeout -ge 90
 }
-# 예산을 늘리면 그만큼 세션 시작이 멈춘 것처럼 보인다. 무엇을 기다리는지 먼저 말한다.
-Check '맞춤을 호출하기 전에 기다리라고 말한다' {
-    $ci = $hookCode.IndexOf('-File $sync')
-    $wi = $hookCode.IndexOf('잠시 기다려')
-    ($ci -ge 0) -and ($wi -ge 0) -and ($wi -lt $ci)
+# 훅 출력은 훅이 끝난 뒤에 한 번에 보인다. 맞춤 전에 "기다려 달라" 고 적어도 맞춤이 끝난
+# 뒤에야 읽히므로, 대신 맞춤의 결과가 출력에 실리는지를 본다.
+Check '맞춤의 출력을 훅 출력에 싣는다' {
+    $hookCode -match 'foreach \(\$line in \$out\) \{ \[void\]\$say\.Add'
 }
 # 상태를 마지막에 한 번만 적으면 예산에 막혀 죽은 실행이 아무것도 안 한 것으로 남아,
 # 다음 세션이 처음부터 다시 돌고 그것이 영영 되풀이된다. 단계는 저마다 독립이고
@@ -760,6 +1078,10 @@ Check '훅을 호출하는 검사가 진짜 홈을 안 넘긴다' {
 
 # --- 결과 -----------------------------------------------------------------
 Write-Host ''
+if ($script:AskList.Count -gt 0) {
+    Write-Host "사용자에게 물을 것 $($script:AskList.Count) 건 (실패가 아니다)" -ForegroundColor Yellow
+    foreach ($a in $script:AskList) { Write-Host "  - $a" }
+}
 if ($script:FailList.Count -eq 0) {
     Write-Host "통과 $($script:Pass) 건, 실패 없음" -ForegroundColor Green
     exit 0

@@ -25,6 +25,8 @@ $script:Restart = $false
 $script:Did      = New-Object System.Collections.ArrayList
 $script:Reenab   = New-Object System.Collections.ArrayList
 $script:Failed   = New-Object System.Collections.ArrayList
+$script:Moved    = New-Object System.Collections.ArrayList   # 새 버전으로 옮긴 설치본과 옛 커밋
+$script:UpdateFailed = New-Object System.Collections.ArrayList   # 못 옮긴 설치본과 옮기려던 커밋
 
 function Say  { param([string]$m) Write-Host "  $m" }
 function Note {
@@ -340,15 +342,78 @@ try {
         if (-not $head -or $null -eq $ipOf) { continue }
         foreach ($pluginId in @($ipOf.PSObject.Properties.Name)) {
             if (-not $pluginId.EndsWith("@$mkName")) { continue }
-            $behind = $false
+            $behind = $null
             foreach ($scope in @(Get-Prop $ipOf $pluginId)) {
                 $sha = Get-Prop $scope 'gitCommitSha'
-                if ($sha -and -not $head.StartsWith($sha) -and -not $sha.StartsWith($head)) { $behind = $true }
+                if ($sha -and -not $head.StartsWith($sha) -and -not $sha.StartsWith($head)) { $behind = $sha }
             }
             if (-not $behind) { continue }
-            if (Invoke-Claude @('plugin', 'update', $pluginId)) { Note "설치본을 새 버전으로 옮겼습니다: $pluginId"; $script:Restart = $true }
-            else { Fail '2' "설치본을 못 옮겼습니다: $pluginId" }
+            if (Invoke-Claude @('plugin', 'update', $pluginId)) {
+                Note "설치본을 새 버전으로 옮겼습니다: $pluginId"
+                $script:Restart = $true
+                [void]$script:Moved.Add(@{ Id = $pluginId; Old = $behind })
+            }
+            else {
+                Fail '2' "설치본을 못 옮겼습니다: $pluginId"
+                [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $behind; Target = $head })
+            }
         }
+    }
+
+    # 알림 훅이 넘긴 원격 커밋까지 옮겼는지 적는다. 못 옮겼으면 훅은 같은 원격 커밋으로
+    # 맞춤을 다시 호출하지 않는다. 배포처를 받아오지 못해 사본이 옛 커밋에 머문 때도
+    # 여기서 잡힌다. 위 반복은 사본과 견주므로 그때는 옮길 것이 없다고 보기 때문이다.
+    $remoteOf = @{}
+    foreach ($pair in ("$env:KWCT_REMOTE_HEAD" -split ';')) {
+        $i = $pair.IndexOf('=')
+        if ($i -gt 0) { $remoteOf[$pair.Substring(0, $i)] = $pair.Substring($i + 1) }
+    }
+    if ($remoteOf.Count -gt 0 -and -not $WhatIfOnly) {
+        $ipOf = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
+        foreach ($mkName in @($remoteOf.Keys)) {
+            $late = $false
+            if ($null -ne $ipOf) {
+                foreach ($pluginId in @($ipOf.PSObject.Properties.Name)) {
+                    if (-not $pluginId.EndsWith("@$mkName")) { continue }
+                    foreach ($scope in @(Get-Prop $ipOf $pluginId)) {
+                        $sha = Get-Prop $scope 'gitCommitSha'
+                        if ($sha -and -not $remoteOf[$mkName].StartsWith($sha)) {
+                            $late = $true
+                            # 배포처를 못 받아와 위 반복이 옮길 것이 없다고 본 설치본도 알린다.
+                            # 이미 실패로 적은 것은 원격 커밋으로 목표만 바꾼다.
+                            $known = @($script:UpdateFailed | Where-Object { $_.Id -eq $pluginId })
+                            if ($known.Count -gt 0) { $known[0].Target = $remoteOf[$mkName] }
+                            else { [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $sha; Target = $remoteOf[$mkName] }) }
+                        }
+                    }
+                }
+            }
+            if ($late) { $state["stuck-$mkName"] = $remoteOf[$mkName] } else { $state.Remove("stuck-$mkName") }
+        }
+    }
+
+    # 맞춤이 옮긴 설치본은 버전 기억 파일에도 새 버전으로 적는다. 안 적으면 다음 세션의
+    # 알림 훅이 그것을 자동 갱신이 한 일로 한 번 더 알린다. 훅과 같은 값을 적는다.
+    # version 이 있으면 version 이고 없으면 커밋이다.
+    if ($script:Moved.Count -gt 0 -and -not $WhatIfOnly) {
+        $seenPath = Join-Path $cfg 'kw-control-tower.seen'
+        $seen = [ordered]@{}
+        if (Test-Path -LiteralPath $seenPath) {
+            foreach ($line in (Get-Content -LiteralPath $seenPath -Encoding UTF8)) {
+                $i = $line.IndexOf('=')
+                if ($i -gt 0) { $seen[$line.Substring(0, $i)] = $line.Substring($i + 1) }
+            }
+        }
+        $ipAfter = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
+        foreach ($mv in $script:Moved) {
+            foreach ($scope in @(Get-Prop $ipAfter $mv.Id)) {
+                $v = Get-Prop $scope 'version'
+                if (-not $v) { $v = Get-Prop $scope 'gitCommitSha' }
+                if ($v) { $seen[$mv.Id] = "$v"; break }
+            }
+        }
+        $lines = foreach ($k in $seen.Keys) { "$k=$($seen[$k])" }
+        [System.IO.File]::WriteAllLines($seenPath, [string[]]@($lines), (New-Object System.Text.UTF8Encoding($false)))
     }
 } catch { Fail '2' $_.Exception.Message }
 Save-State
@@ -768,11 +833,32 @@ if ($script:Reenab.Count -gt 0) {
     Write-Host '  회사가 필수로 정한 것이라 되켭니다. 이 줄은 그것을 조용히 안 하려고 적습니다.'
 }
 
+# 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다. 두 플러그인이 한 세션에서 함께
+# 재시작을 안내할 때 사용자가 같은 종류의 안내로 알아보게 하려는 것이다. 옮긴 설치본은
+# 옛 커밋과 새 커밋을 일곱 자리로 적는다.
 if ($script:Restart) {
     Write-Host ''
-    Write-Host '다시 켜야 합니다' -ForegroundColor Cyan
-    Write-Host '  플러그인이 바뀌었습니다. 클로드 코드는 켤 때 플러그인을 읽으므로, 방금 바뀐 것은'
-    Write-Host '  이 세션에 안 실립니다. 다시 켜야 실립니다.'
+    Write-Host 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.' -ForegroundColor Cyan
+    $ipAfter = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
+    foreach ($mv in $script:Moved) {
+        $new = $null
+        foreach ($scope in @(Get-Prop $ipAfter $mv.Id)) { $s = Get-Prop $scope 'gitCommitSha'; if ($s) { $new = $s } }
+        $newShort = if ($new) { $new.Substring(0, 7) } else { '(읽지 못함)' }
+        Write-Host "  - $($mv.Id) : $($mv.Old.Substring(0, 7)) → $newShort"
+    }
+    Write-Host '  클로드 코드는 켤 때 플러그인을 읽으므로 방금 바뀐 것은 이 세션에 적용되지 않습니다.'
+}
+
+# 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
+# 맞췄다. 커밋은 옛 일곱 자리 → 새 일곱 자리로 적고 직접 실행할 명령을 붙인다.
+if ($script:UpdateFailed.Count -gt 0) {
+    Write-Host ''
+    Write-Host 'kw-control-tower: 플러그인 버전 알림' -ForegroundColor Yellow
+    Write-Host '  갱신에 실패했습니다.'
+    foreach ($u in $script:UpdateFailed) { Write-Host "  - $($u.Id) : $($u.Old.Substring(0, 7)) → $($u.Target.Substring(0, 7))" }
+    Write-Host '  지금 옮기려면 아래를 실행해 주십시오.'
+    foreach ($mk in @($script:UpdateFailed | ForEach-Object { $_.Mk } | Select-Object -Unique)) { Write-Host "      claude plugin marketplace update $mk" }
+    foreach ($u in $script:UpdateFailed) { Write-Host "      claude plugin update $($u.Id)" }
 }
 
 if ($script:Failed.Count -gt 0) {
