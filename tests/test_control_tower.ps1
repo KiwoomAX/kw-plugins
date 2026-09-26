@@ -460,23 +460,6 @@ Check '이 저장소에 생성기가 없다' {
     -not (Test-Path -LiteralPath (Join-Path $repo 'scripts\build-banned-words.ps1'))
 }
 
-# 문안이 @import 로 호출하는 파일이 실제로 있어야 한다. 없으면 CLAUDE.md 가 없는 파일을
-# 가리키고, 그 상태를 아무도 못 본다.
-Check '문안이 호출하는 파일이 템플릿에 있다' {
-    $tplSrc0 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
-    $ok = $true
-    foreach ($m in [regex]::Matches($tplSrc0, '(?m)^@(\S+)')) {
-        $rel = $m.Groups[1].Value -replace '^kw-ax/', ''
-        if (-not (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $rel)))) { $ok = $false }
-    }
-    $ok
-}
-# 경로에 공백이 들어가면 어디까지가 경로인지 갈리지 않는다.
-Check '@import 경로에 공백이 없다' {
-    $tplSrc1 = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
-    -not ($tplSrc1 -match '(?m)^@[^\r\n]* ')
-}
-
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     $tplSrc -notmatch 'gh auth login'
@@ -554,26 +537,48 @@ Check '훅은 문구로 재시작을 판정하지 않는다' {
 Write-Host ''
 Write-Host '문안 조립'
 # 답변 원칙과 한국어 지시사항과 금지어 목록은 disciplined-coder 도 싣는다. 그쪽 블록이
-# CLAUDE.md 에 있으면 템플릿만 싣고, 없으면 AX 블록 안에 끼운다. 공용 블록은 쓰지 않는다.
-# 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+# CLAUDE.md 에 있으면 사내 문안만 @import 하고, 없으면 원칙과 목록까지 @import 한다.
+# 공용 블록은 쓰지 않는다. 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+$assembled = @{}
 foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '훅'; Path = 'hooks\session-check.ps1' })) {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin $pair.Path), [ref]$null, [ref]$null)
     $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxBlock' }, $true)
     Check "$($pair.Name)에 Get-AxBlock 이 있다" { $null -ne $fn }
     if ($null -eq $fn) { continue }
     . ([scriptblock]::Create($fn.Extent.Text))
-    $with    = Get-AxBlock $plugin "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n"
-    $without = Get-AxBlock $plugin "앞`n"
-    Check "$($pair.Name): disciplined-coder 가 있으면 템플릿만 싣는다" {
-        ($with -match '금융업 종사자') -and ($with -notmatch '## 원칙') -and ($with -notmatch '한국어 금지어 목록')
+    $with    = Get-AxBlock "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n"
+    $without = Get-AxBlock "앞`n"
+    $assembled[$pair.Name] = "$with`n----`n$without"
+    Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안만 싣는다" {
+        $with -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n# END AX[^\n]*$'
     }
-    Check "$($pair.Name): disciplined-coder 가 없으면 원칙과 목록을 END 앞에 싣는다" {
-        ($without -match '(?s)금융업 종사자.*## 원칙.*## 한국어 지시사항.*한국어 금지어 목록.*\n# END AX')
+    Check "$($pair.Name): disciplined-coder 가 없으면 원칙과 목록까지 싣는다" {
+        $without -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n@kw-ax/claude-md-ko-principles\.md\n@kw-ax/korean-banned-words\.md\n# END AX[^\n]*$'
     }
-    Check "$($pair.Name): 조립한 블록에도 마커가 하나씩이다" {
-        (@([regex]::Matches($without, '(?m)^#\s*BEGIN AX\b')).Count -eq 1) -and (@([regex]::Matches($without, '(?m)^#\s*END AX\b')).Count -eq 1)
+    # 블록이 가리키는 파일이 템플릿에 없으면 @import 가 아무것도 싣지 않고, 그 상태를 아무도 못 본다.
+    Check "$($pair.Name): 블록이 싣는 파일이 템플릿에 있다" {
+        $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$'))
+        ($refs.Count -gt 0) -and (@($refs | Where-Object { -not (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $_.Groups[1].Value))) }).Count -eq 0)
     }
+    # 경로에 공백이 들어가면 어디까지가 경로인지 구분되지 않는다.
+    Check "$($pair.Name): @import 경로에 공백이 없다" { $without -notmatch '(?m)^@[^\n]* ' }
 }
+Check '맞춤과 훅이 같은 블록을 조립한다' { $assembled['맞춤'] -eq $assembled['훅'] }
+# 블록을 맞춤이 만들므로 템플릿에 마커가 있으면 사본을 싣는 순간 마커가 한 벌 더 생긴다.
+Check '사내 문안 템플릿에 마커가 없다' {
+    (Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8) -notmatch '(?m)^#\s*(BEGIN|END) AX'
+}
+# 원칙이 근거 사본을 kw-ax 의 경로로 가리키므로 그 사본도 템플릿에 있어야 맞춤이 복사한다.
+Check '원칙이 가리키는 근거 사본이 템플릿에 있다' {
+    $pr = Get-Content (Join-Path $plugin 'templates\claude-md-ko-principles.md') -Raw -Encoding UTF8
+    $m  = [regex]::Match($pr, '~/\.claude/kw-ax/([\w.-]+\.md)')
+    $m.Success -and (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $m.Groups[1].Value)))
+}
+Check '맞춤이 블록을 쓰기 전에 템플릿을 kw-ax 로 복사한다' {
+    $c = $syncSrc.IndexOf("Join-Path `$cfg 'kw-ax'")
+    ($c -ge 0) -and ($c -lt $syncSrc.IndexOf('$block = Get-AxBlock $fileNow'))
+}
+Check '훅이 kw-ax 사본을 템플릿과 대조한다' { $hookCode -match "Join-Path `\`$cfg 'kw-ax'" }
 # 공용 블록을 쓰던 옛 버전의 흔적이 남으면 목록이 두 벌 실린다.
 Check '맞춤이 공용 블록을 새로 쓰지 않는다' { $syncSrc -notmatch "'# BEGIN korean-banned-words" }
 Check '맞춤이 옛 공용 블록을 disciplined-coder 가 없을 때만 걷는다' {
