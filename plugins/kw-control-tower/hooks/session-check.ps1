@@ -78,15 +78,13 @@ function Test-Marketplace {
 
 # 사내 문안 블록을 조립한다. 맞춤(sync.ps1)에도 같은 함수가 있다. 둘이 다르게
 # 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
-function Get-AxBlock([string]$root, [string]$claudeMd) {
-    $u8 = New-Object System.Text.UTF8Encoding($false)
-    $block = ([System.IO.File]::ReadAllText((Join-Path $root 'templates\claude-md-ko.md'), $u8)).Trim()
-    if ($claudeMd -match '(?m)^#\s*BEGIN disciplined-coder\b') { return $block }
-    $extra = @('claude-md-ko-principles.md', 'korean-banned-words.md') | ForEach-Object {
-        ([System.IO.File]::ReadAllText((Join-Path $root (Join-Path 'templates' $_)), $u8)).Trim()
+function Get-AxBlock([string]$claudeMd) {
+    $files = @('claude-md-ko.md')
+    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
+        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md')
     }
-    $extra = $extra -join "`n`n"
-    return [regex]::Replace($block, '(?m)^#\s*END AX', { param($m) $extra + "`n`n" + $m.Value })
+    $lines = @('# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)') + @($files | ForEach-Object { "@kw-ax/$_" }) + @('# END AX 설치')
+    return $lines -join "`n"
 }
 
 function Get-MarketplaceHead {
@@ -307,10 +305,27 @@ try {
     $tpl = Join-Path $root 'templates\claude-md-ko.md'
     $mem = Join-Path $cfg 'CLAUDE.md'
     $script:Budget.Files += 2
+    $u8 = New-Object System.Text.UTF8Encoding($false)
+    # 블록은 kw-ax 의 사본을 @import 로 싣는다. 사본이 없으면 @import 가 알리지 않고
+    # 아무것도 싣지 않으며, 낡으면 옛 문안이 실린다. CLAUDE.md 만 보아서는 둘 다 안 드러난다.
+    # 맞춤이 템플릿을 모두 복사하므로 여기서도 모두 대조한다.
+    if (Test-Path -LiteralPath $tpl) {
+        $stale = New-Object System.Collections.ArrayList
+        foreach ($t in @(Get-ChildItem -LiteralPath (Split-Path -Parent $tpl) -Filter '*.md' -File)) {
+            $copy = Join-Path (Join-Path $cfg 'kw-ax') $t.Name
+            $script:Budget.Files += 2
+            if (-not (Test-Path -LiteralPath $copy) -or
+                ([System.IO.File]::ReadAllText($copy, $u8) -ne [System.IO.File]::ReadAllText($t.FullName, $u8))) {
+                [void]$stale.Add($t.Name)
+            }
+        }
+        if ($stale.Count -gt 0) {
+            [void]$notes.Add("CLAUDE.md 가 싣는 사내 문안 사본이 없거나 배포된 것과 다릅니다: $($stale -join ', ')")
+        }
+    }
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
-        $u8 = New-Object System.Text.UTF8Encoding($false)
         $now   = [System.IO.File]::ReadAllText($mem, $u8)
-        $block = Get-AxBlock $root $now
+        $block = Get-AxBlock $now
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
         $found = [regex]::Match($now, $re)
         $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }

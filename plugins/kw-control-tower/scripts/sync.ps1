@@ -100,18 +100,18 @@ function Invoke-Claude {
 $userHome = $env:USERPROFILE
 if ([string]::IsNullOrEmpty($userHome)) { Write-Error '윈도가 아닙니다. 이 스크립트는 윈도 전용입니다.'; exit 1 }
 
-# 사내 문안 블록을 조립한다. CLAUDE.md 에 disciplined-coder 블록이 있으면 답변 원칙과
-# 한국어 지시사항과 금지어 목록을 그쪽이 실으므로 템플릿만 쓰고, 없으면 END 마커 앞에 끼운다.
+# 사내 문안 블록을 조립한다. 블록은 문안을 직접 싣지 않고 ~/.claude/kw-ax/ 에 복사한
+# 템플릿을 @import 로 싣는다. 템플릿이 바뀌어도 블록은 그대로라 CLAUDE.md 를 다시 쓰지 않는다.
+# CLAUDE.md 에 disciplined-coder 블록이 있으면 답변 원칙과 한국어 지시사항과 금지어 목록을
+# 그쪽이 실으므로 사내 문안만 싣는다.
 # 점검 훅에도 같은 함수가 있다. 둘이 다르게 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
-function Get-AxBlock([string]$root, [string]$claudeMd) {
-    $u8 = New-Object System.Text.UTF8Encoding($false)
-    $block = ([System.IO.File]::ReadAllText((Join-Path $root 'templates\claude-md-ko.md'), $u8)).Trim()
-    if ($claudeMd -match '(?m)^#\s*BEGIN disciplined-coder\b') { return $block }
-    $extra = @('claude-md-ko-principles.md', 'korean-banned-words.md') | ForEach-Object {
-        ([System.IO.File]::ReadAllText((Join-Path $root (Join-Path 'templates' $_)), $u8)).Trim()
+function Get-AxBlock([string]$claudeMd) {
+    $files = @('claude-md-ko.md')
+    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
+        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md')
     }
-    $extra = $extra -join "`n`n"
-    return [regex]::Replace($block, '(?m)^#\s*END AX', { param($m) $extra + "`n`n" + $m.Value })
+    $lines = @('# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)') + @($files | ForEach-Object { "@kw-ax/$_" }) + @('# END AX 설치')
+    return $lines -join "`n"
 }
 
 function Get-MarketplaceHead {
@@ -541,16 +541,27 @@ Save-State
 Write-Host '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
 
 try {
-    $tpl = Join-Path $root 'templates\claude-md-ko.md'
+    $tplDir = Join-Path $root 'templates'
+    $tpl    = Join-Path $tplDir 'claude-md-ko.md'
     if (-not (Test-Path -LiteralPath $tpl)) { throw "문안 템플릿이 없습니다: $tpl" }
 
-    $utf8  = New-Object System.Text.UTF8Encoding($false)
-    $block = ([System.IO.File]::ReadAllText($tpl, $utf8)).Trim()
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
 
-    # 마커가 둘 다 없으면 다음 실행이 자기 블록을 못 찾아 사본을 하나 더 붙인다.
-    # 파일을 키우느니 멈춘다.
-    if ($block -notmatch '(?m)^#\s*BEGIN AX\b' -or $block -notmatch '(?m)^#\s*END AX\b') {
-        throw '템플릿에 BEGIN/END AX 마커가 없습니다.'
+    # 블록이 @import 로 싣는 파일을 먼저 복사하고 그다음에 블록을 쓴다. 순서가 반대면
+    # 블록이 아직 없는 파일을 가리키는 세션이 생기고, @import 는 없는 파일을 알리지 않는다.
+    # 템플릿은 모두 복사한다. disciplined-coder 가 있어 블록이 싣지 않는 파일도 두는데,
+    # 원칙이 근거 사본을 이 폴더의 경로로 가리키고, 무엇을 복사할지 가리지 않아야 훅이
+    # 같은 기준으로 대조할 수 있다.
+    $axDir = Join-Path $cfg 'kw-ax'
+    if (-not $WhatIfOnly -and -not (Test-Path -LiteralPath $axDir)) { New-Item -ItemType Directory -Path $axDir | Out-Null }
+    foreach ($t in @(Get-ChildItem -LiteralPath $tplDir -Filter '*.md' -File)) {
+        $copy = Join-Path $axDir $t.Name
+        $same = (Test-Path -LiteralPath $copy) -and
+                ([System.IO.File]::ReadAllText($copy, $utf8) -eq [System.IO.File]::ReadAllText($t.FullName, $utf8))
+        if ($same) { continue }
+        if ($WhatIfOnly) { Say "[미리보기] $copy 를 템플릿으로 바꿉니다."; continue }
+        Copy-Item -LiteralPath $t.FullName -Destination $copy -Force
+        Note "$copy 를 템플릿으로 바꿨습니다."
     }
 
     $target = Join-Path $userHome '.claude\CLAUDE.md'
@@ -593,7 +604,7 @@ try {
         $fileNow = ''
         if (Test-Path -LiteralPath $target) { $fileNow = [System.IO.File]::ReadAllText($target, $utf8) }
         $original = $fileNow
-        $block = Get-AxBlock $root $fileNow
+        $block = Get-AxBlock $fileNow
 
         # 옛 버전은 금지어 목록을 AX 블록 바깥의 공용 블록으로 실었다. 지금은
         # disciplined-coder 가 없을 때 AX 블록 안에 싣는다. 그때 옛 공용 블록이 남아
