@@ -251,6 +251,49 @@ Check '알림 훅과 맞춤이 같은 해시 함수를 보유한다' {
     (& $strip $a).Trim() -eq (& $strip $b).Trim()
 }
 
+# --- 맞춤이 옛 훅 연결만 걷는다 --------------------------------------------
+# 2026-09-28 에 다른 직원 PC 에서 단계 7 이 "'hooks' 속성을 찾을 수 없습니다" 로 실패했다.
+# hooks 키가 없는 그룹에서 Get-Prop 이 $null 을 돌려주고, @() 가 그것을 원소 하나로 세어
+# 없는 속성에 값을 넣으려 했다. 사용자가 써 둔 그룹은 모양이 어떻든 그대로 남아야 한다.
+Write-Host ''
+Write-Host '맞춤이 옛 훅 연결만 걷는다'
+$syncSrcH = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
+foreach ($fn in @('Get-Prop', 'Remove-RetiredHookEntries')) {
+    . ([scriptblock]::Create(([regex]::Match($syncSrcH, "(?s)function $fn \{.*?\n\}")).Value))
+}
+$retiredH = @([pscustomobject]@{ file = 'docker-cert-reminder.ps1'; pathContains = 'corp-certs' })
+$oldH = '{ "type": "command", "command": "pwsh -File C:\\Users\\u\\AppData\\Local\\corp-certs\\docker-cert-reminder.ps1" }'
+$newH = '{ "type": "command", "command": "pwsh -File C:\\Users\\u\\.claude\\plugins\\cache\\kiwoom-ax\\kw-control-tower\\x\\hooks\\docker-cert-reminder.ps1" }'
+function Invoke-HookPrune([string]$Json) {
+    $h = $Json | ConvertFrom-Json
+    $n = Remove-RetiredHookEntries $h $retiredH
+    # 저장했다 다시 읽은 모양으로 견준다. 맞춤은 이것을 settings.json 에 쓴다.
+    @{ Removed = $n; Hooks = ($h | ConvertTo-Json -Depth 20 | ConvertFrom-Json) }
+}
+Check 'hooks 키가 없는 그룹을 만나도 멈추지 않고 그 그룹에 hooks 를 새로 만들지 않는다' {
+    $r = Invoke-HookPrune "{ `"PreToolUse`": [ { `"matcher`": `"Bash`" }, { `"matcher`": `"Write`", `"hooks`": [ $oldH, $newH ] } ] }"
+    $g = @($r.Hooks.PreToolUse)
+    ($r.Removed -eq 1) -and ($g.Count -eq 2) -and ($g[0].matcher -eq 'Bash') -and
+        ($null -eq $g[0].PSObject.Properties['hooks']) -and (@($g[1].hooks).Count -eq 1) -and
+        (@($g[1].hooks)[0].command -like '*kiwoom-ax*')
+}
+Check '그룹 배열 안의 null 은 그대로 남는다' {
+    $r = Invoke-HookPrune "{ `"PreToolUse`": [ null, { `"matcher`": `"Write`", `"hooks`": [ $oldH, $newH ] } ] }"
+    $g = @($r.Hooks.PreToolUse)
+    ($r.Removed -eq 1) -and ($g.Count -eq 2) -and ($null -eq $g[0]) -and (@($g[1].hooks).Count -eq 1)
+}
+Check 'hooks 가 빈 배열인 그룹은 그대로 남는다' {
+    $r = Invoke-HookPrune "{ `"PreToolUse`": [ { `"matcher`": `"Bash`", `"hooks`": [] }, { `"matcher`": `"Write`", `"hooks`": [ $oldH ] } ] }"
+    $g = @($r.Hooks.PreToolUse)
+    ($r.Removed -eq 1) -and ($g.Count -eq 1) -and ($g[0].matcher -eq 'Bash') -and ($null -ne $g[0].PSObject.Properties['hooks'])
+}
+Check '옛 훅과 새 훅이 섞인 그룹에서 옛 훅만 걷고 다른 이벤트는 그대로 둔다' {
+    $r = Invoke-HookPrune "{ `"PreToolUse`": [ { `"matcher`": `"Write`", `"hooks`": [ $oldH, $newH ] } ], `"Stop`": [ { `"hooks`": [ { `"type`": `"command`", `"command`": `"echo hi`" } ] } ] }"
+    ($r.Removed -eq 1) -and (@(@($r.Hooks.PreToolUse)[0].hooks).Count -eq 1) -and
+        (@(@($r.Hooks.PreToolUse)[0].hooks)[0].command -like '*kiwoom-ax*') -and
+        (@(@($r.Hooks.Stop)[0].hooks)[0].command -eq 'echo hi')
+}
+
 # --- 알림 훅이 가짜 홈에서 아무 말도 안 한다 -------------------------------
 Write-Host ''
 Write-Host '알림 훅의 동작'

@@ -86,6 +86,42 @@ function Save-Json {
     [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
+function Remove-RetiredHookEntries {
+    # settings.json 의 hooks 절에서 옛 훅 연결만 걷고 걷은 개수를 돌려준다.
+    #
+    # 옛 훅이 없는 그룹은 모양이 어떻든 손대지 않는다. hooks 키가 없는 그룹이나 배열 안의
+    # null 에서 이 단계가 멈추면 매 세션 같은 실패가 되풀이된다. 2026-09-28 에 다른 직원
+    # PC 에서 그렇게 됐다. 옛 훅만 들어 있던 그룹은 빈 껍데기가 되므로 통째로 걷는다.
+    param($Hooks, $Retired)
+    $removed = 0
+    foreach ($evt in @($Hooks.PSObject.Properties.Name)) {
+        if ($null -eq $Hooks.$evt) { continue }
+        $keptGroups = New-Object System.Collections.ArrayList
+        foreach ($g in @($Hooks.$evt)) {
+            $entries = Get-Prop $g 'hooks'
+            if ($null -eq $entries) { [void]$keptGroups.Add($g); continue }
+            $keptEntries = New-Object System.Collections.ArrayList
+            foreach ($e in @($entries)) {
+                $blob = ''
+                try { $blob = ($e | ConvertTo-Json -Depth 10 -Compress) } catch { }
+                $isOld = $false
+                foreach ($h in $Retired) {
+                    $file = Get-Prop $h 'file'
+                    $pathBit = Get-Prop $h 'pathContains'
+                    if ($file -and $pathBit -and $blob -and $blob.Contains($file) -and $blob.Contains($pathBit)) { $isOld = $true }
+                }
+                if ($isOld) { $removed++ } else { [void]$keptEntries.Add($e) }
+            }
+            if ($keptEntries.Count -eq @($entries).Count) { [void]$keptGroups.Add($g); continue }
+            if ($keptEntries.Count -gt 0) {
+                $g.hooks = @($keptEntries)
+                [void]$keptGroups.Add($g)
+            }
+        }
+        $Hooks.$evt = @($keptGroups)
+    }
+    return $removed
+}
 function Invoke-Claude {
     # 클로드를 이름으로 호출하지 않고 시작할 때 한 번 찾아 둔 절대 경로로 부른다.
     # 못 찾았으면 셸 오류를 그대로 뱉는 대신 무엇이 없는지 말한다. 파이썬을 다루는
@@ -744,32 +780,7 @@ try {
         $settings = Read-Json $settingsPath
         $hooks = Get-Prop $settings 'hooks'
         $removed = 0
-        if ($null -ne $hooks) {
-            foreach ($evt in @($hooks.PSObject.Properties.Name)) {
-                $groups = @($hooks.$evt)
-                $keptGroups = New-Object System.Collections.ArrayList
-                foreach ($g in $groups) {
-                    $entries = @(Get-Prop $g 'hooks')
-                    $keptEntries = New-Object System.Collections.ArrayList
-                    foreach ($e in $entries) {
-                        $blob = ''
-                        try { $blob = ($e | ConvertTo-Json -Depth 10 -Compress) } catch { }
-                        $isOld = $false
-                        foreach ($h in $retiredHooks) {
-                            $file = Get-Prop $h 'file'
-                            $pathBit = Get-Prop $h 'pathContains'
-                            if ($file -and $pathBit -and $blob -and $blob.Contains($file) -and $blob.Contains($pathBit)) { $isOld = $true }
-                        }
-                        if ($isOld) { $removed++ } else { [void]$keptEntries.Add($e) }
-                    }
-                    if ($keptEntries.Count -gt 0) {
-                        $g.hooks = @($keptEntries)
-                        [void]$keptGroups.Add($g)
-                    }
-                }
-                $hooks.$evt = @($keptGroups)
-            }
-        }
+        if ($null -ne $hooks) { $removed = Remove-RetiredHookEntries $hooks $retiredHooks }
         if ($removed -gt 0) {
             if ($WhatIfOnly) { Say "[미리보기] 옛 훅 연결 $removed 개를 걷습니다." }
             else { Save-Json $settings $settingsPath; Note "옛 훅 연결 $removed 개를 걷었습니다. 같은 일은 이 플러그인의 훅이 이어서 합니다." }
