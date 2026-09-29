@@ -20,7 +20,13 @@ description: fnguide 증권사 리포트를 키워드로 찾아 대화에 보여
 
 키워드가 없으면 검색 방식을 설명하지 않고 키워드와 기간만 한 문장으로 묻는다. 괄호 안은 오늘과 그 1주 전 날짜로 채운다.
 
-> 찾을 키워드와 기간을 알려 주세요. 기간을 말하지 않으면 최근 1주(1주 전 날짜~오늘 날짜)로 찾습니다.
+> 찾을 키워드와 기간을 알려 주세요. 키워드가 여러 개면 쉼표로 구분해 주세요. 기간을 말하지 않으면 최근 1주(1주 전 날짜~오늘 날짜)로 찾습니다.
+
+키워드가 여러 개면 키워드마다 따로 검색한다. 서로 관련이 적은 단어를 한 검색어에 넣으면 정확도가 떨어지기 때문이다.
+
+- **쉼표로 나눠 말했으면** 묻지 않고 키워드마다 따로 찾는다.
+- **쉼표 없이 여러 키워드로 보이면**(`삼성전자 HBM`, `삼성전자랑 HBM`) 나눈 결과를 확인한 뒤 찾는다. 예: 「삼성전자」, 「HBM」 두 키워드로 따로 찾을까요? 한 검색어로 묶어 찾을 수도 있지만, 서로 관련이 적은 단어를 함께 넣으면 정확도가 떨어져 따로 찾기를 권합니다.
+- **키워드가 하나로 분명하면** 묻지 않고 찾는다.
 
 ## 요청 형식
 
@@ -35,7 +41,7 @@ description: fnguide 증권사 리포트를 키워드로 찾아 대화에 보여
 
 | 필드 | 값 | 설명 |
 |---|---|---|
-| `query` | 사용자가 말한 키워드 | 키워드 하나를 그대로 넣는다 |
+| `query` | 사용자가 말한 키워드 | 요청 하나에 키워드 하나를 넣는다. 여러 개면 아래 「키워드 여러 개」처럼 따로 보낸다 |
 | `collection_name` | `"fnguide_reports_hybrid"` | 고정 |
 | `top_k` | `30` | 고정 |
 | `use_rerank` | `false` | 서버 기본값이 `true` 라서 반드시 적는다. 켜면 ColBERT 리랭커가 산업 리포트보다 개별 종목 리포트를 위로 올린다 |
@@ -69,6 +75,30 @@ $res.results | ForEach-Object {
 - **`ConvertTo-Json -Depth 6` 을 빼지 않는다.** 기본 깊이는 2라서, 빼면 기간 조건이 `"System.Collections.Hashtable"` 이라는 문자열로 바뀌어 나간다.
 - **슬래시가 든 키는 따옴표로 감싼다.** `$_.payload.'종목/분류명'`
 
+## 키워드 여러 개
+
+키워드마다 요청을 하나씩 동시에 보낸다.
+
+```powershell
+$keywords = @('삼성전자', 'HBM')
+$filter = @{ must = @(@{ key = '일자'; range = @{ gte = 20260922; lte = 20260929 } }) }
+
+$byKeyword = $keywords | ForEach-Object -ThrottleLimit 5 -Parallel {
+    $body = @{
+        query           = $_
+        collection_name = 'fnguide_reports_hybrid'
+        top_k           = 30
+        use_rerank      = $false
+        payload_filter  = $using:filter
+    } | ConvertTo-Json -Depth 6
+    $res = Invoke-RestMethod -Method Post -Uri 'http://192.7.9.45:8500/v1/search/hybrid' `
+        -ContentType 'application/json' -Body $body -TimeoutSec 120
+    [pscustomobject]@{ 키워드 = $_; 결과 = $res.results }
+}
+```
+
+- **결과는 끝난 순서로 돌아온다.** 보여 줄 때는 사용자가 말한 키워드 순서로 다시 맞춘다.
+
 ## 응답
 
 ```json
@@ -89,7 +119,7 @@ $res.results | ForEach-Object {
 | `payload.file_path` | 원문 PDF 의 식별자. 아래 「원문 받기」에 쓴다 |
 | `text` | 검색에 쓴 본문. 제목·종목·일자·5축·요약을 이은 글이다. `payload.text` 도 같은 값이다 |
 
-30건 응답은 약 130KB 다. 대화에는 유사도 순위·발간일·종목/분류명·제목을 표로 보이고, 요약·5축·`file_path` 는 사용자가 원할 때 꺼낸다.
+30건 응답은 약 130KB 다. 대화에는 유사도 순위·발간일·종목/분류명·제목을 표로 보이고(키워드가 여러 개면 키워드마다 제목을 달아 표를 따로 보인다), 요약·5축·`file_path` 는 사용자가 원할 때 꺼낸다.
 
 ## 사용자에게 알릴 것
 
