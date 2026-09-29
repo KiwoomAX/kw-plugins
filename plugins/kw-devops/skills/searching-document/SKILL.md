@@ -14,7 +14,7 @@ description: fnguide 증권사 리포트를 키워드로 찾아 대화에 보여
 
 ## 사용자에게 쓰는 말
 
-이 스킬을 쓰는 사람은 개발자가 아니다. 답에서는 이 기능을 「사내 리포트 검색」으로만 부르고, 아래 문서의 부품 이름(vdb-handler, file-handler, 컬렉션, 하이브리드 검색, 리랭커, 서버 주소, `file_path` 같은 필드 이름)은 쓰지 않는다. 필드는 요약·원문 파일 이름·원문 PDF 처럼 뜻으로 부른다.
+이 스킬을 쓰는 사람은 개발자가 아니다. 답에서는 이 기능을 「사내 리포트 검색」으로만 부르고, 아래 문서의 부품 이름(vdb-handler, file-handler, 컬렉션, 하이브리드 검색, 리랭커, 서버 주소, `file_path` 같은 필드 이름)은 쓰지 않는다. 필드는 요약·원문 파일 이름·원문 PDF 처럼 뜻으로 부르고, 날짜는 「발간일」이라고 부른다. 아래의 `일자` 는 서버가 받는 키 이름이라 요청에서만 그대로 쓴다.
 
 순위 열은 「유사도 순위」라고 부른다. 키워드와 가까운 순서라는 뜻이다. 결과를 읽고 묶거나 빼거나 관련 여부를 적으면 「AI 판단」이라고 밝혀 유사도 순위와 구분한다.
 
@@ -62,7 +62,7 @@ $res = Invoke-RestMethod -Method Post -Uri 'http://192.7.9.45:8500/v1/search/hyb
     -ContentType 'application/json' -Body $body -TimeoutSec 120
 
 $res.results | ForEach-Object {
-    [pscustomobject]@{ 일자 = $_.payload.'일자'; 종목 = $_.payload.'종목/분류명'; 제목 = $_.payload.'제목'; file_path = $_.payload.file_path }
+    [pscustomobject]@{ 발간일 = $_.payload.'일자'; 종목 = $_.payload.'종목/분류명'; 제목 = $_.payload.'제목'; file_path = $_.payload.file_path }
 } | Format-Table -AutoSize
 ```
 
@@ -81,7 +81,7 @@ $res.results | ForEach-Object {
 |---|---|
 | `score` | 순위 점수. dense 와 sparse 검색의 등수로 계산해 0에서 1 사이 값이 나오고, 관련도를 뜻하지 않는다. 관련 없는 키워드로 찾아도 1등은 0.5 이상이라 조회끼리 비교하거나 기준값으로 자르지 않는다 |
 | `payload.제목` | 리포트 제목 |
-| `payload.일자` | 발행일, YYYYMMDD 정수 |
+| `payload.일자` | 발간일, YYYYMMDD 정수 |
 | `payload.종목/분류명` | 종목명이나 산업 분류명 |
 | `payload.주내용` | 리포트 요약 |
 | `payload.테마`·`섹터`·`지역`·`드라이버`·`정책` | 문자열 목록. 예: `["HBM", "AI", "반도체 장비"]` |
@@ -89,7 +89,7 @@ $res.results | ForEach-Object {
 | `payload.file_path` | 원문 PDF 의 식별자. 아래 「원문 받기」에 쓴다 |
 | `text` | 검색에 쓴 본문. 제목·종목·일자·5축·요약을 이은 글이다. `payload.text` 도 같은 값이다 |
 
-30건 응답은 약 130KB 다. 대화에는 순위·일자·종목/분류명·제목을 표로 보이고, 요약·5축·`file_path` 는 사용자가 원할 때 꺼낸다.
+30건 응답은 약 130KB 다. 대화에는 유사도 순위·발간일·종목/분류명·제목을 표로 보이고, 요약·5축·`file_path` 는 사용자가 원할 때 꺼낸다.
 
 ## 사용자에게 알릴 것
 
