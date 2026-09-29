@@ -322,6 +322,24 @@ Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECON
 Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match '(?m)^\s*(def|class)\s+[^\x00-\x7F]'))
 Assert 'fetch_manifest.py asks for no document TTL' (-not ($fetText -match '(?m)^\s*[^#\n]*\bttl\s*='))
 
+Write-Host '--- searching-document ---'
+# A reference skill: one SKILL.md and no scripts. The user's own Claude calls vdb-handler with it.
+$sdDir  = Join-Path $PluginDir 'skills/searching-document'
+$sdMd   = Join-Path $sdDir 'SKILL.md'
+Assert 'searching-document SKILL.md ships' (Test-Path $sdMd)
+Assert 'searching-document ships SKILL.md and nothing else' (@(Get-ChildItem $sdDir -Recurse -File -ErrorAction SilentlyContinue).Count -eq 1)
+$sdText = if (Test-Path $sdMd) { [IO.File]::ReadAllText($sdMd) } else { '' }
+$sdName = ([regex]::Match($sdText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value
+Assert 'searching-document frontmatter name matches the folder' ($sdName -eq 'searching-document')
+Assert 'searching-document calls no python3' (-not ($sdText -match '\bpython3\b'))
+Assert 'searching-document carries no build-history notes' (-not ($sdText -match '\b20\d\d-\d\d-\d\d\b|실측'))
+# The server defaults use_rerank to true; the skill promises a search without the reranker.
+Assert 'searching-document turns the reranker off' ($sdText -match 'use_rerank\s*=\s*\$false')
+# ConvertTo-Json stops at depth 2 and turns the date filter into "System.Collections.Hashtable".
+Assert 'searching-document serialises the body deep enough' ($sdText -match 'ConvertTo-Json -Depth [3-9]')
+# Read-only: the one endpoint it names is the search, never a collection write.
+Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upsert|/delete|set_payload|delete_points'))
+
 Write-Host '--- claude plugin validate ---'
 Push-Location $Repo
 try {
