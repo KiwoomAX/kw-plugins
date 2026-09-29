@@ -9,11 +9,13 @@
 
   "required": [
     "kw-doc-formats@kiwoom-ax",
-    "kw-devops@kiwoom-ax",
     "kw-dashboard@kiwoom-ax"
   ],
 
+  "_suggested_comment": "kw-devops 는 사내 서버 192.7.9.45 에만 접속하므로 외부망 PC 에서는 쓸 수 없다. 필수에 두면 사용자가 꺼도 맞춤이 매 세션 다시 켠다. 권장으로 두어 처음 한 번만 깔고, 끈 것은 그대로 둔다(2026-09-29 사용자 결정). 켜져 있든 꺼져 있든 깔려 있으면 뒤처진 설치본은 맞춤이 옮긴다.",
+
   "suggested": [
+    "kw-devops@kiwoom-ax",
     "superpowers@claude-plugins-official",
     "document-skills@anthropic-agent-skills",
     "playwright@claude-plugins-official",

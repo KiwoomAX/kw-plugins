@@ -37,7 +37,11 @@ Assert "the marketplace ships $PluginName" ($null -ne $entry)
 Assert 'the plugin source is an in-repo path' ($null -ne $entry -and $entry.source -eq './plugins/kw-devops')
 Assert 'both descriptions are the same text' ($null -ne $pluginJson.description -and $null -ne $entry -and $pluginJson.description -eq $entry.description)
 Assert 'plugin.json carries no version (commit-based auto update)' ($null -ne $pluginJson -and $null -eq $pluginJson.PSObject.Properties['version'])
-Assert "the control tower requires $PluginId" ($null -ne $manifest -and @($manifest.required) -contains $PluginId)
+# Suggested, not required: the skills reach only the internal server 192.7.9.45, so people
+# off the company network turn the plugin off, and a required entry would turn it back on
+# every session (decided 2026-09-29).
+Assert "the control tower suggests $PluginId" ($null -ne $manifest -and @($manifest.suggested) -contains $PluginId)
+Assert "the control tower does not require $PluginId" ($null -ne $manifest -and @($manifest.required) -notcontains $PluginId)
 
 Write-Host '--- skill ---'
 $md = Join-Path $SkillDir 'SKILL.md'
