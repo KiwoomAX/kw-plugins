@@ -481,9 +481,8 @@ try {
         }
     }
     if (-not $loggedIn) {
-        [void]$asks.Add('사내 GitHub 로그인이 아직입니다. 브라우저 승인이 필요해 대신 해 드릴 수 없으니 아래를 직접 실행해 주십시오.')
-        [void]$asks.Add('    gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
-        [void]$asks.Add('조직에 아직 초대되지 않았다면 초대 메일을 먼저 수락하셔야 합니다.')
+        # 한 줄로 낸다. 매 세션 뜨는 안내라 길면 그 아래의 다른 알림을 밀어낸다(2026-09-29 사용자 결정).
+        [void]$asks.Add('사내 GitHub 로그인이 필요합니다. 직접 실행해 주십시오: gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
     }
 }
 catch {
@@ -598,6 +597,7 @@ try {
 # additionalContext 로도 넣어 Claude 가 첫 답에서 재시작이나 직접 할 일을 전하게 한다.
 # disciplined-coder 와 2026-09-25 에 이 형식으로 맞췄다.
 $say = New-Object System.Collections.ArrayList
+$syncLog = $null   # 맞춤을 불렀으면 그 진행 기록 파일. Claude 에게만 알린다.
 $restartLine = 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
 function Send-Hook {
     if ($say.Count -eq 0) { return }
@@ -606,6 +606,7 @@ function Send-Hook {
     $ctx = $text + "`n`n이 알림을 사용자의 첫 요청에 답하기 전에 먼저 전하라."
     if ($text.Contains($restartLine)) { $ctx += ' 클로드 코드를 다시 켜 달라고 요구하라.' }
     if ($text -match '(?m)^\s+claude plugin ') { $ctx += ' 적힌 명령을 대신 실행할지 물어라.' }
+    if ($syncLog) { $ctx += " 맞춤의 진행 기록은 $syncLog 에 있다." }
     @{ systemMessage = $text; hookSpecificOutput = @{ hookEventName = 'SessionStart'; additionalContext = $ctx } } |
         ConvertTo-Json -Depth 4 -Compress
 }
@@ -630,18 +631,12 @@ if ($applied.Count -gt 0 -or $stuckSay.Count -gt 0) {
     [void]$say.Add('')
 }
 
-# 사용자가 직접 해야 하는 것을 먼저 말한다. 맞춤이 뒤에 길게 찍으므로, 뒤에 두면
-# 사람이 할 일이 출력 맨 아래로 밀려 안 읽힌다.
-if ($asks.Count -gt 0) {
-    [void]$say.Add('KW 컨트롤 타워: 직접 해 주셔야 하는 것이 있습니다.')
-    foreach ($a in $asks) { [void]$say.Add("  $a") }
-    if ($notes.Count -gt 0) { [void]$say.Add('') }
-}
+# 사용자가 직접 해야 하는 것을 먼저 말한다. 한 가지를 한 줄로 낸다. 직접 할 일은 맞춤을
+# 부르는 이유가 아니므로 아래의 맞춤과 무관하게 뜬다.
+foreach ($a in $asks) { [void]$say.Add("KW 컨트롤 타워: $a") }
+if ($asks.Count -gt 0 -and $notes.Count -gt 0) { [void]$say.Add('') }
 
 if ($notes.Count -eq 0) { Send-Hook; exit 0 }   # 맞춤이 고칠 것이 없으면 맞춤을 안 호출한다
-
-[void]$say.Add('KW 컨트롤 타워: 이 PC 가 사내 설정과 불일치합니다.')
-foreach ($n in $notes) { [void]$say.Add("  - $n") }
 
 # --- 여기부터 예산 밖이다 ---------------------------------------------------
 #
@@ -659,19 +654,23 @@ foreach ($n in $notes) { [void]$say.Add("  - $n") }
 # 안 실려 못 잡는다. 둘 다 출력을 UTF-8 로 맞춰 두어 한국어가 안 깨진다.
 $sync = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\sync.ps1'
 if (-not (Test-Path -LiteralPath $sync)) {
+    # 맞춤을 못 부를 때만 불일치 목록을 낸다. 맞춤이 돌면 그 결과가 무엇을 고쳤는지 말하므로
+    # 목록을 함께 내면 같은 플러그인이 두 번 나온다.
+    [void]$say.Add('KW 컨트롤 타워: 이 PC 가 사내 설정과 불일치합니다.')
+    foreach ($n in $notes) { [void]$say.Add("  - $n") }
     [void]$say.Add('맞춤 스크립트를 못 찾아 고치지 못했습니다. 설치기를 다시 돌리십시오.')
     Send-Hook
     exit 0
 }
 
-[void]$say.Add('')
-[void]$say.Add('불일치를 맞췄습니다. 맞춤이 남긴 결과는 아래와 같습니다.')
 try {
     # 감지가 읽은 원격 커밋을 넘긴다. 맞춤은 그 커밋까지 옮기지 못했으면 상태 파일에
     # 적고, 감지는 다음 세션에 그것을 보고 같은 실패로 맞춤을 다시 호출하지 않는다.
     $env:KWCT_REMOTE_HEAD = (@($remoteOf.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';')
-    $out = & pwsh -NoProfile -NonInteractive -File $sync 2>&1
-    # 맞춤이 찍는 것을 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
+    # -Brief 로 부른다. 맞춤은 진행 출력을 로그 파일에 두고 결과만 낸다.
+    $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief 2>&1
+    $syncLog = Join-Path $cfg 'kw-control-tower.sync.log'
+    # 맞춤이 낸 결과를 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
     #
     # 여기서 문구를 찾아 판정하던 것을 그만뒀다. 맞춤이 재시작을 호출하는 일을 다섯 가지
     # 하는데 이 정규식은 그중 둘만 잡고 있었다. 갱신과 되켜기와 걷어내기가 빠졌다.
