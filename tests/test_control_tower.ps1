@@ -948,7 +948,9 @@ Write-Host ''
 Write-Host '맞춤의 갱신 기록'
 $sy = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-sync-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path (Join-Path $sy 'bin') | Out-Null
-'@pwsh -NoProfile -NonInteractive -File "%~dp0claude-stub.ps1" %*' | Set-Content -LiteralPath (Join-Path $sy 'bin\claude.cmd') -Encoding ASCII
+# 스텁은 .cmd 가 아니라 .ps1 로 둔다. .cmd 가 부르는 pwsh 가 스토어판이면 가짜 홈에서
+# "Access is denied." 로 안 떠서, 2026-09-29 에 이 PC 에서 성공 시나리오 네 건이 늘 실패했다.
+# .ps1 은 맞춤의 프로세스 안에서 돌고 출력과 종료 코드를 그대로 돌려준다.
 @'
 $a = $args
 $pd = Join-Path $env:USERPROFILE '.claude\plugins'
@@ -966,7 +968,7 @@ if ($a[0] -eq 'plugin' -and $a[1] -eq 'update') {
     exit 0
 }
 exit 0
-'@ | Set-Content -LiteralPath (Join-Path $sy 'bin\claude-stub.ps1') -Encoding UTF8
+'@ | Set-Content -LiteralPath (Join-Path $sy 'bin\claude.ps1') -Encoding UTF8
 $syncText = [System.IO.File]::ReadAllText((Join-Path $plugin 'scripts\sync.ps1'))
 $cut3 = $syncText.IndexOf('# ---------------------------------------------------------------- 단계 3')
 $cutEnd = $syncText.IndexOf('# ---------------------------------------------------------------- 마무리')
