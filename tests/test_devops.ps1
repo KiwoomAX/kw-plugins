@@ -337,8 +337,8 @@ Assert 'searching-document carries no build-history notes' (-not ($sdText -match
 Assert 'searching-document turns the reranker off' ($sdText -match 'use_rerank\s*=\s*\$false')
 # ConvertTo-Json stops at depth 2 and turns the date filter into "System.Collections.Hashtable".
 Assert 'searching-document serialises the body deep enough' ($sdText -match 'ConvertTo-Json -Depth [3-9]')
-# Read-only: the one endpoint it names is the search, never a collection write.
-Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upsert|/delete|set_payload|delete_points'))
+# Read-only: it names the search and the file GET, never a collection write or a file upload.
+Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upsert|/delete|/upload|set_payload|delete_points'))
 
 Write-Host '--- claude plugin validate ---'
 Push-Location $Repo
