@@ -8,7 +8,10 @@
 
 [CmdletBinding()]
 param(
-    [switch]$WhatIfOnly
+    [switch]$WhatIfOnly,
+    # 세션 시작 훅이 켠다. 진행 출력을 화면 대신 로그 파일에 적고, 화면에는 결과만 낸다.
+    # 2026-09-29 재현에서 같은 네 플러그인이 여섯 번 되풀이되어 알림이 55줄이 됐다.
+    [switch]$Brief
 )
 
 Set-StrictMode -Off
@@ -27,16 +30,31 @@ $script:Reenab   = New-Object System.Collections.ArrayList
 $script:Failed   = New-Object System.Collections.ArrayList
 $script:Moved    = New-Object System.Collections.ArrayList   # 새 버전으로 옮긴 설치본과 옛 커밋
 $script:UpdateFailed = New-Object System.Collections.ArrayList   # 못 옮긴 설치본과 옮기려던 커밋
+$script:Log      = New-Object System.Collections.ArrayList   # -Brief 일 때 화면 대신 모은 진행 출력
+$script:Covered  = New-Object System.Collections.ArrayList   # 실패 가운데 다른 알림이 이미 말한 것
 
-function Say  { param([string]$m) Write-Host "  $m" }
+# 진행 출력은 모두 여기를 거친다. -Brief 면 모았다가 마무리에서 로그 파일에 쓴다.
+function Show {
+    param([string]$m, [string]$Color)
+    if ($Brief) { [void]$script:Log.Add($m); return }
+    if ($Color) { Write-Host $m -ForegroundColor $Color } else { Write-Host $m }
+}
+function Say  { param([string]$m) Show "  $m" }
 function Note {
     # 미리보기에서는 한 일이 없으므로 한 일처럼 적지 않는다.
-    param([string]$m)
+    # -Moved 는 요약에 안 넣는다. 옮긴 설치본은 재시작 안내가 커밋과 함께 적는다.
+    param([string]$m, [switch]$Moved)
     if ($WhatIfOnly) { $m = "[안 함 · 미리보기] $m" }
-    [void]$script:Did.Add($m)
-    Write-Host "  + $m" -ForegroundColor Green
+    if (-not $Moved) { [void]$script:Did.Add($m) }
+    Show "  + $m" 'Green'
 }
-function Fail { param([string]$step, [string]$m) [void]$script:Failed.Add("$step : $m"); Write-Host "  ! $m" -ForegroundColor Yellow }
+function Fail {
+    # -Covered 는 버전 알림처럼 다른 알림이 이미 말하는 실패다. 짧은 출력에서 한 번만 말한다.
+    param([string]$step, [string]$m, [switch]$Covered)
+    [void]$script:Failed.Add("$step : $m")
+    if ($Covered) { [void]$script:Covered.Add("$step : $m") }
+    Show "  ! $m" 'Yellow'
+}
 
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
@@ -223,16 +241,16 @@ function Save-State {
 
 $script:ClaudeExe = (Get-Command claude -ErrorAction SilentlyContinue).Source
 
-Write-Host ''
-Write-Host 'KW 컨트롤 타워 맞춤' -ForegroundColor Cyan
-Write-Host ''
+Show ''
+Show 'KW 컨트롤 타워 맞춤' 'Cyan'
+Show ''
 if (-not $script:ClaudeExe -and -not $WhatIfOnly) {
-    Write-Host '  클로드 코드를 못 찾았습니다. 플러그인을 다루는 단계 셋은 건너뜁니다.' -ForegroundColor Yellow
-    Write-Host '  나머지 단계는 그대로 돕니다.'
+    Show '  클로드 코드를 못 찾았습니다. 플러그인을 다루는 단계 셋은 건너뜁니다.' 'Yellow'
+    Show '  나머지 단계는 그대로 돕니다.'
 }
 
 # ---------------------------------------------------------------- 단계 1
-Write-Host '1. 배포처를 등록하고 최신으로 받아옵니다.'
+Show '1. 배포처를 등록하고 최신으로 받아옵니다.'
 try {
     $settings = Read-Json $settingsPath
     if ($null -eq $settings) { throw "settings.json 을 못 읽었습니다." }
@@ -298,7 +316,7 @@ if ($script:Refreshed) { $state['refreshed'] = (Get-Date -Format o) }
 Save-State
 
 # ---------------------------------------------------------------- 단계 2
-Write-Host '2. 필수 플러그인을 맞춥니다.'
+Show '2. 필수 플러그인을 맞춥니다.'
 try {
     $installed = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
     $settings  = Read-Json $settingsPath
@@ -385,12 +403,12 @@ try {
             }
             if (-not $behind) { continue }
             if (Invoke-Claude @('plugin', 'update', $pluginId)) {
-                Note "설치본을 새 버전으로 옮겼습니다: $pluginId"
+                Note "설치본을 새 버전으로 옮겼습니다: $pluginId" -Moved
                 $script:Restart = $true
                 [void]$script:Moved.Add(@{ Id = $pluginId; Old = $behind })
             }
             else {
-                Fail '2' "설치본을 못 옮겼습니다: $pluginId"
+                Fail '2' "설치본을 못 옮겼습니다: $pluginId" -Covered
                 [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $behind; Target = $head })
             }
         }
@@ -427,35 +445,11 @@ try {
             if ($late) { $state["stuck-$mkName"] = $remoteOf[$mkName] } else { $state.Remove("stuck-$mkName") }
         }
     }
-
-    # 맞춤이 옮긴 설치본은 버전 기억 파일에도 새 버전으로 적는다. 안 적으면 다음 세션의
-    # 알림 훅이 그것을 자동 갱신이 한 일로 한 번 더 알린다. 훅과 같은 값을 적는다.
-    # version 이 있으면 version 이고 없으면 커밋이다.
-    if ($script:Moved.Count -gt 0 -and -not $WhatIfOnly) {
-        $seenPath = Join-Path $cfg 'kw-control-tower.seen'
-        $seen = [ordered]@{}
-        if (Test-Path -LiteralPath $seenPath) {
-            foreach ($line in (Get-Content -LiteralPath $seenPath -Encoding UTF8)) {
-                $i = $line.IndexOf('=')
-                if ($i -gt 0) { $seen[$line.Substring(0, $i)] = $line.Substring($i + 1) }
-            }
-        }
-        $ipAfter = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
-        foreach ($mv in $script:Moved) {
-            foreach ($scope in @(Get-Prop $ipAfter $mv.Id)) {
-                $v = Get-Prop $scope 'version'
-                if (-not $v) { $v = Get-Prop $scope 'gitCommitSha' }
-                if ($v) { $seen[$mv.Id] = "$v"; break }
-            }
-        }
-        $lines = foreach ($k in $seen.Keys) { "$k=$($seen[$k])" }
-        [System.IO.File]::WriteAllLines($seenPath, [string[]]@($lines), (New-Object System.Text.UTF8Encoding($false)))
-    }
 } catch { Fail '2' $_.Exception.Message }
 Save-State
 
 # ---------------------------------------------------------------- 단계 3
-Write-Host '3. 더 안 쓰는 플러그인과 배포처를 정리합니다.'
+Show '3. 더 안 쓰는 플러그인과 배포처를 정리합니다.'
 try {
     # 플러그인을 먼저 걷고 배포처를 나중에 걷는다. 배포처를 먼저 지우면 그 플러그인을
     # 이름으로 못 호출한다.
@@ -521,7 +515,7 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 4
-Write-Host '4. 파이썬 라이브러리를 맞춥니다.'
+Show '4. 파이썬 라이브러리를 맞춥니다.'
 try {
     $req = Join-Path $root 'requirements.txt'
     if (-not (Test-Path -LiteralPath $req)) { throw "라이브러리 목록이 없습니다: $req" }
@@ -548,7 +542,7 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 5
-Write-Host '5. PYTHONUTF8 을 봅니다.'
+Show '5. PYTHONUTF8 을 봅니다.'
 try {
     # 설치기의 분기를 그대로 들고 온다. 사용자가 0 으로 둔 것은 건드리지 않는다.
     $now = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'User')
@@ -574,7 +568,7 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 6
-Write-Host '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
+Show '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
 
 try {
     $tplDir = Join-Path $root 'templates'
@@ -727,7 +721,7 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 7
-Write-Host '7. 더 안 쓰는 스킬 사본과 훅 연결을 정리합니다.'
+Show '7. 더 안 쓰는 스킬 사본과 훅 연결을 정리합니다.'
 try {
     $skillsRoot = Join-Path $cfg 'skills'
     foreach ($s in @($manifest.retiredSkills)) {
@@ -790,7 +784,7 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 8
-Write-Host '8. python3 이 이 PC 에서 무엇으로 풀리는지 잽니다.'
+Show '8. python3 이 이 PC 에서 무엇으로 풀리는지 잽니다.'
 try {
     # 도구를 호출할 때마다 도는 가드는 이 판정을 직접 못 한다. 링크가 가리키는 실물을
     # 읽으려면 fsutil 을 호출해야 하고 그것이 이 PC 에서 48밀리초다. 여기서 한 번 재고
@@ -843,12 +837,21 @@ if (-not $WhatIfOnly) {
 }
 Save-State
 
-Write-Host ''
-Write-Host '요약' -ForegroundColor Cyan
-if ($script:Did.Count -eq 0) { Write-Host '  바꾼 것이 없습니다. 이 PC 는 이미 목록과 같습니다.' }
-else { foreach ($d in $script:Did) { Write-Host "  - $d" } }
+# 짧은 출력은 진행 출력을 로그 파일에 두고 결과만 낸다. 로그는 매번 덮어쓴다. 알고 싶은
+# 것은 마지막 맞춤이 무엇을 했는가이다.
+$logPath = Join-Path $cfg 'kw-control-tower.sync.log'
+if ($Brief) {
+    try { [System.IO.File]::WriteAllLines($logPath, [string[]]@($script:Log), (New-Object System.Text.UTF8Encoding($false))) } catch { }
+}
 
-if ($script:Reenab.Count -gt 0) {
+if (-not $Brief) {
+    Write-Host ''
+    Write-Host '요약' -ForegroundColor Cyan
+    if ($script:Did.Count -eq 0) { Write-Host '  바꾼 것이 없습니다. 이 PC 는 이미 목록과 같습니다.' }
+    else { foreach ($d in $script:Did) { Write-Host "  - $d" } }
+}
+
+if ($script:Reenab.Count -gt 0 -and -not $Brief) {
     Write-Host ''
     Write-Host '되켠 것' -ForegroundColor Yellow
     Write-Host "  꺼져 있던 필수 플러그인을 다시 켰습니다: $($script:Reenab -join ', ')"
@@ -858,9 +861,13 @@ if ($script:Reenab.Count -gt 0) {
 # 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다. 두 플러그인이 한 세션에서 함께
 # 재시작을 안내할 때 사용자가 같은 종류의 안내로 알아보게 하려는 것이다. 옮긴 설치본은
 # 옛 커밋과 새 커밋을 일곱 자리로 적는다.
-if ($script:Restart) {
-    Write-Host ''
-    Write-Host 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.' -ForegroundColor Cyan
+#
+# 짧은 출력에서는 요약이 따로 없으므로 옮긴 설치본 밖에 한 일도 여기에 한 줄씩 적는다.
+# 재시작이 필요 없는 일만 했으면 첫 줄을 바꾼다.
+if ($script:Restart -or ($Brief -and $script:Did.Count -gt 0)) {
+    if (-not $Brief) { Write-Host '' }
+    if ($script:Restart) { Write-Host 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.' -ForegroundColor Cyan }
+    else { Write-Host 'kw-control-tower: 사내 설정을 맞췄습니다.' -ForegroundColor Cyan }
     $ipAfter = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
     foreach ($mv in $script:Moved) {
         $new = $null
@@ -868,7 +875,8 @@ if ($script:Restart) {
         $newShort = if ($new) { $new.Substring(0, 7) } else { '(읽지 못함)' }
         Write-Host "  - $($mv.Id) : $($mv.Old.Substring(0, 7)) → $newShort"
     }
-    Write-Host '  클로드 코드는 켤 때 플러그인을 읽으므로 방금 바뀐 것은 이 세션에 적용되지 않습니다.'
+    if ($Brief) { foreach ($d in $script:Did) { Write-Host "  - $d" } }
+    else { Write-Host '  클로드 코드는 켤 때 플러그인을 읽으므로 방금 바뀐 것은 이 세션에 적용되지 않습니다.' }
 }
 
 # 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
@@ -884,6 +892,16 @@ if ($script:UpdateFailed.Count -gt 0) {
 }
 
 if ($script:Failed.Count -gt 0) {
+    if ($Brief) {
+        # 버전 알림이 이미 말한 실패는 다시 적지 않는다. 종료 코드는 그대로 1 이다.
+        $rest = @($script:Failed | Where-Object { $script:Covered -notcontains $_ })
+        if ($rest.Count -gt 0) {
+            Write-Host ''
+            Write-Host "kw-control-tower: 맞추지 못한 것이 있습니다. 기록: $logPath" -ForegroundColor Yellow
+            foreach ($f in $rest) { Write-Host "  - $f" }
+        }
+        exit 1
+    }
     Write-Host ''
     Write-Host '못 한 것' -ForegroundColor Yellow
     foreach ($f in $script:Failed) { Write-Host "  - $f" }
