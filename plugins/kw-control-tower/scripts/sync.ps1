@@ -409,30 +409,6 @@ try {
             if ($late) { $state["stuck-$mkName"] = $remoteOf[$mkName] } else { $state.Remove("stuck-$mkName") }
         }
     }
-
-    # 맞춤이 옮긴 설치본은 버전 기억 파일에도 새 버전으로 적는다. 안 적으면 다음 세션의
-    # 알림 훅이 그것을 자동 갱신이 한 일로 한 번 더 알린다. 훅과 같은 값을 적는다.
-    # version 이 있으면 version 이고 없으면 커밋이다.
-    if ($script:Moved.Count -gt 0 -and -not $WhatIfOnly) {
-        $seenPath = Join-Path $cfg 'kw-control-tower.seen'
-        $seen = [ordered]@{}
-        if (Test-Path -LiteralPath $seenPath) {
-            foreach ($line in (Get-Content -LiteralPath $seenPath -Encoding UTF8)) {
-                $i = $line.IndexOf('=')
-                if ($i -gt 0) { $seen[$line.Substring(0, $i)] = $line.Substring($i + 1) }
-            }
-        }
-        $ipAfter = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
-        foreach ($mv in $script:Moved) {
-            foreach ($scope in @(Get-Prop $ipAfter $mv.Id)) {
-                $v = Get-Prop $scope 'version'
-                if (-not $v) { $v = Get-Prop $scope 'gitCommitSha' }
-                if ($v) { $seen[$mv.Id] = "$v"; break }
-            }
-        }
-        $lines = foreach ($k in $seen.Keys) { "$k=$($seen[$k])" }
-        [System.IO.File]::WriteAllLines($seenPath, [string[]]@($lines), (New-Object System.Text.UTF8Encoding($false)))
-    }
 } catch { Fail '2' $_.Exception.Message }
 Save-State
 

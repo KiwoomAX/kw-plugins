@@ -154,21 +154,6 @@ function Get-RemoteHead {
     return $null
 }
 
-function Get-ClaudeStart {
-    # 이 세션을 띄운 클로드 코드 프로세스가 시작한 시각이다. 못 찾으면 $null 이다.
-    # 클로드 코드는 시작할 때 플러그인을 읽으므로, 그보다 먼저 옮겨진 설치본은 이 세션에
-    # 이미 적용되어 있다. 실행 파일 이름이 'claude.exe.old.<숫자>' 로 바뀌기도 하고 중간에
-    # cmd 가 끼기도 해서 이름 앞부분으로 거슬러 올라가며 찾는다.
-    try {
-        $p = (Get-Process -Id ([System.Environment]::ProcessId)).Parent
-        for ($i = 0; $p -and $i -lt 6; $i++) {
-            if ($p.ProcessName -like 'claude*') { return $p.StartTime.ToUniversalTime() }
-            $p = $p.Parent
-        }
-    } catch { }
-    return $null
-}
-
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $notes = New-Object System.Collections.ArrayList   # 맞춤이 고칠 수 있는 것
 $asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
@@ -519,77 +504,6 @@ if ($sw.ElapsedMilliseconds -gt 200) {
     } catch { }
 }
 
-# --- 자동 갱신이 조용히 한 일을 보여준다 -----------------------------------
-#
-# 클로드 코드의 자동 갱신은 아무 말 없이 설치본을 새 버전으로 옮긴다. 무엇이 언제
-# 바뀌었는지 사용자가 알 길이 없었다. 지난 세션에 본 버전을 적어 두고 달라진 것만
-# 알린다. 불일치한 곳이 하나도 없어도 이것은 말한다.
-#
-# 우리 배포처만 보지 않고 깔린 것을 다 본다. 사용자가 알고 싶은 것은 "무엇이 나도
-# 모르게 바뀌었나" 이고 그 질문에 우리 것과 남의 것의 구별이 없다.
-$changed = New-Object System.Collections.ArrayList
-try {
-    $seenFile = Join-Path $cfg 'kw-control-tower.seen'
-    $seen = @{}
-    if (Test-Path -LiteralPath $seenFile) {
-        foreach ($line in (Get-Content -LiteralPath $seenFile -Encoding UTF8)) {
-            $i = $line.IndexOf('=')
-            if ($i -gt 0) { $seen[$line.Substring(0, $i)] = $line.Substring($i + 1) }
-        }
-    }
-    $now = @{}
-    $when = @{}
-    if ($null -ne $installedOf) {
-        foreach ($pluginId in @($installedOf.PSObject.Properties.Name)) {
-            foreach ($scope in @(Get-Prop $installedOf $pluginId)) {
-                $v = Get-Prop $scope 'version'
-                if (-not $v) { $v = Get-Prop $scope 'gitCommitSha' }
-                if ($v) { $now[$pluginId] = "$v"; $when[$pluginId] = Get-Prop $scope 'lastUpdated'; break }
-            }
-        }
-    }
-    # 처음 도는 PC 에서는 깔린 것을 통째로 '바뀐 것' 으로 세게 된다. 그때는 적어만
-    # 두고 말하지 않는다. 사용자가 방금 깐 것을 갱신이라고 알리면 거짓말이 된다.
-    #
-    # 새 버전이 이 세션에 적용되었는지는 실제로 확인한다. "다음에 켤 때부터 실린다" 고
-    # 단정하던 것은 틀렸다. 자동 갱신은 세션 시작 몇 분 뒤에 도착하므로, 대개 지난 세션
-    # 도중에 설치본을 옮겨 두고 이번 세션은 이미 새 버전으로 시작한다. 이 플러그인은
-    # 실행 중인 폴더 이름(캐시의 버전 폴더)으로 판정한다. 다른 플러그인은 설치본을 옮긴
-    # 시각이 클로드 코드 프로세스가 시작한 시각보다 앞서는지로 판정하고, 못 정하면 다시
-    # 켜라고 한다.
-    $selfId = $null
-    if ($null -ne $installedOf) {
-        foreach ($pluginId in @($installedOf.PSObject.Properties.Name)) {
-            if ($pluginId -like 'kw-control-tower@*') { $selfId = $pluginId }
-        }
-    }
-    $claudeStart = $null
-    if ($seen.Count -gt 0) {
-        foreach ($pluginId in @($now.Keys)) {
-            if (-not ($seen.ContainsKey($pluginId) -and $seen[$pluginId] -ne $now[$pluginId])) { continue }
-            $new = $now[$pluginId]
-            $applied = $false
-            if ($pluginId -eq $selfId) {
-                $leaf = Split-Path -Leaf $root
-                $applied = ($leaf.Length -ge 7) -and ($new.StartsWith($leaf) -or $leaf.StartsWith($new))
-            } else {
-                if ($null -eq $claudeStart) { $claudeStart = Get-ClaudeStart }
-                try {
-                    $moved = ([datetime]::Parse("$($when[$pluginId])")).ToUniversalTime()
-                    $applied = ($null -ne $claudeStart) -and ($moved -lt $claudeStart)
-                } catch { $applied = $false }
-            }
-            $old7 = "$($seen[$pluginId])"; if ($old7.Length -gt 7) { $old7 = $old7.Substring(0, 7) }
-            $new7 = $new;                  if ($new7.Length -gt 7) { $new7 = $new7.Substring(0, 7) }
-            [void]$changed.Add(@{ Line = "$pluginId : $old7 → $new7"; Applied = $applied })
-        }
-    }
-    if ($now.Count -gt 0) {
-        $lines = foreach ($k in $now.Keys) { "$k=$($now[$k])" }
-        [System.IO.File]::WriteAllLines($seenFile, [string[]]@($lines), (New-Object System.Text.UTF8Encoding($false)))
-    }
-} catch { }
-
 # --- 출력 -------------------------------------------------------------------
 #
 # 할 말을 모아 두었다가 끝에 훅 JSON 하나로 낸다. 그냥 찍으면 Claude 의 맥락에만 실리고
@@ -611,22 +525,12 @@ function Send-Hook {
         ConvertTo-Json -Depth 4 -Compress
 }
 
-# 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다. 다시 켜야 하는 것이 있으면
-# 재시작 줄로 시작하고, 이미 적용된 것만 있으면 버전 알림으로 시작한다.
-$needRestart = @($changed | Where-Object { -not $_.Applied })
-$applied     = @($changed | Where-Object { $_.Applied })
-if ($needRestart.Count -gt 0) {
-    [void]$say.Add($restartLine)
-    [void]$say.Add('  자동 갱신이 지난 세션 뒤에 아래 설치본을 옮겼고, 이 세션에는 아직 옛 버전이 실려 있습니다.')
-    foreach ($c in ($needRestart | Sort-Object { $_.Line })) { [void]$say.Add("  - $($c.Line)") }
-    [void]$say.Add('')
-}
-if ($applied.Count -gt 0 -or $stuckSay.Count -gt 0) {
+# 다른 곳(클로드 코드의 자동 갱신, disciplined-coder)이 옮긴 설치본은 알리지 않는다. 갱신은
+# 그것을 한 훅이 그 세션에서만 알린다(2026-09-29 사용자 결정). 알리면 disciplined-coder 가
+# 이미 알린 갱신을 다음 세션에 한 번 더 알리게 된다. 맞춤이 같은 원격 커밋으로 실패한 것은
+# 직접 실행할 명령이 있으므로 알린다. 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다.
+if ($stuckSay.Count -gt 0) {
     [void]$say.Add('kw-control-tower: 플러그인 버전 알림')
-    if ($applied.Count -gt 0) {
-        [void]$say.Add('  자동 갱신이 지난 세션 뒤에 아래 설치본을 옮겼고, 이 세션에 새 버전이 적용되어 있습니다.')
-        foreach ($c in ($applied | Sort-Object { $_.Line })) { [void]$say.Add("  - $($c.Line)") }
-    }
     foreach ($s in $stuckSay) { [void]$say.Add($s) }
     [void]$say.Add('')
 }
