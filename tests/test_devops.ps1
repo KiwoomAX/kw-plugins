@@ -355,6 +355,9 @@ Assert 'searching-document turns the reranker off' ($sdText -match 'use_rerank\s
 Assert 'searching-document serialises the body deep enough' ($sdText -match 'ConvertTo-Json -Depth [3-9]')
 # Read-only: it names the search and the file GET, never a collection write or a file upload.
 Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upsert|/delete|/upload|set_payload|delete_points'))
+# file_path is spliced into the URL; a space or # would cut the request short.
+Assert 'searching-document escapes the file path' ($sdText -match 'EscapeDataString')
+Assert 'searching-document does not overwrite an existing PDF' ($sdText -match 'Test-Path -LiteralPath \$dest')
 
 # 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
