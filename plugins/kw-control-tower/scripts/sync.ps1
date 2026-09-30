@@ -13,7 +13,9 @@ param(
     # 2026-09-29 재현에서 같은 네 플러그인이 여섯 번 되풀이되어 알림이 55줄이 됐다.
     [switch]$Brief,
     # 세션 시작 훅이 불일치한 단계 번호를 쉼표로 넘긴다. 넘기지 않으면(설치기) 모두 실행한다.
-    [string]$Steps = ''
+    [string]$Steps = '',
+    # 세션 시작 훅이 넘긴다. 0 이면 상한이 없다(설치기).
+    [int]$BudgetSeconds = 0
 )
 
 Set-StrictMode -Off
@@ -40,6 +42,15 @@ $script:StepsGiven = $PSBoundParameters.ContainsKey('Steps')
 $script:Want = @($Steps.Split(',') | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
 $script:Ran = New-Object System.Collections.ArrayList   # 이번 실행에서 실행한 단계
 $script:Current = 0                                      # 지금 실행 중인 단계
+$script:Deadline = if ($BudgetSeconds -gt 0) { (Get-Date).AddSeconds($BudgetSeconds) } else { $null }
+# 단계를 새로 시작하려면 남아 있어야 하는 초다. pip 과 CLAUDE.md 잠금 대기는 중간에 끊지 못한다.
+$script:Margin = [Math]::Min(20, [int][Math]::Floor($BudgetSeconds / 3))
+$script:Deferred = New-Object System.Collections.ArrayList        # 상한에 닿아 미룬 단계
+$script:TimedOutSteps = New-Object System.Collections.ArrayList   # 상한에 끊긴 호출이 있던 단계
+function Get-Remaining {
+    if ($null -eq $script:Deadline) { return [int]::MaxValue }
+    return [int][Math]::Floor(($script:Deadline - (Get-Date)).TotalSeconds)
+}
 
 # 진행 출력은 모두 여기를 거친다. -Brief 면 모았다가 마무리에서 로그 파일에 쓴다.
 function Show {
@@ -149,8 +160,10 @@ function Remove-RetiredHookEntries {
     return $removed
 }
 function Want([int]$n) {
-    # 넘겨받은 단계만 실행한다. 넘겨받지 않았으면 모두 실행한다.
+    # 넘겨받은 단계만 실행한다. 넘겨받지 않았으면 모두 실행한다. 남은 시간이 여유보다 적으면
+    # 다음 세션으로 미룬다.
     if ($script:StepsGiven -and $script:Want -notcontains $n) { return $false }
+    if ((Get-Remaining) -lt [Math]::Max(1, $script:Margin)) { [void]$script:Deferred.Add($n); return $false }
     [void]$script:Ran.Add($n)
     $script:Current = $n
     return $true
@@ -162,14 +175,51 @@ function Resolve-Utf8Action([string]$Current) {
     return 'fail'
 }
 function Invoke-Claude {
-    # 클로드를 이름으로 호출하지 않고 시작할 때 한 번 찾아 둔 절대 경로로 부른다.
-    # 못 찾았으면 셸 오류를 그대로 뱉는 대신 무엇이 없는지 말한다. 파이썬을 다루는
-    # 단계 4 가 이미 그렇게 하고 있어 같은 규율을 여기에도 건다.
-    param([string[]]$ClaudeArgs)
+    # 클로드를 이름으로 호출하지 않고 시작할 때 한 번 찾아 둔 절대 경로로 호출한다.
+    # 남은 시간만큼만 기다리고 넘으면 프로세스 트리째 끊는다.
+    # -Optional 은 끊겨도 단계 전체를 끊긴 것으로 적지 않는 호출이다(권장 플러그인 설치).
+    param([string[]]$ClaudeArgs, [switch]$Optional)
     if ($WhatIfOnly) { Say "[미리보기] claude $($ClaudeArgs -join ' ')"; return $true }
     if (-not $script:ClaudeExe) { throw '클로드 코드를 못 찾았습니다. claude 가 PATH 에 있어야 합니다.' }
-    & $script:ClaudeExe @ClaudeArgs 2>&1 | ForEach-Object { Say $_ }
-    return ($LASTEXITCODE -eq 0)
+    $left = Get-Remaining
+    if ($left -le 0) {
+        # 시작하지 않은 호출은 미룬 것이다. 끊긴 것으로 적으면 앞 단계 탓에 이 단계가 그날 보류된다.
+        Say "시간 상한에 닿아 실행하지 않았습니다: claude $($ClaudeArgs -join ' ')"
+        [void]$script:Deferred.Add($script:Current)
+        return $false
+    }
+    $file = $script:ClaudeExe
+    if ($file -like '*.ps1') {
+        # 검사의 스텁이다. 이 프로세스 안에서 실행해 출력과 종료 코드를 그대로 받는다. 한 호출 안에서는 못 끊는다.
+        & $file @ClaudeArgs 2>&1 | ForEach-Object { Say $_ }
+        return ($LASTEXITCODE -eq 0)
+    }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $file
+    foreach ($a in $ClaudeArgs) { $psi.ArgumentList.Add($a) }
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $psi.StandardErrorEncoding  = New-Object System.Text.UTF8Encoding($false)
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Close()   # 입력을 기다리는 명령이 있어도 곧바로 끝을 받게 한다
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $ms = if ($left -ge 2000000) { -1 } else { $left * 1000 }
+    if (-not $p.WaitForExit($ms)) {
+        try { $p.Kill($true) } catch { }
+        Say "시간 상한에 닿아 멈췄습니다: claude $($ClaudeArgs -join ' ')"
+        if (-not $Optional) { [void]$script:TimedOutSteps.Add($script:Current) }
+        # 쓰기 도중에 끊었으면 설정 파일이 반쯤 쓰였을 수 있다. 읽히는지 보고 못 읽으면 알린다.
+        foreach ($cf in @((Join-Path $pluginsDir 'installed_plugins.json'), $knownPath)) {
+            try { $null = Read-Json $cf } catch { Fail "$script:Current" "끊은 뒤 설정 파일을 읽지 못합니다. 클로드 코드를 다시 켜 확인해 주십시오: $cf" }
+        }
+        return $false
+    }
+    foreach ($l in (($outTask.Result + "`n" + $errTask.Result) -split "`r?`n")) { if ($l) { Say $l } }
+    return ($p.ExitCode -eq 0)
 }
 
 $userHome = $env:USERPROFILE
@@ -406,7 +456,7 @@ try {
         foreach ($id in @($manifest.suggested)) {
             $entry = Get-Prop $installedOf $id
             if ($null -ne $entry) { continue }
-            if (Invoke-Claude @('plugin', 'install', $id)) { Note "권장 플러그인을 깔았습니다: $id"; $script:Restart = $true }
+            if (Invoke-Claude @('plugin', 'install', $id) -Optional) { Note "권장 플러그인을 깔았습니다: $id"; $script:Restart = $true }
             else {
                 Fail '2' "권장 플러그인 설치에 실패했습니다: $id"
                 # 하나라도 못 깔았으면 "한 번 돌았다" 를 안 적는다. 적어 버리면 다음
@@ -875,6 +925,9 @@ if ($script:Restart -or ($Brief -and $script:Did.Count -gt 0)) {
 
 # 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
 # 맞췄다. 커밋은 옛 일곱 자리 → 새 일곱 자리로 적고 직접 실행할 명령을 붙인다.
+if ($script:Deferred.Count -gt 0) {
+    Write-Host "kw-control-tower: 시간 상한에 닿아 단계 $(($script:Deferred | Sort-Object -Unique) -join ', ') 는 다음 세션으로 미뤘습니다." -ForegroundColor Yellow
+}
 if ($script:UpdateFailed.Count -gt 0) {
     Write-Host ''
     Write-Host 'kw-control-tower: 플러그인 버전 알림' -ForegroundColor Yellow

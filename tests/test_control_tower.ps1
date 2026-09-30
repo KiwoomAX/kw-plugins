@@ -371,7 +371,7 @@ Check '안 깔린 것에만 install 을 쓴다'    { $syncSrc -match "if \(-not 
 # 오류를 그대로 뱉고 있었다. 같은 규율을 건다.
 Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
     ($syncSrc -match '\$script:ClaudeExe = \(Get-Command claude') -and
-    ($syncSrc -match '& \$script:ClaudeExe @ClaudeArgs') -and
+    ($syncSrc -match '\$file = \$script:ClaudeExe') -and
     ($syncSrc -notmatch '& claude @ClaudeArgs')
 }
 Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
@@ -1099,6 +1099,7 @@ if ($env:STUB_LOG) { Add-Content -LiteralPath $env:STUB_LOG -Value ($args -join 
 $a = $args
 $pd = Join-Path $env:USERPROFILE '.claude\plugins'
 if ($a[0] -eq 'plugin' -and $a[1] -eq 'marketplace' -and $a[2] -eq 'update') {
+    if ($env:STUB_SLEEP) { Start-Sleep -Seconds ([int]$env:STUB_SLEEP) }
     if ($env:STUB_MK -eq 'fail') { exit 1 }
     if ($a[3] -eq 'kiwoom-ax') { Set-Content -LiteralPath (Join-Path $pd 'marketplaces\kiwoom-ax\.git\refs\heads\main') $env:STUB_NEW }
     exit 0
@@ -1122,7 +1123,7 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
-    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '')
+    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '')
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
@@ -1142,9 +1143,10 @@ function Invoke-SyncScenario {
     $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
     "ranOnce=2026-01-01`n$State".Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
     $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$sy\bin;' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" })" 2>&1
+    $env:STUB_SLEEP = if ($Sleep) { "$Sleep" } else { '' }
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$(if ($Bin) { $Bin } else { "$sy\bin" });' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" }) $(if ($Budget) { "-BudgetSeconds $Budget" })" 2>&1
     $log = Join-Path $h '.claude\kw-control-tower.sync.log'
-    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
+    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG', 'STUB_SLEEP') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
     $ip = Get-Content (Join-Path $pd 'installed_plugins.json') -Raw | ConvertFrom-Json
     @{
         Out   = ($out | ForEach-Object { "$_" }) -join "`n"
@@ -1167,6 +1169,23 @@ Check '넘겨받은 단계가 아니면 돌지 않는다' {
 }
 $r = Invoke-SyncScenario -Steps '1,2'
 Check '넘겨받은 단계는 돈다' { $r.Sha -eq $shaNew }
+# 훅 제한은 90초다. 맞춤이 그것을 넘기면 알림이 사라진다고 보고, 맞춤 스스로 멈추고 남은 단계를 다음
+# 세션으로 미룬다. .ps1 스텁은 이 프로세스 안에서 실행되어 한 호출 안에서는 끊지 못한다.
+$r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Brief
+Check '시간 상한을 넘기면 남은 호출을 하지 않고 다음 세션으로 미룬다' {
+    ($r.Sha -eq $shaOld) -and ($r.Out -match '다음 세션으로 미뤘습니다') -and ($r.Calls -notmatch 'plugin update')
+}
+# 진짜 claude.exe 는 한 호출이 상한을 넘기면 끊는다. 인자와 표준입력에 관계없이 30초를 기다리는
+# claude.cmd 를 두고 확인한다. .cmd 는 CreateProcess 가 cmd.exe 로 실행한다.
+$hang = Join-Path $sy 'hang'
+New-Item -ItemType Directory -Force -Path $hang | Out-Null
+'@ping -n 30 127.0.0.1 >nul' | Set-Content -LiteralPath (Join-Path $hang 'claude.cmd') -Encoding ascii
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$hangRun = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
+$sw.Stop()
+Check '상한을 넘긴 claude 호출을 끊는다' {
+    ($sw.Elapsed.TotalSeconds -lt 20) -and ($hangRun.Out -match '시간 상한에 닿아 멈췄습니다')
+}
 
 $r = Invoke-SyncScenario -Up 'fail'
 Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
@@ -1215,6 +1234,13 @@ Check '세션 시작 훅의 예산이 맞춤을 끝낼 만큼이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $j.hooks.SessionStart[0].hooks[0].timeout -ge 90
 }
+Check '훅이 맞춤에 훅 제한보다 짧은 상한을 넘긴다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $m = [regex]::Match($hookCode, '-BudgetSeconds (\d+)')
+    $m.Success -and ([int]$m.Groups[1].Value -lt $j.hooks.SessionStart[0].hooks[0].timeout)
+}
+# 끊긴 claude 가 표준입력을 기다리지 않게 바로 닫는다.
+Check '맞춤이 claude 의 표준입력을 바로 닫는다' { $syncSrc -match '\$p\.StandardInput\.Close\(\)' }
 # 설치와 갱신은 클로드 코드를 다시 켜야 적용되므로 /clear 나 resume 에서 다시 맞춰도 이 세션에는
 # 안 실린다. 켤 때만 실행한다.
 Check '세션 시작 훅은 클로드 코드를 켤 때만 돈다' {

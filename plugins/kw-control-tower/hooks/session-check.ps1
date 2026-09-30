@@ -590,7 +590,7 @@ try {
     $env:KWCT_REMOTE_HEAD = (@($remoteOf.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';')
     # -Brief 로 부른다. 맞춤은 진행 출력을 로그 파일에 두고 결과만 낸다.
     $runSteps = @($noteSteps | ForEach-Object { $_ } | Sort-Object -Unique)
-    $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief -Steps ($runSteps -join ',') 2>&1
+    $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief -Steps ($runSteps -join ',') -BudgetSeconds 60 2>&1
     $syncLog = Join-Path $cfg 'kw-control-tower.sync.log'
     # 맞춤이 낸 결과를 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
     #
