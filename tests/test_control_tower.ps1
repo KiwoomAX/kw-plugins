@@ -1173,7 +1173,7 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
     param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
-          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '')
+          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '', [switch]$CloneCurrent)
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
@@ -1192,7 +1192,7 @@ function Invoke-SyncScenario {
     $g = Join-Path $pd 'marketplaces\kiwoom-ax\.git'
     New-Item -ItemType Directory -Force -Path (Join-Path $g 'refs\heads') | Out-Null
     'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
-    $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
+    $(if ($CloneCurrent) { $shaNew } else { $shaOld }) | Set-Content (Join-Path $g 'refs\heads\main')
     $(if ($NoRanOnce) { $State } else { "ranOnce=2026-01-01`n$State" }).Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
     $lockDir = Join-Path $h '.claude\kw-control-tower.sync.lock'
     if ($Lock) {
@@ -1253,6 +1253,10 @@ Check '단계가 성공하면 지문을 지운다' { $r.State -notmatch 'stuck-s
 Check '상한에 끊긴 단계도 지문을 적는다' { $hangRun.State -match '(?m)^stuck-step1=' }
 $r = Invoke-SyncScenario -Mk 'fail' -Steps '2'
 Check '사본을 받아오지 않은 실행은 배포처 실패로 적지 않는다' { $r.State -notmatch 'stuck-kiwoom-ax' }
+# 자동 갱신이 사본만 받아 두고 설치본을 못 옮긴 PC 에서는 알림이 단계 2 만 넘긴다. 그때 update 가
+# 실패해도 원격 커밋을 적어야 다음 세션에 같은 맞춤을 다시 호출하지 않는다.
+$r = Invoke-SyncScenario -Up 'fail' -Steps '2' -CloneCurrent
+Check '사본이 이미 최신이면 단계 2 만 실행해도 배포처 실패를 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
 # 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
 $r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
 Check '시작하지 못해 미룬 단계는 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }

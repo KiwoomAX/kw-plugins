@@ -570,10 +570,14 @@ try {
                     }
                 }
             }
-            # 원격 커밋 탓으로 못 옮겼다고 적는 것은 이번 실행에서 사본을 받아왔고(단계 1) 단계 1·2 가 끊기지도
-            # 미뤄지지도 않았을 때뿐이다. 단계 1 이 끊겨 사본이 옛것이면 단계 2 는 옮길 것이 없다고 보므로,
-            # 그때 적으면 새 커밋이 생길 때까지 재시도하지 않는다.
-            $clean = ($script:Ran -contains 1) -and -not (@(1, 2) | Where-Object { ($script:TimedOutSteps -contains $_) -or ($script:Deferred -contains $_) })
+            # 원격 커밋 탓으로 못 옮겼다고 적는 조건은 두 가지다. 사본이 원격 커밋에 있어야 하고(이번 실행에서
+            # 단계 1 로 받아왔거나 사본이 이미 원격 커밋과 같다), 단계 1·2 가 끊기지도 미뤄지지도 않아야 한다.
+            # 사본이 옛것이면 단계 2 는 옮길 것이 없다고 보므로, 그때 적으면 새 커밋이 생길 때까지 재시도하지 않는다.
+            # 사본이 이미 최신이면 알림은 단계 2 만 넘기므로, 단계 1 을 요구하면 update 실패가 기록되지 않는다.
+            $cloneHead = Get-MarketplaceHead (Join-Path (Join-Path $pluginsDir 'marketplaces') $mkName)
+            $cloneOk = ($script:Ran -contains 1) -or
+                ($cloneHead -and $remoteOf[$mkName] -and ($remoteOf[$mkName].StartsWith($cloneHead) -or $cloneHead.StartsWith($remoteOf[$mkName])))
+            $clean = $cloneOk -and -not (@(1, 2) | Where-Object { ($script:TimedOutSteps -contains $_) -or ($script:Deferred -contains $_) })
             if ($late -and $clean) { $state["stuck-$mkName"] = $remoteOf[$mkName] }
             elseif (-not $late) { $state.Remove("stuck-$mkName") }
         }
