@@ -1,0 +1,10 @@
+{"lens":"lens-adversarial","target":"docs/superpowers/plans/2026-09-30-plugin-fixes.md","issues":[
+{"where":"Task 6 Step 4 3단계 첫 항목","type":"failure-mode","claim":"등록이 compose-and-env.md 를 읽기 전이라 기존 compose 의 container_name 과 등록 이름이 달라지고, 5단계 재실행이 자기 줄을 '남이 먼저 잡았다'로 판정한다. 등록을 3단계 compose 작성 직후·push 전으로 옮기면 해결"},
+{"where":"Task 6 Step 4","type":"irreversible","claim":"배포를 포기하면 앞당긴 등록이 남고 pick_port.py 에 삭제 경로가 없다. 포기 시 AX 팀에 삭제 요청하라는 한 문장으로 완화"},
+{"where":"Task 7 Step 3","type":"failure-mode","claim":"비교 기준이 main 이라 PR 이 열린 동안 매일 새 커밋을 force push 해 검토한 head 가 바뀌고 사람이 올린 커밋이 지워진다. push 전 원격 브랜치 파일과 비교해 같으면 끝내야 한다"},
+{"where":"Task 2 Step 4 xlsx 오류 셀 스캔","type":"failure-mode","claim":".Text 는 좁은 열의 숫자를 #### 로 돌려줘 거짓 오류를 낸다. 셀마다 COM 호출이라 큰 시트에서 시간 초과·엑셀 잔존. SpecialCells(-4123,16) 한 번으로 대체"},
+{"where":"Task 1 Step 5 pptx 경로 검사","type":"risk","claim":"abspath 문자열 비교는 Z:\\ 와 \\\\cifs\\ 같은 다른 표기를 못 잡는다. os.path.exists(dst) and os.path.samefile(src, dst) 로"},
+{"where":"Task 4 Step 1 selfcheck 실행 검사","type":"over-engineering","claim":"--selfcheck 는 ASCII 만 출력해 결함을 재현하지 못한다. 실행 검사 세 줄을 지워도 보호 수준 같음"},
+{"where":"Task 2 Step 5 docx 예제","type":"failure-mode","claim":"$pdf·$newPath 에 절대경로 표기가 없어 워드가 기본 폴더 기준으로 풀 수 있다(가정)"}],
+"principles_applied":["NO-ASSUME","STATE-ASSUME","REVERSIBLE","YAGNI","CHECKABLE","FOCUSED"],
+"notes":"'대기는 셋뿐' 상충 없음. 현행 유지 항목(.env 발송 등)은 건드리지 않음. LibreOffice 단어 검사는 대체 경로가 빠져도 통과하는 한계. 지금 날짜 붙은 금지어 PR 이 열려 있는지 미확인 — 열려 있으면 배포 첫날 PR 이 하나 더 생김. 워드 상대경로 동작은 가정."}

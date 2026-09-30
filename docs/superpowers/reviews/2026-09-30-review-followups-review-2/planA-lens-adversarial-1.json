@@ -1,0 +1,11 @@
+{"lens":"lens-adversarial","target":"docs/superpowers/plans/2026-09-30-control-tower-followups.md (2차)","issues":[
+{"where":"Task 10 -NoStuck ↔ Task 8 TimedOutSteps ↔ Task 9 지문","type":"failure-mode","claim":"권장 설치 호출이 상한에 끊기면 TimedOutSteps 에 2 가 들어가 stuck-step2 가 적혀, spec 이 막으려던 '권장 실패로 필수 교정 보류' 가 끊김 경로로 생긴다"},
+{"where":"Task 8 Invoke-Claude left<=0 분기","type":"failure-mode","claim":"시작도 안 한 호출을 '끊긴 단계' 로 기록해 원인이 앞 단계에 있는 보류가 그날 내내 유지된다. 이 분기의 TimedOutSteps.Add 를 지워야"},
+{"where":"Task 9 stuck-<배포처> 조건","type":"failure-mode","claim":"단계 1 이 끊겨 stuck-step1 이 적힌 날, 다음 세션은 단계 2 만 실행해 옛 사본으로 late 판정 → stuck-<배포처> 가 적혀 새 커밋까지 재시도 안 함. 조건에 '이번 실행에서 단계 1 실행, 1·2 끊김 없음' 추가"},
+{"where":"Task 10 Step 5 감지의 권장 대기","type":"over-engineering","claim":"늘 실패하는 권장은 기록·지문이 없어 감지가 세션마다 단계 2 를 넘기고 실패를 반복한다. spec 은 감지가 권장을 판정하라고 정하지 않았다. 빼도 spec 결과는 유지"},
+{"where":"Task 8 여유·Task 6 pip","type":"risk","claim":"pip 실행 시간은 제한 없음. --timeout·--retries 를 작게"},
+{"where":"Task 8 Kill 뒤","type":"risk","claim":"쓰기 도중 끊긴 claude 가 installed_plugins.json 등을 절반만 쓸 수 있다(가정). 끊은 뒤 두 파일을 다시 읽어 보고 못 읽으면 실패로 알림"},
+{"where":"Task 5 대응표 뒤처짐 1,2 ↔ Task 8 Want 여유","type":"failure-mode","claim":"단계 1 이 매번 40초 넘게 성공하면 단계 2 가 영영 미뤄진다. 사본이 원격보다 뒤일 때만 단계 1, 설치본이 뒤일 때 단계 2"},
+{"where":"Task 13","type":"failure-mode","claim":"옛 설계 212행 '필수와 권장을 구분한다(사내=필수, 공식=권장, 재지 않는다)' 가 남는다"}],
+"principles_applied":["NO-ASSUME","STATE-ASSUME","REVERSIBLE","YAGNI","CHECKABLE"],
+"notes":"try/finally 범위·exit 동작, $script:Current, $hangRun 순서, 지문 계산 일치는 문제없음. 확인 못 함: 90초 초과 시 자식 맞춤 종료 여부, 폴더 CreationTime 터널링, 손자 프로세스가 표준출력을 잡아 Result 대기가 길어지는지, 보류 블록이 주 try 밖이라 Get-StuckPrint 예외 시 훅 오류, 설치기의 긴 맞춤(10분 초과) 중 잠금을 다른 세션이 오래된 것으로 지움."}

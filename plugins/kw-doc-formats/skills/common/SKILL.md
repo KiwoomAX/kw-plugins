@@ -111,7 +111,7 @@ if (@(Get-Process EXCEL -ErrorAction SilentlyContinue).Count -gt 0) {
 안전한 것은 **그 검사를 통과했을 때뿐이다.** 검사를 빼고 아래 토막만 베껴 쓰면 원래 사고로
 그대로 돌아간다.
 
-`kw-doc-formats:xlsx` 와 `kw-doc-formats:pptx` 와 `kw-doc-formats:hwp` 의 COM 예제가 모두 이
+`kw-doc-formats:xlsx` 와 `kw-doc-formats:pptx` 와 `kw-doc-formats:docx` 와 `kw-doc-formats:hwp` 의 COM 예제가 모두 이
 검사를 달고 있는 것이 그 때문이다.
 
 ## 기존 오피스 문서의 내용을 뽑을 때

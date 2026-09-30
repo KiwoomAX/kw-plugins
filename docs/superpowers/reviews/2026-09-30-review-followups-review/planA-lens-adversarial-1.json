@@ -1,0 +1,13 @@
+{"lens":"lens-adversarial","target":"docs/superpowers/plans/2026-09-30-control-tower-followups.md","issues":[
+{"where":"Task 9 Step 4 TimedOut 블록, Task 8 검사, Review Focus 26행","type":"failure-mode","claim":"상한에 닿은 실행은 stuck 을 전혀 적지 않아, 매번 상한을 넘기는 단계가 켤 때마다 반복되고 뒤 단계는 영영 미뤄진다. TimedOut 이 실행 전체 깃발이라 다른 단계의 진짜 실패도 안 적힌다. 끊긴 단계도 지문을 적거나(날짜로 다음 날 재시도) 끊긴 단계 집합으로 바꿔야"},
+{"where":"Task 8 Want·Invoke-Claude, Task 6 pip","type":"risk","claim":"상한은 claude 호출과 단계 시작에서만 확인. pip, 단계 6 잠금 대기(~30초)는 상한 밖이라 90초를 넘길 수 있다. 단계마다 여유 초를 남기고 미루면 완화"},
+{"where":"Task 8 RedirectStandardInput","type":"risk","claim":"표준입력을 열어 두고 닫지 않아 claude 가 입력을 읽으면 상한까지 대기. cmd.exe 검사가 그 동작을 계약으로 고정한다(가정)"},
+{"where":"Task 11 Exit-Sync","type":"failure-mode","claim":"잠금 해제가 exit 세 곳에만 붙어, 마무리의 try 밖 Read-Json throw 에서 잠금이 10분 남는다. try/finally 로 단순화"},
+{"where":"Task 11 잠금 위치","type":"failure-mode","claim":"잠금이 상태 파일을 읽은 뒤에 잡혀, 직전 맞춤이 적은 상태를 옛 값으로 덮을 수 있다. 상태 읽기 앞으로 옮겨야"},
+{"where":"Task 9 Step 4 'Fail 함수의 첫 줄 뒤'","type":"failure-mode","claim":"param 앞에 코드가 놓인다. 'param 줄 바로 아래' 로"},
+{"where":"Task 10 Get-SuggestedDone fallback","type":"failure-mode","claim":"ranOnce PC 는 fallback 이 현재 목록을 돌려줘 pending 이 비고, 단계 2 가 안 돌아 suggestedDone 이 끝내 안 적혀 앞으로 추가하는 권장도 영영 안 깔린다. 2026-09-30 기준 고정 배열로"},
+{"where":"Task 5 -Steps 빈 값","type":"risk","claim":"'인자 없음'과 '빈 목록'을 같게 둬서 Add-Note 누락이 한 곳이라도 있으면 전체 단계가 돈다. PSBoundParameters 로 구분하고 $notes.Add( 잔존 검사 추가"},
+{"where":"Task 1 Step 6","type":"failure-mode","claim":"stash 대조 지시가 옛 검사 파일 전체 실행을 허용한다. '실패한 검사 이름을 사용자에게 알린다'로"},
+{"where":"Task 10 Fail '2' ↔ Task 9","type":"risk","claim":"권장 설치 실패가 stuck-step2 로 기록되어 같은 날 필수 되켜기·옮기기가 보류된다. 권장 실패는 단계 지문에서 제외"}],
+"principles_applied":["NO-ASSUME","STATE-ASSUME","REVERSIBLE","YAGNI","CHECKABLE","FOCUSED"],
+"notes":"결정 자체는 공격하지 않음. 검사가 이 PC 를 바꾸는 경로는 Task 1 이후 찾지 못함. 확인 못 함: 90초 초과 시 훅이 자식 맞춤까지 종료하는지, NTFS 터널링이 폴더 CreationTime 에도 적용되는지(문지기 10초 판정 오작동 가능; dc 는 틱 수로 판정), Task 1 Step 2 명령의 셸(bash 면 결과가 뒤집힘)."}

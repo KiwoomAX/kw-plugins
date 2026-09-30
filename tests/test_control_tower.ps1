@@ -75,20 +75,21 @@ Check 'hooks.json 이 JSON 이다'       { $null -ne (Get-Content (Join-Path $pl
 #
 # 아는 키를 나열해 견주지 않고 밑줄만 막는다. 나열하면 형식에 키가 하나 늘 때마다
 # 사람이 이 목록을 맞춰야 하고, 안 맞추면 멀쩡한 키에서 검사가 떨어진다.
+# 플러그인을 추가할 때 이 목록을 손으로 고치지 않도록 plugins 아래를 모은다. kw-dashboard 가 빠져 있었다.
+$claudeJsonFiles = @((Join-Path $repo '.claude-plugin\marketplace.json'), (Join-Path $plugin 'hooks\hooks.json')) +
+    @(Get-ChildItem (Join-Path $repo 'plugins') -Directory | ForEach-Object { Join-Path $_.FullName '.claude-plugin\plugin.json' } | Where-Object { Test-Path -LiteralPath $_ })
 Check '클로드 코드가 읽는 JSON 에 밑줄 주석 키가 없다' {
-    $files = @(
-        (Join-Path $repo   '.claude-plugin\marketplace.json')
-        (Join-Path $plugin '.claude-plugin\plugin.json')
-        (Join-Path $plugin 'hooks\hooks.json')
-        (Join-Path $repo   'plugins\kw-doc-formats\.claude-plugin\plugin.json')
-        (Join-Path $repo   'plugins\kw-devops\.claude-plugin\plugin.json')
-    )
+    $files = $claudeJsonFiles
     $bad = 0
     foreach ($f in $files) {
         $j = Get-Content $f -Raw | ConvertFrom-Json
         $bad += @($j.PSObject.Properties.Name | Where-Object { $_.StartsWith('_') }).Count
     }
     $bad -eq 0
+}
+Check '밑줄 키 검사가 모든 플러그인의 plugin.json 을 본다' {
+    $want = @(Get-ChildItem (Join-Path $repo 'plugins') -Directory | ForEach-Object { Join-Path $_.FullName '.claude-plugin\plugin.json' } | Where-Object { Test-Path -LiteralPath $_ })
+    ($want.Count -ge 4) -and (@($want | Where-Object { $claudeJsonFiles -notcontains $_ }).Count -eq 0)
 }
 
 # 버전을 감지에 안 쓰기로 했으므로 plugin.json 에 version 을 안 적는다.
@@ -300,11 +301,16 @@ Write-Host ''
 Write-Host '알림 훅의 동작'
 $fake = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path (Join-Path $fake '.claude\plugins') | Out-Null
+# 맞춤을 뺀 사본으로 훅을 실행한다. 훅은 자기 폴더 옆의 scripts\sync.ps1 을 호출하므로,
+# 진짜 폴더의 훅을 실행하면 가짜 홈에서도 진짜 맞춤이 실행된다.
+$quietRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-q-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+Copy-Item -LiteralPath $plugin -Destination $quietRoot -Recurse
+Remove-Item -LiteralPath (Join-Path $quietRoot 'scripts\sync.ps1')
 
 Check '설정 파일이 하나도 없으면 조용히 물러난다' {
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
-`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
-& '$plugin\hooks\session-check.ps1'
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
     # 목록은 읽히지만 필수 플러그인이 없으므로 말은 한다. 다만 죽지 않아야 한다.
     $LASTEXITCODE -eq 0
@@ -315,7 +321,7 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
     New-Item -ItemType Directory -Force -Path $empty | Out-Null
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$empty'
-& '$plugin\hooks\session-check.ps1'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
     Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
@@ -325,8 +331,8 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
 # 한 줄로 내고 systemMessage 와 additionalContext 를 둘 다 채운다.
 Check '할 말이 있으면 훅 JSON 으로 사용자와 Claude 에게 함께 낸다' {
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
-`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
-& '$plugin\hooks\session-check.ps1'
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
     $lines = @($out | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
     $j = $null
@@ -342,8 +348,8 @@ Ask '몸통이 200밀리초 안에 끝난다' {
     $slow = Join-Path $fake '.claude\kw-control-tower.slow'
     Remove-Item -LiteralPath $slow -ErrorAction SilentlyContinue
     & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
-`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
-& '$plugin\hooks\session-check.ps1'
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1 | Out-Null
     if (Test-Path -LiteralPath $slow) { $script:slowNote = (Get-Content -LiteralPath $slow -Raw).Trim(); Write-Host "       측정값: $script:slowNote" }
     -not (Test-Path -LiteralPath $slow)
@@ -366,25 +372,46 @@ Check '안 깔린 것에만 install 을 쓴다'    { $syncSrc -match "if \(-not 
 # 오류를 그대로 뱉고 있었다. 같은 규율을 건다.
 Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
     ($syncSrc -match '\$script:ClaudeExe = \(Get-Command claude') -and
-    ($syncSrc -match '& \$script:ClaudeExe @ClaudeArgs') -and
+    ($syncSrc -match '\$file = \$script:ClaudeExe') -and
     ($syncSrc -notmatch '& claude @ClaudeArgs')
 }
 Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
 Check '되켠 것을 따로 적는다'              { $syncSrc -match '되켠 것' }
-# "한 번 돌았다" 표시는 권장 플러그인 분기를 영영 닫는다. 첫 실행이 실패했는데도
-# 적어 버리면 사용자가 영영 모른 채 그 플러그인 없이 지낸다.
-Check '권장을 다 못 깔면 한 번 돌았다를 안 적는다' {
-    ($syncSrc -match '\$script:SuggestedIncomplete = \$true') -and
-    ($syncSrc -match 'if \(-not \$script:SuggestedIncomplete\) \{ \$state\[''ranOnce''\]')
-}
 Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\[A-Za-z0-9\._-\]\+\$" }
 Check '지우기 전에 사본을 뜬다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
+
+# 파이썬의 기본 인코딩으로 정하던 때에는 판정식 sys.getdefaultencoding() 이 파이썬 3 에서
+# 언제나 utf-8 이라 한 번도 넣지 못했다. 감지와 같은 규칙으로 비어 있으면 넣는다.
+Check 'PYTHONUTF8 이 비어 있으면 넣고 0 과 1 은 그대로 둔다' {
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin 'scripts\sync.ps1'), [ref]$null, [ref]$null)
+    $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-Utf8Action' }, $true)
+    if ($null -eq $fn) { return $false }
+    . ([scriptblock]::Create($fn.Extent.Text))
+    ((Resolve-Utf8Action $null) -eq 'set') -and ((Resolve-Utf8Action '') -eq 'set') -and
+    ((Resolve-Utf8Action '1') -eq 'keep') -and ((Resolve-Utf8Action '0') -eq 'keep') -and
+    ((Resolve-Utf8Action 'x') -eq 'fail')
+}
+Check '맞춤이 파이썬 기본 인코딩으로 판정하지 않는다' { $syncSrc -notmatch 'getdefaultencoding' }
+
+# 감지는 목록 해시로 판정한다. 맞춤도 해시가 같으면 pip 을 호출하지 않는다. 설치기가 모든 단계를
+# 실행할 때 사내 프록시를 거치는 pip 이 그때마다 실행되던 것을 없앤다.
+Check '라이브러리 목록이 같으면 pip 을 안 부른다' {
+    $b = [regex]::Match($syncSrc, "(?s)Show '4\..*?(?=Show '5\.)").Value
+    $gate = $b.IndexOf("`$state['requirements'] -eq `$newHash")
+    ($gate -ge 0) -and ($gate -lt $b.IndexOf('pip install')) -and ($b -match '--retries 1')
+}
 
 # --- 목록 파일의 계약 -------------------------------------------------------
 Write-Host ''
 Write-Host '목록 파일'
 $mf = Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json
+# kw-dashboard 는 배포를 권장인 kw-devops 에 넘기므로 같은 등급이다. kw-doc-formats 는 공식
+# document-skills 위에 얹는 보정 스킬이라 기본 스킬이 늘 있어야 한다(2026-09-30 사용자 결정).
+Check 'kw-dashboard 는 권장이고 document-skills 는 필수다' {
+    (@($mf.suggested) -contains 'kw-dashboard@kiwoom-ax') -and (@($mf.required) -notcontains 'kw-dashboard@kiwoom-ax') -and
+    (@($mf.required) -contains 'document-skills@anthropic-agent-skills') -and (@($mf.suggested) -notcontains 'document-skills@anthropic-agent-skills')
+}
 Check '필수 플러그인의 배포처가 목록에 등록되어 있다' {
     $mkNames = @($mf.marketplaces | ForEach-Object { $_.name })
     @($mf.required | Where-Object { $mkNames -notcontains ($_ -split '@')[1] }).Count -eq 0
@@ -429,7 +456,7 @@ $badHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-badhome-" + [guid]
 New-Item -ItemType Directory -Force -Path (Join-Path $badHome '.claude') | Out-Null
 Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
     '{ "marketplaces": [], "required": [] }' | Set-Content -LiteralPath (Join-Path $badManifest 'manifest.json')
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$badHome'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$badHome'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$quietRoot\hooks\session-check.ps1'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 # 자국이 가짜 홈 안에 떨어져야 모래상자가 성립한다. 위 검사만으로는 훅이 조용한 것만
@@ -481,20 +508,17 @@ $fake2 = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-g-" + [guid]::NewGui
 New-Item -ItemType Directory -Force -Path (Join-Path $fake2 '.claude') | Out-Null
 
 function Invoke-Guard {
+    # 판정은 가드가 호출할 때 한다. 검사는 KWCT_PYTHON3_PROBE 로 판정을 주입해 이 PC 의 python3 에
+    # 기대지 않는다. 빈 값을 주면 주입하지 않고 실제 판정 경로를 실행한다.
     param([string]$Command, [string]$Verdict = 'redirector')
-    if ($Verdict) {
-        "python3=$Verdict`r`npython3Target=C:\stub\AppInstallerPythonRedirector.exe" |
-            Set-Content -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state')
-    } else {
-        Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state') -ErrorAction SilentlyContinue
-    }
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
-    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; & '$guard'" 2>&1 | Out-String)
+    $probe = if ($Verdict) { "`$env:KWCT_PYTHON3_PROBE='$Verdict'; " } else { '' }
+    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; $probe& '$guard'" 2>&1 | Out-String)
 }
 
 Check '맨 앞의 python3 을 막는다'            { (Invoke-Guard 'python3 -c "print(1)"') -match 'deny' }
 Check '판정이 안내판이 아니면 안 막는다'      { -not ((Invoke-Guard 'python3 -c "print(1)"' 'real') -match 'deny') }
-Check '아직 안 측정했으면 안 막는다'              { -not ((Invoke-Guard 'python3 -c "print(1)"' '') -match 'deny') }
+Check 'python3 이 없으면 안 막는다'             { -not ((Invoke-Guard 'python3 -c "print(1)"' 'absent') -match 'deny') }
 Check 'python 은 안 막는다'                   { -not ((Invoke-Guard 'python -c "print(1)"') -match 'deny') }
 Check 'py -3 은 안 막는다'                    { -not ((Invoke-Guard 'py -3 -c "print(1)"') -match 'deny') }
 Check 'python312 처럼 이름이 다르면 안 막는다' { -not ((Invoke-Guard 'python312 -V') -match 'deny') }
@@ -504,6 +528,19 @@ Check 'docker exec 안의 python3 도 안 막는다'  { -not ((Invoke-Guard 'doc
 Check '따옴표 안의 python3 은 안 막는다'       { -not ((Invoke-Guard 'echo "run python3 later"') -match 'deny') }
 Check '파이프 뒤의 python3 은 막는다'          { (Invoke-Guard 'cat x | python3 -') -match 'deny' }
 Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 python3 -V') -match 'deny' }
+# 옛 버전이 상태 파일에 적은 판정이 남아 있어도 가드는 그것을 안 본다.
+Check '가드가 상태 파일을 안 읽는다' { (Get-Content $guard -Raw) -notmatch 'kw-control-tower\.state' }
+Check '옛 판정 줄이 남아 있어도 주입한 판정을 따른다' {
+    'python3=redirector' | Set-Content -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state')
+    -not ((Invoke-Guard 'python3 -V' 'real') -match 'deny')
+}
+# 주입 없이 실제 경로를 실행해도 가드가 스스로 실패하지 않는다. 실패하면 자국을 남긴다.
+Check '실제 판정 경로가 오류 없이 끝난다' {
+    Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.error') -ErrorAction SilentlyContinue
+    $null = Invoke-Guard 'python3 -V' ''
+    -not (Test-Path -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.error'))
+}
+Check '맞춤이 python3 을 판정하지 않는다' { $syncSrc -notmatch 'fsutil' }
 
 Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -511,7 +548,8 @@ Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 Write-Host '사용자 파일 쓰기'
 # settings.json 은 사용자 파일이다. 통째로 다시 쓰므로 셋을 지켜야 한다.
-Check '고치기 전에 사본을 남긴다'        { $syncSrc.Contains('Copy-Item -LiteralPath $Path -Destination "$Path.bak"') }
+# disciplined-coder 도 settings.json·known_marketplaces.json 에 <파일>.bak 을 남긴다. 이름을 구분해 서로의 사본을 덮지 않는다.
+Check '고치기 전에 사본을 남긴다'        { $syncSrc.Contains('Copy-Item -LiteralPath $Path -Destination "$Path.kw.bak"') }
 Check '다시 안 읽힐 것은 안 쓴다'        { $syncSrc.Contains('$null = $json | ConvertFrom-Json') }
 Check '임시 파일에 쓰고 옮긴다'          { $syncSrc -match '\$Path\.kwtmp' -and $syncSrc -match 'Move-Item' }
 Check 'BOM 없이 쓴다'                    { $syncSrc -match 'UTF8Encoding\(\$false\)' }
@@ -526,11 +564,12 @@ $brokenHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-brk-" + [guid]:
 New-Item -ItemType Directory -Force -Path (Join-Path $brokenHome '.claude\plugins') | Out-Null
 '{ not json' | Set-Content -LiteralPath (Join-Path $brokenHome '.claude\settings.json')
 Check '망가진 설정에서 알림은 조용하고 자국을 남긴다' {
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'; & '$quietRoot\hooks\session-check.ps1'" 2>&1
     ([string]::IsNullOrWhiteSpace(($out | Out-String).Trim())) -and
     (Test-Path -LiteralPath (Join-Path $brokenHome '.claude\kw-control-tower.error'))
 }
 Remove-Item -LiteralPath $brokenHome -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $quietRoot -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 훅이 맞춤을 호출한다 -----------------------------------------------------
 Write-Host ''
@@ -564,6 +603,16 @@ Check '금지어 목록이 생성물이라고 밝힌다' {
 Check '목록을 받아 오는 워크플로가 있다' {
     $wf = Join-Path $repo '.github\workflows\sync-banned-words.yml'
     (Test-Path -LiteralPath $wf) -and ((Get-Content $wf -Raw -Encoding UTF8) -match 'korean-banned-words\.md')
+}
+# 비교 기준이 main 이라, 열린 PR 이 병합되기 전에는 매일 같은 내용의 PR 이 하나씩 더 열렸다.
+# 브랜치를 하나로 고정하고, 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다.
+# 같은 내용 비교는 줄 끝을 맞춘 뒤에 한다. 앞 단계가 받은 파일을 CRLF 로 바꾸고, git show 는 저장소에 든 LF 를 내므로 그대로 비교하면 늘 다르다.
+Check '금지어 워크플로가 브랜치 하나에 PR 하나를 유지한다' {
+    $wfText = Get-Content (Join-Path $repo '.github\workflows\sync-banned-words.yml') -Raw -Encoding UTF8
+    ($wfText -match 'BRANCH=chore/banned-words-sync') -and ($wfText -notmatch 'date -u') -and
+    ($wfText -match 'gh pr list --head') -and ($wfText -match 'git fetch origin "\$BRANCH"') -and
+    ($wfText -match "sed 's/\\r\$//'") -and
+    ($wfText.IndexOf('gh pr list --head') -lt $wfText.IndexOf('git fetch origin "$BRANCH"'))
 }
 # 여기서 만들면 안내가 두 벌이 된다.
 Check '이 저장소에 생성기가 없다' {
@@ -672,8 +721,23 @@ foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '
     }
     # 경로에 공백이 들어가면 어디까지가 경로인지 구분되지 않는다.
     Check "$($pair.Name): @import 경로에 공백이 없다" { $without -notmatch '(?m)^@[^\n]* ' }
+    $fc = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxCopies' }, $true)
+    Check "$($pair.Name)에 Get-AxCopies 가 있다" { $null -ne $fc }
+    if ($null -ne $fc) {
+        . ([scriptblock]::Create($fc.Extent.Text))
+        $cw = @(Get-AxCopies "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n")
+        $co = @(Get-AxCopies "앞`n")
+        $assembled["$($pair.Name)-copies"] = "$($cw -join ',')|$($co -join ',')"
+        Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안 사본 하나만 다룬다" { ($cw -join ',') -eq 'claude-md-ko.md' }
+        Check "$($pair.Name): 블록이 싣는 파일이 모두 사본 목록에 있다" {
+            $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$') | ForEach-Object { $_.Groups[1].Value })
+            @($refs | Where-Object { $co -notcontains $_ }).Count -eq 0
+        }
+        Check "$($pair.Name): 원칙이 근거로 가리키는 사본도 다룬다" { $co -contains 'domain-korean_subset.md' }
+    }
 }
 Check '맞춤과 훅이 같은 블록을 조립한다' { $assembled['맞춤'] -eq $assembled['훅'] }
+Check '맞춤과 훅이 같은 사본 목록을 쓴다' { $assembled['맞춤-copies'] -eq $assembled['훅-copies'] }
 # 블록을 맞춤이 만들므로 템플릿에 마커가 있으면 사본을 싣는 순간 마커가 한 벌 더 생긴다.
 Check '사내 문안 템플릿에 마커가 없다' {
     (Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8) -notmatch '(?m)^#\s*(BEGIN|END) AX'
@@ -708,6 +772,11 @@ Check '어떤 상황에도 호출을 안 막는다'   { $dockerSrc -notmatch "pe
 # 실제로 그렇게 됐다. 설치기가 D:\corp-certs 로 옮겼는데 훅은 %LOCALAPPDATA% 를 보고
 # 있어서, 새로 설치한 PC 에서 이 안내가 통째로 사라질 참이었다.
 Check '번들 위치를 환경변수에서 읽는다'  { $dockerSrc -match '\$env:SSL_CERT_FILE' }
+# 콘솔 코드페이지가 949 면 한국어 안내가 cp949 로 나가 Claude 가 UTF-8 로 읽을 때 깨진다.
+# 같은 플러그인의 다른 훅 둘은 이미 맞춘다.
+Check '도커 안내 훅이 나가는 인코딩을 UTF-8 로 맞춘다' {
+    $dockerSrc.Contains('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)')
+}
 # 주석은 빼고 본다. 왜 이렇게 바뀌었는지 설명하려면 옛 경로를 적을 수밖에 없는데,
 # 그것까지 막으면 이유를 적지 말라는 검사가 된다.
 Check '번들 위치를 코드에 안 박는다' {
@@ -769,6 +838,14 @@ Check '견주는 대상은 파일에 있던 것이다' {
     ($syncSrc -match '\$merged -eq \$fileNow') -and ($syncSrc -notmatch '\$merged -eq \$original')
 }
 Check '쓴 뒤에도 다시 본다'            { $syncSrc -match '쓴 뒤에 블록이 하나가 아닙니다' }
+# 상대가 문지기를 만든 채 종료되면 문지기가 남아, 치우지 않으면 반복을 다 쓰고 단계 6 이 실패한다.
+# 폴더 생성 시각은 파일 시스템이 옛 값을 다시 붙일 수 있어 쓰지 않고, 연속으로 못 만든 횟수로 판정한다.
+Check '남은 문지기 폴더를 치운다' { $syncSrc -match '\$gateMiss -ge 200' }
+# 잠금은 상태 파일을 읽기 전에 잡는다. 뒤에 잡으면 직전 맞춤이 적은 상태를 옛 값으로 덮는다.
+Check '맞춤 잠금을 상태 파일 읽기 전에 잡는다' {
+    $l = $syncSrc.IndexOf("'kw-control-tower.sync.lock'"); $s = $syncSrc.IndexOf('$state = @{}')
+    ($l -ge 0) -and ($s -gt $l)
+}
 
 # --- 문서와 코드를 대조한다 ---------------------------------------------------
 Write-Host ''
@@ -795,6 +872,14 @@ Check 'README 가 코드와 같은 수로 센다' {
     $m = [regex]::Match($readme, '단계가 (\S+)이고')
     $words = @{ '넷'=4; '다섯'=5; '여섯'=6; '일곱'=7; '여덟'=8; '아홉'=9; '열'=10 }
     $m.Success -and $words[$m.Groups[1].Value] -eq $codeSteps.Count
+}
+# 설계 문서는 살아 있는 설계다. 코드가 바뀌었는데 옛 문장이 남으면 다음 사람이 옛 규칙을 따른다.
+Check '설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다' {
+    ($spec -notmatch '단계 여덟') -and ($spec -notmatch '사내 것은 필수라 없으면 알리고') -and
+    ($spec -notmatch '세션 시작 훅에는 매처가 없다') -and ($spec -notmatch '없다\. 도구 매처가 붙는 훅이 아니다') -and
+    ($spec -notmatch '\| 설정한다 \| 물어서 설정한다 \|') -and
+    ($spec -notmatch '파이썬에게 기본 인코딩을 물어 `utf-8`이 아닐 때만') -and
+    ($spec -notmatch '"required": \[ "kw-doc-formats@kiwoom-ax" \]')
 }
 # 알림이 호출하는 맞춤 스크립트가 이 플러그인 안에 있어야 한다. 밖을 가리키면 플러그인을
 # 옮기거나 지운 PC 에서 알림만 뜨고 아무것도 안 고쳐진다.
@@ -871,7 +956,7 @@ Check '맞춤이 기록 파일을 지우지 않는다' {
 }
 Check '못 옮긴 원격 커밋을 맞춤이 적고 알림이 읽는다' {
     ($syncCode -match '\$state\["stuck-\$mkName"\]') -and
-    ($hookCode -match "'\^stuck-") -and
+    ($hookCode -match 'stuck-\$mkName') -and
     ($hookCode -match 'KWCT_REMOTE_HEAD') -and ($syncCode -match 'KWCT_REMOTE_HEAD')
 }
 
@@ -982,7 +1067,7 @@ Check '다른 플러그인이 옮겨진 것을 알리지 않는다' {
 # 2026-09-29 에 사용자가 세션 시작 알림을 줄이라고 정했다. 로그인 안내는 한 줄이고 맞춤을
 # 부르지 않는다. 맞춤을 부르면 불일치 목록과 진행 출력 대신 맞춤의 짧은 결과만 붙인다.
 $syncStub = @'
-param([switch]$Brief, [switch]$WhatIfOnly)
+param([switch]$Brief, [switch]$WhatIfOnly, [string]$Steps, [int]$BudgetSeconds)
 if ($Brief) {
     Write-Host 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
     Write-Host '  - kw-control-tower@kiwoom-ax : c875eb1 → 811b47e'
@@ -1008,6 +1093,34 @@ Check '맞춤을 부르면 짧은 결과만 붙이고 불일치 목록과 진행
         ($o -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
         ($o -notmatch $late) -and ($o -notmatch '불일치') -and ($o -notmatch '배포처를 등록하고')
 }
+# 감지는 무엇이 다른지 안다. 그것을 넘기지 않으면 불일치 하나에 모든 단계가 실행된다.
+$stepsStub = @'
+param([switch]$Brief, [switch]$WhatIfOnly, [string]$Steps, [int]$BudgetSeconds)
+Write-Host 'kw-control-tower: 사내 설정을 맞췄습니다.'
+Write-Host "  - steps=$Steps budget=$BudgetSeconds"
+'@
+Check '감지가 불일치한 단계만 맞춤에 넘긴다' {
+    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -Sync $stepsStub -Leaf 'a1a1a1a1a1a1'
+    $m = [regex]::Match($o, 'steps=([\d,]+)')
+    $got = if ($m.Success) { @($m.Groups[1].Value.Split(',') | ForEach-Object { [int]$_ }) } else { @() }
+    # 가짜 홈은 뒤처짐(1,2)과 필수 미설치(2)와 kw-ax 사본 없음(6)을 늘 갖고, 옛 스킬·훅(7)은 없다.
+    ($got -contains 1) -and ($got -contains 2) -and ($got -contains 6) -and ($got -notcontains 7)
+}
+# 불일치를 적는 곳이 하나라도 Add-Note 를 거치지 않으면 단계 번호가 빠져 그 불일치를 맞추지 못한다.
+Check '감지의 불일치는 모두 단계 번호와 함께 적힌다' { @([regex]::Matches($hookCode, '\$notes\.Add\(')).Count -eq 1 }
+# 같은 원인으로 이미 실패한 단계만 남았으면 맞춤을 호출하지 않고 알리기만 한다.
+$fnPrint = [regex]::Match($hookSrc, '(?s)function Get-StuckPrint \{.*?\n\}').Value
+Check '같은 원인으로 실패한 단계만 남으면 맞춤을 부르지 않는다' {
+    . ([scriptblock]::Create($fnPrint))
+    $all = (1..7 | ForEach-Object { "stuck-step$_=$(Get-StuckPrint $plugin $_)" }) -join "`n"
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Sync $stepsStub -Leaf 'b2b2b2b2b2b2' -State $all
+    ($o -notmatch 'steps=') -and ($o -match '같은 원인으로 이미 실패해 다시 시도하지 않았습니다')
+}
+Check '맞춤과 훅이 같은 지문을 만든다' {
+    $a = [regex]::Match($hookSrc, '(?s)function Get-StuckPrint \{.*?\n\}').Value
+    $b = [regex]::Match((Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw), '(?s)function Get-StuckPrint \{.*?\n\}').Value
+    $a -and ($a -eq $b)
+}
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤의 갱신 기록 -------------------------------------------------------
@@ -1023,11 +1136,21 @@ New-Item -ItemType Directory -Force -Path (Join-Path $sy 'bin') | Out-Null
 # "Access is denied." 로 안 떠서, 2026-09-29 에 이 PC 에서 성공 시나리오 네 건이 늘 실패했다.
 # .ps1 은 맞춤의 프로세스 안에서 돌고 출력과 종료 코드를 그대로 돌려준다.
 @'
+if ($env:STUB_LOG) { Add-Content -LiteralPath $env:STUB_LOG -Value ($args -join ' ') }
 $a = $args
 $pd = Join-Path $env:USERPROFILE '.claude\plugins'
 if ($a[0] -eq 'plugin' -and $a[1] -eq 'marketplace' -and $a[2] -eq 'update') {
+    if ($env:STUB_SLEEP) { Start-Sleep -Seconds ([int]$env:STUB_SLEEP) }
     if ($env:STUB_MK -eq 'fail') { exit 1 }
     if ($a[3] -eq 'kiwoom-ax') { Set-Content -LiteralPath (Join-Path $pd 'marketplaces\kiwoom-ax\.git\refs\heads\main') $env:STUB_NEW }
+    exit 0
+}
+if ($a[0] -eq 'plugin' -and $a[1] -eq 'install') {
+    if ($env:STUB_INSTALL_FAIL -and $a[2] -eq $env:STUB_INSTALL_FAIL) { exit 1 }
+    $f = Join-Path $pd 'installed_plugins.json'
+    $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+    $j.plugins | Add-Member -NotePropertyName $a[2] -NotePropertyValue @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $env:STUB_NEW }) -Force
+    $j | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $f
     exit 0
 }
 if ($a[0] -eq 'plugin' -and $a[1] -eq 'update') {
@@ -1049,16 +1172,19 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
-    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief)
+    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
+          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '', [switch]$CloneCurrent)
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
-    $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax')
+    $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
+             'document-skills@anthropic-agent-skills')
     $plug = @{}; $en = @{}
     foreach ($id in $ids) {
         $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })
         $en[$id] = $true
     }
+    foreach ($d in $Drop) { $plug.Remove($d) }
     @{ version = 2; plugins = $plug } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $pd 'installed_plugins.json')
     @{ enabledPlugins = $en } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $h '.claude\settings.json')
     @{ 'kiwoom-ax' = @{ source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' }; autoUpdate = $true } } |
@@ -1066,18 +1192,27 @@ function Invoke-SyncScenario {
     $g = Join-Path $pd 'marketplaces\kiwoom-ax\.git'
     New-Item -ItemType Directory -Force -Path (Join-Path $g 'refs\heads') | Out-Null
     'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
-    $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
-    "ranOnce=2026-01-01`n$State".Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
-    $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$sy\bin;' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' })" 2>&1
+    $(if ($CloneCurrent) { $shaNew } else { $shaOld }) | Set-Content (Join-Path $g 'refs\heads\main')
+    $(if ($NoRanOnce) { $State } else { "ranOnce=2026-01-01`n$State" }).Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
+    $lockDir = Join-Path $h '.claude\kw-control-tower.sync.lock'
+    if ($Lock) {
+        New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
+        if ($Lock -eq 'stale') { (Get-Item -LiteralPath $lockDir).CreationTime = (Get-Date).AddMinutes(-15) }
+    }
+    $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
+    $env:STUB_SLEEP = if ($Sleep) { "$Sleep" } else { '' }
+    $env:STUB_INSTALL_FAIL = $InstallFail
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$(if ($Bin) { $Bin } else { "$sy\bin" });' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" }) $(if ($Budget) { "-BudgetSeconds $Budget" })" 2>&1
     $log = Join-Path $h '.claude\kw-control-tower.sync.log'
-    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
+    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG', 'STUB_SLEEP', 'STUB_INSTALL_FAIL') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
     $ip = Get-Content (Join-Path $pd 'installed_plugins.json') -Raw | ConvertFrom-Json
     @{
         Out   = ($out | ForEach-Object { "$_" }) -join "`n"
         State = (Get-Content (Join-Path $h '.claude\kw-control-tower.state') -Raw)
         Sha   = @($ip.plugins.'kw-control-tower@kiwoom-ax')[0].gitCommitSha
         Log   = $(if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Raw -Encoding UTF8 } else { '' })
+        Calls = $(if (Test-Path -LiteralPath (Join-Path $h 'calls.log')) { Get-Content -LiteralPath (Join-Path $h 'calls.log') -Raw } else { '' })
+        LockLeft = (Test-Path -LiteralPath $lockDir)
     }
 }
 
@@ -1087,6 +1222,71 @@ Check '갱신에 성공하면 stuck 을 지운다' { $r.State -notmatch 'stuck-k
 Check '갱신에 성공하면 재시작을 옛 커밋 → 새 커밋으로 안내한다' {
     ($r.Out -match '(?m)^kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.') -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e')
 }
+$r = Invoke-SyncScenario -Steps '6'
+Check '넘겨받은 단계가 아니면 돌지 않는다' {
+    ($r.Sha -eq $shaOld) -and [string]::IsNullOrWhiteSpace($r.Calls) -and ($r.Out -match '넘겨받은 불일치가 없어 넘어갑니다')
+}
+$r = Invoke-SyncScenario -Steps '1,2'
+Check '넘겨받은 단계는 돈다' { $r.Sha -eq $shaNew }
+# 훅 제한은 90초다. 맞춤이 그것을 넘기면 알림이 사라진다고 보고, 맞춤 스스로 멈추고 남은 단계를 다음
+# 세션으로 미룬다. .ps1 스텁은 이 프로세스 안에서 실행되어 한 호출 안에서는 끊지 못한다.
+$r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Brief
+Check '시간 상한을 넘기면 남은 호출을 하지 않고 다음 세션으로 미룬다' {
+    ($r.Sha -eq $shaOld) -and ($r.Out -match '다음 세션으로 미뤘습니다') -and ($r.Calls -notmatch 'plugin update')
+}
+# 진짜 claude.exe 는 한 호출이 상한을 넘기면 끊는다. 인자와 표준입력에 관계없이 30초를 기다리는
+# claude.cmd 를 두고 확인한다. .cmd 는 CreateProcess 가 cmd.exe 로 실행한다.
+$hang = Join-Path $sy 'hang'
+New-Item -ItemType Directory -Force -Path $hang | Out-Null
+'@ping -n 30 127.0.0.1 >nul' | Set-Content -LiteralPath (Join-Path $hang 'claude.cmd') -Encoding ascii
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$hangRun = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
+$sw.Stop()
+Check '상한을 넘긴 claude 호출을 끊는다' {
+    ($sw.Elapsed.TotalSeconds -lt 20) -and ($hangRun.Out -match '시간 상한에 닿아 멈췄습니다')
+}
+$r = Invoke-SyncScenario -Mk 'fail' -Steps '1'
+Check '단계가 실패하면 그 단계의 지문을 적는다' { $r.State -match '(?m)^stuck-step1=[0-9A-F]{32}\s*$' }
+$r = Invoke-SyncScenario -Steps '1' -State 'stuck-step1=00000000000000000000000000000000'
+Check '단계가 성공하면 지문을 지운다' { $r.State -notmatch 'stuck-step1' }
+# 매번 상한을 넘기는 단계를 켤 때마다 다시 실행하지 않게, 끊긴 단계도 그날은 다시 호출하지 않는다.
+Check '상한에 끊긴 단계도 지문을 적는다' { $hangRun.State -match '(?m)^stuck-step1=' }
+$r = Invoke-SyncScenario -Mk 'fail' -Steps '2'
+Check '사본을 받아오지 않은 실행은 배포처 실패로 적지 않는다' { $r.State -notmatch 'stuck-kiwoom-ax' }
+# 자동 갱신이 사본만 받아 두고 설치본을 못 옮긴 PC 에서는 알림이 단계 2 만 넘긴다. 그때 update 가
+# 실패해도 원격 커밋을 적어야 다음 세션에 같은 맞춤을 다시 호출하지 않는다.
+$r = Invoke-SyncScenario -Up 'fail' -Steps '2' -CloneCurrent
+Check '사본이 이미 최신이면 단계 2 만 실행해도 배포처 실패를 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
+# 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
+$r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
+Check '시작하지 못해 미룬 단계는 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }
+# 권장은 플러그인마다 한 번이다. 하나가 실패해도 성공한 것은 기록되고, 실패한 것만 다시 해 본다.
+$r = Invoke-SyncScenario -NoRanOnce -Steps '2' -InstallFail 'playwright@claude-plugins-official'
+Check '권장 설치에 성공한 것만 기록한다' {
+    ($r.State -match '(?m)^suggestedDone=.*superpowers@claude-plugins-official') -and
+    ($r.State -notmatch 'playwright@claude-plugins-official')
+}
+# 권장 하나의 실패는 단계 2 전체를 막지 않는다. 막으면 같은 날 필수 플러그인 교정까지 보류된다.
+Check '권장 설치 실패는 단계 지문을 남기지 않는다' { $r.State -notmatch 'stuck-step2' }
+# 기록된 것은 사용자가 지운 뒤에도 다시 깔지 않는다.
+$r = Invoke-SyncScenario -NoRanOnce -Steps '2' -Drop 'kw-dashboard@kiwoom-ax' `
+        -State 'suggestedDone=kw-devops@kiwoom-ax;kw-dashboard@kiwoom-ax;superpowers@claude-plugins-official;playwright@claude-plugins-official;frontend-design@claude-plugins-official'
+Check '기록된 권장 플러그인은 지워도 다시 안 깐다' { $r.Calls -notmatch 'plugin install kw-dashboard' }
+# ranOnce 만 있는 옛 PC 는 이행 때의 권장 목록을 처리한 것으로 본다. 그 목록의 것은 다시 깔지 않고,
+# 이행 뒤 권장에 새로 올린 것은 한 번 깐다.
+$r = Invoke-SyncScenario -Steps '2' -Drop 'superpowers@claude-plugins-official'
+Check 'ranOnce 만 있는 PC 에서 옛 권장은 지웠으면 다시 안 깐다' { $r.Calls -notmatch 'plugin install superpowers' }
+$r = Invoke-SyncScenario -Steps '2' -Drop 'kw-dashboard@kiwoom-ax'
+Check 'ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다' { $r.Calls -match 'plugin install kw-dashboard@kiwoom-ax' }
+$r = Invoke-SyncScenario -Steps '1,2'
+Check '맞춤이 끝나면 잠금을 치운다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
+$r = Invoke-SyncScenario -Steps '1,2' -Lock 'fresh'
+Check '다른 맞춤이 실행 중이면 넘긴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 넘깁니다') }
+$r = Invoke-SyncScenario -Steps '1,2' -Lock 'stale'
+Check '10분 넘은 잠금은 치우고 실행한다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
+# 상한에 끊긴 실행도 잠금을 남기지 않는다. Task 8 의 끊김 시나리오를 다시 실행한다.
+$r = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
+Check '상한에 끊긴 실행도 잠금을 치운다' { -not $r.LockLeft }
 
 $r = Invoke-SyncScenario -Up 'fail'
 Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
@@ -1121,6 +1321,9 @@ Check '짧게 불러도 갱신 실패는 명령과 함께 한 번만 알린다' 
         ($r.Out -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax') -and
         (([regex]::Matches($r.Out, 'kw-control-tower@kiwoom-ax')).Count -eq 2) -and ($r.Out -notmatch '배포처를 등록하고')
 }
+# 옛 단계 8 이 적은 줄을 맞춤이 지운다. 남기면 읽는 곳이 없는 줄이 상태 파일에 영영 남는다.
+$r = Invoke-SyncScenario -State "python3=redirector`npython3Target=C:\x\python3.exe"
+Check '맞춤이 옛 python3 판정 줄을 지운다' { $r.State -notmatch '(?m)^python3' }
 Remove-Item -LiteralPath $sy -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤이 끝까지 간다 -----------------------------------------------------
@@ -1131,6 +1334,19 @@ Write-Host '맞춤이 끝까지 간다'
 Check '세션 시작 훅의 예산이 맞춤을 끝낼 만큼이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $j.hooks.SessionStart[0].hooks[0].timeout -ge 90
+}
+Check '훅이 맞춤에 훅 제한보다 짧은 상한을 넘긴다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $m = [regex]::Match($hookCode, '-BudgetSeconds (\d+)')
+    $m.Success -and ([int]$m.Groups[1].Value -lt $j.hooks.SessionStart[0].hooks[0].timeout)
+}
+# 끊긴 claude 가 표준입력을 기다리지 않게 바로 닫는다.
+Check '맞춤이 claude 의 표준입력을 바로 닫는다' { $syncSrc -match '\$p\.StandardInput\.Close\(\)' }
+# 설치와 갱신은 클로드 코드를 다시 켜야 적용되므로 /clear 나 resume 에서 다시 맞춰도 이 세션에는
+# 안 실린다. 켤 때만 실행한다.
+Check '세션 시작 훅은 클로드 코드를 켤 때만 돈다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    (@($j.hooks.SessionStart).Count -eq 1) -and ($j.hooks.SessionStart[0].matcher -eq 'startup')
 }
 # 훅 출력은 훅이 끝난 뒤에 한 번에 보인다. 맞춤 전에 "기다려 달라" 고 적어도 맞춤이 끝난
 # 뒤에야 읽히므로, 대신 맞춤의 결과가 출력에 실리는지를 본다.
@@ -1172,6 +1388,21 @@ Check '훅을 호출하는 검사가 진짜 홈을 안 넘긴다' {
     $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
     $self -notmatch "USERPROFILE='\`$env:USERPROFILE'"
 }
+
+# 진짜 플러그인 폴더의 훅을 실행하면 훅이 옆의 진짜 맞춤을 찾아 호출한다. 가짜 홈에는 필수
+# 플러그인이 없어 불일치가 늘 생기므로 맞춤이 실행되고, 이 PC 의 파이썬과 레지스트리가 바뀐다.
+Check '훅을 호출하는 검사가 진짜 플러그인 폴더의 훅을 안 돌린다' {
+    $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
+    $self -notmatch '''\$plugin\\hooks\\session-check\.ps1'''
+}
+
+# --- 마켓플레이스 검증 ------------------------------------------------------
+# 저장소 전체를 한 번 검증한다. 플러그인별 검사 셋이 각자 같은 검증을 실행하던 것을 여기로 모았다.
+Write-Host ''
+Write-Host '마켓플레이스 검증'
+Push-Location $repo
+try { $null = & claude plugin validate ./ 2>&1 | Out-String; $validateCode = $LASTEXITCODE } finally { Pop-Location }
+Check 'claude plugin validate 가 0 으로 끝난다(경고는 허용)' { $validateCode -eq 0 }
 
 # --- 결과 -----------------------------------------------------------------
 Write-Host ''

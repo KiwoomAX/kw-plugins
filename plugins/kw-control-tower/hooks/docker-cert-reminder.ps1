@@ -7,6 +7,9 @@
 
 $ErrorActionPreference = 'Stop'
 
+# 나가는 인코딩을 맞춘다. 콘솔 코드페이지가 949 면 한국어 안내가 cp949 로 나가 깨진다.
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+
 # 번들이 없는 PC 에서는 아무 말도 안 한다. 이 안내가 시키는 것이 그 번들을 컨테이너에
 # 마운트하는 것인데, 없는 폴더를 가리키는 안내는 틀린 안내다.
 #
