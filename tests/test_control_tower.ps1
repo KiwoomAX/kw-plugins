@@ -486,20 +486,17 @@ $fake2 = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-g-" + [guid]::NewGui
 New-Item -ItemType Directory -Force -Path (Join-Path $fake2 '.claude') | Out-Null
 
 function Invoke-Guard {
+    # 판정은 가드가 호출할 때 한다. 검사는 KWCT_PYTHON3_PROBE 로 판정을 주입해 이 PC 의 python3 에
+    # 기대지 않는다. 빈 값을 주면 주입하지 않고 실제 판정 경로를 실행한다.
     param([string]$Command, [string]$Verdict = 'redirector')
-    if ($Verdict) {
-        "python3=$Verdict`r`npython3Target=C:\stub\AppInstallerPythonRedirector.exe" |
-            Set-Content -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state')
-    } else {
-        Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state') -ErrorAction SilentlyContinue
-    }
     $payload = @{ tool_name = 'Bash'; tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
-    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; & '$guard'" 2>&1 | Out-String)
+    $probe = if ($Verdict) { "`$env:KWCT_PYTHON3_PROBE='$Verdict'; " } else { '' }
+    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; $probe& '$guard'" 2>&1 | Out-String)
 }
 
 Check '맨 앞의 python3 을 막는다'            { (Invoke-Guard 'python3 -c "print(1)"') -match 'deny' }
 Check '판정이 안내판이 아니면 안 막는다'      { -not ((Invoke-Guard 'python3 -c "print(1)"' 'real') -match 'deny') }
-Check '아직 안 측정했으면 안 막는다'              { -not ((Invoke-Guard 'python3 -c "print(1)"' '') -match 'deny') }
+Check 'python3 이 없으면 안 막는다'             { -not ((Invoke-Guard 'python3 -c "print(1)"' 'absent') -match 'deny') }
 Check 'python 은 안 막는다'                   { -not ((Invoke-Guard 'python -c "print(1)"') -match 'deny') }
 Check 'py -3 은 안 막는다'                    { -not ((Invoke-Guard 'py -3 -c "print(1)"') -match 'deny') }
 Check 'python312 처럼 이름이 다르면 안 막는다' { -not ((Invoke-Guard 'python312 -V') -match 'deny') }
@@ -509,6 +506,19 @@ Check 'docker exec 안의 python3 도 안 막는다'  { -not ((Invoke-Guard 'doc
 Check '따옴표 안의 python3 은 안 막는다'       { -not ((Invoke-Guard 'echo "run python3 later"') -match 'deny') }
 Check '파이프 뒤의 python3 은 막는다'          { (Invoke-Guard 'cat x | python3 -') -match 'deny' }
 Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 python3 -V') -match 'deny' }
+# 옛 버전이 상태 파일에 적은 판정이 남아 있어도 가드는 그것을 안 본다.
+Check '가드가 상태 파일을 안 읽는다' { (Get-Content $guard -Raw) -notmatch 'kw-control-tower\.state' }
+Check '옛 판정 줄이 남아 있어도 주입한 판정을 따른다' {
+    'python3=redirector' | Set-Content -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state')
+    -not ((Invoke-Guard 'python3 -V' 'real') -match 'deny')
+}
+# 주입 없이 실제 경로를 실행해도 가드가 스스로 실패하지 않는다. 실패하면 자국을 남긴다.
+Check '실제 판정 경로가 오류 없이 끝난다' {
+    Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.error') -ErrorAction SilentlyContinue
+    $null = Invoke-Guard 'python3 -V' ''
+    -not (Test-Path -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.error'))
+}
+Check '맞춤이 python3 을 판정하지 않는다' { $syncSrc -notmatch 'fsutil' }
 
 Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -1132,6 +1142,9 @@ Check '짧게 불러도 갱신 실패는 명령과 함께 한 번만 알린다' 
         ($r.Out -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax') -and
         (([regex]::Matches($r.Out, 'kw-control-tower@kiwoom-ax')).Count -eq 2) -and ($r.Out -notmatch '배포처를 등록하고')
 }
+# 옛 단계 8 이 적은 줄을 맞춤이 지운다. 남기면 읽는 곳이 없는 줄이 상태 파일에 영영 남는다.
+$r = Invoke-SyncScenario -State "python3=redirector`npython3Target=C:\x\python3.exe"
+Check '맞춤이 옛 python3 판정 줄을 지운다' { $r.State -notmatch '(?m)^python3' }
 Remove-Item -LiteralPath $sy -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤이 끝까지 간다 -----------------------------------------------------

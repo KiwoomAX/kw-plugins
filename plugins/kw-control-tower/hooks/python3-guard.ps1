@@ -5,9 +5,9 @@
 # 안 띈다. 세션 시작 알림으로는 못 잡는다. 환경이 갖춰졌는지가 아니라 호출하는 순간의
 # 문제라 그 명령을 세울 곳이 여기다.
 #
-# 판정 자체는 여기서 안 한다. 링크가 가리키는 실물을 읽으려면 fsutil 을 호출해야 하고
-# 그것이 이 PC 에서 48밀리초다. 도구를 호출할 때마다 물 값이 아니다. 맞춤이 한 번
-# 재서 상태 파일에 적어 두고 이 훅은 그 한 줄을 읽기만 한다.
+# 판정은 호출할 때 한다. hooks.json 의 if 가 python3 으로 시작하는 명령에서만 이 훅을 실행하므로
+# fsutil 값(이 PC 에서 48밀리초)은 그 명령에만 든다. 맞춤이 적어 둔 값을 읽으면, 맞춤이 불일치한
+# 단계만 실행하게 된 뒤로 판정을 적던 단계가 거의 실행되지 않아 판정이 굳는다.
 #
 # 세 곳에서 좁힌다. 판정이 '안내판'일 때만 돌고, 명령의 첫 낱말이 python3 일 때만 잡고,
 # python312 나 python3.12 처럼 뒤에 글자가 붙은 이름은 안 잡는다. WSL 과 도커 안에서는
@@ -17,20 +17,40 @@ Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
+function Get-Python3Verdict {
+    # 검사가 판정을 주입한다. 실제 PC 의 python3 에 기대면 PC 마다 결과가 달라진다.
+    if ($env:KWCT_PYTHON3_PROBE) {
+        return @{ Kind = $env:KWCT_PYTHON3_PROBE; Target = 'C:\stub\AppInstallerPythonRedirector.exe' }
+    }
+    $c = Get-Command python3 -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $c) { return @{ Kind = 'absent'; Target = '' } }
+    $src = $c.Source
+    $item = Get-Item -LiteralPath $src -Force
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { return @{ Kind = 'real'; Target = $src } }
+    # 재지정 버퍼 안에 링크가 가리키는 실물의 경로가 UTF-16 으로 들어 있다.
+    $dump = (& fsutil.exe reparsepoint query $src 2>&1 | Out-String)
+    $bytes = New-Object System.Collections.Generic.List[byte]
+    foreach ($line in ($dump -split "`n")) {
+        if ($line -notmatch '^\s*[0-9a-fA-F]{4}:\s') { continue }
+        $body = ($line -replace '^\s*[0-9a-fA-F]{4}:\s+', '')
+        $hexPart = $body.Substring(0, [Math]::Min(48, $body.Length))
+        foreach ($m in [regex]::Matches($hexPart, '\b[0-9a-fA-F]{2}\b')) { $bytes.Add([Convert]::ToByte($m.Value, 16)) }
+    }
+    $text = [System.Text.Encoding]::Unicode.GetString($bytes.ToArray())
+    $exe = ($text -split "`0" | Where-Object { $_ -match '\.exe$' } | Select-Object -Last 1)
+    $target = if ($exe) { $exe.Trim() } else { '' }
+    # 경로에 WindowsApps 가 들었는지로 가르지 않는다. 스토어로 깐 진짜 파이썬도 거기 놓인다.
+    $kind = if ($text -match 'AppInstallerPythonRedirector') { 'redirector' } else { 'real' }
+    return @{ Kind = $kind; Target = $target }
+}
+
 try {
     $userHome = $env:USERPROFILE
     if ([string]::IsNullOrEmpty($userHome)) { exit 0 }
 
-    $statePath = Join-Path (Join-Path $userHome '.claude') 'kw-control-tower.state'
-    if (-not (Test-Path -LiteralPath $statePath)) { exit 0 }
-
-    $verdict = $null
-    $target  = ''
-    foreach ($line in (Get-Content -LiteralPath $statePath -Encoding UTF8)) {
-        if ($line -like 'python3=*')       { $verdict = $line.Substring(8) }
-        if ($line -like 'python3Target=*') { $target  = $line.Substring(14) }
-    }
-    if ($verdict -ne 'redirector') { exit 0 }   # 파이썬으로 풀리거나, 없거나, 아직 안 측정했다
+    $verdict = Get-Python3Verdict
+    if ($verdict.Kind -ne 'redirector') { exit 0 }   # 파이썬으로 풀리거나 없다
+    $target = $verdict.Target
 
     # 표준입력을 UTF-8 로 직접 읽는다. [Console]::In 은 콘솔 코드페이지로 해석하는데
     # 한국어 윈도에서는 949 라, 클로드가 보내는 UTF-8 한글이 깨지고 따옴표 짝이 틀어져

@@ -224,6 +224,8 @@ if (Test-Path -LiteralPath $statePath) {
     }
 }
 $firstRun = -not $state.ContainsKey('ranOnce')
+# 옛 버전의 단계 8 이 적던 python3 판정이다. 가드가 호출할 때 직접 판정하므로 남은 줄을 지운다.
+$state.Remove('python3'); $state.Remove('python3Target')
 $script:Refreshed = $false
 
 # 단계가 끝날 때마다 호출한다. 훅의 예산에 막혀 도중에 죽더라도 거기까지의 진행이
@@ -781,51 +783,6 @@ try {
         }
     }
 } catch { Fail '7' $_.Exception.Message }
-Save-State
-
-# ---------------------------------------------------------------- 단계 8
-Show '8. python3 이 이 PC 에서 무엇으로 풀리는지 잽니다.'
-try {
-    # 도구를 호출할 때마다 도는 가드는 이 판정을 직접 못 한다. 링크가 가리키는 실물을
-    # 읽으려면 fsutil 을 호출해야 하고 그것이 이 PC 에서 48밀리초다. 여기서 한 번 재고
-    # 가드는 그 결과 한 줄을 읽기만 한다.
-    $verdict = 'ok'
-    $targetExe = ''
-    $c = Get-Command python3 -ErrorAction SilentlyContinue
-    if ($null -eq $c) {
-        $verdict = 'absent'
-    } else {
-        $src = $c.Source
-        $item = Get-Item -LiteralPath $src -Force
-        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
-            $verdict = 'real'; $targetExe = $src
-        } else {
-            # 재지정 버퍼 안에 링크가 가리키는 실물의 경로가 UTF-16 으로 들어 있다.
-            $dump = (& fsutil.exe reparsepoint query $src 2>&1 | Out-String)
-            $bytes = New-Object System.Collections.Generic.List[byte]
-            foreach ($line in ($dump -split "`n")) {
-                if ($line -notmatch '^\s*[0-9a-fA-F]{4}:\s') { continue }
-                $body = ($line -replace '^\s*[0-9a-fA-F]{4}:\s+', '')
-                $hexPart = $body.Substring(0, [Math]::Min(48, $body.Length))
-                foreach ($m in [regex]::Matches($hexPart, '\b[0-9a-fA-F]{2}\b')) { $bytes.Add([Convert]::ToByte($m.Value, 16)) }
-            }
-            $text = [System.Text.Encoding]::Unicode.GetString($bytes.ToArray())
-            $exe = ($text -split "`0" | Where-Object { $_ -match '\.exe$' } | Select-Object -Last 1)
-            if ($exe) { $targetExe = $exe.Trim() }
-            # 경로에 WindowsApps 가 들었는지로 안 구분한다. 스토어로 깐 진짜 파이썬도
-            # 거기 놓인다. 가리키는 실물의 이름이 판정의 근거다.
-            if ($text -match 'AppInstallerPythonRedirector') { $verdict = 'redirector' } else { $verdict = 'real' }
-        }
-    }
-    $state['python3'] = $verdict
-    $state['python3Target'] = $targetExe
-    switch ($verdict) {
-        'redirector' { Say 'python3 은 마이크로소프트 스토어 안내판입니다. 그 호출을 막습니다.' }
-        'real'       { Say "python3 이 진짜 파이썬으로 풀립니다. 안 막습니다." }
-        'absent'     { Say 'python3 이 PATH 에 없습니다. 막을 것이 없습니다.' }
-        default      { Say '판정하지 못했습니다.' }
-    }
-} catch { Fail '8' $_.Exception.Message }
 Save-State
 
 # ---------------------------------------------------------------- 마무리
