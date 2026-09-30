@@ -714,6 +714,11 @@ Check '어떤 상황에도 호출을 안 막는다'   { $dockerSrc -notmatch "pe
 # 실제로 그렇게 됐다. 설치기가 D:\corp-certs 로 옮겼는데 훅은 %LOCALAPPDATA% 를 보고
 # 있어서, 새로 설치한 PC 에서 이 안내가 통째로 사라질 참이었다.
 Check '번들 위치를 환경변수에서 읽는다'  { $dockerSrc -match '\$env:SSL_CERT_FILE' }
+# 콘솔 코드페이지가 949 면 한국어 안내가 cp949 로 나가 Claude 가 UTF-8 로 읽을 때 깨진다.
+# 같은 플러그인의 다른 훅 둘은 이미 맞춘다.
+Check '도커 안내 훅이 나가는 인코딩을 UTF-8 로 맞춘다' {
+    $dockerSrc.Contains('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)')
+}
 # 주석은 빼고 본다. 왜 이렇게 바뀌었는지 설명하려면 옛 경로를 적을 수밖에 없는데,
 # 그것까지 막으면 이유를 적지 말라는 검사가 된다.
 Check '번들 위치를 코드에 안 박는다' {
@@ -1137,6 +1142,12 @@ Write-Host '맞춤이 끝까지 간다'
 Check '세션 시작 훅의 예산이 맞춤을 끝낼 만큼이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $j.hooks.SessionStart[0].hooks[0].timeout -ge 90
+}
+# 설치와 갱신은 클로드 코드를 다시 켜야 적용되므로 /clear 나 resume 에서 다시 맞춰도 이 세션에는
+# 안 실린다. 켤 때만 실행한다.
+Check '세션 시작 훅은 클로드 코드를 켤 때만 돈다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    (@($j.hooks.SessionStart).Count -eq 1) -and ($j.hooks.SessionStart[0].matcher -eq 'startup')
 }
 # 훅 출력은 훅이 끝난 뒤에 한 번에 보인다. 맞춤 전에 "기다려 달라" 고 적어도 맞춤이 끝난
 # 뒤에야 읽히므로, 대신 맞춤의 결과가 출력에 실리는지를 본다.
