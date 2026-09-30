@@ -75,20 +75,21 @@ Check 'hooks.json 이 JSON 이다'       { $null -ne (Get-Content (Join-Path $pl
 #
 # 아는 키를 나열해 견주지 않고 밑줄만 막는다. 나열하면 형식에 키가 하나 늘 때마다
 # 사람이 이 목록을 맞춰야 하고, 안 맞추면 멀쩡한 키에서 검사가 떨어진다.
+# 플러그인을 추가할 때 이 목록을 손으로 고치지 않도록 plugins 아래를 모은다. kw-dashboard 가 빠져 있었다.
+$claudeJsonFiles = @((Join-Path $repo '.claude-plugin\marketplace.json'), (Join-Path $plugin 'hooks\hooks.json')) +
+    @(Get-ChildItem (Join-Path $repo 'plugins') -Directory | ForEach-Object { Join-Path $_.FullName '.claude-plugin\plugin.json' } | Where-Object { Test-Path -LiteralPath $_ })
 Check '클로드 코드가 읽는 JSON 에 밑줄 주석 키가 없다' {
-    $files = @(
-        (Join-Path $repo   '.claude-plugin\marketplace.json')
-        (Join-Path $plugin '.claude-plugin\plugin.json')
-        (Join-Path $plugin 'hooks\hooks.json')
-        (Join-Path $repo   'plugins\kw-doc-formats\.claude-plugin\plugin.json')
-        (Join-Path $repo   'plugins\kw-devops\.claude-plugin\plugin.json')
-    )
+    $files = $claudeJsonFiles
     $bad = 0
     foreach ($f in $files) {
         $j = Get-Content $f -Raw | ConvertFrom-Json
         $bad += @($j.PSObject.Properties.Name | Where-Object { $_.StartsWith('_') }).Count
     }
     $bad -eq 0
+}
+Check '밑줄 키 검사가 모든 플러그인의 plugin.json 을 본다' {
+    $want = @(Get-ChildItem (Join-Path $repo 'plugins') -Directory | ForEach-Object { Join-Path $_.FullName '.claude-plugin\plugin.json' } | Where-Object { Test-Path -LiteralPath $_ })
+    ($want.Count -ge 4) -and (@($want | Where-Object { $claudeJsonFiles -notcontains $_ }).Count -eq 0)
 }
 
 # 버전을 감지에 안 쓰기로 했으므로 plugin.json 에 version 을 안 적는다.
@@ -1372,6 +1373,14 @@ Check '훅을 호출하는 검사가 진짜 플러그인 폴더의 훅을 안 �
     $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
     $self -notmatch '''\$plugin\\hooks\\session-check\.ps1'''
 }
+
+# --- 마켓플레이스 검증 ------------------------------------------------------
+# 저장소 전체를 한 번 검증한다. 플러그인별 검사 셋이 각자 같은 검증을 실행하던 것을 여기로 모았다.
+Write-Host ''
+Write-Host '마켓플레이스 검증'
+Push-Location $repo
+try { $null = & claude plugin validate ./ 2>&1 | Out-String; $validateCode = $LASTEXITCODE } finally { Pop-Location }
+Check 'claude plugin validate 가 0 으로 끝난다(경고는 허용)' { $validateCode -eq 0 }
 
 # --- 결과 -----------------------------------------------------------------
 Write-Host ''

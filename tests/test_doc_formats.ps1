@@ -125,16 +125,7 @@ foreach ($d in $skillDirs) {
     Assert "$($d.Name) does not name the retired skill" (-not ((Body $d.Name) -match 'document-formats'))
 }
 
-Write-Host '--- claude plugin validate ---'
-# Exit code is the verdict. The tool prints warnings for a missing version and
-# author and still exits 0; an error exits non-zero. Run at the repo root so the
-# whole marketplace is validated, both plugins included.
-Push-Location $Repo
-try {
-    $null = & claude plugin validate ./ 2>&1 | Out-String
-    $code = $LASTEXITCODE
-} finally { Pop-Location }
-Assert 'claude plugin validate exits 0 (warnings allowed)' ($code -eq 0)
+# 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)

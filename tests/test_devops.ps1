@@ -344,13 +344,7 @@ Assert 'searching-document serialises the body deep enough' ($sdText -match 'Con
 # Read-only: it names the search and the file GET, never a collection write or a file upload.
 Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upsert|/delete|/upload|set_payload|delete_points'))
 
-Write-Host '--- claude plugin validate ---'
-Push-Location $Repo
-try {
-    $null = & claude plugin validate ./ 2>&1 | Out-String
-    $code = $LASTEXITCODE
-} finally { Pop-Location }
-Assert 'claude plugin validate exits 0 (warnings allowed)' ($code -eq 0)
+# 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)
