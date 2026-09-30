@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -71,7 +72,14 @@ def manifest(fetch_doc=fetch) -> tuple[dict, str | None]:
             raise SystemExit(f"매니페스트를 읽지 못했고 사본도 없다 — 사내망인지 확인한다. {detail}")
         return read_cache(), f"MongoDB 를 읽지 못해 {age / 3600:.1f}시간 지난 사본을 쓴다 — {detail}"
     CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    # 다른 세션이 반쯤 쓴 사본을 읽지 않도록 임시 파일에 쓴 뒤 바꿔 끼운다. Windows 에서는 그 순간
+    # 다른 세션이 사본을 열고 있으면 교체가 거부되는데, 사본은 다음 실행에 다시 받으면 되므로 넘긴다.
+    tmp = CACHE.with_name(f"{CACHE.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    try:
+        os.replace(tmp, CACHE)
+    except OSError:
+        tmp.unlink(missing_ok=True)
     return doc, None
 
 
@@ -87,7 +95,7 @@ def render(doc: dict, screens: list[str]) -> str:
 
 def _selfcheck() -> None:
     global CACHE
-    saved, CACHE = CACHE, Path(os.environ.get("TMPDIR", "/tmp")) / f"sw_selfcheck_{os.getpid()}.json"
+    saved, CACHE = CACHE, Path(tempfile.gettempdir()) / f"sw_selfcheck_{os.getpid()}.json"
     boom = lambda: (_ for _ in ()).throw(RuntimeError("끊김"))
     new = {"index": "새것", "screens": {"1": "가"}}
     other = {"index": "딴것", "screens": {"1": "가", "2": "나"}}
@@ -121,13 +129,14 @@ def _selfcheck() -> None:
 
 
 def main() -> None:
+    # Windows 에서 출력이 파이프로 나가면 파이썬은 CP949 로 쓰고, 매니페스트의 '—'·'−' 에서 멈춘다.
+    # --help 와 인자 오류도 이 설정을 거치도록 인자를 해석하기 전에 둔다.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="DBGateway 매니페스트의 목차나 화면별 상세를 낸다.")
     parser.add_argument("--screen", nargs="+", default=[], metavar="화면번호", help="이 화면들의 상세를 낸다")
     parser.add_argument("--selfcheck", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    # Windows 에서 출력이 파이프로 나가면 파이썬은 CP949 로 쓰고, 매니페스트의 '—'·'−' 에서 멈춘다.
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
     if args.selfcheck:
         _selfcheck()
         print("selfcheck ok")
