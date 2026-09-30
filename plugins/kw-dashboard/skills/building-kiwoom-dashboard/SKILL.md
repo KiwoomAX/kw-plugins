@@ -24,6 +24,9 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
   상태바 모양까지 바꾼다. 모양은 요소마다 Tailwind 클래스로 준다.
 - **셸이 쓰는 클래스 이름을 내용 구획 CSS 에 다시 정의하지 않는다.** `.shell` · `.rail` · `.topbar` · `.side` ·
   `.nav-item` · `.content` 같은 이름이다. 겹치면 이름을 바꾼다.
+- **왼쪽 세로 띠를 붙이지 않는다.** 카드 · 표의 행 · 안내문 · 알림 항목 어디에도 `border-left` 나
+  `box-shadow: inset 3px 0 0` 같은 색 띠를 두지 않는다. 고른 행과 강조 카드와 안내문은 면 색과 글자색으로만
+  나타낸다.
 
 ## 새 대시보드 시작
 
@@ -49,8 +52,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    주소 `/` 로 들어온 사람은 템플릿의 빈 첫 화면을 본다.
 3. **화면이 아직 없는 기능은 메뉴에 넣지 않는다.** 화면이 생길 때 줄을 추가한다. `locked: true` 는 화면이 있는데
    권한이 없는 기능에만 쓴다. 툴팁이 「접근 권한이 없습니다」라서 화면이 없는 기능에 쓰면 뜻이 틀린다.
-4. **카테고리 안 기능이 하나뿐이면 묶지 않고 낱개로 둔다.** 한 기능을 카테고리에 넣어 달라는 요청을 받으면
-   낱개로 두고, 둘째 기능이 생길 때 묶는다고 알린다.
+4. **카테고리에 들지 않은 낱개 기능은 카테고리 앞이나 뒤에 모아 둔다.** 홈처럼 첫 화면이 되는 기능은 카테고리
+   앞에 둔다. 카테고리 사이에 끼우면 콘솔에 경고가 나온다. 카테고리 안 기능이 하나뿐이어도 된다.
 5. 기능 이름은 한글 13자 안쪽을 권장한다. 넘으면 두 줄로 접혀 그 줄만 키가 커진다.
 6. 백엔드 API 는 `src/backend` 에 라우터로 만들어 `/api/<기능 이름>` 아래에 붙인다. 기능 이름은 영문 소문자와
    하이픈으로 짓고(`/api/kpi`), 알림 서랍은 `/api/alerts` 를 쓴다. nginx 가 `/api/` 로 시작하는 요청만 백엔드로
@@ -93,16 +96,34 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 | 쓰임 | 이름 |
 |---|---|
-| 바탕과 면 | `bg-surface-app` · `bg-surface` · `bg-surface-sunken` · `bg-surface-hover` |
+| 바탕과 면 | `bg-surface-app` · `bg-surface` · `bg-surface-sunken` · `bg-surface-hover` · `bg-surface-dialog` |
 | 글자 | `text-on-surface` · `text-on-surface-variant` · `text-on-surface-tertiary` |
 | 선 | `border-outline` · `border-outline-strong` |
-| 상태(정상 · 지연 · 위험) | `status-ok` · `status-warn` · `status-bad` |
-| 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` |
-| 차트 선과 격자 | `chart-1` · `grid` |
-| 강조 | `brand` · `on-brand` |
+| 내용 구획 강조(칩 · 단추 · 막대) | `accent` · `on-accent` · `accent-weak` |
+| 셸 강조(사이드바 · 상태바) | `brand` · `on-brand` |
+| 표 머리 | `bg-th` · `text-on-th` |
+| 고른 행 | `bg-row-sel` |
+| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak` |
+| 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` · `rise-fill` · `fall-fill` · `rise-weak` · `fall-weak` |
+| 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` |
+| 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` |
 
-- 색 계열은 상태 세 가지를 쓰기를 권장한다. 색이 보이면 뜻이 있어야 한다.
-- 등락에 `status-ok` · `status-bad` 를 빌려 쓰지 않는다. 상태와 등락은 뜻이 다르다.
+- 사이드바와 상태바는 `brand` 를 쓰고 내용 구획은 `accent` 를 쓴다. 둘을 바꿔 쓰지 않는다.
+- 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감
+  알림이다. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 낮 3.09 대
+  밤 10.2 로 두 테마의 무게가 어긋난다.
+- 확인이 필요한 것만 굵은 글씨에 옅은 면(`-weak`)을 준다. 진행과 완료는 보통 굵기에 면 없이 글자만 둔다.
+- 한 화면에 색감은 둘까지 권장하고 회색을 포함해 세 계열을 넘기지 않는다.
+- 겹치지 않는 차트(도넛 · 단일 막대)는 `chart-1` · `chart-2` 와 회색 셋만 쓴다. 색감이 셋 이상 필요하면
+  스킬이 값을 주지 않으므로 어떤 색을 쓸지 사람에게 묻는다.
+- 겹치는 차트(꺾은선 여럿)는 `chart-4` 까지 쓴다. 넷을 넘으면 색을 더 만들지 않고 「기타」로 묶거나 차트를
+  나눈다.
+- 도넛을 `stroke-dasharray` 로 그릴 때 마지막 조각의 시작 위치와 길이의 합이 둘레를 넘으면 그 조각이 첫
+  조각 위로 올라타 한 곳만 간격이 사라진다. 조각 길이는 비율에서 계산하고 조각마다 간격만큼 뺀다.
+- 등락에 `status-ok` · `status-bad` 를 빌려 쓰지 않는다. 상태와 등락은 뜻이 다르다. 자금 유입과 유출은
+  등락이므로 `rise` · `fall` 을 쓴다.
+- 옅은 면은 투명도로 만들지 않고 낮은 흰 면에, 밤은 카드 면에 12% 섞은 고정값으로 둔다. 그래야 대비를
+  계산할 수 있다.
 - `#333` 이나 `red-500` 같은 값을 직접 쓰지 않는다. 새 색이 필요하면 셸 밖에 자기 CSS 파일을 만들어 토큰을
   정의한다. 낮(`:root`), OS 설정의 밤(`@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme="light"])`),
   사용자가 고른 밤(`:root[data-theme="dark"]`) 세 곳에 모두 적는다. 그다음 `@theme inline` 에 `--color-<이름>` 으로
@@ -114,11 +135,13 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 |---|---|---|
 | 큰 수치(지표 값) | 17px | `text-[17px]` |
 | 본문 · 표 내용 · 카드 제목(굵게) | 14px | `text-[14px]` |
-| 부제 · 보조 설명 | 13px | `text-[13px]` |
-| 라벨 · 표 머리 | 12px | `text-[12px]` |
+| 부제 · 보조 설명 · 표 머리 | 13px | `text-[13px]` |
+| 라벨 | 12px | `text-[12px]` |
 | 뱃지 · 각주 | 11px | `text-[11px]` |
 | 부가 설명 | 10px | `text-[10px]` |
 
+- 서체는 셸이 정한다. 화면에서 `font-family` 를 다시 주지 않는다. 사내 PC 에 기본으로 깔린 맑은 고딕을
+  쓰고 웹폰트는 내보내지 않는다. 파일이 없는 서체를 앞에 두면 PC 마다 다른 서체로 그려진다.
 - 표에 없는 크기는 쓰지 않는다. Tailwind 기본 크기 가운데 `text-base` · `text-lg` · `text-xl` · `text-2xl` 은 표에
   없는 크기다. 같은 쓰임은 화면이 달라도 같은 크기로 둔다.
 - 셸이 내용 구획을 1.12배로 확대한다. 표의 값은 CSS 에 적는 값이고 확대는 셸이 한다.
