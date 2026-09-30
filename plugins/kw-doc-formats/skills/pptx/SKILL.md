@@ -119,6 +119,18 @@ try {
 }
 ```
 
+### 결과를 눈으로 확인할 때
+
+공식 `document-skills:pptx` 의 시각 확인은 `soffice.py` 로 PDF 를 만들고 `pdftoppm` 으로 이미지를
+뽑는다. **이 PC 에는 LibreOffice 가 없어 앞 단계가 실패한다.** PDF 는 파워포인트 COM 으로 만들고
+`pdftoppm` 은 그대로 쓴다(Poppler 는 설치기가 깐다). 위 예제의 `try` 안에서 한 줄이면 된다.
+
+```powershell
+    $deck.SaveAs($pdf, 32)    # 32 는 PDF 다. $pdf 는 스크래치패드의 절대경로
+```
+
+`.ppt` 를 `.pptx` 로 바꾸는 단계는 `kw-doc-formats:hwp` 의 「구형 워드·PPT를 넘겨받았을 때」를 따른다.
+
 ### 맞출 수 없는 차이 하나 — `lang` 속성
 
 `lang` 속성은 못 맞춘다. 파워포인트는 한글과 영문을 다른 run 으로 쪼개 각각 `ko-KR` 과

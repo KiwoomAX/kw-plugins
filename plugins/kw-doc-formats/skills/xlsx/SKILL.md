@@ -43,6 +43,13 @@ print(ws["B10"].value)                      # None 이면 계산된 적이 없�
 
 ### COM 을 꼭 써야 한다면
 
+앞 절대로 해도 수식 값을 얻지 못해 COM 을 쓰게 되면, 공식 `document-skills:xlsx` 의 `recalc.py` 대신
+아래 예제를 쓴다. `recalc.py` 는 LibreOffice 로 계산하고 오류 값을 세고 결과를 파일에 다시 쓰는데,
+**이 PC 에는 LibreOffice 가 없어 실패한다.** 계산은 `CalculateFullRebuild()`, 오류 값은 수식 셀 중
+오류인 셀만 고르는 `SpecialCells(-4123, 16)` 으로 본다. 표시 문자열로 오류를 판정하지 않는다. 열이
+좁으면 숫자도 `####` 으로 보인다. 계산 결과를 파일로 남겨야 할 때만 `$out` 에 스크래치패드의 새 경로를
+주고, 확장자는 원본과 같게 한다(`.xlsm` 은 `.xlsm`).
+
 ```powershell
 # 남의 엑셀에 붙는 것을 원천 차단한다. 이 검사 없이 아래를 실행하지 마라.
 if (@(Get-Process EXCEL -ErrorAction SilentlyContinue).Count -gt 0) {
@@ -56,7 +63,18 @@ $wb = $null
 try {
     $wb = $excel.Workbooks.Open($path)
     $excel.CalculateFullRebuild()
-    # ... 확인할 값을 여기서 Write-Output 한다
+    foreach ($s in $wb.Worksheets) {
+        # 보호된 시트는 오류 셀을 고르지 못한다. 통과로 보지 않고 확인하지 못했다고 알린다.
+        if ($s.ProtectContents) { "확인 못 함(보호된 시트): $($s.Name)"; continue }
+        # -4123 은 수식 셀, 16 은 오류 값이다. 해당 셀이 없으면 예외가 난다.
+        try { $e = $s.UsedRange.SpecialCells(-4123, 16) } catch { $e = $null }
+        if ($e) { "오류: $($s.Name)!$($e.Address(0,0))" }
+    }
+    if ($out) {
+        # 계산 결과가 박힌 새 파일이다. DisplayAlerts 가 꺼져 있어 있는 파일을 묻지 않고 덮으므로 먼저 본다.
+        if (Test-Path -LiteralPath $out) { throw "이미 있는 파일입니다: $out" }
+        $wb.SaveAs($out)
+    }
 } finally {
     if ($wb) { $wb.Close($false) }   # 원본에 저장하지 않는다. 결과 파일이 필요하면 try 안에서 스크래치패드의 새 경로로 SaveAs 한다
     $excel.Quit()                     # 위 검사를 통과했으므로 내가 띄운 인스턴스다
