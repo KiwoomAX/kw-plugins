@@ -67,7 +67,7 @@ Expected: `xlsx COM example does not save over the original`, `hwp COM example c
 61행을 바꾼다.
 
 ```powershell
-    if ($wb) { $wb.Close($false) }   # 원본에 저장하지 않는다. 결과가 필요하면 앞에서 $wb.SaveAs(스크래치패드 경로) 로 새 파일에 낸다
+    if ($wb) { $wb.Close($false) }   # 원본에 저장하지 않는다. 결과 파일이 필요하면 try 안에서 스크래치패드의 새 경로로 SaveAs 한다
 ```
 
 - [ ] **Step 4: hwp 예제를 finally 로 감싼다**
@@ -145,8 +145,9 @@ Assert 'pptx removes the glyph outline' ((Body 'pptx') -match 'def strip_text_ou
 Task 1 의 검사 아래에 넣는다.
 
 ```powershell
-# .xls is read directly (common's table); only .doc and .ppt need converting.
+# .xls is read directly (common's table); only .doc and .ppt need converting, by Save As in Word or PowerPoint.
 Assert 'hwp does not claim legacy Excel' (-not ((Desc 'hwp') -match '\.xls'))
+Assert 'hwp does not promise Office automation it does not carry' (-not ((Desc 'hwp') -match '오피스를 조종해'))
 # The Python libraries come from the control tower's requirements.txt, not from kw_install.
 Assert 'the plugin description names the control tower as the library installer' ($null -ne $plugin -and $plugin.description -match 'kw-control-tower')
 Assert 'docx names the control tower as the library installer' (-not ((Body 'docx') -match '설치기가 깔아 주는 것은'))
@@ -156,6 +157,8 @@ foreach ($n in @('xlsx', 'docx', 'pptx')) {
 }
 # The Excel replacement for recalc.py reads error values, not display text: a narrow column shows ####.
 Assert 'xlsx finds formula errors by value, not by display text' ((Body 'xlsx') -match 'SpecialCells\(-4123, 16\)')
+# DisplayAlerts is off, so SaveAs overwrites an existing file without asking; the example checks first.
+Assert 'xlsx example checks the result path before SaveAs' ((Body 'xlsx') -match 'Test-Path -LiteralPath \$out')
 Assert 'docx no longer says the rest of the official skill works as is' (-not ((Body 'docx') -match '나머지 조언은 그대로 쓸 수 있다'))
 # Each COM example stops before touching an Office program the user has open.
 Assert 'xlsx COM example checks for a running Excel first' ((Body 'xlsx') -match 'Get-Process EXCEL')
@@ -166,11 +169,11 @@ Assert 'docx COM example checks for a running Word first' ((Body 'docx') -match 
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_doc_formats.ps1`
-Expected: `hwp does not claim legacy Excel`, `the plugin description names the control tower as the library installer`, `docx names the control tower as the library installer`, `xlsx·docx·pptx routes the official LibreOffice step to COM`(세 줄), `xlsx finds formula errors by value, not by display text`, `docx no longer says the rest of the official skill works as is`, `docx COM example checks for a running Word first` 가 `FAIL`. 조인 두 검사와 엑셀·파워포인트 실행 확인 검사는 통과한다.
+Expected: `hwp does not claim legacy Excel`, `hwp does not promise Office automation it does not carry`, `the plugin description names the control tower as the library installer`, `docx names the control tower as the library installer`, `xlsx·docx·pptx routes the official LibreOffice step to COM`(세 줄), `xlsx finds formula errors by value, not by display text`, `xlsx example checks the result path before SaveAs`, `docx no longer says the rest of the official skill works as is`, `docx COM example checks for a running Word first` 가 `FAIL`. 조인 두 검사와 엑셀·파워포인트 실행 확인 검사는 통과한다.
 
 - [ ] **Step 3: hwp 설명과 플러그인 설명과 docx 설치 주체를 고친다**
 
-hwp 3행에서 `구형 오피스 파일(.doc, .ppt, .xls)` 을 `구형 오피스 파일(.doc, .ppt)` 로 바꾼다.
+hwp 3행에서 `구형 오피스 파일(.doc, .ppt, .xls)` 을 `구형 오피스 파일(.doc, .ppt)` 로 바꾸고, 끝 문장 `담당자 PC에 깔린 한/글과 오피스를 조종해 최신 형식으로 바꾸는 방법이 여기 있다.` 를 `한/글 파일은 담당자 PC에 깔린 한/글을 조종해 바꾸고, 구형 워드·PPT는 오피스에서 다른 이름으로 저장해 바꾸는 방법이 여기 있다.` 로 바꾼다. 본문의 「구형 워드·PPT를 넘겨받았을 때」 절은 수동 저장만 안내한다.
 
 `plugin.json` 5행과 `marketplace.json` 의 kw-doc-formats description 에서 `kw_install이 깔아 주는 파이썬 라이브러리와 Poppler를 전제한다.` 를 아래로 바꾼다. 두 문장이 글자 그대로 같아야 기존 검사 `both descriptions are the same text` 가 통과한다.
 
@@ -185,22 +188,29 @@ docx 17행 `설치기가 깔아 주는 것은 \`python-docx\` 와 \`markitdown\`
 44행 `### COM 을 꼭 써야 한다면` 바로 아래, 코드 블록 앞에 넣는다.
 
 ```markdown
-공식 `document-skills:xlsx` 는 수식이 든 파일마다 `recalc.py` 로 LibreOffice 를 실행해 계산하고, 오류 값을
-세고, 계산 결과를 파일에 다시 쓰라고 한다. **이 PC 에는 LibreOffice 가 없어 그 단계가 실패한다.** 셋 다
-아래 COM 예제로 한다. 계산은 `CalculateFullRebuild()`, 오류 값은 수식 셀 가운데 오류인 셀만 고르는
-`SpecialCells(-4123, 16)`, 결과는 `SaveAs` 로 스크래치패드의 새 파일에 쓴다. 표시 문자열로 오류를
-판정하지 않는다. 열이 좁으면 숫자도 `####` 으로 보인다.
+앞 절대로 해도 수식 값을 얻지 못해 COM 을 쓰게 되면, 공식 `document-skills:xlsx` 의 `recalc.py` 대신
+아래 예제를 쓴다. `recalc.py` 는 LibreOffice 로 계산하고 오류 값을 세고 결과를 파일에 다시 쓰는데,
+**이 PC 에는 LibreOffice 가 없어 실패한다.** 계산은 `CalculateFullRebuild()`, 오류 값은 수식 셀 중
+오류인 셀만 고르는 `SpecialCells(-4123, 16)` 으로 본다. 표시 문자열로 오류를 판정하지 않는다. 열이
+좁으면 숫자도 `####` 으로 보인다. 계산 결과를 파일로 남겨야 할 때만 `$out` 에 스크래치패드의 새 경로를
+주고, 확장자는 원본과 같게 한다(`.xlsm` 은 `.xlsm`).
 ```
 
 같은 절 코드 블록의 `    # ... 확인할 값을 여기서 Write-Output 한다` 줄을 아래로 바꾼다.
 
 ```powershell
     foreach ($s in $wb.Worksheets) {
+        # 보호된 시트는 오류 셀을 고르지 못한다. 통과로 보지 않고 확인하지 못했다고 알린다.
+        if ($s.ProtectContents) { "확인 못 함(보호된 시트): $($s.Name)"; continue }
         # -4123 은 수식 셀, 16 은 오류 값이다. 해당 셀이 없으면 예외가 난다.
         try { $e = $s.UsedRange.SpecialCells(-4123, 16) } catch { $e = $null }
         if ($e) { "오류: $($s.Name)!$($e.Address(0,0))" }
     }
-    $wb.SaveAs($out)   # 계산 결과가 박힌 새 파일. $out 은 스크래치패드의 절대경로
+    if ($out) {
+        # 계산 결과가 박힌 새 파일이다. DisplayAlerts 가 꺼져 있어 있는 파일을 묻지 않고 덮으므로 먼저 본다.
+        if (Test-Path -LiteralPath $out) { throw "이미 있는 파일입니다: $out" }
+        $wb.SaveAs($out)
+    }
 ```
 
 - [ ] **Step 5: docx 에 워드 COM 대체를 적는다**
@@ -208,9 +218,9 @@ docx 17행 `설치기가 깔아 주는 것은 \`python-docx\` 와 \`markitdown\`
 31–32행(`공식 스킬의 나머지 조언은 그대로 쓸 수 있다. …도구를 고르는 자리만 다르다.`)을 바꾼다.
 
 ````markdown
-공식 스킬의 변경 추적·주석·`document.xml` 직접 수정 방법은 그대로 쓴다. 다만 공식 스킬이
+공식 스킬의 주석 달기와 `document.xml` 직접 수정 방법은 그대로 쓴다. 다만 공식 스킬이
 LibreOffice(`soffice.py`·`accept_changes.py`)로 하는 단계는 **이 PC 에서 실패한다.** LibreOffice 가
-없기 때문이다. 결과 확인과 변경 추적은 워드 COM 으로 하고, `.doc` 변환은 아래 표대로 한다.
+없기 때문이다. 결과 PDF 확인과 변경 추적 받아들이기는 워드 COM 으로 하고, `.doc` 변환은 아래 표대로 한다.
 
 | 공식 스킬의 단계 | 이 PC 의 대체 방법 |
 |---|---|
@@ -484,13 +494,13 @@ git commit -m "fix: 리포트 원문 주소를 인코딩하고 같은 이름의 
 # The port is registered with the container_name the compose file actually carries, before push.
 # Registering at step 5 left days between picking and registering, and two people could pick the same port.
 Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
-Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($text -match '배포를 그만두면 이 줄이 등록부에 남')
+Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($text -match '배포를 그만두면 이 줄이\s+등록부에 남')
 ```
 
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `python plugins\kw-devops\skills\deploying-kiwoom-service\scripts\pick_port.py --check` 와 `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_devops.ps1`
-Expected: `AssertionError: 삽입이 경합으로 거부되면 …`, 그리고 `the port is registered right after compose is written` 과 `an abandoned deploy tells the owner to ask for the row to be removed` 가 `FAIL`
+Expected: `AssertionError: 삽입이 경합으로 거부되면 …`, 그리고 `the port is registered right after compose is written`, `an abandoned deploy tells the owner to ask for the row to be removed`, `pick_port.py --check exits 0`, `pick_port.py prints on a cp949 console` 가 `FAIL`. 뒤의 두 검사는 `--check` 를 실행하므로 새 검사와 함께 실패한다.
 
 - [ ] **Step 3: 등록이 거부를 다시 조회해 가린다**
 
@@ -560,11 +570,14 @@ spec 의 「현행 유지」 항목은 워크플로의 매일 실행이다. 이 
 
 ```powershell
 # 비교 기준이 main 이라, 열린 PR 이 병합되기 전에는 매일 같은 내용의 PR 이 하나씩 더 열렸다.
-# 브랜치를 하나로 고정하고, 그 브랜치가 이미 같은 내용이면 push 하지 않는다.
+# 브랜치를 하나로 고정하고, 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다.
+# 같은 내용 비교는 줄 끝을 맞춘 뒤에 한다. 앞 단계가 받은 파일을 CRLF 로 바꾸고, git show 는 저장소에 든 LF 를 내므로 그대로 비교하면 늘 다르다.
 Check '금지어 워크플로가 브랜치 하나에 PR 하나를 유지한다' {
     $wfText = Get-Content (Join-Path $repo '.github\workflows\sync-banned-words.yml') -Raw -Encoding UTF8
     ($wfText -match 'BRANCH=chore/banned-words-sync') -and ($wfText -notmatch 'date -u') -and
-    ($wfText -match 'gh pr list --head') -and ($wfText -match 'git fetch origin "\$BRANCH"')
+    ($wfText -match 'gh pr list --head') -and ($wfText -match 'git fetch origin "\$BRANCH"') -and
+    ($wfText -match "sed 's/\\r\$//'") -and
+    ($wfText.IndexOf('gh pr list --head') -lt $wfText.IndexOf('git fetch origin "$BRANCH"'))
 }
 ```
 
@@ -583,9 +596,13 @@ Expected: `금지어 워크플로가 브랜치 하나에 PR 하나를 유지한�
           # 브랜치를 하나로 고정한다. 이 브랜치는 워크플로만 쓴다. 목록을 고칠 것은 원본 저장소에서 고친다.
           # 날짜를 붙이던 때에는 병합 전까지 매일 같은 내용의 PR 이 하나씩 더 열렸다.
           BRANCH=chore/banned-words-sync
-          # 브랜치가 이미 같은 내용이면 push 하지 않는다. 검토 중인 PR 의 head 를 바꾸지 않기 위해서다.
-          if git fetch origin "$BRANCH" 2>/dev/null && git show "FETCH_HEAD:$TARGET" > /tmp/branch.md 2>/dev/null \
-             && cmp -s /tmp/incoming.md /tmp/branch.md; then
+          # 열린 PR 을 먼저 찾는다. PR 이 닫히고 브랜치만 남았으면 내용이 같아도 새 PR 을 연다.
+          OPEN_PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')"
+          # 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다. 검토 중인 PR 의 head 를 바꾸지 않기 위해서다.
+          # /tmp/incoming.md 는 앞 단계에서 CRLF 로 바꿨고 git show 는 저장소에 든 LF 를 내므로, 줄 끝을 맞춘 뒤 비교한다.
+          if [ -n "$OPEN_PR" ] && git fetch origin "$BRANCH" 2>/dev/null \
+             && git show "FETCH_HEAD:$TARGET" 2>/dev/null | sed 's/\r$//' > /tmp/branch.md \
+             && sed 's/\r$//' /tmp/incoming.md | cmp -s - /tmp/branch.md; then
             echo "열린 PR 브랜치가 이미 같은 내용입니다."
             exit 0
           fi
@@ -598,7 +615,7 @@ Expected: `금지어 워크플로가 브랜치 하나에 PR 하나를 유지한�
                      -m "원본: $SOURCE" \
                      -m '이 저장소는 만들지 않고 받기만 한다. 목록을 고치려면 KiwoomAX/korean-banned-words 의 데이터를 고친다.'
           git push --force -u origin "$BRANCH"
-          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+          if [ -n "$OPEN_PR" ]; then
             echo "열린 PR 이 있어 브랜치만 갱신했습니다."
             exit 0
           fi
@@ -626,4 +643,4 @@ git add .github/workflows/sync-banned-words.yml tests/test_control_tower.ps1
 git commit -m "fix: 금지어 워크플로가 고정 브랜치 하나로 PR 을 하나만 유지한다"
 ```
 
-<!-- spec-review: escalated -->
+<!-- spec-review: passed -->

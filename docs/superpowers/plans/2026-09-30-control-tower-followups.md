@@ -405,7 +405,7 @@ try {
 설계 문서 331행을 바꾼다.
 
 ```markdown
-5. **`PYTHONUTF8`이 비어 있으면 1을 넣는다.** 0은 사용자가 끈 것이라 그대로 둔다. 파이썬의 기본 인코딩을 측정해 정하던 때에는 판정식이 늘 utf-8을 돌려줘 한 번도 넣지 못했다(2026-09-30).
+5. **`PYTHONUTF8`이 비어 있으면 1을 넣는다(2026-09-30 변경).** 0은 사용자가 끈 것이라 그대로 둔다. 파이썬의 기본 인코딩을 측정해 정하던 때에는 판정식이 늘 utf-8을 돌려줘 한 번도 넣지 못했다.
 ```
 
 - [ ] **Step 4: 통과를 확인한다**
@@ -444,7 +444,7 @@ git commit -m "fix: 맞춤이 PYTHONUTF8 이 비어 있으면 1 을 넣는다"
 | PYTHONUTF8 | 5 |
 | 사내 문안 사본·블록 | 6 |
 | 더 안 쓰는 스킬·훅 | 7 |
-| 설치본 뒤처짐 | 1, 2 |
+| 설치본 뒤처짐 | 2. 배포처 사본도 원격보다 뒤면 1, 2 |
 | 배포처 사본 오래됨 | 1 |
 
 - [ ] **Step 1: 실패하는 검사를 넣는다**
@@ -550,6 +550,12 @@ function Want([int]$n) {
 
 단계 1 은 `if ($script:Refreshed) { $state['refreshed'] = ... }` 줄까지 `if` 안에 든다.
 
+`Save-State` 머리 주석의 「단계를 건너뛰지는 않는다 … 이 기록이 막는 것은 알림이 같은 것을 다시 호출하는 일이다.」 세 줄을 아래로 바꾼다.
+
+```powershell
+# 세션 시작 훅은 불일치한 단계만 넘기고 설치기는 모두 실행한다. 단계는 멱등이라 다시 실행해도 해가 없다.
+```
+
 - [ ] **Step 4: 감지가 단계를 붙여 넘긴다**
 
 `session-check.ps1` 의 `function Get-MarketplaceHead` 위에 넣는다.
@@ -602,8 +608,15 @@ function Add-Note([int[]]$Step, [string]$Text) {
 | `[void]$notes.Add('CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.')` | `Add-Note 6 'CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.'` |
 | `[void]$notes.Add("더 안 쓰는 스킬 사본이 남아 있습니다: …")` | `Add-Note 7 "더 안 쓰는 스킬 사본이 남아 있습니다: $($staleS -join ', ')"` |
 | `[void]$notes.Add("더 안 쓰는 훅 연결이 남아 있습니다: …")` | `Add-Note 7 "더 안 쓰는 훅 연결이 남아 있습니다: $($staleH -join ', ')"` |
-| `[void]$notes.Add("설치본이 원격보다 뒤처져 있습니다: …")` | `Add-Note @(1, 2) "설치본이 원격보다 뒤처져 있습니다: $(($behind \| Select-Object -Unique) -join ', ')"` |
+| `[void]$notes.Add("설치본이 원격보다 뒤처져 있습니다: …")` | `Add-Note $(if ($cloneLate) { @(1, 2) } else { @(2) }) "설치본이 원격보다 뒤처져 있습니다: $(($behind \| Select-Object -Unique) -join ', ')"` |
 | `[void]$notes.Add('배포처 사본을 열나흘 넘게 받아오지 않았습니다.')` | `Add-Note 1 '배포처 사본을 열나흘 넘게 받아오지 않았습니다.'` |
+
+뒤처짐의 단계 1 은 배포처 사본이 원격보다 뒤일 때만 붙인다. 사본이 이미 최신인데 단계 1 을 함께 넘기면, 느리게 끝나는 사본 받아오기가 매 세션 상한을 먼저 써 단계 2 가 영영 미뤄진다. 질문 11 의 `$behind = New-Object …` 줄 아래에 `$cloneLate = $false` 를 넣고, `if ($remote) { $remoteOf[$mkName] = $remote }` 줄 아래에 넣는다.
+
+```powershell
+        # 사본이 원격보다 뒤일 때만 받아오기(단계 1)가 필요하다.
+        if ($remote -and $head -and -not $remote.StartsWith($head) -and -not $head.StartsWith($remote)) { $cloneLate = $true }
+```
 
 상태 파일을 여는 세 블록을 `$kwState` 조회로 바꾼다. 질문 6 의 `$was` 를 읽는 블록은 아래로 바꾼다.
 
@@ -664,7 +677,7 @@ git commit -m "feat: 감지가 불일치한 단계만 맞춤에 넘기고 상태
 Check '라이브러리 목록이 같으면 pip 을 안 부른다' {
     $b = [regex]::Match($syncSrc, "(?s)Show '4\..*?(?=Show '5\.)").Value
     $gate = $b.IndexOf("`$state['requirements'] -eq `$newHash")
-    ($gate -ge 0) -and ($gate -lt $b.IndexOf('pip install'))
+    ($gate -ge 0) -and ($gate -lt $b.IndexOf('pip install')) -and ($b -match '--retries 1')
 }
 ```
 
@@ -692,7 +705,8 @@ try {
             Say "[미리보기] $($py.Source) -m pip install -r $req"
         } else {
             # pip 은 이미 깔린 것마다 한 줄씩 출력해 요약을 파묻는다. 조용히 실행하고 실패했을 때만 보여 준다.
-            $pipOut = & $py.Source -m pip install --quiet --disable-pip-version-check -r $req 2>&1
+            # 연결이 안 될 때 재시도로 수십 초를 쓰지 않게 대기와 재시도를 줄인다. 세션 시작 상한이 pip 은 끊지 못한다.
+            $pipOut = & $py.Source -m pip install --quiet --disable-pip-version-check --timeout 10 --retries 1 -r $req 2>&1
             if ($LASTEXITCODE -ne 0) {
                 foreach ($l in $pipOut) { Say $l }
                 throw "pip 이 코드 $LASTEXITCODE 로 끝났습니다."
@@ -758,7 +772,7 @@ Check '맞춤과 훅이 같은 사본 목록을 쓴다' { $assembled['맞춤-cop
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_control_tower.ps1`
-Expected: `맞춤에 Get-AxCopies 가 있다`, `훅에 Get-AxCopies 가 있다`, `맞춤과 훅이 같은 사본 목록을 쓴다` 가 `FAIL`
+Expected: `맞춤에 Get-AxCopies 가 있다`, `훅에 Get-AxCopies 가 있다` 가 `FAIL`. `맞춤과 훅이 같은 사본 목록을 쓴다` 는 두 값이 모두 비어 있어 지금은 통과한다.
 
 - [ ] **Step 3: 두 파일에 같은 함수를 넣는다**
 
@@ -802,7 +816,7 @@ function Get-AxCopies([string]$claudeMd) {
     }
 ```
 
-바로 뒤 블록의 `$now = [System.IO.File]::ReadAllText($mem, $u8)` 는 `$now = $memText` 로 바꾼다.
+바로 뒤 블록의 `$now = [System.IO.File]::ReadAllText($mem, $u8)` 는 `$now = $memText` 로 바꾼다. 질문 8 머리 주석의 `# 맞춤이 템플릿을 모두 복사하므로 여기서도 모두 대조한다.` 는 `# 맞춤이 Get-AxCopies 목록을 복사하므로 여기서도 같은 목록을 대조한다.` 로 바꾼다.
 
 - [ ] **Step 5: 맞춤 단계 6 이 사본 목록만 복사한다**
 
@@ -850,7 +864,9 @@ git commit -m "fix: CLAUDE.md 가 싣는 사내 문안 사본만 복사하고 �
 - Consumes: Task 5 의 `Want`, `$script:Current`, `-Steps`.
 - Produces: 매개변수 `-BudgetSeconds <int>`(0 이면 상한 없음). `Get-Remaining -> int`(남은 초). `$script:Margin`(단계를 새로 시작할 때 남아 있어야 하는 초). `$script:Deferred`(미룬 단계 목록), `$script:TimedOutSteps`(상한에 끊긴 호출이 있던 단계 목록). 테스트 전역 `$hang`(끝나지 않는 `claude.cmd` 폴더), `$hangRun`(끊김 시나리오 결과).
 
-상한은 `claude` 호출과 단계 시작에서 확인한다. pip 과 `CLAUDE.md` 잠금 대기는 중간에 끊을 수 없으므로, 단계는 남은 시간이 `$script:Margin`(상한의 3분의 1, 최대 20초) 이상일 때만 새로 시작한다. 훅은 상한 60초를 넘기므로 그 단계들이 쓸 수 있는 여유가 20초 남는다.
+상한은 `claude` 호출과 단계 시작에서 확인한다. pip 과 `CLAUDE.md` 잠금 대기는 중간에 끊을 수 없으므로, 단계는 남은 시간이 `$script:Margin`(상한의 3분의 1, 최대 20초) 이상일 때만 새로 시작한다. 훅은 상한으로 60초를 넘기므로 훅 제한 90초까지 30초가 남고, 끊지 못하는 작업은 이 30초와 단계 시작 여유 20초 안에서 끝나야 한다. pip 은 Task 6 에서 재시도를 줄였다.
+
+남은 시간이 없어 시작하지 않은 호출은 끊긴 것이 아니라 미룬 것으로 적는다. 끊긴 것으로 적으면 앞 단계가 시간을 다 쓴 탓에 그 단계가 그날 내내 보류된다. 권장 플러그인 설치처럼 단계 전체를 보류할 일이 아닌 호출은 `-Optional` 로 호출해, 끊겨도 단계를 끊긴 것으로 적지 않는다.
 
 - [ ] **Step 1: 실패하는 검사를 넣는다**
 
@@ -954,13 +970,15 @@ function Want([int]$n) {
 function Invoke-Claude {
     # 클로드를 이름으로 호출하지 않고 시작할 때 한 번 찾아 둔 절대 경로로 호출한다.
     # 남은 시간만큼만 기다리고 넘으면 프로세스 트리째 끊는다.
-    param([string[]]$ClaudeArgs)
+    # -Optional 은 끊겨도 단계 전체를 끊긴 것으로 적지 않는 호출이다(권장 플러그인 설치).
+    param([string[]]$ClaudeArgs, [switch]$Optional)
     if ($WhatIfOnly) { Say "[미리보기] claude $($ClaudeArgs -join ' ')"; return $true }
     if (-not $script:ClaudeExe) { throw '클로드 코드를 못 찾았습니다. claude 가 PATH 에 있어야 합니다.' }
     $left = Get-Remaining
     if ($left -le 0) {
+        # 시작하지 않은 호출은 미룬 것이다. 끊긴 것으로 적으면 앞 단계 탓에 이 단계가 그날 보류된다.
         Say "시간 상한에 닿아 실행하지 않았습니다: claude $($ClaudeArgs -join ' ')"
-        [void]$script:TimedOutSteps.Add($script:Current)
+        [void]$script:Deferred.Add($script:Current)
         return $false
     }
     $file = $script:ClaudeExe
@@ -986,7 +1004,11 @@ function Invoke-Claude {
     if (-not $p.WaitForExit($ms)) {
         try { $p.Kill($true) } catch { }
         Say "시간 상한에 닿아 멈췄습니다: claude $($ClaudeArgs -join ' ')"
-        [void]$script:TimedOutSteps.Add($script:Current)
+        if (-not $Optional) { [void]$script:TimedOutSteps.Add($script:Current) }
+        # 쓰기 도중에 끊었으면 설정 파일이 반쯤 쓰였을 수 있다. 읽히는지 보고 못 읽으면 알린다.
+        foreach ($cf in @((Join-Path $pluginsDir 'installed_plugins.json'), $knownPath)) {
+            try { $null = Read-Json $cf } catch { Fail "$script:Current" "끊은 뒤 설정 파일을 읽지 못합니다. 클로드 코드를 다시 켜 확인해 주십시오: $cf" }
+        }
         return $false
     }
     foreach ($l in (($outTask.Result + "`n" + $errTask.Result) -split "`r?`n")) { if ($l) { Say $l } }
@@ -1049,7 +1071,15 @@ Check '단계가 성공하면 지문을 지운다' { $r.State -notmatch 'stuck-s
 Check '상한에 끊긴 단계도 지문을 적는다' { $hangRun.State -match '(?m)^stuck-step1=' }
 ```
 
-단계 2 의 `stuck-<배포처>` 조건(Step 4)은 이 하네스로 확인하지 못한다. 끊김 시나리오에서는 상한이 단계 1 에서 다 쓰여 단계 2 가 시작되지 않기 때문이다. 코드 검토로 확인한다.
+단계 2 의 `stuck-<배포처>` 조건(Step 4)은 한 검사로 확인한다. 단계 2 만 넘겨받은 실행은 사본을 받아오지 않았으므로 원격보다 뒤처져도 배포처 실패로 적지 않는다.
+
+```powershell
+$r = Invoke-SyncScenario -Mk 'fail' -Steps '2'
+Check '사본을 받아오지 않은 실행은 배포처 실패로 적지 않는다' { $r.State -notmatch 'stuck-kiwoom-ax' }
+# 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
+$r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
+Check '시작하지 못해 미룬 단계는 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }
+```
 
 「원격 확인의 조건들」 절, Task 5 검사 아래에 넣는다.
 
@@ -1072,7 +1102,7 @@ Check '맞춤과 훅이 같은 지문을 만든다' {
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_control_tower.ps1`
-Expected: 아래 다섯 검사가 `FAIL` — `단계가 실패하면 그 단계의 지문을 적는다`, `단계가 성공하면 지문을 지운다`(지금 코드는 그 줄을 그대로 옮겨 적는다), `상한에 끊긴 단계도 지문을 적는다`, `같은 원인으로 실패한 단계만 남으면 맞춤을 부르지 않는다`, `맞춤과 훅이 같은 지문을 만든다`
+Expected: 아래 여섯 검사가 `FAIL` — `단계가 실패하면 그 단계의 지문을 적는다`, `단계가 성공하면 지문을 지운다`(지금 코드는 그 줄을 그대로 옮겨 적는다), `상한에 끊긴 단계도 지문을 적는다`, `사본을 받아오지 않은 실행은 배포처 실패로 적지 않는다`(지금 코드는 원격보다 뒤처지면 늘 적는다), `같은 원인으로 실패한 단계만 남으면 맞춤을 부르지 않는다`, `맞춤과 훅이 같은 지문을 만든다`. `시작하지 못해 미룬 단계는 지문을 적지 않는다` 는 지금 지문을 적는 코드가 없어 통과한다.
 
 - [ ] **Step 3: 두 파일에 같은 지문 함수를 넣는다**
 
@@ -1107,7 +1137,7 @@ function Get-StuckPrint {
 그 바로 아래 `[void]$script:Failed.Add("$step : $m")` 줄 다음에 넣는다. `param` 은 함수의 첫 문장이어야 하므로 그 앞에 코드를 두지 않는다.
 
 ```powershell
-    # 다른 알림이 이미 다루는 실패(갱신 실패는 stuck-<배포처>)와 단계 전체를 막을 일이 아닌 실패
+    # 다른 알림이 이미 다루는 실패(갱신 실패는 stuck-<배포처>)와 단계 전체를 보류할 일이 아닌 실패
     # (권장 플러그인 하나의 설치 실패)는 단계 지문으로 적지 않는다.
     if (-not $Covered -and -not $NoStuck -and $step -match '^\d+$') { [void]$script:FailedSteps.Add([int]$step) }
 ```
@@ -1115,17 +1145,22 @@ function Get-StuckPrint {
 단계 2 의 `if ($late) { $state["stuck-$mkName"] = $remoteOf[$mkName] } else { $state.Remove("stuck-$mkName") }` 를 바꾼다.
 
 ```powershell
-            # 상한에 끊긴 갱신은 원격 커밋 탓이 아니다. 적으면 새 커밋이 생길 때까지 재시도하지 않는다.
-            if ($late -and ($script:TimedOutSteps -notcontains 2)) { $state["stuck-$mkName"] = $remoteOf[$mkName] }
+            # 원격 커밋 탓으로 못 옮겼다고 적는 것은 이번 실행에서 사본을 받아왔고(단계 1) 단계 1·2 가 끊기지도
+            # 미뤄지지도 않았을 때뿐이다. 단계 1 이 끊겨 사본이 옛것이면 단계 2 는 옮길 것이 없다고 보므로,
+            # 그때 적으면 새 커밋이 생길 때까지 재시도하지 않는다.
+            $clean = ($script:Ran -contains 1) -and -not (@(1, 2) | Where-Object { ($script:TimedOutSteps -contains $_) -or ($script:Deferred -contains $_) })
+            if ($late -and $clean) { $state["stuck-$mkName"] = $remoteOf[$mkName] }
             elseif (-not $late) { $state.Remove("stuck-$mkName") }
 ```
 
 마무리의 `Save-State`(로그 쓰기 앞) 바로 위에 넣는다.
 
 ```powershell
-# 실행한 단계마다 실패했거나 상한에 끊겼으면 지문을 적고, 끝까지 성공했으면 지운다.
+# 실행한 단계마다 실패했거나 상한에 끊겼으면 지문을 적고, 끝까지 성공했으면 지운다. 시간이 모자라
+# 중간에 미룬 단계는 원인이 앞 단계에 있을 수 있어 기록을 건드리지 않는다.
 if (-not $WhatIfOnly) {
     foreach ($n in ($script:Ran | Sort-Object -Unique)) {
+        if ($script:Deferred -contains $n) { continue }
         if (($script:FailedSteps -contains $n) -or ($script:TimedOutSteps -contains $n)) { $state["stuck-step$n"] = Get-StuckPrint $root $n }
         else { $state.Remove("stuck-step$n") }
     }
@@ -1165,16 +1200,17 @@ git commit -m "feat: 같은 원인으로 실패하거나 상한에 끊긴 맞춤
 ### Task 10: 권장 플러그인을 하나씩 기록하고 등급을 옮긴다
 
 **Files:**
-- Modify: `plugins/kw-control-tower/scripts/sync.ps1` (단계 2 의 권장 분기 367–385행, 마무리 832–837행, `$firstRun`·`$script:SuggestedIncomplete`)
-- Modify: `plugins/kw-control-tower/hooks/session-check.ps1` (질문 1·2 뒤)
+- Modify: `plugins/kw-control-tower/scripts/sync.ps1` (단계 2 의 권장 분기 367–385행, 마무리 832–837행, `$firstRun`·`$script:SuggestedIncomplete`, 상태 파일 주석 217–218행)
 - Modify: `plugins/kw-control-tower/manifest.json`
 - Modify: `tests/test_dashboard.ps1:44`
 - Modify: `docs/superpowers/specs/2026-09-06-control-tower-design.md:328`
 - Test: `tests/test_control_tower.ps1`
 
 **Interfaces:**
-- Consumes: Task 5 의 `Add-Note`·`$kwState`, Task 9 의 `Fail -NoStuck`.
-- Produces: 두 파일에 같은 `Get-SuggestedDone($State) -> string[]`. 상태 키 `suggestedDone`(세미콜론으로 이은 플러그인 id).
+- Consumes: Task 8 의 `Invoke-Claude -Optional`, Task 9 의 `Fail -NoStuck`.
+- Produces: `sync.ps1` 의 `Get-SuggestedDone($State) -> string[]`. 상태 키 `suggestedDone`(세미콜론으로 이은 플러그인 id).
+
+감지는 권장을 보지 않는다. 늘 설치에 실패하는 권장을 감지가 세션마다 단계 2 로 넘기면, 설계가 멈추려던 영구 실패의 되풀이를 새로 만든다. 새로 권장에 올린 플러그인은 다른 불일치로 단계 2 가 다음에 실행될 때 한 번 깔린다.
 
 - [ ] **Step 1: 실패하는 검사를 넣는다**
 
@@ -1237,17 +1273,17 @@ Check 'kw-dashboard 는 권장이고 document-skills 는 필수다' {
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_control_tower.ps1`
-Expected: `권장 설치에 성공한 것만 기록한다`, `권장 설치 실패는 단계 지문을 남기지 않는다`, `ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다`, `kw-dashboard 는 권장이고 document-skills 는 필수다` 가 `FAIL`
+Expected: `권장 설치에 성공한 것만 기록한다`, `권장 설치 실패는 단계 지문을 남기지 않는다`, `기록된 권장 플러그인은 지워도 다시 안 깐다`, `kw-dashboard 는 권장이고 document-skills 는 필수다` 가 `FAIL`. 지금은 kw-dashboard 가 필수라 필수 분기가 다시 깔기 때문에 `기록된 권장…` 이 실패하고, 같은 이유로 `ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다` 는 통과한다.
 
-- [ ] **Step 3: 두 파일에 같은 함수를 넣는다**
+- [ ] **Step 3: 맞춤에 기록 함수를 넣는다**
 
-`session-check.ps1` 과 `sync.ps1` 의 `function Get-Prop` 아래에 똑같이 넣는다.
+`sync.ps1` 의 `function Get-Prop` 아래에 넣는다.
 
 ```powershell
 function Get-SuggestedDone {
     # 한 번 처리한 권장 플러그인이다. 옛 버전은 ranOnce 하나로 권장 분기를 통째로 닫았으므로, 그 표시만
     # 있는 PC 는 이행 때(2026-09-30)의 권장 목록을 처리한 것으로 본다. 그 PC 에서 사용자가 지운 것을
-    # 되살리지 않고, 그 뒤에 권장에 올린 것은 한 번 깔기 위해서다. 알림 훅에도 같은 함수가 있다.
+    # 되살리지 않고, 그 뒤에 권장에 올린 것은 한 번 깔기 위해서다.
     param($State)
     if ($State.ContainsKey('suggestedDone')) { return @($State['suggestedDone'].Split(';') | Where-Object { $_ }) }
     if ($State.ContainsKey('ranOnce')) {
@@ -1270,7 +1306,7 @@ function Get-SuggestedDone {
     foreach ($id in @($manifest.suggested)) {
         if ($done -contains $id) { continue }
         if ($null -ne (Get-Prop $installedOf $id)) { $done += $id; continue }
-        if (Invoke-Claude @('plugin', 'install', $id)) {
+        if (Invoke-Claude @('plugin', 'install', $id) -Optional) {
             Note "권장 플러그인을 깔았습니다: $id"
             $script:Restart = $true
             $done += $id
@@ -1282,20 +1318,15 @@ function Get-SuggestedDone {
 
 `$firstRun = -not $state.ContainsKey('ranOnce')` 줄과 `$script:SuggestedIncomplete = $false` 줄을 지운다. 마무리의 `if (-not $WhatIfOnly) { if (-not $script:SuggestedIncomplete) ... }` 블록을 지운다. `ranOnce` 는 이제 읽기만 한다.
 
-- [ ] **Step 5: 감지가 아직 못 깐 권장을 단계 2 로 넘긴다**
-
-`session-check.ps1` 질문 1·2 의 `if ($disabled.Count -gt 0) {…}` 블록 아래에 넣는다. `$kwState` 는 Task 5 에서 이 블록보다 앞에서 읽는다.
+상태 파일 주석(217–218행 `# 상태 파일은 두 가지만 포함한다. …`)을 아래로 바꾼다.
 
 ```powershell
-    # 권장 가운데 아직 처리하지 않았고 깔리지도 않은 것이 있으면 단계 2 가 다시 해 본다.
-    $doneS = @(Get-SuggestedDone $kwState)
-    $pending = @(@($manifest.suggested) | Where-Object { ($doneS -notcontains $_) -and ($null -eq (Get-Prop $installedOf $_)) })
-    if ($pending.Count -gt 0) {
-        Add-Note 2 "권장 플러그인을 아직 못 깔았습니다: $($pending -join ', ')"
-    }
+# 상태 파일에는 단계가 기억해야 하는 것만 적는다. 라이브러리 목록 해시(requirements), 받아온 시각
+# (refreshed), 권장 기록(suggestedDone), 배포처별 갱신 실패(stuck-<배포처>), 단계별 실패 지문
+# (stuck-step<N>)이다. 옛 버전이 적은 ranOnce 는 권장 기록을 이행할 때만 읽는다.
 ```
 
-- [ ] **Step 6: 등급을 옮긴다**
+- [ ] **Step 5: 등급을 옮긴다**
 
 `manifest.json` 을 아래로 고친다.
 
@@ -1325,18 +1356,18 @@ Assert "the control tower suggests $PluginId" ($null -ne $manifest -and @($manif
 설계 문서 328행의 `**\`suggested\`는 이 PC에서 맞춤이 한 번도 안 돈 때에만 깐다.** 상태 파일에 그 표시가 있으면 두 번째부터는 아예 안 본다.` 를 아래로 바꾼다.
 
 ```markdown
-**`suggested`는 플러그인마다 한 번만 깐다.** 깔았거나 이미 있던 것을 상태 파일의 `suggestedDone`에 적고, 사용자가 나중에 지워도 다시 깔지 않는다. 실패한 것만 다음에 다시 해 본다. 옛 `ranOnce`만 있는 PC는 이행 때의 권장 목록을 처리한 것으로 보고, 그 뒤에 권장에 올린 것은 한 번 깐다(2026-09-30).
+**`suggested`는 플러그인마다 한 번만 깐다(2026-09-30 변경).** 깔았거나 이미 있던 것을 상태 파일의 `suggestedDone`에 적고, 사용자가 나중에 지워도 다시 깔지 않는다. 실패한 것은 단계 2가 다음에 실행될 때 다시 해 본다. 옛 `ranOnce`만 있는 PC는 이행 때의 권장 목록을 처리한 것으로 보고, 그 뒤에 권장에 올린 것은 한 번 깐다.
 ```
 
-- [ ] **Step 7: 통과를 확인한다**
+- [ ] **Step 6: 통과를 확인한다**
 
 Run: 검사 넷
 Expected: 모두 실패 없음. `플러그인을 바꾸는 곳마다 재시작 깃발을 설정한다` 도 통과해야 한다.
 
-- [ ] **Step 8: 커밋한다**
+- [ ] **Step 7: 커밋한다**
 
 ```bash
-git add plugins/kw-control-tower/scripts/sync.ps1 plugins/kw-control-tower/hooks/session-check.ps1 plugins/kw-control-tower/manifest.json tests/test_control_tower.ps1 tests/test_dashboard.ps1 docs/superpowers/specs/2026-09-06-control-tower-design.md
+git add plugins/kw-control-tower/scripts/sync.ps1 plugins/kw-control-tower/manifest.json tests/test_control_tower.ps1 tests/test_dashboard.ps1 docs/superpowers/specs/2026-09-06-control-tower-design.md
 git commit -m "feat: 권장 플러그인을 하나씩 기록하고 kw-dashboard 를 권장으로, document-skills 를 필수로 옮긴다"
 ```
 
@@ -1403,7 +1434,7 @@ Check '맞춤 잠금을 상태 파일 읽기 전에 잡는다' {
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_control_tower.ps1`
-Expected: `다른 맞춤이 실행 중이면 넘긴다`, `고치기 전에 사본을 남긴다`, `남은 문지기 폴더를 치운다`, `맞춤 잠금을 상태 파일 읽기 전에 잡는다` 가 `FAIL`. 잠금이 원래 없으므로 잠금을 치우는지 보는 검사 세 개는 통과할 수 있다.
+Expected: `다른 맞춤이 실행 중이면 넘긴다`, `10분 넘은 잠금은 치우고 실행한다`(검사가 미리 만든 잠금을 지금 코드는 지우지 않는다), `고치기 전에 사본을 남긴다`, `남은 문지기 폴더를 치운다`, `맞춤 잠금을 상태 파일 읽기 전에 잡는다` 가 `FAIL`. `맞춤이 끝나면 잠금을 치운다` 와 `상한에 끊긴 실행도 잠금을 치운다` 는 잠금이 원래 없어 통과한다.
 
 - [ ] **Step 3: 잠금을 넣는다**
 
@@ -1574,7 +1605,7 @@ git commit -m "test: 마켓플레이스 검증을 한 곳으로 모으고 README
 옛 설계 문서 `2026-09-06-control-tower-design.md` 는 살아 있는 설계로 계속 고친다(2026-09-30 사용자 결정). Task 3·4·5·10 이 고친 네 곳 말고도 새 결정과 상충하는 절이 남아 있다. 바꾼 곳마다 「(2026-09-30 변경)」과 이유를 남겨, 옛 결정의 근거가 사라지지 않게 한다. 행 번호는 origin/main 기준이고 Task 3 이 334행을 지워 그 뒤는 하나씩 당겨지므로, 인용한 원문으로 위치를 찾는다.
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-09-06-control-tower-design.md` (77–78·189–195·274·321·347·349·393·457·511·517·519·521·537·540행)
+- Modify: `docs/superpowers/specs/2026-09-06-control-tower-design.md` (77–78·189–195·212·321·347·349·389·393·446·457·517·519·521·537·540행)
 - Test: `tests/test_control_tower.ps1` (「문서와 코드」 절)
 
 **Interfaces:**
@@ -1587,8 +1618,9 @@ git commit -m "test: 마켓플레이스 검증을 한 곳으로 모으고 README
 ```powershell
 # 설계 문서는 살아 있는 설계다. 코드가 바뀌었는데 옛 문장이 남으면 다음 사람이 옛 규칙을 따른다.
 Check '설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다' {
-    ($spec -notmatch '단계 여덟') -and ($spec -notmatch '`suggested`는 재지 않는다') -and
+    ($spec -notmatch '단계 여덟') -and ($spec -notmatch '사내 것은 필수라 없으면 알리고') -and
     ($spec -notmatch '세션 시작 훅에는 매처가 없다') -and ($spec -notmatch '없다\. 도구 매처가 붙는 훅이 아니다') -and
+    ($spec -notmatch '\| 설정한다 \| 물어서 설정한다 \|') -and
     ($spec -notmatch '파이썬에게 기본 인코딩을 물어 `utf-8`이 아닐 때만') -and
     ($spec -notmatch '"required": \[ "kw-doc-formats@kiwoom-ax" \]')
 }
@@ -1621,13 +1653,15 @@ Expected: `설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다`
   ],
 ```
 
-- [ ] **Step 4: 감지와 상태 키의 문단을 고친다**
-
-274행의 `` `suggested`는 재지 않는다. `` 를 아래로 바꾼다(그 뒤 문장은 그대로).
+212행 문단을 바꾼다.
 
 ```markdown
-`suggested`는 상태 파일의 `suggestedDone`과 설치 기록만 본다. 처리하지 않았고 깔리지도 않은 권장이 있으면 단계 2로 넘긴다. 사용자가 지운 것은 `suggestedDone`에 남아 있어 다시 넘기지 않는다(2026-09-30 변경).
+**필수와 권장을 구분한다(2026-09-30 변경).** 필수는 없으면 알리고 맞춤이 되돌려 놓는다. 권장은 플러그인마다 한 번 깔고 그 뒤로는 재지도 되돌리지도 않는다. 사용자가 `playwright`를 안 쓴다고 지웠는데 매 세션 알리고 매번 다시 까는 것은 사용자 결정을 뒤집는 것이다. 처음에는 사내 것을 필수로, 공식 것을 권장으로 나눴다. 이제는 쓰임으로 나눈다. 사내 것이라도 사내망 밖에서 못 쓰는 것(kw-devops)과 그것에 배포를 넘기는 것(kw-dashboard)은 권장이고, 공식 것이라도 사내 보정 스킬이 기대는 것(document-skills)은 필수다.
 ```
+
+- [ ] **Step 4: 상태 키와 PYTHONUTF8 문단을 고친다**
+
+274행의 `` `suggested`는 재지 않는다. `` 는 그대로 둔다. 감지는 여전히 권장을 보지 않는다.
 
 321행 문단을 바꾼다.
 
@@ -1647,7 +1681,19 @@ Expected: `설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다`
 **`PYTHONUTF8`은 비어 있을 때만 1로 설정한다(2026-09-30 변경).** 이미 `1`이면 그대로 두고, `0`이면 사용자가 끈 것이라 손대지 않고, 그 밖의 값이면 실패로 알린다. 처음에는 설치기 실물(`setup.ps1:2108-2140`)의 분기를 그대로 옮겨, 값이 없으면 파이썬에게 기본 인코딩을 물어 그 값이 utf-8이 아닐 때만 설정했다. 그 판정식 `sys.getdefaultencoding()`은 파이썬 3에서 늘 utf-8이라 한 번도 설정하지 못했고, 감지는 값이 비어 있다는 이유로 세션마다 맞춤을 호출했다. `0`으로 둔 PC를 말없이 덮지 않는 규칙은 그대로다. `disciplined-coder`도 비어 있을 때만 1로 설정하므로 두 체계의 규칙이 같다.
 ```
 
+446행 표의 줄을 바꾼다. disciplined-coder 도 값이 비어 있을 때만 설정한다(`scaffold.sh` 의 `utf8_user_var_state` 가 `unset` 일 때).
+
+```markdown
+| `HKCU\Environment`의 `PYTHONUTF8` | 비어 있을 때만 설정한다(2026-09-30 변경) | 비어 있을 때만 설정한다 |
+```
+
 - [ ] **Step 5: 훅 표와 잠금 절을 고친다**
+
+389행 문장 끝에 한 문장을 추가한다.
+
+```markdown
+2026-09-30부터는 세션 시작 훅에 `startup` 매처가 붙는다.
+```
 
 393행의 셋째 칸 `없다. 도구 매처가 붙는 훅이 아니다` 를 아래로 바꾼다.
 
@@ -1662,12 +1708,6 @@ Expected: `설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다`
 ```
 
 - [ ] **Step 6: 검사 목록과 위험 목록을 고친다**
-
-511행의 `**남의 마켓플레이스가 꺼져 있어도, \`suggested\`가 \`false\`여도 조용하다.**` 를 아래로 바꾼다.
-
-```markdown
-**남의 마켓플레이스가 꺼져 있어도, 처리한 `suggested`가 `false`여도 조용하다.** 처리하지 않았고 깔리지도 않은 권장이 있으면 낸다(2026-09-30 변경).
-```
 
 517행의 `세션 시작 훅에는 매처가 없다.` 를 `세션 시작 훅의 매처는 \`startup\` 하나다.` 로 바꾼다.
 
@@ -1692,7 +1732,7 @@ Expected: `설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다`
 540행을 바꾸고, 그 아래에 한 줄을 추가한다.
 
 ```markdown
-- **`suggested`가 실패한 것은 다음 세션의 감지가 다시 가져온다(2026-09-30 변경).** 처리 기록(`suggestedDone`)에 없고 깔리지도 않은 권장만 단계 2로 넘기므로, 사용자가 지운 것과 아직 못 깐 것이 구별된다.
+- **`suggested`가 실패한 것을 세션 시작 알림이 말해 주지는 않는다.** 감지는 권장을 보지 않는다. 맞춤의 단계 2가 다른 불일치로 다음에 실행될 때, 처리 기록(`suggestedDone`)에 없고 깔리지도 않은 권장만 다시 해 본다(2026-09-30 변경). 처음에는 「한 번 실행했다」 표시를 다 깔 때까지 안 적어 사용자가 지운 권장까지 다시 깔았다.
 - **시간 상한에 끊긴 단계는 그날 다시 시도하지 않는다(2026-09-30).** 매번 상한을 넘기는 단계가 켤 때마다 반복되는 것을 차단하는 대가로, 하루만 느렸던 네트워크도 다음 날까지 기다린다.
 ```
 
@@ -1707,4 +1747,4 @@ git add docs/superpowers/specs/2026-09-06-control-tower-design.md tests/test_con
 git commit -m "docs: 컨트롤 타워 설계 문서의 남은 절을 2026-09-30 결정에 맞춘다"
 ```
 
-<!-- spec-review: escalated -->
+<!-- spec-review: passed -->
