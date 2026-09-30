@@ -21,7 +21,6 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$script:SuggestedIncomplete = $false
 # 플러그인이 바뀌면 참이 된다. 클로드 코드는 켤 때 플러그인을 읽으므로 이 실행에서
 # 깔거나 옮기거나 켜거나 걷은 것은 이 세션에 안 실린다. 마지막에 한 줄로 알린다.
 #
@@ -123,6 +122,18 @@ function Get-Prop {
     $p = $Object.PSObject.Properties[$Name]
     if ($null -eq $p) { return $null }
     return $p.Value
+}
+function Get-SuggestedDone {
+    # 한 번 처리한 권장 플러그인이다. 옛 버전은 ranOnce 하나로 권장 분기를 통째로 닫았으므로, 그 표시만
+    # 있는 PC 는 이행 때(2026-09-30)의 권장 목록을 처리한 것으로 본다. 그 PC 에서 사용자가 지운 것을
+    # 되살리지 않고, 그 뒤에 권장에 올린 것은 한 번 깔기 위해서다.
+    param($State)
+    if ($State.ContainsKey('suggestedDone')) { return @($State['suggestedDone'].Split(';') | Where-Object { $_ }) }
+    if ($State.ContainsKey('ranOnce')) {
+        return @('kw-devops@kiwoom-ax', 'superpowers@claude-plugins-official', 'document-skills@anthropic-agent-skills',
+                 'playwright@claude-plugins-official', 'frontend-design@claude-plugins-official')
+    }
+    return @()
 }
 function Save-Json {
     # 남이 써 둔 것을 지우지 않으려고 통째로 읽어 고친 뒤 그대로 다시 쓴다.
@@ -316,8 +327,9 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
-# 상태 파일은 두 가지만 포함한다. 라이브러리 목록의 해시와, 이 PC 에서 맞춤이 한 번이라도
-# 돌았는지다. 나머지 질문은 전부 이 PC 를 직접 읽어 판정하므로 적을 상태가 없다.
+# 상태 파일에는 단계가 기억해야 하는 것만 적는다. 라이브러리 목록 해시(requirements), 받아온 시각
+# (refreshed), 권장 기록(suggestedDone), 배포처별 갱신 실패(stuck-<배포처>), 단계별 실패 지문
+# (stuck-step<N>)이다. 옛 버전이 적은 ranOnce 는 권장 기록을 이행할 때만 읽는다.
 $state = @{}
 if (Test-Path -LiteralPath $statePath) {
     foreach ($line in (Get-Content -LiteralPath $statePath -Encoding UTF8)) {
@@ -325,7 +337,6 @@ if (Test-Path -LiteralPath $statePath) {
         if ($i -gt 0) { $state[$line.Substring(0, $i)] = $line.Substring($i + 1) }
     }
 }
-$firstRun = -not $state.ContainsKey('ranOnce')
 # 옛 버전의 단계 8 이 적던 python3 판정이다. 가드가 호출할 때 직접 판정하므로 남은 줄을 지운다.
 $state.Remove('python3'); $state.Remove('python3Target')
 $script:Refreshed = $false
@@ -469,25 +480,21 @@ try {
         }
     }
 
-    # 권장 플러그인은 이 PC 에서 맞춤이 한 번도 안 돌았을 때만 깐다. 흔적을 세지 않는
-    # 이유는 uninstall 이 두 파일의 흔적을 모두 지워, 일부러 지운 PC 와 처음 보는 PC 가
-    # 구별되지 않기 때문이다.
-    if ($firstRun) {
-        foreach ($id in @($manifest.suggested)) {
-            $entry = Get-Prop $installedOf $id
-            if ($null -ne $entry) { continue }
-            if (Invoke-Claude @('plugin', 'install', $id) -Optional) { Note "권장 플러그인을 깔았습니다: $id"; $script:Restart = $true }
-            else {
-                Fail '2' "권장 플러그인 설치에 실패했습니다: $id" -NoStuck
-                # 하나라도 못 깔았으면 "한 번 돌았다" 를 안 적는다. 적어 버리면 다음
-                # 실행부터 이 분기를 아예 안 보고, 권장은 알림 대상도 아니라 사용자가
-                # 영영 모른 채 그 플러그인 없이 지낸다.
-                $script:SuggestedIncomplete = $true
-            }
+    # 권장은 플러그인마다 한 번만 깐다. 깔았거나 이미 있던 것은 suggestedDone 에 적고, 사용자가
+    # 나중에 지워도 다시 깔지 않는다. uninstall 은 흔적을 모두 지워 지운 것과 처음 보는 것이
+    # 구별되지 않으므로 이 기록이 유일한 근거다. 설치에 실패한 것만 다음에 다시 해 본다.
+    $done = @(Get-SuggestedDone $state)
+    foreach ($id in @($manifest.suggested)) {
+        if ($done -contains $id) { continue }
+        if ($null -ne (Get-Prop $installedOf $id)) { $done += $id; continue }
+        if (Invoke-Claude @('plugin', 'install', $id) -Optional) {
+            Note "권장 플러그인을 깔았습니다: $id"
+            $script:Restart = $true
+            $done += $id
         }
-    } else {
-        Say '권장 플러그인은 처음 한 번만 깝니다. 건너뜁니다.'
+        else { Fail '2' "권장 플러그인 설치에 실패했습니다: $id" -NoStuck }
     }
+    if (-not $WhatIfOnly) { $state['suggestedDone'] = ($done -join ';') }
 
     # 우리 배포처에서 온 것이 사본보다 뒤처졌으면 옮긴다. 자동 갱신이 해 주기로 되어
     # 있는 일인데 실제로는 멈추는 것을 확인했다. install 은 이미 깔린 것에 안 쓴다.
@@ -898,12 +905,6 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 마무리
-if (-not $WhatIfOnly) {
-    # 권장 플러그인을 다 깔았을 때만 "한 번 돌았다" 를 적는다. 이 표시가 그 분기를
-    # 영영 닫으므로, 못 깐 것이 있으면 다음 실행이 다시 해 볼 수 있게 열어 둔다.
-    if (-not $script:SuggestedIncomplete) { $state['ranOnce'] = (Get-Date -Format o) }
-    else { Say '권장 플러그인을 다 못 깔아 다음 실행에서 다시 해 봅니다.' }
-}
 # 실행한 단계마다 실패했거나 상한에 끊겼으면 지문을 적고, 끝까지 성공했으면 지운다. 시간이 모자라
 # 중간에 미룬 단계는 원인이 앞 단계에 있을 수 있어 기록을 건드리지 않는다. 끊긴 단계는 끊긴 뒤의
 # 호출이 미뤄지므로 미룬 단계에도 들지만, 원인이 그 단계에 있으므로 미룬 것보다 먼저 본다.

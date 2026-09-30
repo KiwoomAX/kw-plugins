@@ -41,7 +41,7 @@ Assert "the marketplace ships $PluginName" ($null -ne $entry)
 Assert 'the plugin source is an in-repo path' ($null -ne $entry -and $entry.source -eq './plugins/kw-dashboard')
 Assert 'both descriptions are the same text' ($null -ne $pluginJson.description -and $null -ne $entry -and $pluginJson.description -eq $entry.description)
 Assert 'plugin.json carries no version (commit-based auto update)' ($null -ne $pluginJson -and $null -eq $pluginJson.PSObject.Properties['version'])
-Assert "the control tower requires $PluginId" ($null -ne $manifest -and @($manifest.required) -contains $PluginId)
+Assert "the control tower suggests $PluginId" ($null -ne $manifest -and @($manifest.suggested) -contains $PluginId)
 
 Write-Host '--- skill ---'
 $md = Join-Path $SkillDir 'SKILL.md'

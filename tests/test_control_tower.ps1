@@ -376,12 +376,6 @@ Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
 }
 Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
 Check '되켠 것을 따로 적는다'              { $syncSrc -match '되켠 것' }
-# "한 번 돌았다" 표시는 권장 플러그인 분기를 영영 닫는다. 첫 실행이 실패했는데도
-# 적어 버리면 사용자가 영영 모른 채 그 플러그인 없이 지낸다.
-Check '권장을 다 못 깔면 한 번 돌았다를 안 적는다' {
-    ($syncSrc -match '\$script:SuggestedIncomplete = \$true') -and
-    ($syncSrc -match 'if \(-not \$script:SuggestedIncomplete\) \{ \$state\[''ranOnce''\]')
-}
 Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\[A-Za-z0-9\._-\]\+\$" }
 Check '지우기 전에 사본을 뜬다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
@@ -411,6 +405,12 @@ Check '라이브러리 목록이 같으면 pip 을 안 부른다' {
 Write-Host ''
 Write-Host '목록 파일'
 $mf = Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json
+# kw-dashboard 는 배포를 권장인 kw-devops 에 넘기므로 같은 등급이다. kw-doc-formats 는 공식
+# document-skills 위에 얹는 보정 스킬이라 기본 스킬이 늘 있어야 한다(2026-09-30 사용자 결정).
+Check 'kw-dashboard 는 권장이고 document-skills 는 필수다' {
+    (@($mf.suggested) -contains 'kw-dashboard@kiwoom-ax') -and (@($mf.required) -notcontains 'kw-dashboard@kiwoom-ax') -and
+    (@($mf.required) -contains 'document-skills@anthropic-agent-skills') -and (@($mf.suggested) -notcontains 'document-skills@anthropic-agent-skills')
+}
 Check '필수 플러그인의 배포처가 목록에 등록되어 있다' {
     $mkNames = @($mf.marketplaces | ForEach-Object { $_.name })
     @($mf.required | Where-Object { $mkNames -notcontains ($_ -split '@')[1] }).Count -eq 0
@@ -1117,6 +1117,14 @@ if ($a[0] -eq 'plugin' -and $a[1] -eq 'marketplace' -and $a[2] -eq 'update') {
     if ($a[3] -eq 'kiwoom-ax') { Set-Content -LiteralPath (Join-Path $pd 'marketplaces\kiwoom-ax\.git\refs\heads\main') $env:STUB_NEW }
     exit 0
 }
+if ($a[0] -eq 'plugin' -and $a[1] -eq 'install') {
+    if ($env:STUB_INSTALL_FAIL -and $a[2] -eq $env:STUB_INSTALL_FAIL) { exit 1 }
+    $f = Join-Path $pd 'installed_plugins.json'
+    $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+    $j.plugins | Add-Member -NotePropertyName $a[2] -NotePropertyValue @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $env:STUB_NEW }) -Force
+    $j | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $f
+    exit 0
+}
 if ($a[0] -eq 'plugin' -and $a[1] -eq 'update') {
     if ($env:STUB_UP -eq 'fail') { exit 1 }
     $f = Join-Path $pd 'installed_plugins.json'
@@ -1136,16 +1144,19 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
-    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '')
+    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
+          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @())
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
-    $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax')
+    $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
+             'document-skills@anthropic-agent-skills')
     $plug = @{}; $en = @{}
     foreach ($id in $ids) {
         $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })
         $en[$id] = $true
     }
+    foreach ($d in $Drop) { $plug.Remove($d) }
     @{ version = 2; plugins = $plug } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $pd 'installed_plugins.json')
     @{ enabledPlugins = $en } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $h '.claude\settings.json')
     @{ 'kiwoom-ax' = @{ source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' }; autoUpdate = $true } } |
@@ -1154,12 +1165,13 @@ function Invoke-SyncScenario {
     New-Item -ItemType Directory -Force -Path (Join-Path $g 'refs\heads') | Out-Null
     'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
     $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
-    "ranOnce=2026-01-01`n$State".Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
+    $(if ($NoRanOnce) { $State } else { "ranOnce=2026-01-01`n$State" }).Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
     $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
     $env:STUB_SLEEP = if ($Sleep) { "$Sleep" } else { '' }
+    $env:STUB_INSTALL_FAIL = $InstallFail
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$(if ($Bin) { $Bin } else { "$sy\bin" });' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" }) $(if ($Budget) { "-BudgetSeconds $Budget" })" 2>&1
     $log = Join-Path $h '.claude\kw-control-tower.sync.log'
-    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG', 'STUB_SLEEP') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
+    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG', 'STUB_SLEEP', 'STUB_INSTALL_FAIL') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
     $ip = Get-Content (Join-Path $pd 'installed_plugins.json') -Raw | ConvertFrom-Json
     @{
         Out   = ($out | ForEach-Object { "$_" }) -join "`n"
@@ -1210,6 +1222,24 @@ Check '사본을 받아오지 않은 실행은 배포처 실패로 적지 않는
 # 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
 $r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
 Check '시작하지 못해 미룬 단계는 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }
+# 권장은 플러그인마다 한 번이다. 하나가 실패해도 성공한 것은 기록되고, 실패한 것만 다시 해 본다.
+$r = Invoke-SyncScenario -NoRanOnce -Steps '2' -InstallFail 'playwright@claude-plugins-official'
+Check '권장 설치에 성공한 것만 기록한다' {
+    ($r.State -match '(?m)^suggestedDone=.*superpowers@claude-plugins-official') -and
+    ($r.State -notmatch 'playwright@claude-plugins-official')
+}
+# 권장 하나의 실패는 단계 2 전체를 막지 않는다. 막으면 같은 날 필수 플러그인 교정까지 보류된다.
+Check '권장 설치 실패는 단계 지문을 남기지 않는다' { $r.State -notmatch 'stuck-step2' }
+# 기록된 것은 사용자가 지운 뒤에도 다시 깔지 않는다.
+$r = Invoke-SyncScenario -NoRanOnce -Steps '2' -Drop 'kw-dashboard@kiwoom-ax' `
+        -State 'suggestedDone=kw-devops@kiwoom-ax;kw-dashboard@kiwoom-ax;superpowers@claude-plugins-official;playwright@claude-plugins-official;frontend-design@claude-plugins-official'
+Check '기록된 권장 플러그인은 지워도 다시 안 깐다' { $r.Calls -notmatch 'plugin install kw-dashboard' }
+# ranOnce 만 있는 옛 PC 는 이행 때의 권장 목록을 처리한 것으로 본다. 그 목록의 것은 다시 깔지 않고,
+# 이행 뒤 권장에 새로 올린 것은 한 번 깐다.
+$r = Invoke-SyncScenario -Steps '2' -Drop 'superpowers@claude-plugins-official'
+Check 'ranOnce 만 있는 PC 에서 옛 권장은 지웠으면 다시 안 깐다' { $r.Calls -notmatch 'plugin install superpowers' }
+$r = Invoke-SyncScenario -Steps '2' -Drop 'kw-dashboard@kiwoom-ax'
+Check 'ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다' { $r.Calls -match 'plugin install kw-dashboard@kiwoom-ax' }
 
 $r = Invoke-SyncScenario -Up 'fail'
 Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
