@@ -108,6 +108,11 @@ try {
 } finally { Remove-Item Env:PYTHONIOENCODING }
 Assert 'pick_port.py prints on a cp949 console' ($cpCode -eq 0)
 
+# docker-compose.jenkins.yml is written only when there are bind mounts, so most new services have none.
+$lvPath = Join-Path $SkillDir 'local-verify.md'
+$lv = if (Test-Path $lvPath) { [IO.File]::ReadAllText($lvPath) } else { '' }
+Assert 'local-verify adds the Jenkins override only when it exists' ($lv -match 'Test-Path docker-compose\.jenkins\.yml')
+
 Write-Host '--- request-ax.ps1 ---'
 # The script mails AX-team requests through the shared renderer and sender. The
 # tests swap both for fakes through two environment variables, so no real mail
@@ -330,6 +335,8 @@ Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECON
 # Publishing an expiring document would delete the manifest; the SDK ttl argument must stay out.
 Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match '(?m)^\s*(def|class)\s+[^\x00-\x7F]'))
 Assert 'fetch_manifest.py asks for no document TTL' (-not ($fetText -match '(?m)^\s*[^#\n]*\bttl\s*='))
+# The stale-copy warning carries an em dash that cp949 lacks; without these two lines the fallback dies while printing it.
+Assert 'fetch_manifest.py pins its output to UTF-8' ($fetText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $fetText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
 
 Write-Host '--- searching-document ---'
 # A reference skill: one SKILL.md and no scripts. The user's own Claude calls vdb-handler with it.
