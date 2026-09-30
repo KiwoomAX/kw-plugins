@@ -148,7 +148,7 @@ function Save-Json {
     $null = $json | ConvertFrom-Json
 
     if (Test-Path -LiteralPath $Path) {
-        Copy-Item -LiteralPath $Path -Destination "$Path.bak" -Force
+        Copy-Item -LiteralPath $Path -Destination "$Path.kw.bak" -Force
     }
     $tmp = "$Path.kwtmp"
     [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
@@ -326,6 +326,22 @@ if ($missing.Count -gt 0) {
     Write-Error "목록 파일에 칸이 빠졌습니다: $($missing -join ', ') — $root\manifest.json"
     exit 1
 }
+
+# 맞춤은 한 번에 하나만 실행한다. 창을 둘 이상 동시에 열면 훅이 저마다 맞춤을 호출해 pip 과
+# claude plugin 과 상태 파일 쓰기가 겹친다. 잠금 폴더를 먼저 만든 쪽만 실행하고 못 만든 쪽은
+# 이번 세션을 넘긴다. 상태 파일을 읽기 전에 잡아야 직전 맞춤이 적은 값을 덮지 않는다.
+# 훅이 제한에 걸려 끊기면 잠금이 남으므로 10분 넘은 것은 치운다.
+$syncLock = Join-Path $cfg 'kw-control-tower.sync.lock'
+if (-not $WhatIfOnly) {
+    if (Test-Path -LiteralPath $syncLock) {
+        $lockAge = (Get-Date) - (Get-Item -LiteralPath $syncLock).CreationTime
+        if ($lockAge.TotalMinutes -ge 10) { Remove-Item -LiteralPath $syncLock -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    try { New-Item -ItemType Directory -Path $syncLock -ErrorAction Stop | Out-Null }
+    catch { Write-Host 'kw-control-tower: 다른 창에서 맞춤이 실행 중이라 이번에는 넘깁니다.'; exit 0 }
+}
+# 여기서부터 끝까지를 감싼다. exit 와 예외와 중단 모두에서 finally 가 잠금을 치운다.
+try {
 
 # 상태 파일에는 단계가 기억해야 하는 것만 적는다. 라이브러리 목록 해시(requirements), 받아온 시각
 # (refreshed), 권장 기록(suggestedDone), 배포처별 갱신 실패(stuck-<배포처>), 단계별 실패 지문
@@ -721,10 +737,12 @@ try {
     $token = [guid]::NewGuid().ToString('n')
     $held  = $false
     if (-not $WhatIfOnly) {
+        $gateMiss = 0
         for ($tick = 0; $tick -lt 600; $tick++) {
             $gate = "$lock.gate"
             try {
                 New-Item -ItemType Directory -Path $gate -ErrorAction Stop | Out-Null
+                $gateMiss = 0
                 try {
                     New-Item -ItemType Directory -Path $lock -ErrorAction Stop | Out-Null
                     [System.IO.File]::WriteAllText((Join-Path $lock 'heldsince'), [string][int][double]::Parse((Get-Date -UFormat %s)))
@@ -738,7 +756,13 @@ try {
                     if ($born -eq 0 -or ($now - $born) -ge 10) { Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue }
                 }
                 Remove-Item -LiteralPath $gate -Recurse -Force -ErrorAction SilentlyContinue
-            } catch { Start-Sleep -Milliseconds 50; continue }
+            } catch {
+                # 상대가 문지기를 만든 채 종료되면 문지기가 남는다. 문지기는 잠금을 잡는 순간에만 쥐므로
+                # 연속으로 200번(약 10초) 못 만들면 남은 것으로 보고 치운다.
+                $gateMiss++
+                if ($gateMiss -ge 200) { Remove-Item -LiteralPath $gate -Recurse -Force -ErrorAction SilentlyContinue; $gateMiss = 0 }
+                Start-Sleep -Milliseconds 50; continue
+            }
             if ($held) { break }
             Start-Sleep -Milliseconds 50
         }
@@ -994,3 +1018,6 @@ if ($script:Failed.Count -gt 0) {
     exit 1
 }
 exit 0
+} finally {
+    if (-not $WhatIfOnly) { Remove-Item -LiteralPath $syncLock -Recurse -Force -ErrorAction SilentlyContinue }
+}

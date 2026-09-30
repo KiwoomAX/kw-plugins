@@ -547,7 +547,8 @@ Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 Write-Host '사용자 파일 쓰기'
 # settings.json 은 사용자 파일이다. 통째로 다시 쓰므로 셋을 지켜야 한다.
-Check '고치기 전에 사본을 남긴다'        { $syncSrc.Contains('Copy-Item -LiteralPath $Path -Destination "$Path.bak"') }
+# disciplined-coder 도 settings.json·known_marketplaces.json 에 <파일>.bak 을 남긴다. 이름을 구분해 서로의 사본을 덮지 않는다.
+Check '고치기 전에 사본을 남긴다'        { $syncSrc.Contains('Copy-Item -LiteralPath $Path -Destination "$Path.kw.bak"') }
 Check '다시 안 읽힐 것은 안 쓴다'        { $syncSrc.Contains('$null = $json | ConvertFrom-Json') }
 Check '임시 파일에 쓰고 옮긴다'          { $syncSrc -match '\$Path\.kwtmp' -and $syncSrc -match 'Move-Item' }
 Check 'BOM 없이 쓴다'                    { $syncSrc -match 'UTF8Encoding\(\$false\)' }
@@ -826,6 +827,14 @@ Check '견주는 대상은 파일에 있던 것이다' {
     ($syncSrc -match '\$merged -eq \$fileNow') -and ($syncSrc -notmatch '\$merged -eq \$original')
 }
 Check '쓴 뒤에도 다시 본다'            { $syncSrc -match '쓴 뒤에 블록이 하나가 아닙니다' }
+# 상대가 문지기를 만든 채 종료되면 문지기가 남아, 치우지 않으면 반복을 다 쓰고 단계 6 이 실패한다.
+# 폴더 생성 시각은 파일 시스템이 옛 값을 다시 붙일 수 있어 쓰지 않고, 연속으로 못 만든 횟수로 판정한다.
+Check '남은 문지기 폴더를 치운다' { $syncSrc -match '\$gateMiss -ge 200' }
+# 잠금은 상태 파일을 읽기 전에 잡는다. 뒤에 잡으면 직전 맞춤이 적은 상태를 옛 값으로 덮는다.
+Check '맞춤 잠금을 상태 파일 읽기 전에 잡는다' {
+    $l = $syncSrc.IndexOf("'kw-control-tower.sync.lock'"); $s = $syncSrc.IndexOf('$state = @{}')
+    ($l -ge 0) -and ($s -gt $l)
+}
 
 # --- 문서와 코드를 대조한다 ---------------------------------------------------
 Write-Host ''
@@ -1145,7 +1154,7 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
     param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
-          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @())
+          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '')
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
@@ -1166,6 +1175,11 @@ function Invoke-SyncScenario {
     'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
     $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
     $(if ($NoRanOnce) { $State } else { "ranOnce=2026-01-01`n$State" }).Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
+    $lockDir = Join-Path $h '.claude\kw-control-tower.sync.lock'
+    if ($Lock) {
+        New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
+        if ($Lock -eq 'stale') { (Get-Item -LiteralPath $lockDir).CreationTime = (Get-Date).AddMinutes(-15) }
+    }
     $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
     $env:STUB_SLEEP = if ($Sleep) { "$Sleep" } else { '' }
     $env:STUB_INSTALL_FAIL = $InstallFail
@@ -1179,6 +1193,7 @@ function Invoke-SyncScenario {
         Sha   = @($ip.plugins.'kw-control-tower@kiwoom-ax')[0].gitCommitSha
         Log   = $(if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Raw -Encoding UTF8 } else { '' })
         Calls = $(if (Test-Path -LiteralPath (Join-Path $h 'calls.log')) { Get-Content -LiteralPath (Join-Path $h 'calls.log') -Raw } else { '' })
+        LockLeft = (Test-Path -LiteralPath $lockDir)
     }
 }
 
@@ -1240,6 +1255,15 @@ $r = Invoke-SyncScenario -Steps '2' -Drop 'superpowers@claude-plugins-official'
 Check 'ranOnce 만 있는 PC 에서 옛 권장은 지웠으면 다시 안 깐다' { $r.Calls -notmatch 'plugin install superpowers' }
 $r = Invoke-SyncScenario -Steps '2' -Drop 'kw-dashboard@kiwoom-ax'
 Check 'ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다' { $r.Calls -match 'plugin install kw-dashboard@kiwoom-ax' }
+$r = Invoke-SyncScenario -Steps '1,2'
+Check '맞춤이 끝나면 잠금을 치운다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
+$r = Invoke-SyncScenario -Steps '1,2' -Lock 'fresh'
+Check '다른 맞춤이 실행 중이면 넘긴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 넘깁니다') }
+$r = Invoke-SyncScenario -Steps '1,2' -Lock 'stale'
+Check '10분 넘은 잠금은 치우고 실행한다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
+# 상한에 끊긴 실행도 잠금을 남기지 않는다. Task 8 의 끊김 시나리오를 다시 실행한다.
+$r = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
+Check '상한에 끊긴 실행도 잠금을 치운다' { -not $r.LockLeft }
 
 $r = Invoke-SyncScenario -Up 'fail'
 Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
