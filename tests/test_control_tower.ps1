@@ -399,6 +399,14 @@ Check 'PYTHONUTF8 이 비어 있으면 넣고 0 과 1 은 그대로 둔다' {
 }
 Check '맞춤이 파이썬 기본 인코딩으로 판정하지 않는다' { $syncSrc -notmatch 'getdefaultencoding' }
 
+# 감지는 목록 해시로 판정한다. 맞춤도 해시가 같으면 pip 을 호출하지 않는다. 설치기가 모든 단계를
+# 실행할 때 사내 프록시를 거치는 pip 이 그때마다 실행되던 것을 없앤다.
+Check '라이브러리 목록이 같으면 pip 을 안 부른다' {
+    $b = [regex]::Match($syncSrc, "(?s)Show '4\..*?(?=Show '5\.)").Value
+    $gate = $b.IndexOf("`$state['requirements'] -eq `$newHash")
+    ($gate -ge 0) -and ($gate -lt $b.IndexOf('pip install')) -and ($b -match '--retries 1')
+}
+
 # --- 목록 파일의 계약 -------------------------------------------------------
 Write-Host ''
 Write-Host '목록 파일'

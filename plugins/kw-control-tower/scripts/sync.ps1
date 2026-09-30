@@ -547,24 +547,26 @@ if (Want 4) {
 try {
     $req = Join-Path $root 'requirements.txt'
     if (-not (Test-Path -LiteralPath $req)) { throw "라이브러리 목록이 없습니다: $req" }
-    $py = (Get-Command python -ErrorAction SilentlyContinue)
-    if ($null -eq $py) { throw '파이썬을 못 찾았습니다. python 이 PATH 에 있어야 합니다.' }
-
-    if ($WhatIfOnly) {
-        Say "[미리보기] $($py.Source) -m pip install -r $req"
+    $newHash = Get-CheapHash $req
+    if ($state['requirements'] -eq $newHash) {
+        # 지난번에 이 목록으로 깔았다. 감지도 같은 해시로 판정한다.
+        Say '이미 목록과 같습니다.'
     } else {
-        # pip 은 이미 깔린 것마다 한 줄씩 뱉어 요약을 파묻는다. 조용히 돌리고
-        # 실패했을 때만 보여 준다.
-        $pipOut = & $py.Source -m pip install --quiet --disable-pip-version-check -r $req 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            foreach ($l in $pipOut) { Say $l }
-            throw "pip 이 코드 $LASTEXITCODE 로 끝났습니다."
+        $py = (Get-Command python -ErrorAction SilentlyContinue)
+        if ($null -eq $py) { throw '파이썬을 못 찾았습니다. python 이 PATH 에 있어야 합니다.' }
+        if ($WhatIfOnly) {
+            Say "[미리보기] $($py.Source) -m pip install -r $req"
+        } else {
+            # pip 은 이미 깔린 것마다 한 줄씩 출력해 요약을 파묻는다. 조용히 실행하고 실패했을 때만 보여 준다.
+            # 연결이 안 될 때 재시도로 수십 초를 쓰지 않게 대기와 재시도를 줄인다. 세션 시작 상한이 pip 은 끊지 못한다.
+            $pipOut = & $py.Source -m pip install --quiet --disable-pip-version-check --timeout 10 --retries 1 -r $req 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                foreach ($l in $pipOut) { Say $l }
+                throw "pip 이 코드 $LASTEXITCODE 로 끝났습니다."
+            }
+            Note '파이썬 라이브러리를 목록에 맞췄습니다.'
+            $state['requirements'] = $newHash
         }
-        # 이 단계가 성공했을 때만 이 단계의 해시를 적는다.
-        $newHash = Get-CheapHash $req
-        if ($state['requirements'] -ne $newHash) { Note '파이썬 라이브러리를 목록에 맞췄습니다.' }
-        else { Say '이미 목록과 같습니다.' }
-        $state['requirements'] = $newHash
     }
 } catch { Fail '4' $_.Exception.Message }
 } else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
