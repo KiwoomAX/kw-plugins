@@ -140,6 +140,12 @@ function Remove-RetiredHookEntries {
     }
     return $removed
 }
+function Resolve-Utf8Action([string]$Current) {
+    # 비어 있으면 넣는다. 1 이면 할 일이 없고, 0 은 사용자가 끈 것이라 그대로 둔다.
+    if ([string]::IsNullOrEmpty($Current)) { return 'set' }
+    if ($Current -eq '1' -or $Current -eq '0') { return 'keep' }
+    return 'fail'
+}
 function Invoke-Claude {
     # 클로드를 이름으로 호출하지 않고 시작할 때 한 번 찾아 둔 절대 경로로 부른다.
     # 못 찾았으면 셸 오류를 그대로 뱉는 대신 무엇이 없는지 말한다. 파이썬을 다루는
@@ -546,25 +552,15 @@ Save-State
 # ---------------------------------------------------------------- 단계 5
 Show '5. PYTHONUTF8 을 봅니다.'
 try {
-    # 설치기의 분기를 그대로 들고 온다. 사용자가 0 으로 둔 것은 건드리지 않는다.
+    # 감지가 "비어 있다" 로 불일치를 내므로 같은 규칙이어야 알림이 멈춘다.
     $now = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'User')
-    if ($now -eq '1') {
-        Say '이미 1 입니다.'
-    } elseif ($now -eq '0') {
-        Say '0 입니다. 사용자가 끈 것이므로 그대로 둡니다.'
-    } elseif ($null -ne $now) {
-        Fail '5' "값이 '$now' 입니다. 손으로 1 이나 0 으로 고쳐 주십시오."
-    } else {
-        $py = (Get-Command python -ErrorAction SilentlyContinue)
-        if ($null -eq $py) { throw '파이썬을 못 찾아 기본 인코딩을 재지 못했습니다.' }
-        $enc = (& $py.Source -c "import sys; print(sys.getdefaultencoding())" 2>$null)
-        if ([string]::IsNullOrEmpty($enc)) { throw '파이썬 기본 인코딩을 확인하지 못했습니다.' }
-        if ($enc.Trim() -ne 'utf-8') {
+    switch (Resolve-Utf8Action $now) {
+        'set'  {
             if (-not $WhatIfOnly) { [Environment]::SetEnvironmentVariable('PYTHONUTF8', '1', 'User') }
-            Note "파이썬 기본이 $($enc.Trim()) 이라 PYTHONUTF8 을 1 로 설정했습니다."
-        } else {
-            Say '파이썬이 이미 utf-8 이라 세울 필요가 없습니다.'
+            Note 'PYTHONUTF8 을 1 로 설정했습니다.'
         }
+        'keep' { Say "이미 $now 입니다. 그대로 둡니다." }
+        'fail' { Fail '5' "값이 '$now' 입니다. 손으로 1 이나 0 으로 고쳐 주십시오." }
     }
 } catch { Fail '5' $_.Exception.Message }
 Save-State

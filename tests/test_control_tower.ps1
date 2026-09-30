@@ -386,6 +386,19 @@ Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\
 Check '지우기 전에 사본을 뜬다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
 
+# 파이썬의 기본 인코딩으로 정하던 때에는 판정식 sys.getdefaultencoding() 이 파이썬 3 에서
+# 언제나 utf-8 이라 한 번도 넣지 못했다. 감지와 같은 규칙으로 비어 있으면 넣는다.
+Check 'PYTHONUTF8 이 비어 있으면 넣고 0 과 1 은 그대로 둔다' {
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin 'scripts\sync.ps1'), [ref]$null, [ref]$null)
+    $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-Utf8Action' }, $true)
+    if ($null -eq $fn) { return $false }
+    . ([scriptblock]::Create($fn.Extent.Text))
+    ((Resolve-Utf8Action $null) -eq 'set') -and ((Resolve-Utf8Action '') -eq 'set') -and
+    ((Resolve-Utf8Action '1') -eq 'keep') -and ((Resolve-Utf8Action '0') -eq 'keep') -and
+    ((Resolve-Utf8Action 'x') -eq 'fail')
+}
+Check '맞춤이 파이썬 기본 인코딩으로 판정하지 않는다' { $syncSrc -notmatch 'getdefaultencoding' }
+
 # --- 목록 파일의 계약 -------------------------------------------------------
 Write-Host ''
 Write-Host '목록 파일'
