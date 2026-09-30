@@ -604,6 +604,16 @@ Check '목록을 받아 오는 워크플로가 있다' {
     $wf = Join-Path $repo '.github\workflows\sync-banned-words.yml'
     (Test-Path -LiteralPath $wf) -and ((Get-Content $wf -Raw -Encoding UTF8) -match 'korean-banned-words\.md')
 }
+# 비교 기준이 main 이라, 열린 PR 이 병합되기 전에는 매일 같은 내용의 PR 이 하나씩 더 열렸다.
+# 브랜치를 하나로 고정하고, 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다.
+# 같은 내용 비교는 줄 끝을 맞춘 뒤에 한다. 앞 단계가 받은 파일을 CRLF 로 바꾸고, git show 는 저장소에 든 LF 를 내므로 그대로 비교하면 늘 다르다.
+Check '금지어 워크플로가 브랜치 하나에 PR 하나를 유지한다' {
+    $wfText = Get-Content (Join-Path $repo '.github\workflows\sync-banned-words.yml') -Raw -Encoding UTF8
+    ($wfText -match 'BRANCH=chore/banned-words-sync') -and ($wfText -notmatch 'date -u') -and
+    ($wfText -match 'gh pr list --head') -and ($wfText -match 'git fetch origin "\$BRANCH"') -and
+    ($wfText -match "sed 's/\\r\$//'") -and
+    ($wfText.IndexOf('gh pr list --head') -lt $wfText.IndexOf('git fetch origin "$BRANCH"'))
+}
 # 여기서 만들면 안내가 두 벌이 된다.
 Check '이 저장소에 생성기가 없다' {
     -not (Test-Path -LiteralPath (Join-Path $repo 'scripts\build-banned-words.ps1'))

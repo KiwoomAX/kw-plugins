@@ -61,16 +61,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          BRANCH="chore/banned-words-$(date -u +%Y%m%d-%H%M)"
+          # 브랜치를 하나로 고정한다. 이 브랜치는 워크플로만 쓴다. 목록을 고칠 것은 원본 저장소에서 고친다.
+          # 날짜를 붙이던 때에는 병합 전까지 매일 같은 내용의 PR 이 하나씩 더 열렸다.
+          BRANCH=chore/banned-words-sync
+          # 열린 PR 을 먼저 찾는다. PR 이 닫히고 브랜치만 남았으면 내용이 같아도 새 PR 을 연다.
+          OPEN_PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')"
+          # 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다. 검토 중인 PR 의 head 를 바꾸지 않기 위해서다.
+          # /tmp/incoming.md 는 앞 단계에서 CRLF 로 바꿨고 git show 는 저장소에 든 LF 를 내므로, 줄 끝을 맞춘 뒤 비교한다.
+          if [ -n "$OPEN_PR" ] && git fetch origin "$BRANCH" 2>/dev/null \
+             && git show "FETCH_HEAD:$TARGET" 2>/dev/null | sed 's/\r$//' > /tmp/branch.md \
+             && sed 's/\r$//' /tmp/incoming.md | cmp -s - /tmp/branch.md; then
+            echo "열린 PR 브랜치가 이미 같은 내용입니다."
+            exit 0
+          fi
           cp /tmp/incoming.md "$TARGET"
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git switch -c "$BRANCH"
+          git switch -C "$BRANCH"
           git add "$TARGET"
           git commit -m 'chore: 금지어 목록을 원본에서 받아 온다' \
                      -m "원본: $SOURCE" \
                      -m '이 저장소는 만들지 않고 받기만 한다. 목록을 고치려면 KiwoomAX/korean-banned-words 의 데이터를 고친다.'
-          git push -u origin "$BRANCH"
+          git push --force -u origin "$BRANCH"
+          if [ -n "$OPEN_PR" ]; then
+            echo "열린 PR 이 있어 브랜치만 갱신했습니다."
+            exit 0
+          fi
           gh pr create \
             --title '금지어 목록을 원본에서 받아 온다' \
             --body "$(printf '%s\n' \
