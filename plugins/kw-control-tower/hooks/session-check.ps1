@@ -41,6 +41,22 @@ function Get-CheapHash {
     } finally { $md5.Dispose() }
 }
 
+function Get-StuckPrint {
+    # 실패한 원인이 같은지를 목록 파일 둘의 내용과 날짜와 단계 번호로 가른다. 목록이 바뀌거나
+    # 날이 바뀌면 다시 시도한다. 알림 훅에도 같은 함수가 있다. 글자 그대로 같아야 한다.
+    param([string]$Root, [int]$Step)
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $bytes = New-Object System.Collections.Generic.List[byte]
+        foreach ($f in @('manifest.json', 'requirements.txt')) {
+            $p = Join-Path $Root $f
+            if (Test-Path -LiteralPath $p) { $bytes.AddRange([System.IO.File]::ReadAllBytes($p)) }
+        }
+        $bytes.AddRange([System.Text.Encoding]::UTF8.GetBytes("step$Step " + (Get-Date -Format 'yyyy-MM-dd')))
+        return [System.BitConverter]::ToString($md5.ComputeHash($bytes.ToArray())).Replace('-', '')
+    } finally { $md5.Dispose() }
+}
+
 function Read-Json {
     # 없는 것과 못 읽는 것을 구분한다. 없으면 $null 이고 그것은 정상일 수 있다.
     # 못 읽으면 던진다. 사용자에게는 그래도 조용히 물러나지만, 삼키면 망가진
@@ -570,7 +586,18 @@ if ($notes.Count -eq 0) { Send-Hook; exit 0 }   # 맞춤이 고칠 것이 없으
 #
 # 맞춤은 멱등이다. 없거나 불일치한 것만 고치고 이미 맞는 것은 손대지 않는다. 실패해도
 # 세션을 막지 않는다. 못 한 단계만 다음 세션에 다시 알리고 나머지는 조용하다.
-#
+
+# 같은 원인으로 이미 실패한 단계는 다시 호출하지 않는다. 호출해도 같은 실패가 되풀이될 뿐이다.
+$runSteps = New-Object System.Collections.ArrayList
+$held     = New-Object System.Collections.ArrayList
+foreach ($n in @($noteSteps | ForEach-Object { $_ } | Sort-Object -Unique)) {
+    if ($kwState["stuck-step$n"] -eq (Get-StuckPrint $root $n)) { [void]$held.Add($n) } else { [void]$runSteps.Add($n) }
+}
+if ($held.Count -gt 0) {
+    [void]$say.Add("kw-control-tower: 맞춤이 단계 $($held -join ', ') 에서 같은 원인으로 이미 실패해 다시 시도하지 않았습니다. 기록: $(Join-Path $cfg 'kw-control-tower.sync.log')")
+}
+if ($runSteps.Count -eq 0) { Send-Hook; exit 0 }
+
 # 자식 프로세스로 부른다. 같은 프로세스에서 호출하면 맞춤의 Write-Host 가 성공 스트림에
 # 안 실려 못 잡는다. 둘 다 출력을 UTF-8 로 맞춰 두어 한국어가 안 깨진다.
 $sync = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\sync.ps1'
@@ -589,7 +616,6 @@ try {
     # 적고, 감지는 다음 세션에 그것을 보고 같은 실패로 맞춤을 다시 호출하지 않는다.
     $env:KWCT_REMOTE_HEAD = (@($remoteOf.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';')
     # -Brief 로 부른다. 맞춤은 진행 출력을 로그 파일에 두고 결과만 낸다.
-    $runSteps = @($noteSteps | ForEach-Object { $_ } | Sort-Object -Unique)
     $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief -Steps ($runSteps -join ',') -BudgetSeconds 60 2>&1
     $syncLog = Join-Path $cfg 'kw-control-tower.sync.log'
     # 맞춤이 낸 결과를 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.

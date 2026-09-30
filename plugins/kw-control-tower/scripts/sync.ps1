@@ -36,6 +36,7 @@ $script:Moved    = New-Object System.Collections.ArrayList   # 새 버전으로 
 $script:UpdateFailed = New-Object System.Collections.ArrayList   # 못 옮긴 설치본과 옮기려던 커밋
 $script:Log      = New-Object System.Collections.ArrayList   # -Brief 일 때 화면 대신 모은 진행 출력
 $script:Covered  = New-Object System.Collections.ArrayList   # 실패 가운데 다른 알림이 이미 말한 것
+$script:FailedSteps = New-Object System.Collections.ArrayList
 # 넘겼는데 비어 있으면 실행할 단계가 없다. 넘기지 않은 것과 구분해, 감지가 번호를 빠뜨린 불일치 하나가
 # 모든 단계를 실행하게 만들지 않는다.
 $script:StepsGiven = $PSBoundParameters.ContainsKey('Steps')
@@ -69,8 +70,11 @@ function Note {
 }
 function Fail {
     # -Covered 는 버전 알림처럼 다른 알림이 이미 말하는 실패다. 짧은 출력에서 한 번만 말한다.
-    param([string]$step, [string]$m, [switch]$Covered)
+    param([string]$step, [string]$m, [switch]$Covered, [switch]$NoStuck)
     [void]$script:Failed.Add("$step : $m")
+    # 다른 알림이 이미 다루는 실패(갱신 실패는 stuck-<배포처>)와 단계 전체를 보류할 일이 아닌 실패
+    # (권장 플러그인 하나의 설치 실패)는 단계 지문으로 적지 않는다.
+    if (-not $Covered -and -not $NoStuck -and $step -match '^\d+$') { [void]$script:FailedSteps.Add([int]$step) }
     if ($Covered) { [void]$script:Covered.Add("$step : $m") }
     Show "  ! $m" 'Yellow'
 }
@@ -84,6 +88,22 @@ function Get-CheapHash {
     try {
         $bytes = [System.IO.File]::ReadAllBytes($Path)
         return [System.BitConverter]::ToString($md5.ComputeHash($bytes)).Replace('-', '')
+    } finally { $md5.Dispose() }
+}
+
+function Get-StuckPrint {
+    # 실패한 원인이 같은지를 목록 파일 둘의 내용과 날짜와 단계 번호로 가른다. 목록이 바뀌거나
+    # 날이 바뀌면 다시 시도한다. 알림 훅에도 같은 함수가 있다. 글자 그대로 같아야 한다.
+    param([string]$Root, [int]$Step)
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $bytes = New-Object System.Collections.Generic.List[byte]
+        foreach ($f in @('manifest.json', 'requirements.txt')) {
+            $p = Join-Path $Root $f
+            if (Test-Path -LiteralPath $p) { $bytes.AddRange([System.IO.File]::ReadAllBytes($p)) }
+        }
+        $bytes.AddRange([System.Text.Encoding]::UTF8.GetBytes("step$Step " + (Get-Date -Format 'yyyy-MM-dd')))
+        return [System.BitConverter]::ToString($md5.ComputeHash($bytes.ToArray())).Replace('-', '')
     } finally { $md5.Dispose() }
 }
 
@@ -458,7 +478,7 @@ try {
             if ($null -ne $entry) { continue }
             if (Invoke-Claude @('plugin', 'install', $id) -Optional) { Note "권장 플러그인을 깔았습니다: $id"; $script:Restart = $true }
             else {
-                Fail '2' "권장 플러그인 설치에 실패했습니다: $id"
+                Fail '2' "권장 플러그인 설치에 실패했습니다: $id" -NoStuck
                 # 하나라도 못 깔았으면 "한 번 돌았다" 를 안 적는다. 적어 버리면 다음
                 # 실행부터 이 분기를 아예 안 보고, 권장은 알림 대상도 아니라 사용자가
                 # 영영 모른 채 그 플러그인 없이 지낸다.
@@ -527,7 +547,12 @@ try {
                     }
                 }
             }
-            if ($late) { $state["stuck-$mkName"] = $remoteOf[$mkName] } else { $state.Remove("stuck-$mkName") }
+            # 원격 커밋 탓으로 못 옮겼다고 적는 것은 이번 실행에서 사본을 받아왔고(단계 1) 단계 1·2 가 끊기지도
+            # 미뤄지지도 않았을 때뿐이다. 단계 1 이 끊겨 사본이 옛것이면 단계 2 는 옮길 것이 없다고 보므로,
+            # 그때 적으면 새 커밋이 생길 때까지 재시도하지 않는다.
+            $clean = ($script:Ran -contains 1) -and -not (@(1, 2) | Where-Object { ($script:TimedOutSteps -contains $_) -or ($script:Deferred -contains $_) })
+            if ($late -and $clean) { $state["stuck-$mkName"] = $remoteOf[$mkName] }
+            elseif (-not $late) { $state.Remove("stuck-$mkName") }
         }
     }
 } catch { Fail '2' $_.Exception.Message }
@@ -878,6 +903,18 @@ if (-not $WhatIfOnly) {
     # 영영 닫으므로, 못 깐 것이 있으면 다음 실행이 다시 해 볼 수 있게 열어 둔다.
     if (-not $script:SuggestedIncomplete) { $state['ranOnce'] = (Get-Date -Format o) }
     else { Say '권장 플러그인을 다 못 깔아 다음 실행에서 다시 해 봅니다.' }
+}
+# 실행한 단계마다 실패했거나 상한에 끊겼으면 지문을 적고, 끝까지 성공했으면 지운다. 시간이 모자라
+# 중간에 미룬 단계는 원인이 앞 단계에 있을 수 있어 기록을 건드리지 않는다. 끊긴 단계는 끊긴 뒤의
+# 호출이 미뤄지므로 미룬 단계에도 들지만, 원인이 그 단계에 있으므로 미룬 것보다 먼저 본다.
+# 미뤄진 호출도 호출한 곳이 Fail 을 부르므로 실패는 미룬 것 뒤에 본다.
+if (-not $WhatIfOnly) {
+    foreach ($n in ($script:Ran | Sort-Object -Unique)) {
+        if ($script:TimedOutSteps -contains $n) { $state["stuck-step$n"] = Get-StuckPrint $root $n; continue }
+        if ($script:Deferred -contains $n) { continue }
+        if ($script:FailedSteps -contains $n) { $state["stuck-step$n"] = Get-StuckPrint $root $n }
+        else { $state.Remove("stuck-step$n") }
+    }
 }
 Save-State
 

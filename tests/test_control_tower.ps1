@@ -1080,6 +1080,19 @@ Check '감지가 불일치한 단계만 맞춤에 넘긴다' {
 }
 # 불일치를 적는 곳이 하나라도 Add-Note 를 거치지 않으면 단계 번호가 빠져 그 불일치를 맞추지 못한다.
 Check '감지의 불일치는 모두 단계 번호와 함께 적힌다' { @([regex]::Matches($hookCode, '\$notes\.Add\(')).Count -eq 1 }
+# 같은 원인으로 이미 실패한 단계만 남았으면 맞춤을 호출하지 않고 알리기만 한다.
+$fnPrint = [regex]::Match($hookSrc, '(?s)function Get-StuckPrint \{.*?\n\}').Value
+Check '같은 원인으로 실패한 단계만 남으면 맞춤을 부르지 않는다' {
+    . ([scriptblock]::Create($fnPrint))
+    $all = (1..7 | ForEach-Object { "stuck-step$_=$(Get-StuckPrint $plugin $_)" }) -join "`n"
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Sync $stepsStub -Leaf 'b2b2b2b2b2b2' -State $all
+    ($o -notmatch 'steps=') -and ($o -match '같은 원인으로 이미 실패해 다시 시도하지 않았습니다')
+}
+Check '맞춤과 훅이 같은 지문을 만든다' {
+    $a = [regex]::Match($hookSrc, '(?s)function Get-StuckPrint \{.*?\n\}').Value
+    $b = [regex]::Match((Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw), '(?s)function Get-StuckPrint \{.*?\n\}').Value
+    $a -and ($a -eq $b)
+}
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤의 갱신 기록 -------------------------------------------------------
@@ -1186,6 +1199,17 @@ $sw.Stop()
 Check '상한을 넘긴 claude 호출을 끊는다' {
     ($sw.Elapsed.TotalSeconds -lt 20) -and ($hangRun.Out -match '시간 상한에 닿아 멈췄습니다')
 }
+$r = Invoke-SyncScenario -Mk 'fail' -Steps '1'
+Check '단계가 실패하면 그 단계의 지문을 적는다' { $r.State -match '(?m)^stuck-step1=[0-9A-F]{32}\s*$' }
+$r = Invoke-SyncScenario -Steps '1' -State 'stuck-step1=00000000000000000000000000000000'
+Check '단계가 성공하면 지문을 지운다' { $r.State -notmatch 'stuck-step1' }
+# 매번 상한을 넘기는 단계를 켤 때마다 다시 실행하지 않게, 끊긴 단계도 그날은 다시 호출하지 않는다.
+Check '상한에 끊긴 단계도 지문을 적는다' { $hangRun.State -match '(?m)^stuck-step1=' }
+$r = Invoke-SyncScenario -Mk 'fail' -Steps '2'
+Check '사본을 받아오지 않은 실행은 배포처 실패로 적지 않는다' { $r.State -notmatch 'stuck-kiwoom-ax' }
+# 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
+$r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
+Check '시작하지 못해 미룬 단계는 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }
 
 $r = Invoke-SyncScenario -Up 'fail'
 Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
