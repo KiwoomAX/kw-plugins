@@ -119,8 +119,12 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 1. 비밀 키가 있으면 「AX 팀에 등록 요청 보내기」로 환경변수 등록 요청을 보낸다.
 2. [compose-and-env.md](compose-and-env.md) 와 [secrets.md](secrets.md) 를 끝까지 읽고 `docker-compose.yml` 과,
    필요하면 덮어쓰기 파일과 Dockerfile 수정을 쓴다.
-3. [jenkinsfile.md](jenkinsfile.md) 의 틀로 `Jenkinsfile` 을 쓴다.
-4. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
+3. 처음 올리는 서비스면 방금 쓴 compose 의 `container_name` 으로 2단계의 포트를 **지금 등록한다.** 명령은
+   5단계의 `--register` 줄이다. 「남이 먼저 잡았다」고 하면 2단계로 돌아가 다시 고르고 compose 의 포트를 고친다.
+   미루면 push 와 빌드와 AX 팀 회신을 기다리는 동안 다른 사람이 같은 포트를 고른다. 배포를 그만두면 이 줄이
+   등록부에 남으므로, 담당자에게 AX 팀에 그 줄의 삭제를 요청하라고 알린다.
+4. [jenkinsfile.md](jenkinsfile.md) 의 틀로 `Jenkinsfile` 을 쓴다.
+5. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
 
 ### 4. 검증 — 돌려 보지 않고 됐다고 하지 않는다
 
@@ -151,6 +155,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 | `org` | `KiwoomAM` · `KiwoomAX`. 이미지를 그대로 띄운 인프라는 뺀다 |
 | `repo` | 저장소 이름만 |
 
+3단계에서 넣었으면 「이미 등록돼 있다」고 나온다. 그대로 둔다.
 1단계에서 이미 찾은 서비스도 쓸 포트로 한 번 돌린다 — 비어 있는 `repo` 칸이 채워진다. 「남이 먼저 잡았다」고
 하면 2단계로 돌아간다. **넣지 못해 담당자에게 넘길 때는 `${CLAUDE_SKILL_DIR}` 를 푼 전체 경로로 명령을 적는다.**
 

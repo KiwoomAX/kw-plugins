@@ -91,6 +91,10 @@ $axDoc = if (Test-Path $axDocPath) { [IO.File]::ReadAllText($axDocPath) } else {
 $examples = @([regex]::Matches($axDoc, '(?s)```json\r?\n(.*?)```') | ForEach-Object { $_.Groups[1].Value })
 $badExamples = @($examples | Where-Object { try { $null = $_ | ConvertFrom-Json; $false } catch { $true } })
 Assert 'ax-requests.md example bodies parse as JSON' ($examples.Count -gt 0 -and $badExamples.Count -eq 0)
+# The port is registered with the container_name the compose file actually carries, before push.
+# Registering at step 5 left days between picking and registering, and two people could pick the same port.
+Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
+Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($text -match '배포를 그만두면 이 줄이\s+등록부에 남')
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.
