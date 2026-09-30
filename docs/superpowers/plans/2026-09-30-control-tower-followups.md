@@ -18,6 +18,7 @@
 - 행 번호는 모두 origin/main `c75a44f` 기준이다. 앞 Task 가 같은 파일을 바꾼 뒤에는 번호가 밀리므로, 함께 적은 코드 문자열과 검사 이름으로 위치를 찾는다.
 - 감지가 호출하는 외부 프로그램은 `curl.exe` 하나뿐이다(2026-09-25 승인). 새로 늘리지 않는다.
 - 공개 저장소의 AX 팀 메일과 `/home/chshin84/opt` 경로는 건드리지 않는다.
+- 옛 설계 문서 `docs/superpowers/specs/2026-09-06-control-tower-design.md` 는 살아 있는 설계로 계속 고친다. 바꾼 곳마다 「(2026-09-30 변경)」과 이유를 남긴다(2026-09-30 사용자 결정). 남은 절은 Task 13 이 맞춘다.
 - 맞춤 단계 번호는 Task 3 이후 1–7 이다. 단계 6 은 `CLAUDE.md`, 단계 7 은 옛 스킬·훅이다.
 - Task 마다 실패 확인은 `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_control_tower.ps1` 로 하고, 커밋 전 통과 확인은 README 「손으로 고칠 때 지킬 것」대로 검사 넷(`test_control_tower.ps1`·`test_doc_formats.ps1`·`test_devops.ps1`·`test_dashboard.ps1`)을 모두 실행한다. 기대는 `실패 없음` 또는 `FAIL=0` 이다. `ASK` 줄은 실패가 아니다.
 
@@ -1564,6 +1565,146 @@ Expected: 넷 다 실패 없음
 ```bash
 git add tests/ README.md
 git commit -m "test: 마켓플레이스 검증을 한 곳으로 모으고 README 의 세션 시작 계약을 코드와 맞춘다"
+```
+
+---
+
+### Task 13: 옛 설계 문서의 남은 절을 새 결정에 맞춘다
+
+옛 설계 문서 `2026-09-06-control-tower-design.md` 는 살아 있는 설계로 계속 고친다(2026-09-30 사용자 결정). Task 3·4·5·10 이 고친 네 곳 말고도 새 결정과 상충하는 절이 남아 있다. 바꾼 곳마다 「(2026-09-30 변경)」과 이유를 남겨, 옛 결정의 근거가 사라지지 않게 한다. 행 번호는 origin/main 기준이고 Task 3 이 334행을 지워 그 뒤는 하나씩 당겨지므로, 인용한 원문으로 위치를 찾는다.
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-09-06-control-tower-design.md` (77–78·189–195·274·321·347·349·393·457·511·517·519·521·537·540행)
+- Test: `tests/test_control_tower.ps1` (「문서와 코드」 절)
+
+**Interfaces:**
+- Consumes: Task 3·4·5·10 이 고친 설계 문서.
+
+- [ ] **Step 1: 실패하는 검사를 넣는다**
+
+「문서와 코드」 절의 `Check 'README 가 코드와 같은 수로 센다'` 아래에 넣는다.
+
+```powershell
+# 설계 문서는 살아 있는 설계다. 코드가 바뀌었는데 옛 문장이 남으면 다음 사람이 옛 규칙을 따른다.
+Check '설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다' {
+    ($spec -notmatch '단계 여덟') -and ($spec -notmatch '`suggested`는 재지 않는다') -and
+    ($spec -notmatch '세션 시작 훅에는 매처가 없다') -and ($spec -notmatch '없다\. 도구 매처가 붙는 훅이 아니다') -and
+    ($spec -notmatch '파이썬에게 기본 인코딩을 물어 `utf-8`이 아닐 때만') -and
+    ($spec -notmatch '"required": \[ "kw-doc-formats@kiwoom-ax" \]')
+}
+```
+
+- [ ] **Step 2: 실패를 확인한다**
+
+Run: `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_control_tower.ps1`
+Expected: `설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다` 가 `FAIL`
+
+- [ ] **Step 3: 구성 그림과 목록 예시를 고친다**
+
+77–78행을 바꾼다.
+
+```text
+    깔아 주는 것 ─ kw-doc-formats, document-skills (필수)
+                 └ kw-devops, kw-dashboard, superpowers, playwright, frontend-design (권장)
+```
+
+189–195행의 `"required"` 와 `"suggested"` 를 바꾼다.
+
+```json
+  "required": [ "kw-doc-formats@kiwoom-ax", "document-skills@anthropic-agent-skills" ],
+  "suggested": [
+    "kw-devops@kiwoom-ax",
+    "kw-dashboard@kiwoom-ax",
+    "superpowers@claude-plugins-official",
+    "playwright@claude-plugins-official",
+    "frontend-design@claude-plugins-official"
+  ],
+```
+
+- [ ] **Step 4: 감지와 상태 키의 문단을 고친다**
+
+274행의 `` `suggested`는 재지 않는다. `` 를 아래로 바꾼다(그 뒤 문장은 그대로).
+
+```markdown
+`suggested`는 상태 파일의 `suggestedDone`과 설치 기록만 본다. 처리하지 않았고 깔리지도 않은 권장이 있으면 단계 2로 넘긴다. 사용자가 지운 것은 `suggestedDone`에 남아 있어 다시 넘기지 않는다(2026-09-30 변경).
+```
+
+321행 문단을 바꾼다.
+
+```markdown
+**상태 키는 단계가 기억해야 하는 것만 적는다(2026-09-30 변경).** 라이브러리 해시(`requirements`), 받아온 시각(`refreshed`), 권장 기록(`suggestedDone`), 배포처별 갱신 실패(`stuck-<배포처>`), 단계별 실패 지문(`stuck-step<N>`)이다. 나머지는 이 PC를 직접 읽어 판정한다. 실패 지문은 단계마다 따로 적으므로 한 단계의 실패가 다른 단계의 기록을 바꾸지 않는다. 처음에는 단계 하나에 키 하나였고 라이브러리 해시 말고는 적을 상태가 없었다.
+```
+
+347행 문단 끝에 두 문장을 추가한다.
+
+```markdown
+2026-09-30에 이 기억을 플러그인마다로 나눴다. 하나라도 설치에 실패하면 처음이라는 표시가 안 적혀, 사용자가 지운 권장이 맞춤이 실행될 때마다 되살아났기 때문이다.
+```
+
+349행 문단을 바꾼다.
+
+```markdown
+**`PYTHONUTF8`은 비어 있을 때만 1로 설정한다(2026-09-30 변경).** 이미 `1`이면 그대로 두고, `0`이면 사용자가 끈 것이라 손대지 않고, 그 밖의 값이면 실패로 알린다. 처음에는 설치기 실물(`setup.ps1:2108-2140`)의 분기를 그대로 옮겨, 값이 없으면 파이썬에게 기본 인코딩을 물어 그 값이 utf-8이 아닐 때만 설정했다. 그 판정식 `sys.getdefaultencoding()`은 파이썬 3에서 늘 utf-8이라 한 번도 설정하지 못했고, 감지는 값이 비어 있다는 이유로 세션마다 맞춤을 호출했다. `0`으로 둔 PC를 말없이 덮지 않는 규칙은 그대로다. `disciplined-coder`도 비어 있을 때만 1로 설정하므로 두 체계의 규칙이 같다.
+```
+
+- [ ] **Step 5: 훅 표와 잠금 절을 고친다**
+
+393행의 셋째 칸 `없다. 도구 매처가 붙는 훅이 아니다` 를 아래로 바꾼다.
+
+```markdown
+`startup`. 클로드 코드를 켤 때만 실행한다(2026-09-30 변경)
+```
+
+457행 문단을 바꾼다(459행 문단은 그대로).
+
+```markdown
+`CLAUDE.md`는 사본을 쓰므로 두 체계가 같은 잠금 파일을 잡고 서로 배제된다. 컨트롤 타워끼리는 맞춤 전체에 잠금 폴더(`kw-control-tower.sync.lock`)를 두어, 창 둘을 열어도 맞춤은 하나만 실행된다(2026-09-30 변경). **`known_marketplaces.json`과 `settings.json`은 disciplined-coder와 함께 쓰는데 두 체계 사이의 잠금이 없다.** 두 체계가 같은 세션 시작에 동시에 쓰면 한쪽 결과가 사라질 수 있다. 컨트롤 타워는 사본 이름을 `.kw.bak`으로 나눠 서로의 사본은 덮지 않는다.
+```
+
+- [ ] **Step 6: 검사 목록과 위험 목록을 고친다**
+
+511행의 `**남의 마켓플레이스가 꺼져 있어도, \`suggested\`가 \`false\`여도 조용하다.**` 를 아래로 바꾼다.
+
+```markdown
+**남의 마켓플레이스가 꺼져 있어도, 처리한 `suggested`가 `false`여도 조용하다.** 처리하지 않았고 깔리지도 않은 권장이 있으면 낸다(2026-09-30 변경).
+```
+
+517행의 `세션 시작 훅에는 매처가 없다.` 를 `세션 시작 훅의 매처는 \`startup\` 하나다.` 로 바꾼다.
+
+519행 끝에 한 문장을 추가한다.
+
+```markdown
+시간 상한은 `ping`으로 기다리는 `claude.cmd`로 본다. 그 스텁은 pwsh를 실행하지 않는다(2026-09-30).
+```
+
+521행을 바꾼다.
+
+```markdown
+- **`suggested`의 한 번** — 기록된 권장을 지운 상태로 맞춤을 실행해 다시 깔지 않는지, `ranOnce`만 있는 PC에서 옛 권장은 다시 안 깔고 새 권장은 한 번 까는지, 권장 하나가 실패해도 성공한 것은 기록되는지 본다(2026-09-30 변경).
+```
+
+537행을 바꾼다.
+
+```markdown
+- **`known_marketplaces.json`과 `settings.json`에 disciplined-coder와의 잠금이 없다.** 두 체계가 동시에 쓰면 한쪽 결과가 사라질 수 있다. 사라진 값은 다음 세션에 다시 채워진다.
+```
+
+540행을 바꾸고, 그 아래에 한 줄을 추가한다.
+
+```markdown
+- **`suggested`가 실패한 것은 다음 세션의 감지가 다시 가져온다(2026-09-30 변경).** 처리 기록(`suggestedDone`)에 없고 깔리지도 않은 권장만 단계 2로 넘기므로, 사용자가 지운 것과 아직 못 깐 것이 구별된다.
+- **시간 상한에 끊긴 단계는 그날 다시 시도하지 않는다(2026-09-30).** 매번 상한을 넘기는 단계가 켤 때마다 반복되는 것을 차단하는 대가로, 하루만 느렸던 네트워크도 다음 날까지 기다린다.
+```
+
+- [ ] **Step 7: 통과를 확인한다**
+
+Run: 검사 넷. Expected: 모두 실패 없음. `설계 문서가 코드와 같은 수로 센다` 와 `설계 문서의 단계 목록이 코드와 같은 수다` 도 통과해야 한다.
+
+- [ ] **Step 8: 커밋한다**
+
+```bash
+git add docs/superpowers/specs/2026-09-06-control-tower-design.md tests/test_control_tower.ps1
+git commit -m "docs: 컨트롤 타워 설계 문서의 남은 절을 2026-09-30 결정에 맞춘다"
 ```
 
 <!-- spec-review: escalated -->

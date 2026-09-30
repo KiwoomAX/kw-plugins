@@ -446,14 +446,14 @@ git commit -m "fix: 리포트 원문 주소를 인코딩하고 같은 이름의 
 
 ---
 
-### Task 6: 포트를 고른 작업 안에서 바로 등록한다
+### Task 6: 포트를 compose 작성 직후에 등록한다
 
-지금은 2단계에서 고르고 빌드 뒤인 5단계에서 넣어, 그 사이 다른 담당자가 같은 포트를 고를 수 있다. 등록에는 컨테이너 이름이 필요한데 그 이름(`kiwoom-<이름>`)은 3단계에서 담당자와 짧은 서비스 이름을 정할 때 정해진다. 그래서 **3단계에서 이름을 정한 직후, 파일을 쓰기 전에** 등록한다. push·빌드·AX 팀 회신을 기다리는 구간이 등록 뒤로 간다.
+지금은 2단계에서 고르고 빌드 뒤인 5단계에서 넣어, 그 사이 다른 담당자가 같은 포트를 고를 수 있다. 등록에는 컨테이너 이름이 필요한데 그 이름은 3단계에서 `docker-compose.yml` 을 쓸 때 정해진다. 그래서 **3단계에서 compose 를 쓴 직후, push 전에** 그 파일에 적힌 `container_name` 으로 등록한다(2026-09-30 사용자 결정). push·빌드·AX 팀 회신을 기다리는 구간이 모두 등록 뒤로 가고, 등록 앞에는 3단계의 담당자 답을 기다리는 몇 분만 남는다. 기존 compose 가 있는 레포도 그 파일의 이름으로 등록하므로 5단계의 재확인이 자기 줄을 남의 줄로 판정하지 않는다.
 
 **Files:**
 - Modify: `plugins/kw-devops/skills/deploying-kiwoom-service/SKILL.md` (3단계 110–123행, 5단계 142–155행)
 - Modify: `plugins/kw-devops/skills/deploying-kiwoom-service/scripts/pick_port.py` (`등록`, `등록부검사`)
-- Test: `tests/test_devops.ps1` (`pick_port.py --check exits 0` 가 자체 검사를 실행한다)
+- Test: `tests/test_devops.ps1` (새 검사, 그리고 `pick_port.py --check exits 0` 가 실행하는 자체 검사)
 
 **Interfaces:**
 - 없음.
@@ -478,10 +478,19 @@ git commit -m "fix: 리포트 원문 주소를 인코딩하고 같은 이름의 
         경합["켬"] = False
 ```
 
+`tests/test_devops.ps1` 의 `ax-requests.md example bodies parse as JSON` 아래에 넣는다.
+
+```powershell
+# The port is registered with the container_name the compose file actually carries, before push.
+# Registering at step 5 left days between picking and registering, and two people could pick the same port.
+Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
+Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($text -match '배포를 그만두면 이 줄이 등록부에 남')
+```
+
 - [ ] **Step 2: 실패를 확인한다**
 
-Run: `python plugins\kw-devops\skills\deploying-kiwoom-service\scripts\pick_port.py --check`
-Expected: `AssertionError: 삽입이 경합으로 거부되면 …`
+Run: `python plugins\kw-devops\skills\deploying-kiwoom-service\scripts\pick_port.py --check` 와 `pwsh -NoProfile -ExecutionPolicy Bypass -File tests\test_devops.ps1`
+Expected: `AssertionError: 삽입이 경합으로 거부되면 …`, 그리고 `the port is registered right after compose is written` 과 `an abandoned deploy tells the owner to ask for the row to be removed` 가 `FAIL`
 
 - [ ] **Step 3: 등록이 거부를 다시 조회해 가린다**
 
@@ -505,12 +514,13 @@ Expected: `AssertionError: 삽입이 경합으로 거부되면 …`
 
 - [ ] **Step 4: 스킬 절차를 옮긴다**
 
-SKILL.md 3단계의 `답을 받으면 차례로 한다.` 목록 맨 앞에 한 항목을 넣고 뒤 번호를 하나씩 민다.
+SKILL.md 3단계의 `답을 받으면 차례로 한다.` 목록에서 `2. [compose-and-env.md](compose-and-env.md) 와 [secrets.md](secrets.md) 를 끝까지 읽고 …` 항목 바로 뒤에 한 항목을 넣고 뒤 번호를 하나씩 민다.
 
 ```markdown
-1. 컨테이너 이름을 `kiwoom-<짧은 서비스 이름>` 으로 정하고, 처음 올리는 서비스면 2단계의 포트를 **지금 등록한다.**
-   명령은 5단계의 `--register` 줄이다. 「남이 먼저 잡았다」고 하면 2단계로 돌아가 다시 고른다. 미루면 push 와
-   빌드와 AX 팀 회신을 기다리는 동안 다른 사람이 같은 포트를 고른다.
+3. 처음 올리는 서비스면 방금 쓴 compose 의 `container_name` 으로 2단계의 포트를 **지금 등록한다.** 명령은
+   5단계의 `--register` 줄이다. 「남이 먼저 잡았다」고 하면 2단계로 돌아가 다시 고르고 compose 의 포트를 고친다.
+   미루면 push 와 빌드와 AX 팀 회신을 기다리는 동안 다른 사람이 같은 포트를 고른다. 배포를 그만두면 이 줄이
+   등록부에 남으므로, 담당자에게 AX 팀에 그 줄의 삭제를 요청하라고 알린다.
 ```
 
 5단계의 `1단계에서 이미 찾은 서비스도 쓸 포트로 한 번 돌린다 — 비어 있는 \`repo\` 칸이 채워진다.` 앞에 한 문장을 넣는다.
@@ -527,8 +537,8 @@ Expected: `검사 통과 — …` 와 모두 실패 없음
 - [ ] **Step 6: 커밋한다**
 
 ```bash
-git add plugins/kw-devops/skills/deploying-kiwoom-service
-git commit -m "fix: 배포 스킬이 포트를 이름을 정한 직후 등록하고 삽입 경합을 알아본다"
+git add plugins/kw-devops/skills/deploying-kiwoom-service tests/test_devops.ps1
+git commit -m "fix: 배포 스킬이 포트를 compose 작성 직후 등록하고 삽입 경합을 알아본다"
 ```
 
 ---
