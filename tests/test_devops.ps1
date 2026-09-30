@@ -54,7 +54,7 @@ Assert 'frontmatter name matches the folder' ($name -eq 'deploying-kiwoom-servic
 
 # The body was split so a port question does not load compose templates and log
 # tables. A reference file that SKILL.md does not link is never opened.
-$refs = @('compose-and-env.md', 'jenkins-logs.md', 'ax-requests.md', 'jenkinsfile.md', 'local-verify.md', 'secrets.md')
+$refs = @('compose-and-env.md', 'jenkins-logs.md', 'ax-requests.md', 'jenkinsfile.md', 'local-verify.md', 'secrets.md', 'github-repo.md')
 foreach ($ref in $refs) {
     Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
     Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))
@@ -95,6 +95,11 @@ Assert 'ax-requests.md example bodies parse as JSON' ($examples.Count -gt 0 -and
 # Registering at step 5 left days between picking and registering, and two people could pick the same port.
 Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
 Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($text -match '배포를 그만두면 이 줄이\s+등록부에 남')
+# A copy with no remote (a zip download) once got a fresh repo while the org already had one.
+# Two repos with the same Jenkinsfile make two jobs that tear down each other's container.
+Assert 'step 1 reads the existing origin before anything else' ($text -match '(?m)^git remote get-url origin')
+Assert 'a new repo is created only in github-repo.md, and private' (-not ($text -match 'gh repo create') -and ($refText -match 'gh repo create \S+ --private'))
+Assert 'no skill file force-pushes' (-not ($allText -match '(?m)^\s*git push\b.*(--force|-f\b)'))
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.
