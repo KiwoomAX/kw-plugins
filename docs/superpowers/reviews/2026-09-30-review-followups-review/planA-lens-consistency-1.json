@@ -1,0 +1,12 @@
+{"lens":"lens-consistency","target":"docs/superpowers/plans/2026-09-30-control-tower-followups.md","issues":[
+{"where":"Task 8 Step 2 / Step 5","type":"contradiction","claim":"Step 2 는 새 검사 넷 FAIL, Step 5 는 그중 하나가 통과한다고 적음"},
+{"where":"Task 3 Step 2","type":"contradiction","claim":"'옛 판정 줄이 남아 있어도 주입한 판정을 따른다' 도 옛 가드에서 FAIL 인데 기대 목록에 없음"},
+{"where":"Task 9 Step 4","type":"contradiction","claim":"'Fail 함수의 첫 줄 뒤'는 주석 뒤·param 앞이다. param 은 첫 문장이어야 한다. $script:Failed.Add 줄 뒤로 지정해야 함"},
+{"where":"Review Focus 다섯째 / Task 3","type":"gap","claim":"맞춤이 옛 python3 줄을 지우는지 검사가 없음"},
+{"where":"Review Focus 둘째 / Task 8·11","type":"gap","claim":"시간 상한으로 끊긴 실행 뒤 잠금 잔존 검사가 없음"},
+{"where":"Task 10 Step 3·6","type":"drift","claim":"ranOnce 이행 기준이 spec·설계문 '그때의 목록' vs 함수 '지금 목록'. 같은 릴리스에서 새로 올린 권장(kw-dashboard)은 설치되지 않음"},
+{"where":"Task 3·9·10 의 설계 문서 갱신 범위","type":"gap","claim":"321행(단계 여덟·상태 키)과 274행('suggested 는 재지 않는다')을 고치지 않음. Files 에 299행이 있으나 Step 없음"},
+{"where":"Task 3·5·7·10·11 줄 번호","type":"drift","claim":"앞 작업이 바꾼 뒤에도 원본 줄 번호로 가리킴(예: Task 10 의 832–837행). 줄 번호 기준을 밝히지 않음"},
+{"where":"spec 머리말 / 계획 A·B 작업 8개","type":"gap","claim":"작업 19개 중 8개는 spec 에 결정 행이 없음. 계획B Task 7 은 spec 현행 유지 항목과 같은 워크플로를 고침"}],
+"principles_applied":["NO-ASSUME","STATE-ASSUME","CHECKABLE","TERM-ONE","DOC-TYPE"],
+"notes":"spec→계획 방향 공백 없음. 인터페이스 이름·하네스 매개변수 확장은 작업 사이에 일관. Task 12 Files 는 README 76–85행, Step 은 76–82행. Task 5 '-Steps 6' 검사는 단계 6 이 없는 잘린 스크립트에서 실행되어 단계 선택 자체를 확인하지는 못함(가정)."}
