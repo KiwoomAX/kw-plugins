@@ -300,11 +300,16 @@ Write-Host ''
 Write-Host '알림 훅의 동작'
 $fake = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path (Join-Path $fake '.claude\plugins') | Out-Null
+# 맞춤을 뺀 사본으로 훅을 실행한다. 훅은 자기 폴더 옆의 scripts\sync.ps1 을 호출하므로,
+# 진짜 폴더의 훅을 실행하면 가짜 홈에서도 진짜 맞춤이 실행된다.
+$quietRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-q-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+Copy-Item -LiteralPath $plugin -Destination $quietRoot -Recurse
+Remove-Item -LiteralPath (Join-Path $quietRoot 'scripts\sync.ps1')
 
 Check '설정 파일이 하나도 없으면 조용히 물러난다' {
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
-`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
-& '$plugin\hooks\session-check.ps1'
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
     # 목록은 읽히지만 필수 플러그인이 없으므로 말은 한다. 다만 죽지 않아야 한다.
     $LASTEXITCODE -eq 0
@@ -315,7 +320,7 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
     New-Item -ItemType Directory -Force -Path $empty | Out-Null
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$empty'
-& '$plugin\hooks\session-check.ps1'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
     Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
@@ -325,8 +330,8 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
 # 한 줄로 내고 systemMessage 와 additionalContext 를 둘 다 채운다.
 Check '할 말이 있으면 훅 JSON 으로 사용자와 Claude 에게 함께 낸다' {
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
-`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
-& '$plugin\hooks\session-check.ps1'
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
     $lines = @($out | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
     $j = $null
@@ -342,8 +347,8 @@ Ask '몸통이 200밀리초 안에 끝난다' {
     $slow = Join-Path $fake '.claude\kw-control-tower.slow'
     Remove-Item -LiteralPath $slow -ErrorAction SilentlyContinue
     & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
-`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'
-& '$plugin\hooks\session-check.ps1'
+`$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
+& '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1 | Out-Null
     if (Test-Path -LiteralPath $slow) { $script:slowNote = (Get-Content -LiteralPath $slow -Raw).Trim(); Write-Host "       측정값: $script:slowNote" }
     -not (Test-Path -LiteralPath $slow)
@@ -429,7 +434,7 @@ $badHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-badhome-" + [guid]
 New-Item -ItemType Directory -Force -Path (Join-Path $badHome '.claude') | Out-Null
 Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
     '{ "marketplaces": [], "required": [] }' | Set-Content -LiteralPath (Join-Path $badManifest 'manifest.json')
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$badHome'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$badHome'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$quietRoot\hooks\session-check.ps1'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 # 자국이 가짜 홈 안에 떨어져야 모래상자가 성립한다. 위 검사만으로는 훅이 조용한 것만
@@ -526,11 +531,12 @@ $brokenHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-brk-" + [guid]:
 New-Item -ItemType Directory -Force -Path (Join-Path $brokenHome '.claude\plugins') | Out-Null
 '{ not json' | Set-Content -LiteralPath (Join-Path $brokenHome '.claude\settings.json')
 Check '망가진 설정에서 알림은 조용하고 자국을 남긴다' {
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$plugin\hooks\session-check.ps1'" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$brokenHome'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'; & '$quietRoot\hooks\session-check.ps1'" 2>&1
     ([string]::IsNullOrWhiteSpace(($out | Out-String).Trim())) -and
     (Test-Path -LiteralPath (Join-Path $brokenHome '.claude\kw-control-tower.error'))
 }
 Remove-Item -LiteralPath $brokenHome -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $quietRoot -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 훅이 맞춤을 호출한다 -----------------------------------------------------
 Write-Host ''
@@ -1171,6 +1177,13 @@ Write-Host '검사가 이 PC 를 안 바꾼다'
 Check '훅을 호출하는 검사가 진짜 홈을 안 넘긴다' {
     $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
     $self -notmatch "USERPROFILE='\`$env:USERPROFILE'"
+}
+
+# 진짜 플러그인 폴더의 훅을 실행하면 훅이 옆의 진짜 맞춤을 찾아 호출한다. 가짜 홈에는 필수
+# 플러그인이 없어 불일치가 늘 생기므로 맞춤이 실행되고, 이 PC 의 파이썬과 레지스트리가 바뀐다.
+Check '훅을 호출하는 검사가 진짜 플러그인 폴더의 훅을 안 돌린다' {
+    $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
+    $self -notmatch '''\$plugin\\hooks\\session-check\.ps1'''
 }
 
 # --- 결과 -----------------------------------------------------------------
