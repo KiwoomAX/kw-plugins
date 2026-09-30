@@ -189,6 +189,17 @@ function Get-AxBlock([string]$claudeMd) {
     return $lines -join "`n"
 }
 
+# kw-ax 로 복사하고 대조할 템플릿이다. 블록이 싣는 파일과, 원칙이 근거로 가리키는 사본이다.
+# 블록이 안 싣는 파일까지 대조하면 싣지도 않는 사본 하나 때문에 맞춤이 실행된다(2026-09-30 이 PC).
+# 알림 훅에도 같은 함수가 있다. 둘이 다르면 맞춤이 복사한 것을 훅이 다르다고 알린다.
+function Get-AxCopies([string]$claudeMd) {
+    $files = @('claude-md-ko.md')
+    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
+        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md', 'domain-korean_subset.md')
+    }
+    return $files
+}
+
 function Get-MarketplaceHead {
     # 배포처 사본이 받아 둔 버전을 읽는다. 알림 훅의 같은 이름 함수와 같은 것을 본다.
     # 둘이 다른 값을 보면 알림이 말한 것을 맞춤이 못 고치는 PC 가 생긴다.
@@ -603,22 +614,23 @@ try {
 
     # 블록이 @import 로 싣는 파일을 먼저 복사하고 그다음에 블록을 쓴다. 순서가 반대면
     # 블록이 아직 없는 파일을 가리키는 세션이 생기고, @import 는 없는 파일을 알리지 않는다.
-    # 템플릿은 모두 복사한다. disciplined-coder 가 있어 블록이 싣지 않는 파일도 두는데,
-    # 원칙이 근거 사본을 이 폴더의 경로로 가리키고, 무엇을 복사할지 가리지 않아야 훅이
-    # 같은 기준으로 대조할 수 있다.
+    $target = Join-Path $userHome '.claude\CLAUDE.md'
     $axDir = Join-Path $cfg 'kw-ax'
     if (-not $WhatIfOnly -and -not (Test-Path -LiteralPath $axDir)) { New-Item -ItemType Directory -Path $axDir | Out-Null }
-    foreach ($t in @(Get-ChildItem -LiteralPath $tplDir -Filter '*.md' -File)) {
-        $copy = Join-Path $axDir $t.Name
+    # 블록이 싣는 파일과 원칙이 가리키는 근거 사본만 복사한다. 훅도 Get-AxCopies 로 같은 목록을 대조한다.
+    $mdNow = if (Test-Path -LiteralPath $target) { [System.IO.File]::ReadAllText($target, $utf8) } else { '' }
+    foreach ($name in @(Get-AxCopies $mdNow)) {
+        $src  = Join-Path $tplDir $name
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+        $copy = Join-Path $axDir $name
         $same = (Test-Path -LiteralPath $copy) -and
-                ([System.IO.File]::ReadAllText($copy, $utf8) -eq [System.IO.File]::ReadAllText($t.FullName, $utf8))
+                ([System.IO.File]::ReadAllText($copy, $utf8) -eq [System.IO.File]::ReadAllText($src, $utf8))
         if ($same) { continue }
         if ($WhatIfOnly) { Say "[미리보기] $copy 를 템플릿으로 바꿉니다."; continue }
-        Copy-Item -LiteralPath $t.FullName -Destination $copy -Force
+        Copy-Item -LiteralPath $src -Destination $copy -Force
         Note "$copy 를 템플릿으로 바꿨습니다."
     }
 
-    $target = Join-Path $userHome '.claude\CLAUDE.md'
     $lock   = "$target.lock"
 
     # 잠금 규약을 disciplined-coder 와 맞춘다. 같은 파일을 둘이 고치므로 서로

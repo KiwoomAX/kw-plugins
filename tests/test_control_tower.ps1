@@ -709,8 +709,23 @@ foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '
     }
     # 경로에 공백이 들어가면 어디까지가 경로인지 구분되지 않는다.
     Check "$($pair.Name): @import 경로에 공백이 없다" { $without -notmatch '(?m)^@[^\n]* ' }
+    $fc = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxCopies' }, $true)
+    Check "$($pair.Name)에 Get-AxCopies 가 있다" { $null -ne $fc }
+    if ($null -ne $fc) {
+        . ([scriptblock]::Create($fc.Extent.Text))
+        $cw = @(Get-AxCopies "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n")
+        $co = @(Get-AxCopies "앞`n")
+        $assembled["$($pair.Name)-copies"] = "$($cw -join ',')|$($co -join ',')"
+        Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안 사본 하나만 다룬다" { ($cw -join ',') -eq 'claude-md-ko.md' }
+        Check "$($pair.Name): 블록이 싣는 파일이 모두 사본 목록에 있다" {
+            $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$') | ForEach-Object { $_.Groups[1].Value })
+            @($refs | Where-Object { $co -notcontains $_ }).Count -eq 0
+        }
+        Check "$($pair.Name): 원칙이 근거로 가리키는 사본도 다룬다" { $co -contains 'domain-korean_subset.md' }
+    }
 }
 Check '맞춤과 훅이 같은 블록을 조립한다' { $assembled['맞춤'] -eq $assembled['훅'] }
+Check '맞춤과 훅이 같은 사본 목록을 쓴다' { $assembled['맞춤-copies'] -eq $assembled['훅-copies'] }
 # 블록을 맞춤이 만들므로 템플릿에 마커가 있으면 사본을 싣는 순간 마커가 한 벌 더 생긴다.
 Check '사내 문안 템플릿에 마커가 없다' {
     (Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8) -notmatch '(?m)^#\s*(BEGIN|END) AX'

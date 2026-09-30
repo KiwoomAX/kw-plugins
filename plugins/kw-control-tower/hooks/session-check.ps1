@@ -87,6 +87,17 @@ function Get-AxBlock([string]$claudeMd) {
     return $lines -join "`n"
 }
 
+# kw-ax 로 복사하고 대조할 템플릿이다. 블록이 싣는 파일과, 원칙이 근거로 가리키는 사본이다.
+# 블록이 안 싣는 파일까지 대조하면 싣지도 않는 사본 하나 때문에 맞춤이 실행된다(2026-09-30 이 PC).
+# 알림 훅에도 같은 함수가 있다. 둘이 다르면 맞춤이 복사한 것을 훅이 다르다고 알린다.
+function Get-AxCopies([string]$claudeMd) {
+    $files = @('claude-md-ko.md')
+    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
+        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md', 'domain-korean_subset.md')
+    }
+    return $files
+}
+
 function Read-KwState([string]$Path) {
     # 상태 파일을 한 번만 읽는다. 질문마다 따로 열던 때에는 같은 파일을 세 번 열었다.
     $s = @{}
@@ -305,15 +316,19 @@ try {
     $u8 = New-Object System.Text.UTF8Encoding($false)
     # 블록은 kw-ax 의 사본을 @import 로 싣는다. 사본이 없으면 @import 가 알리지 않고
     # 아무것도 싣지 않으며, 낡으면 옛 문안이 실린다. CLAUDE.md 만 보아서는 둘 다 안 드러난다.
-    # 맞춤이 템플릿을 모두 복사하므로 여기서도 모두 대조한다.
+    # 맞춤이 Get-AxCopies 목록을 복사하므로 여기서도 같은 목록을 대조한다.
+    $memText = if (Test-Path -LiteralPath $mem) { [System.IO.File]::ReadAllText($mem, $u8) } else { '' }
     if (Test-Path -LiteralPath $tpl) {
         $stale = New-Object System.Collections.ArrayList
-        foreach ($t in @(Get-ChildItem -LiteralPath (Split-Path -Parent $tpl) -Filter '*.md' -File)) {
-            $copy = Join-Path (Join-Path $cfg 'kw-ax') $t.Name
+        $tplDir = Split-Path -Parent $tpl
+        foreach ($name in @(Get-AxCopies $memText)) {
+            $src  = Join-Path $tplDir $name
+            $copy = Join-Path (Join-Path $cfg 'kw-ax') $name
             $script:Budget.Files += 2
+            if (-not (Test-Path -LiteralPath $src)) { continue }
             if (-not (Test-Path -LiteralPath $copy) -or
-                ([System.IO.File]::ReadAllText($copy, $u8) -ne [System.IO.File]::ReadAllText($t.FullName, $u8))) {
-                [void]$stale.Add($t.Name)
+                ([System.IO.File]::ReadAllText($copy, $u8) -ne [System.IO.File]::ReadAllText($src, $u8))) {
+                [void]$stale.Add($name)
             }
         }
         if ($stale.Count -gt 0) {
@@ -321,7 +336,7 @@ try {
         }
     }
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
-        $now   = [System.IO.File]::ReadAllText($mem, $u8)
+        $now   = $memText
         $block = Get-AxBlock $now
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
         $found = [regex]::Match($now, $re)
