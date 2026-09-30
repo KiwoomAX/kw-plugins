@@ -30,12 +30,17 @@ if (@(Get-Process Hwp -ErrorAction SilentlyContinue).Count -gt 0) {
 }
 
 $h = New-Object -ComObject HWPFrame.HwpObject
-$h.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule") | Out-Null
-$h.Open($src, "HWP", "forceopen:true") | Out-Null
-$h.SaveAs($out, "PDF", "") | Out-Null      # 텍스트로 뽑을 때는 "UNICODE"
-try { $h.Clear(1) } catch {}
-try { $h.Quit() } catch {}
-[Runtime.InteropServices.Marshal]::ReleaseComObject($h) | Out-Null
+try {
+    $h.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule") | Out-Null
+    # 못 열었는데 계속하면 빈 문서가 PDF 로 저장된다.
+    if (-not $h.Open($src, "HWP", "forceopen:true")) { throw "한/글이 파일을 열지 못했습니다: $src" }
+    $h.SaveAs($out, "PDF", "") | Out-Null      # 텍스트로 뽑을 때는 "UNICODE"
+} finally {
+    # 중간에 실패해도 한/글을 닫는다. 안 닫으면 창 없는 Hwp.exe 가 남아 다음 실행이 위 검사에서 멈춘다.
+    try { $h.Clear(1) } catch {}
+    try { $h.Quit() } catch {}
+    [Runtime.InteropServices.Marshal]::ReleaseComObject($h) | Out-Null
+}
 ```
 
 `Open` 은 인자를 셋 받는다. 하나만 주면 실패한다. `RegisterModule` 이 `False` 를 돌려줘도

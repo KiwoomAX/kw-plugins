@@ -58,7 +58,7 @@ try {
     $excel.CalculateFullRebuild()
     # ... 확인할 값을 여기서 Write-Output 한다
 } finally {
-    if ($wb) { $wb.Close($false) }   # 저장해야 하면 앞에 $wb.Save() 를 둔다
+    if ($wb) { $wb.Close($false) }   # 원본에 저장하지 않는다. 결과 파일이 필요하면 try 안에서 스크래치패드의 새 경로로 SaveAs 한다
     $excel.Quit()                     # 위 검사를 통과했으므로 내가 띄운 인스턴스다
     [Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
 }

@@ -120,6 +120,16 @@ foreach ($n in @('hwp', 'pdf', 'pptx', 'xlsx', 'docx')) {
     Assert "$n points at kw-doc-formats:common" ((Body $n) -match 'kw-doc-formats:common')
 }
 
+# Worked examples are copied as they are, so an unsafe example is an unsafe run.
+# DisplayAlerts is off in the Excel example, so a Save() there overwrites the original silently.
+Assert 'xlsx COM example does not save over the original' (-not ((Body 'xlsx') -match '\$wb\.Save\(\)'))
+# A failed Open must not leave a windowless Hwp.exe behind; the next run would stop at the "already running" check.
+Assert 'hwp COM example cleans up in finally' ((Body 'hwp') -match '(?s)try \{.*?\$h\.Open.*?\} finally \{.*?\$h\.Quit\(\)')
+Assert 'hwp COM example stops when Open fails' ((Body 'hwp') -match 'if \(-not \$h\.Open\(')
+# zipfile opens dst for writing before it reads src; the same file empties the deck. samefile also
+# catches the same file written two ways (a mapped drive and its UNC path).
+Assert 'pptx zip rewriters refuse to write over their source' ([regex]::Matches((Body 'pptx'), 'os\.path\.exists\(dst\) and os\.path\.samefile\(src, dst\)').Count -eq 2)
+
 # The monolith is gone; no leftover may name it.
 foreach ($d in $skillDirs) {
     Assert "$($d.Name) does not name the retired skill" (-not ((Body $d.Name) -match 'document-formats'))
