@@ -14,7 +14,7 @@ description: 워드 문서(.docx)를 만들거나 읽을 때 document-skills:doc
 ## 이 PC에서는 python-docx 로 만들고 markitdown 으로 읽는다
 
 공식 `document-skills:docx` 는 만들 때 npm `docx` 를, 읽을 때 `pandoc` 을 쓰라고 한다.
-**이 PC에는 둘 다 없다.** 설치기가 깔아 주는 것은 `python-docx` 와 `markitdown` 이므로
+**이 PC에는 둘 다 없다.** kw-control-tower 가 깔아 주는 것은 `python-docx` 와 `markitdown` 이므로
 그 둘을 쓴다.
 
 ```python
@@ -28,8 +28,38 @@ d.save("보고서.docx")
 python -m markitdown 보고서.docx    # 읽을 때
 ```
 
-공식 스킬의 나머지 조언은 그대로 쓸 수 있다. 변경 추적과 주석과 `document.xml` 을 직접
-고치는 방법이 거기 있다. 도구를 고르는 자리만 다르다.
+공식 스킬의 주석 달기와 `document.xml` 직접 수정 방법은 그대로 쓴다. 다만 공식 스킬이
+LibreOffice(`soffice.py`·`accept_changes.py`)로 하는 단계는 **이 PC 에서 실패한다.** LibreOffice 가
+없기 때문이다. 결과 PDF 확인과 변경 추적 받아들이기는 워드 COM 으로 하고, `.doc` 변환은 아래 표대로 한다.
+
+| 공식 스킬의 단계 | 이 PC 의 대체 방법 |
+|---|---|
+| 결과를 PDF 로 바꿔 확인 | 아래 예제의 `ExportAsFixedFormat` |
+| 변경 추적 받아들이기 | 아래 예제의 `Revisions.AcceptAll()` 뒤 새 이름으로 저장 |
+| `.doc` 를 `.docx` 로 변환 | `kw-doc-formats:hwp` 의 「구형 워드·PPT를 넘겨받았을 때」(사용자가 워드로 열어 다른 이름으로 저장) |
+
+```powershell
+# 워드가 떠 있으면 실행하지 않는다. 아래 Quit 이 열어 둔 문서까지 닫는다.
+# 왜 그런지는 kw-doc-formats:common 의 「오피스 프로그램을 COM 으로 부를 때」에 있다.
+if (@(Get-Process WINWORD -ErrorAction SilentlyContinue).Count -gt 0) {
+    throw "워드가 실행 중입니다. 사용자에게 닫아 달라고 요청한 뒤에 다시 실행하십시오."
+}
+
+# 경로는 셋 다 절대경로로 준다. 상대경로는 워드의 기본 폴더 기준으로 풀린다.
+$word = New-Object -ComObject Word.Application
+$word.Visible = $false
+$word.DisplayAlerts = 0
+$doc = $null
+try {
+    $doc = $word.Documents.Open($path, $false, $true)   # 읽기 전용
+    $doc.ExportAsFixedFormat($pdf, 17)                   # 17 은 PDF 다. $pdf 는 스크래치패드의 절대경로
+    # 변경 추적을 받아들일 때: $doc.Revisions.AcceptAll(); $doc.SaveAs2($newPath)   # $newPath 는 원본이 아닌 새 절대경로
+} finally {
+    if ($doc) { $doc.Close(0) }                          # 0 은 저장하지 않음이다
+    $word.Quit()                                          # 위 검사를 통과했으므로 이 스크립트가 시작한 인스턴스다
+    [Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
+}
+```
 
 ## 아직 재지 않은 것
 

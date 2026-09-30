@@ -1,0 +1,10 @@
+{"lens":"lens-consistency","target":"docs/superpowers/plans/2026-09-30-plugin-fixes.md (2차)","issues":[
+{"where":"Task 6 Step 1 검사 ↔ Step 4 문안","type":"contradiction","claim":"정규식 '배포를 그만두면 이 줄이 등록부에 남' 은 한 줄로 찾는데 문안은 '이 줄이' 뒤에서 줄을 바꾼다. 구현 뒤에도 통과하지 못한다"},
+{"where":"Task 6 Step 2","type":"gap","claim":"경합 assert 로 --check 가 실패하면 test_devops 의 'pick_port.py --check exits 0' 과 'prints on a cp949 console' 도 FAIL 인데 기대 목록에 없다"},
+{"where":"Task 2 Step 3 hwp 설명","type":"contradiction","claim":"hwp 설명은 '한/글과 오피스를 조종해 최신 형식으로 바꾼다' 를 그대로 두는데 본문은 수동 저장만 안내한다"},
+{"where":"Task 2 Step 4 xlsx 문단","type":"contradiction","claim":"'수식이 든 파일마다 … 셋 다 COM 으로 한다' 가 앞 절의 'None 이어도 곧바로 COM 으로 넘어가지 마라' 와 상충"},
+{"where":"Task 1 Step 3 주석 ↔ Task 2 Step 4","type":"contradiction","claim":"finally 주석은 SaveAs 를 선택으로, 코드는 조건 없이 SaveAs"},
+{"where":"Task 2 Step 5 docx 문단","type":"contradiction","claim":"'변경 추적' 을 공식 방식과 워드 COM 둘로 지정"},
+{"where":"Task 7 Step 3","type":"contradiction","claim":"같은 내용 분기가 PR 존재를 확인하지 않고 '열린 PR 브랜치…' 로 끝낸다. PR 이 닫히고 브랜치만 남으면 PR 없이 끝난다"}],
+"principles_applied":["CHECKABLE","NO-ASSUME","STATE-ASSUME","FOCUSED","TERM-ONE"],
+"notes":"Task 1·2·3·4·5·7 의 기대 FAIL 목록과 정규식-문구 대조는 일치(Task 6 둘째 검사 제외). 인용 절 이름 모두 실제 파일에 있음. Task 6 삽입 위치와 번호 밀기 맞음. A 의 Task 12 가 B 의 인용 행을 밀지 않음. 1차 반영 항목은 다시 올리지 않음. force push 가 검토 중 head 를 바꾸는 문제는 설계 선택이라 adversarial 판단 몫."}

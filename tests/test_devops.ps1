@@ -68,8 +68,13 @@ $allText = $text + "`n" + $refText
 Assert 'no skill file points at a personal skills folder' (-not ($allText -match '~/\.claude'))
 $calls = [regex]::Matches($text, '(?m)^python\b.*pick_port\.py.*$')
 Assert 'every pick_port.py call goes through CLAUDE_SKILL_DIR' ($calls.Count -gt 0 -and @($calls | Where-Object { $_.Value -notmatch '\$\{CLAUDE_SKILL_DIR\}/scripts/pick_port\.py' }).Count -eq 0)
-$axCalls = [regex]::Matches($text, '(?m)^powershell\b.*request-ax\.ps1.*$')
+# request-ax.ps1 has no BOM on purpose, so Windows PowerShell 5.1 would read its Korean as cp949.
+$axCalls = [regex]::Matches($text, '(?m)^(pwsh|powershell)\b.*request-ax\.ps1.*$')
 Assert 'every request-ax.ps1 call goes through CLAUDE_SKILL_DIR' ($axCalls.Count -gt 0 -and @($axCalls | Where-Object { $_.Value -notmatch '"\$\{CLAUDE_SKILL_DIR\}/scripts/request-ax\.ps1"' }).Count -eq 0)
+Assert 'every request-ax.ps1 call runs in PowerShell 7' ($axCalls.Count -gt 0 -and @($axCalls | Where-Object { $_.Value -notmatch '^pwsh\b' }).Count -eq 0)
+# env-<조직> reads as env-KiwoomAX; the real credential ids are env-ax and env-am.
+$composeText = [IO.File]::ReadAllText((Join-Path $SkillDir 'compose-and-env.md'))
+Assert 'the org credential is named env-ax or env-am where it is introduced' (($text -match 'env-ax') -and ($composeText -match 'env-ax'))
 Assert 'reference files carry no CLAUDE_SKILL_DIR (not substituted there)' (-not ($refText -match 'CLAUDE_SKILL_DIR'))
 # The control tower's python3 guard denies python3 on PCs where it is the Store
 # redirector, so a python3 line in any skill file would be refused there.
@@ -86,6 +91,10 @@ $axDoc = if (Test-Path $axDocPath) { [IO.File]::ReadAllText($axDocPath) } else {
 $examples = @([regex]::Matches($axDoc, '(?s)```json\r?\n(.*?)```') | ForEach-Object { $_.Groups[1].Value })
 $badExamples = @($examples | Where-Object { try { $null = $_ | ConvertFrom-Json; $false } catch { $true } })
 Assert 'ax-requests.md example bodies parse as JSON' ($examples.Count -gt 0 -and $badExamples.Count -eq 0)
+# The port is registered with the container_name the compose file actually carries, before push.
+# Registering at step 5 left days between picking and registering, and two people could pick the same port.
+Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
+Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($text -match '배포를 그만두면 이 줄이\s+등록부에 남')
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.
@@ -102,6 +111,11 @@ try {
     $cpCode = $LASTEXITCODE
 } finally { Remove-Item Env:PYTHONIOENCODING }
 Assert 'pick_port.py prints on a cp949 console' ($cpCode -eq 0)
+
+# docker-compose.jenkins.yml is written only when there are bind mounts, so most new services have none.
+$lvPath = Join-Path $SkillDir 'local-verify.md'
+$lv = if (Test-Path $lvPath) { [IO.File]::ReadAllText($lvPath) } else { '' }
+Assert 'local-verify adds the Jenkins override only when it exists' ($lv -match 'Test-Path docker-compose\.jenkins\.yml')
 
 Write-Host '--- request-ax.ps1 ---'
 # The script mails AX-team requests through the shared renderer and sender. The
@@ -325,6 +339,8 @@ Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECON
 # Publishing an expiring document would delete the manifest; the SDK ttl argument must stay out.
 Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match '(?m)^\s*(def|class)\s+[^\x00-\x7F]'))
 Assert 'fetch_manifest.py asks for no document TTL' (-not ($fetText -match '(?m)^\s*[^#\n]*\bttl\s*='))
+# The stale-copy warning carries an em dash that cp949 lacks; without these two lines the fallback dies while printing it.
+Assert 'fetch_manifest.py pins its output to UTF-8' ($fetText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $fetText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
 
 Write-Host '--- searching-document ---'
 # A reference skill: one SKILL.md and no scripts. The user's own Claude calls vdb-handler with it.
@@ -343,14 +359,11 @@ Assert 'searching-document turns the reranker off' ($sdText -match 'use_rerank\s
 Assert 'searching-document serialises the body deep enough' ($sdText -match 'ConvertTo-Json -Depth [3-9]')
 # Read-only: it names the search and the file GET, never a collection write or a file upload.
 Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upsert|/delete|/upload|set_payload|delete_points'))
+# file_path is spliced into the URL; a space or # would cut the request short.
+Assert 'searching-document escapes the file path' ($sdText -match 'EscapeDataString')
+Assert 'searching-document does not overwrite an existing PDF' ($sdText -match 'Test-Path -LiteralPath \$dest')
 
-Write-Host '--- claude plugin validate ---'
-Push-Location $Repo
-try {
-    $null = & claude plugin validate ./ 2>&1 | Out-String
-    $code = $LASTEXITCODE
-} finally { Pop-Location }
-Assert 'claude plugin validate exits 0 (warnings allowed)' ($code -eq 0)
+# 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)

@@ -137,8 +137,11 @@ $byKeyword = $keywords | ForEach-Object -ThrottleLimit 5 -Parallel {
 $dir = 'C:\Users\me\Downloads\fnguide'          # 사용자가 정한 폴더
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $p = $res.results[0].payload                    # 사용자가 고른 리포트
-Invoke-WebRequest -Uri "http://192.7.9.45:8600/v1/files/$($p.file_path)" `
-    -OutFile (Join-Path $dir $p.source_pdf) -TimeoutSec 120
+$dest = Join-Path $dir $p.source_pdf
+if (Test-Path -LiteralPath $dest) { throw "같은 이름의 파일이 이미 있습니다: $dest — 덮어쓸지 사용자에게 묻는다" }
+# 경로의 / 는 그대로 두고 조각마다 인코딩한다. 공백이나 # 이 섞이면 요청이 잘린다.
+$enc = ($p.file_path -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
+Invoke-WebRequest -Uri "http://192.7.9.45:8600/v1/files/$enc" -OutFile $dest -TimeoutSec 120
 ```
 
 - **여러 건은 한 건씩 차례로 받는다.** 응답은 파일 하나다.

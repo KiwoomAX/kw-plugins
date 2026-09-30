@@ -90,6 +90,10 @@ def _selfcheck() -> None:
 
 
 def main() -> None:
+    # 출력을 UTF-8 로 고정한다. 도구가 파이프로 받으면 한국어 윈도우의 기본은 cp949 이고,
+    # 낡은 사본 경고에 든 — 가 거기 없어 경고를 출력하다가 멈춘다.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     if "--selfcheck" in sys.argv:
         _selfcheck()
         print("selfcheck ok")

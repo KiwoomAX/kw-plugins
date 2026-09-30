@@ -1,0 +1,16 @@
+{"lens":"lens-fit","target":"docs/superpowers/plans/2026-09-30-control-tower-followups.md","doc_type":"설계 (spec·plan)","issues":[
+{"where":"Review Focus 29행 ↔ Task 3 Step 1","type":"constraint","claim":"맞춤이 옛 python3 줄을 지우는지 확인하는 검사가 없다","principle":"writing-plans Review Focus 규칙"},
+{"where":"Review Focus 26행 ↔ Task 8·11","type":"constraint","claim":"상한에 닿아 끊긴 실행에서 잠금이 남지 않는지 확인하는 검사가 없다(-Budget 3 -Bin $hang 시나리오의 LockLeft)","principle":"writing-plans Review Focus 규칙"},
+{"where":"Task 5 Step 4 (559·561행)","type":"format","claim":"Add-Note 로 바꿀 곳 전부와 상태 파일 읽기 세 곳의 대체 코드를 보이지 않는다","principle":"writing-plans No Placeholders"},
+{"where":"Global Constraints 21행","type":"constraint","claim":"검사를 test_control_tower.ps1 하나로 실행하라고 해 README 의 '검사 넷 다 돌린다'와 상충","principle":"README 「손으로 고칠 때 지킬 것」"},
+{"where":"Task 3·4·5·10 의 설계 문서 수정","type":"constraint","claim":"배포된 설계 문서(2026-09-06-control-tower-design.md)의 문장을 지우고 바꾼다. 설계 타입은 보존하고 superseded 표시. 다만 옛 spec 을 검사가 살아 있는 계약으로 묶고 있어 사용자 결정 필요","principle":"문서 타입과 수명 — 설계 행, DOC-TYPE"},
+{"where":"17·20·25–29행 ↔ Task 제목","type":"style","claim":"'작업 N' 과 'Task N' 혼용","principle":"TERM-ONE"},
+{"where":"7행 Architecture","type":"style","claim":"'지문'을 처음 나올 때 풀지 않음","principle":"TERM-EXPLAIN"},
+{"where":"43행","type":"style","claim":"금지 표현 '막는'","principle":"korean-banned-words"},
+{"where":"56행","type":"style","claim":"금지 표현 '걸리는지'","principle":"korean-banned-words"},
+{"where":"28·33·599·960·1064행","type":"style","claim":"금지 표현 '부르'","principle":"korean-banned-words"},
+{"where":"468·474·495·580·814·855·941·1094·1108·1109·1112·1262·1272·1426행","type":"style","claim":"금지 표현 '더하'","principle":"korean-banned-words"},
+{"where":"814·1399행","type":"style","claim":"금지 표현 '자리'(앞자리·각 자리)","principle":"korean-banned-words; SPECIFIC-NAME"},
+{"where":"5·58·102·113행","type":"style","claim":"금지 표현 '돌고'·'돌리'","principle":"korean-banned-words"}],
+"principles_applied":["writing-plans Header/Task Structure/No Placeholders","DOC-TYPE","CHECKABLE","REVERSIBLE","TERM-ONE","TERM-EXPLAIN","SPECIFIC-NAME","WRITTEN-ONLY"],
+"notes":"코드 블록 안의 문안(설계 문서·README 삽입 문안의 '돌게'·'돌고'·'부르')은 올리지 않았으나 삽입되면 그 문서의 금지 표현이 되므로 호출자 확인 필요. BOM·형식 오염 없음. 설계 문서 수정 발견은 사용자 결정 필요."}

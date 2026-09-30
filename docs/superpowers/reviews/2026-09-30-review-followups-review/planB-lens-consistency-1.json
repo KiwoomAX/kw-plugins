@@ -1,0 +1,11 @@
+{"lens":"lens-consistency","target":"docs/superpowers/plans/2026-09-30-plugin-fixes.md","issues":[
+{"where":"Task 6 머리 문단 ↔ spec 배포 스킬","type":"contradiction","claim":"spec 은 2단계 고른 직후 등록, 계획은 3단계 이름 확정 직후. spec 을 고치는 단계가 없고, 3단계의 담당자 답 대기는 여전히 등록 앞에 있어 '기다리는 구간이 모두 등록 뒤로 간다'는 사실과 다름"},
+{"where":"Task 6 Step 4","type":"gap","claim":"3단계 등록 규칙을 고정하는 검사가 없다"},
+{"where":"Task 4 Step 1 cp949 검사","type":"gap","claim":"--selfcheck 는 ASCII 만 출력해 수정 전에도 통과한다. 경고 출력 경로는 실행 검사가 없다"},
+{"where":"Task 3 Step 1 자격증명 검사","type":"gap","claim":"$refText 쪽은 jenkinsfile.md 로 이미 참이라 compose-and-env.md 61행 수정을 확인하지 못한다"},
+{"where":"Task 2 설치 주체","type":"gap","claim":"docx 본문 17행 '설치기가 깔아 주는 것은 python-docx 와 markitdown' 이 그대로 남아 새 설명과 상충"},
+{"where":"Review Focus 셋째 ↔ Task 2 검사","type":"gap","claim":"엑셀·파워포인트 실행 중 확인은 검사로 고정되지 않는다(워드만)"},
+{"where":"Task 2 Step 5 docx 표 .doc 행","type":"contradiction","claim":"'워드 COM 으로 한다'고 하면서 hwp 절로 보내는데 그 절은 수동 저장만 안내한다. pptx 의 .ppt 도 같음"},
+{"where":"Task 1 Step 5, Task 2 Step 6, Task 6 Step 4 줄 번호","type":"drift","claim":"앞 삽입으로 밀린 줄 번호를 수정 전 번호로 적음(찾을 문자열은 함께 있음)"}],
+"principles_applied":["NO-ASSUME","STATE-ASSUME","CHECKABLE","REVERSIBLE","FOCUSED","TERM-ONE","SPECIFIC-NAME"],
+"notes":"B 배정 12건과 spec 결정 2건은 모두 Task 1–7 로 이어짐. A·B 사이 중복 없음, 줄 번호 맞물림 문제 없음. 18건 목록이 spec 에 기록되지 않음. local-verify 의 config(덮어쓰기 병합)와 up(기본 파일만) 차이는 의도 판정 불가. common 114행 수정도 검사 없음."}

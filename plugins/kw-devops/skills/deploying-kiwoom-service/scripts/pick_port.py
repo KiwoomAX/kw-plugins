@@ -143,12 +143,19 @@ def 등록(포트: int, 컨테이너: str, 종류: str,
         raise SystemExit(f"service_type 이 틀렸다: {종류}\n  쓸 수 있는 것: {' · '.join(구분)}")
     if 소속 is not None and 소속 not in 조직:
         raise SystemExit(f"org 가 틀렸다: {소속}\n  쓸 수 있는 것: {' · '.join(조직)}")
-    _부르기("/v1/dml/insert", {
-        "sql": "insert into kw_deploy.port (port, container, service_type, org, repo) "
-               "values (%(port)s, %(container)s, %(service_type)s, %(org)s, %(repo)s)",
-        "params": {"port": 포트, "container": 컨테이너, "service_type": 종류,
-                   "org": 소속, "repo": 저장소},
-    })
+    try:
+        _부르기("/v1/dml/insert", {
+            "sql": "insert into kw_deploy.port (port, container, service_type, org, repo) "
+                   "values (%(port)s, %(container)s, %(service_type)s, %(org)s, %(repo)s)",
+            "params": {"port": 포트, "container": 컨테이너, "service_type": 종류,
+                       "org": 소속, "repo": 저장소},
+        })
+    except SystemExit:
+        # 위 조회와 이 삽입 사이에 남이 같은 포트를 넣으면 기본키 충돌로 거부된다. 다시 조회해 그것인지 가린다.
+        나중 = 주인(등록조회(), 포트)
+        if 나중 is not None and 나중["container"].lower() != 컨테이너.lower():
+            raise SystemExit(f"남이 먼저 잡았다: {포트} {나중['container']}\n  2단계로 돌아가 다시 센다.")
+        raise
     붙임 = " ".join(x for x in (소속, 저장소) if x)
     print(f"등록했다: {포트} {컨테이너} ({종류}{' · ' + 붙임 if 붙임 else ''})")
 
@@ -245,9 +252,15 @@ def 등록부검사() -> None:
           {"port": 9002, "container": "kw-b", "service_type": "dashboard", "org": "KiwoomAX", "repo": ""},
           {"port": 9003, "container": "kw-c", "service_type": "dashboard", "org": "KiwoomAX", "repo": "c"}]
     바뀐줄 = {"수": 1}
+    경합 = {"켬": False}
 
     def 가짜(길: str, 몸: dict) -> dict:
         기록.append((길, 몸))
+        if 길 == "/v1/dml/insert" and 경합["켬"]:
+            # 조회와 삽입 사이에 남이 같은 포트를 넣은 것을 흉내 낸다. 핸들러는 기본키 충돌로 거부한다.
+            표.append({"port": 몸["params"]["port"], "container": "kw-rival", "service_type": "dashboard",
+                      "org": "KiwoomAX", "repo": "r"})
+            raise SystemExit("핸들러가 거부했다 (HTTP 409)\n  duplicate key")
         if 길 == "/v1/query/all-dict":
             이름 = (몸.get("params") or {}).get("이름")
             if 이름 is None:
@@ -287,6 +300,9 @@ def 등록부검사() -> None:
             "port": 9010, "container": "kw-n", "service_type": "dashboard", "org": "KiwoomAX", "repo": "n"}, 몸
         assert "%(port)s" in 몸["sql"] and "9010" not in 몸["sql"], "값은 바인드로만 넘긴다"
         assert [r["port"] for r in 찾아모으기(["c", "kw-c", "kw-a"])] == [9001, 9003], "같은 줄은 한 번만 모은다"
+        경합["켬"] = True
+        assert "남이 먼저" in 멈춤(lambda: 등록(9020, "kw-me", "dashboard", "KiwoomAX", "me")), "삽입이 경합으로 거부되면 남이 먼저 잡은 것으로 알린다"
+        경합["켬"] = False
     finally:
         _부르기 = 진짜
 
