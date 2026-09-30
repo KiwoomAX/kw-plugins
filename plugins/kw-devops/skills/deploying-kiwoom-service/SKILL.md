@@ -83,7 +83,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<co
 |---|---|---|
 | Dockerfile 과 컨테이너 내부 포트 | `EXPOSE`·`CMD` | compose `ports` 오른쪽 값 |
 | 헬스 엔드포인트 | 앱 라우터(`/`·`/health`) | `healthcheck.test` |
-| 소속 조직 | GitHub remote | 등록부 `org` 칸, `envCredIds` 의 `env-<조직>` |
+| 소속 조직 | GitHub remote | 등록부 `org` 칸, `envCredIds` 의 조직 자격증명(KiwoomAX 는 `env-ax`, KiwoomAM 은 `env-am`) |
 | 런타임에 읽는 호스트 파일 | 코드가 여는 절대경로 | Jenkins 덮어쓰기 |
 | `COPY` 하는 경로가 `.gitignore` 에 있는가 | `.gitignore` 와 `COPY` 대조 | 있으면 Jenkins 빌드가 거기서 죽는다. 3단계에서 멀티스테이지로 바꾼다 |
 | 바인드 마운트가 각각 무엇인가 | `volumes:` 한 줄씩 | 설정·코드·자료마다 처리가 다르다 |
@@ -181,7 +181,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 | 스케줄 등록 요청 | 6단계에서 돌리겠다고 한 스케줄마다 한 통 |
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<값이 든 파일>" -EnvKeys "<키1>,<키2>"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<값이 든 파일>" -EnvKeys "<키1>,<키2>"
 ```
 
 키 이름만 넘기면 스크립트가 값이 든 파일에서 그 키만 뽑아 첨부하고 화면에는 키 이름만 찍는다. 스케줄 등록 요청은

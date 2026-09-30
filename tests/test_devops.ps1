@@ -68,8 +68,13 @@ $allText = $text + "`n" + $refText
 Assert 'no skill file points at a personal skills folder' (-not ($allText -match '~/\.claude'))
 $calls = [regex]::Matches($text, '(?m)^python\b.*pick_port\.py.*$')
 Assert 'every pick_port.py call goes through CLAUDE_SKILL_DIR' ($calls.Count -gt 0 -and @($calls | Where-Object { $_.Value -notmatch '\$\{CLAUDE_SKILL_DIR\}/scripts/pick_port\.py' }).Count -eq 0)
-$axCalls = [regex]::Matches($text, '(?m)^powershell\b.*request-ax\.ps1.*$')
+# request-ax.ps1 has no BOM on purpose, so Windows PowerShell 5.1 would read its Korean as cp949.
+$axCalls = [regex]::Matches($text, '(?m)^(pwsh|powershell)\b.*request-ax\.ps1.*$')
 Assert 'every request-ax.ps1 call goes through CLAUDE_SKILL_DIR' ($axCalls.Count -gt 0 -and @($axCalls | Where-Object { $_.Value -notmatch '"\$\{CLAUDE_SKILL_DIR\}/scripts/request-ax\.ps1"' }).Count -eq 0)
+Assert 'every request-ax.ps1 call runs in PowerShell 7' ($axCalls.Count -gt 0 -and @($axCalls | Where-Object { $_.Value -notmatch '^pwsh\b' }).Count -eq 0)
+# env-<조직> reads as env-KiwoomAX; the real credential ids are env-ax and env-am.
+$composeText = [IO.File]::ReadAllText((Join-Path $SkillDir 'compose-and-env.md'))
+Assert 'the org credential is named env-ax or env-am where it is introduced' (($text -match 'env-ax') -and ($composeText -match 'env-ax'))
 Assert 'reference files carry no CLAUDE_SKILL_DIR (not substituted there)' (-not ($refText -match 'CLAUDE_SKILL_DIR'))
 # The control tower's python3 guard denies python3 on PCs where it is the Store
 # redirector, so a python3 line in any skill file would be refused there.
