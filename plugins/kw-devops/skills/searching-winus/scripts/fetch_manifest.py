@@ -3,7 +3,9 @@
 # dependencies = [
 #   # 커밋을 고정한다. 고정하지 않으면 uv 가 돌 때마다 GitHub 에 HEAD 를 물으러 가고, 사내망만
 #   # 열려 있고 인터넷이 막힌 PC 에서는 스크립트가 시작조차 못 해 아래 사본 대비책이 무의미해진다.
-#   # SDK 를 올릴 때 이 커밋을 손으로 바꾼다.
+#   # SDK 를 올릴 때 이 커밋을 손으로 바꾼다. SKILL.md 는 사내 PC 의 V3 가 uv 의 스크립트 환경
+#   # 런처를 차단해 이 블록 대신 `uv run --with` 로 같은 SDK 를 주므로, 거기 적힌 커밋도 함께 바꾼다.
+#   # 두 값이 같은지는 tests/test_devops.ps1 이 검사한다.
 #   "kiwoom-mdb-manager @ git+https://github.com/KiwoomAM/Kiwoom-Manager.git@807890e686106719a0aa2f0aa054d6573dc16d65#subdirectory=mdb-manager",
 # ]
 # ///
@@ -65,7 +67,7 @@ def manifest(fetch_doc=fetch) -> tuple[dict, str | None]:
         doc = fetch_doc()
     except ImportError as e:
         # SDK 가 안 깔린 것이라 사본으로 넘기면 원인이 가려진다. 이것만 따로 세운다.
-        raise SystemExit(f"kiwoom-mdb-manager 를 불러오지 못했다 — uv run 으로 돌리는지 확인한다. {e}")
+        raise SystemExit(f"kiwoom-mdb-manager 를 불러오지 못했다 — SKILL.md 의 명령대로 uv run --with 로 SDK 를 함께 주는지 확인한다. {e}")
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
         if age is None:

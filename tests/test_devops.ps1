@@ -318,6 +318,14 @@ Assert 'the skill points at the manifest sections by their current names' (-not 
 # The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
 $fetCalls = [regex]::Matches($dbText, '(?m)^uv run\b.*fetch_manifest\.py.*$')
 Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
+# AhnLab V3 on company PCs blocks the unsigned launcher uv builds for a script that declares its own
+# dependencies; `uv run --with` builds on the standard python launcher and passes. So SKILL.md hands
+# the SDK over with --with, and the pin now lives in two places that must stay in step.
+Assert 'SKILL.md runs fetch_manifest.py through uv run --with' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch '^uv run --no-project --with ' }).Count -eq 0)
+$pinRe      = 'Kiwoom-Manager\.git@([0-9a-f]{40})#subdirectory=mdb-manager'
+$skillPins  = @([regex]::Matches($dbText, $pinRe) | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$scriptPin  = ([regex]::Match($fetText, $pinRe)).Groups[1].Value
+Assert 'SKILL.md pins the same mdb-manager commit as fetch_manifest.py' ($skillPins.Count -eq 1 -and $scriptPin -ne '' -and $skillPins[0] -eq $scriptPin)
 Assert 'SKILL.md tells the reader to fetch the manifest before writing code' ($dbText -match 'fetch_manifest\.py')
 # The cache must not land in the plugin folder (replaced on update) or in the user's repo.
 Assert 'fetch_manifest.py caches under the Claude config dir' ($fetText -match 'CLAUDE_CONFIG_DIR' -and $fetText -match '"cache"')

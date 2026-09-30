@@ -14,11 +14,13 @@ description: 사내 운용 데이터를 조회하거나 조회 코드를 쓸 때
 요청할 수 있는 쿼리 목록이 매니페스트다. 매니페스트는 목차와 화면별 상세 두 층이다. 목차는 사내 DB 화면 단위로, 화면마다 화면 설명과 그 화면 쿼리의 id·이름·한 줄 요약만 싣는다. 화면별 상세는 그 화면 쿼리의 사용법으로, 쿼리마다 설명과 인자 표(뜻·보내는 법·예시·값을 얻는 곳)와 결과 항목 표(뜻·단위·비어 올 수 있음)를 싣는다. 코드를 쓰기 전에 목차를 받아 화면을 고르고, 고른 화면의 상세를 받아 읽는다.
 
 ```
-uv run "${CLAUDE_SKILL_DIR}/scripts/fetch_manifest.py"
-uv run "${CLAUDE_SKILL_DIR}/scripts/fetch_manifest.py" --screen <화면번호>
+uv run --no-project --with "kiwoom-mdb-manager @ git+https://github.com/KiwoomAM/Kiwoom-Manager.git@807890e686106719a0aa2f0aa054d6573dc16d65#subdirectory=mdb-manager" python "${CLAUDE_SKILL_DIR}/scripts/fetch_manifest.py"
+uv run --no-project --with "kiwoom-mdb-manager @ git+https://github.com/KiwoomAM/Kiwoom-Manager.git@807890e686106719a0aa2f0aa054d6573dc16d65#subdirectory=mdb-manager" python "${CLAUDE_SKILL_DIR}/scripts/fetch_manifest.py" --screen <화면번호>
 ```
 
 첫째 명령은 목차를, 둘째 명령은 적은 화면의 상세를 낸다. 화면번호는 목차의 화면 제목에 적힌 번호를 그대로 쓴다. 한 요청에 쓸 쿼리가 여러 화면에 걸쳐 있다는 것을 이미 알 때만 번호를 여럿 적는다.
+
+명령은 줄이지 말고 그대로 쓴다. `uv run <스크립트>`로 줄이면 uv가 서명 없는 자체 런처로 환경을 만들고, 사내 PC의 V3가 그 런처를 차단해 명령이 응답 없이 멈추거나 `os error 5`로 실패한다.
 
 - **매니페스트는 이 스크립트의 출력으로만 읽는다.** 스크립트가 남기는 사본 파일을 직접 열면 필요 없는 화면까지 모두 읽게 된다.
 - **후보 화면은 가능성이 높은 순서로 하나씩, 최대 세 개까지 확인한다.** 요청한 데이터가 목차에 드러나지 않으면(열 이름 등) 가장 유력한 화면 하나를 받아 결과 항목 표를 보고, 없을 때만 다음 후보를 받는다. 목차만 보고 맞는 쿼리가 없다고 결론 내지 않는다.
@@ -82,6 +84,7 @@ GET /winus/query/7?%EC%98%A4%EB%8A%98=20260915        # 키 '오늘'을 퍼센�
 사용자가 코드가 아니라 데이터 자체를 물으면(예: 어제 기준 당사 ETF 순자산 상위 5개) 쿼리를 고르고 잇는 방법은 아래 작업 순서 1·2단계와 같다. 조회는 짧은 파이썬 스크립트로 한다.
 
 - **아래 코드 예시의 `fetch`를 쓴 스크립트 파일을 만들어 `uv run --with httpx <스크립트 파일>`로 실행한다.** 한글 키 인코딩과 응답 해석을 `httpx`가 맡는다.
+- **스크립트 파일에 `# /// script` 의존성 블록을 넣지 않는다.** 이 블록이 있으면 uv가 서명 없는 자체 런처로 환경을 만들고, 사내 PC의 V3가 그 런처를 차단한다. 의존성은 `--with`로만 준다.
 - **스크립트 첫머리에서 `sys.stdout.reconfigure(encoding="utf-8")`를 호출한다.** Windows에서 출력이 파이프로 나가면 파이썬이 CP949로 쓰기 때문에 `−`·`—` 같은 문자에서 `UnicodeEncodeError`로 멈춘다.
 - **PowerShell의 `Invoke-RestMethod`·`Invoke-WebRequest`와 `curl` 별칭을 쓰지 않는다.** DBGateway 응답 헤더에 문자 인코딩이 적혀 있지 않아 PowerShell 5가 한글 열 이름과 값을 깨뜨린다. PowerShell 5의 `curl`은 `Invoke-WebRequest`를 가리킨다.
 - **답에는 기준일과 단위를 함께 적는다.** 단위는 `결과 항목` 표를 그대로 따른다.
