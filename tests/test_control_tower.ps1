@@ -863,6 +863,14 @@ Check 'README 가 코드와 같은 수로 센다' {
     $words = @{ '넷'=4; '다섯'=5; '여섯'=6; '일곱'=7; '여덟'=8; '아홉'=9; '열'=10 }
     $m.Success -and $words[$m.Groups[1].Value] -eq $codeSteps.Count
 }
+# 설계 문서는 살아 있는 설계다. 코드가 바뀌었는데 옛 문장이 남으면 다음 사람이 옛 규칙을 따른다.
+Check '설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다' {
+    ($spec -notmatch '단계 여덟') -and ($spec -notmatch '사내 것은 필수라 없으면 알리고') -and
+    ($spec -notmatch '세션 시작 훅에는 매처가 없다') -and ($spec -notmatch '없다\. 도구 매처가 붙는 훅이 아니다') -and
+    ($spec -notmatch '\| 설정한다 \| 물어서 설정한다 \|') -and
+    ($spec -notmatch '파이썬에게 기본 인코딩을 물어 `utf-8`이 아닐 때만') -and
+    ($spec -notmatch '"required": \[ "kw-doc-formats@kiwoom-ax" \]')
+}
 # 알림이 호출하는 맞춤 스크립트가 이 플러그인 안에 있어야 한다. 밖을 가리키면 플러그인을
 # 옮기거나 지운 PC 에서 알림만 뜨고 아무것도 안 고쳐진다.
 Check '알림이 자기 플러그인 안의 맞춤을 호출한다' {
