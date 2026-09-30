@@ -43,7 +43,7 @@ print(ws["B10"].value)                      # None 이면 계산된 적이 없�
 
 ### COM 을 꼭 써야 한다면
 
-앞 절대로 해도 수식 값을 얻지 못해 COM 을 쓰게 되면, 공식 `document-skills:xlsx` 의 `recalc.py` 대신
+앞 절의 방법으로도 수식 값을 얻지 못해 COM 을 쓰게 되면, 공식 `document-skills:xlsx` 의 `recalc.py` 대신
 아래 예제를 쓴다. `recalc.py` 는 LibreOffice 로 계산하고 오류 값을 세고 결과를 파일에 다시 쓰는데,
 **이 PC 에는 LibreOffice 가 없어 실패한다.** 계산은 `CalculateFullRebuild()`, 오류 값은 수식 셀 중
 오류인 셀만 고르는 `SpecialCells(-4123, 16)` 으로 본다. 표시 문자열로 오류를 판정하지 않는다. 열이

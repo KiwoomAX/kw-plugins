@@ -334,8 +334,11 @@ if ($missing.Count -gt 0) {
 $syncLock = Join-Path $cfg 'kw-control-tower.sync.lock'
 if (-not $WhatIfOnly) {
     if (Test-Path -LiteralPath $syncLock) {
-        $lockAge = (Get-Date) - (Get-Item -LiteralPath $syncLock).CreationTime
-        if ($lockAge.TotalMinutes -ge 10) { Remove-Item -LiteralPath $syncLock -Recurse -Force -ErrorAction SilentlyContinue }
+        # 확인 직후 다른 창이 잠금을 치웠으면 Get-Item 이 오류를 내고 훅이 그 오류를 옮긴다. 조용히 넘긴다.
+        $lockItem = Get-Item -LiteralPath $syncLock -ErrorAction SilentlyContinue
+        if ($null -ne $lockItem -and ((Get-Date) - $lockItem.CreationTime).TotalMinutes -ge 10) {
+            Remove-Item -LiteralPath $syncLock -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     try { New-Item -ItemType Directory -Path $syncLock -ErrorAction Stop | Out-Null }
     catch { Write-Host 'kw-control-tower: 다른 창에서 맞춤이 실행 중이라 이번에는 넘깁니다.'; exit 0 }
@@ -989,11 +992,11 @@ if ($script:Restart -or ($Brief -and $script:Did.Count -gt 0)) {
     else { Write-Host '  클로드 코드는 켤 때 플러그인을 읽으므로 방금 바뀐 것은 이 세션에 적용되지 않습니다.' }
 }
 
-# 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
-# 맞췄다. 커밋은 옛 일곱 자리 → 새 일곱 자리로 적고 직접 실행할 명령을 붙인다.
 if ($script:Deferred.Count -gt 0) {
     Write-Host "kw-control-tower: 시간 상한에 닿아 단계 $(($script:Deferred | Sort-Object -Unique) -join ', ') 는 다음 세션으로 미뤘습니다." -ForegroundColor Yellow
 }
+# 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
+# 맞췄다. 커밋은 옛 일곱 자리 → 새 일곱 자리로 적고 직접 실행할 명령을 붙인다.
 if ($script:UpdateFailed.Count -gt 0) {
     Write-Host ''
     Write-Host 'kw-control-tower: 플러그인 버전 알림' -ForegroundColor Yellow
