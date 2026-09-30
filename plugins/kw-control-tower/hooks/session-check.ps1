@@ -87,6 +87,19 @@ function Get-AxBlock([string]$claudeMd) {
     return $lines -join "`n"
 }
 
+function Read-KwState([string]$Path) {
+    # 상태 파일을 한 번만 읽는다. 질문마다 따로 열던 때에는 같은 파일을 세 번 열었다.
+    $s = @{}
+    $script:Budget.Files++
+    if (Test-Path -LiteralPath $Path) {
+        foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+            $i = $line.IndexOf('=')
+            if ($i -gt 0) { $s[$line.Substring(0, $i)] = $line.Substring($i + 1) }
+        }
+    }
+    return $s
+}
+
 function Get-MarketplaceHead {
     # 배포처 사본이 받아 둔 버전을 읽는다. 네트워크에 안 나간다. 디스크에 이미 있다.
     # git 사본은 HEAD 가 가리키는 ref 파일에 커밋이 있고, git 이 아닌 배포처는
@@ -156,6 +169,11 @@ function Get-RemoteHead {
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $notes = New-Object System.Collections.ArrayList   # 맞춤이 고칠 수 있는 것
+$noteSteps = New-Object System.Collections.ArrayList   # $notes 와 같은 순서로 맞춤 단계 번호
+function Add-Note([int[]]$Step, [string]$Text) {
+    [void]$notes.Add($Text)
+    [void]$noteSteps.Add($Step)
+}
 $asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
 $stuckSay = New-Object System.Collections.ArrayList   # 같은 원격 커밋으로 실패해 다시 안 한 것
 $remoteOf = @{}          # 배포처 이름 → 원격 커밋. 맞춤에 넘긴다
@@ -184,6 +202,7 @@ try {
     $settings  = Read-Json (Join-Path $cfg     'settings.json')
     $installed = Read-Json (Join-Path $plugins 'installed_plugins.json')
     $known     = Read-Json (Join-Path $plugins 'known_marketplaces.json')
+    $kwState = Read-KwState (Join-Path $cfg 'kw-control-tower.state')
 
     $enabled     = Get-Prop $settings  'enabledPlugins'
     $installedOf = Get-Prop $installed 'plugins'
@@ -210,10 +229,10 @@ try {
     }
 
     if ($missing.Count -gt 0) {
-        [void]$notes.Add("필수 플러그인이 안 깔려 있습니다: $($missing -join ', ')")
+        Add-Note 2 "필수 플러그인이 안 깔려 있습니다: $($missing -join ', ')"
     }
     if ($disabled.Count -gt 0) {
-        [void]$notes.Add("필수 플러그인이 꺼져 있습니다: $($disabled -join ', ')")
+        Add-Note 2 "필수 플러그인이 꺼져 있습니다: $($disabled -join ', ')"
     }
 
     # --- 질문 3. 정리하기로 한 플러그인이 남았나 ---------------------------
@@ -224,7 +243,7 @@ try {
         if ((Get-Prop $installedOf $id) -or ($null -ne (Get-Prop $enabled $id))) { [void]$staleP.Add($id) }
     }
     if ($staleP.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 플러그인이 남아 있습니다: $($staleP -join ', ')")
+        Add-Note 3 "더 안 쓰는 플러그인이 남아 있습니다: $($staleP -join ', ')"
     }
 
     # --- 질문 4. 정리하기로 한 배포처가 남았나 -----------------------------
@@ -236,7 +255,7 @@ try {
         if ($m.InSettings -or $m.InKnown) { [void]$staleM.Add($name) }
     }
     if ($staleM.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 배포처가 남아 있습니다: $($staleM -join ', ')")
+        Add-Note 3 "더 안 쓰는 배포처가 남아 있습니다: $($staleM -join ', ')"
     }
 
     # --- 질문 5. 우리 배포처의 자동 갱신이 두 곳 다 켜져 있나 ---------------
@@ -252,26 +271,19 @@ try {
         if (($a -ne $true) -or ($b -ne $true)) { [void]$offAuto.Add($name) }
     }
     if ($offAuto.Count -gt 0) {
-        [void]$notes.Add("자동 갱신이 꺼져 있습니다: $($offAuto -join ', ')")
+        Add-Note 1 "자동 갱신이 꺼져 있습니다: $($offAuto -join ', ')"
     }
 
     # --- 질문 6. 파이썬 라이브러리 목록이 바뀌었나 -------------------------
     # 예산 안에서 이 PC 를 직접 못 읽는 것이 이 하나뿐이라 해시로 측정한다.
     # 재는 것은 파일이다. JSON 의 하위 트리를 해시하면 프로세스마다 값이 달라진다.
-    $stateFile = Join-Path $cfg 'kw-control-tower.state'
     $reqFile   = Join-Path $root 'requirements.txt'
     $script:Budget.Files++
     if (Test-Path -LiteralPath $reqFile) {
         $now = Get-CheapHash $reqFile
-        $was = $null
-        $script:Budget.Files++
-        if (Test-Path -LiteralPath $stateFile) {
-            foreach ($line in (Get-Content -LiteralPath $stateFile -Encoding UTF8)) {
-                if ($line -like 'requirements=*') { $was = $line.Substring(13) }
-            }
-        }
+        $was = $kwState['requirements']
         if ($now -ne $was) {
-            [void]$notes.Add('파이썬 라이브러리 목록이 이 PC에 맞춰진 것과 다릅니다.')
+            Add-Note 4 '파이썬 라이브러리 목록이 이 PC에 맞춰진 것과 다릅니다.'
         }
     }
 
@@ -280,7 +292,7 @@ try {
     $script:Budget.Registry++
     $utf8 = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'User')
     if ($null -eq $utf8) {
-        [void]$notes.Add('PYTHONUTF8 이 설정되어 있지 않습니다. 한글이 깨질 수 있습니다.')
+        Add-Note 5 'PYTHONUTF8 이 설정되어 있지 않습니다. 한글이 깨질 수 있습니다.'
     }
 
     # --- 질문 8. CLAUDE.md 의 사내 문안이 템플릿과 같나 ---------------------
@@ -305,7 +317,7 @@ try {
             }
         }
         if ($stale.Count -gt 0) {
-            [void]$notes.Add("CLAUDE.md 가 싣는 사내 문안 사본이 없거나 배포된 것과 다릅니다: $($stale -join ', ')")
+            Add-Note 6 "CLAUDE.md 가 싣는 사내 문안 사본이 없거나 배포된 것과 다릅니다: $($stale -join ', ')"
         }
     }
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
@@ -316,13 +328,13 @@ try {
         $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }
         $howMany = @([regex]::Matches($now, $re)).Count
         if (-not $found.Success) {
-            [void]$notes.Add('CLAUDE.md 에 사내 문안 블록이 없습니다.')
+            Add-Note 6 'CLAUDE.md 에 사내 문안 블록이 없습니다.'
         } elseif ($howMany -gt 1) {
             # 개수를 따로 세는 것은 위 정규식이 첫 블록만 잡기 때문이다. 개수를 안
             # 보면 같은 블록이 둘인 파일이 "이미 같다" 로 읽혀 조용히 남는다.
-            [void]$notes.Add("CLAUDE.md 에 사내 문안 블록이 $howMany 개 있습니다.")
+            Add-Note 6 "CLAUDE.md 에 사내 문안 블록이 $howMany 개 있습니다."
         } elseif ((& $norm $found.Value) -ne (& $norm $block)) {
-            [void]$notes.Add('CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.')
+            Add-Note 6 'CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.'
         }
     }
 
@@ -334,7 +346,7 @@ try {
         if (Test-Path -LiteralPath (Join-Path (Join-Path $cfg 'skills') $name)) { [void]$staleS.Add($name) }
     }
     if ($staleS.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 스킬 사본이 남아 있습니다: $($staleS -join ', ')")
+        Add-Note 7 "더 안 쓰는 스킬 사본이 남아 있습니다: $($staleS -join ', ')"
     }
 
     # 훅 연결은 파일 이름이 아니라 경로로 구분한다. 이 플러그인이 거는 훅의 파일 이름이
@@ -350,7 +362,7 @@ try {
         }
     }
     if ($staleH.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 훅 연결이 남아 있습니다: $($staleH -join ', ')")
+        Add-Note 7 "더 안 쓰는 훅 연결이 남아 있습니다: $($staleH -join ', ')"
     }
 
     # --- 질문 11. 우리 배포처에서 온 설치본이 사본보다 뒤처졌나 --------------
@@ -371,14 +383,8 @@ try {
     #
     # 맞춤이 지난번에 같은 원격 커밋으로 옮기지 못했으면 다시 호출하지 않는다. 매 세션
     # 일 분씩 같은 실패를 되풀이하게 된다. 원격에 새 커밋이 생기면 다시 시도한다.
-    $stuckOf = @{}
-    $script:Budget.Files++
-    if (Test-Path -LiteralPath $stateFile) {
-        foreach ($line in (Get-Content -LiteralPath $stateFile -Encoding UTF8)) {
-            if ($line -match '^stuck-([^=]+)=(.+)$') { $stuckOf[$Matches[1]] = $Matches[2] }
-        }
-    }
     $behind = New-Object System.Collections.ArrayList
+    $cloneLate = $false
     foreach ($mk in @($manifest.marketplaces)) {
         if ((Get-Prop $mk 'ours') -ne $true) { continue }
         $mkName = Get-Prop $mk 'name'
@@ -399,6 +405,8 @@ try {
         $target = if ($remote) { $remote } else { $head }
         if (-not $target) { continue }
         if ($remote) { $remoteOf[$mkName] = $remote }
+        # 사본이 원격보다 뒤일 때만 받아오기(단계 1)가 필요하다.
+        if ($remote -and $head -and -not $remote.StartsWith($head) -and -not $head.StartsWith($remote)) { $cloneLate = $true }
 
         $late = New-Object System.Collections.ArrayList
         foreach ($pluginId in @($installedOf.PSObject.Properties.Name)) {
@@ -413,7 +421,7 @@ try {
             }
         }
         if ($late.Count -eq 0) { continue }
-        if ($remote -and $stuckOf[$mkName] -eq $remote) {
+        if ($remote -and $kwState["stuck-$mkName"] -eq $remote) {
             [void]$stuckSay.Add('  이미 갱신에 실패해 다시 시도하지 않았습니다. 원격에 새 커밋이 생기면 다시 시도합니다.')
             foreach ($l in $late) { [void]$stuckSay.Add("  - $($l.Id) : $($l.Sha.Substring(0, 7)) → $($remote.Substring(0, 7))") }
             [void]$stuckSay.Add('  지금 옮기려면 아래를 실행해 주십시오.')
@@ -424,26 +432,20 @@ try {
         }
     }
     if ($behind.Count -gt 0) {
-        [void]$notes.Add("설치본이 원격보다 뒤처져 있습니다: $(($behind | Select-Object -Unique) -join ', ')")
+        Add-Note $(if ($cloneLate) { @(1, 2) } else { @(2) }) "설치본이 원격보다 뒤처져 있습니다: $(($behind | Select-Object -Unique) -join ', ')"
     }
 
     # --- 질문 12. 배포처 사본을 오래 받아오지 않았나 ------------------------
     # 사본 자체가 낡았는지는 네트워크에 나가야 확실히 안다. 감지는 안 나가므로 대신
     # 마지막으로 받아온 시각을 본다. 맞춤이 받아올 때마다 그 시각을 적으므로, 저장소에
     # 새 커밋이 없어 사본이 안 움직이는 때에도 이 질문이 되풀이되지 않는다.
-    $script:Budget.Files++
-    $refreshed = $null
-    if (Test-Path -LiteralPath $stateFile) {
-        foreach ($line in (Get-Content -LiteralPath $stateFile -Encoding UTF8)) {
-            if ($line -like 'refreshed=*') { $refreshed = $line.Substring(10) }
-        }
-    }
+    $refreshed = $kwState['refreshed']
     $stale = $true
     if ($refreshed) {
         try { $stale = ([datetime]::Parse($refreshed) -lt (Get-Date).AddDays(-14)) } catch { $stale = $true }
     }
     if ($stale) {
-        [void]$notes.Add('배포처 사본을 열나흘 넘게 받아오지 않았습니다.')
+        Add-Note 1 '배포처 사본을 열나흘 넘게 받아오지 않았습니다.'
     }
 
     # --- 질문 13. 사내 GitHub 로그인이 되어 있나 ---------------------------
@@ -572,7 +574,8 @@ try {
     # 적고, 감지는 다음 세션에 그것을 보고 같은 실패로 맞춤을 다시 호출하지 않는다.
     $env:KWCT_REMOTE_HEAD = (@($remoteOf.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';')
     # -Brief 로 부른다. 맞춤은 진행 출력을 로그 파일에 두고 결과만 낸다.
-    $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief 2>&1
+    $runSteps = @($noteSteps | ForEach-Object { $_ } | Sort-Object -Unique)
+    $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief -Steps ($runSteps -join ',') 2>&1
     $syncLog = Join-Path $cfg 'kw-control-tower.sync.log'
     # 맞춤이 낸 결과를 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
     #

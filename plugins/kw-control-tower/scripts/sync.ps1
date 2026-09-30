@@ -11,7 +11,9 @@ param(
     [switch]$WhatIfOnly,
     # 세션 시작 훅이 켠다. 진행 출력을 화면 대신 로그 파일에 적고, 화면에는 결과만 낸다.
     # 2026-09-29 재현에서 같은 네 플러그인이 여섯 번 되풀이되어 알림이 55줄이 됐다.
-    [switch]$Brief
+    [switch]$Brief,
+    # 세션 시작 훅이 불일치한 단계 번호를 쉼표로 넘긴다. 넘기지 않으면(설치기) 모두 실행한다.
+    [string]$Steps = ''
 )
 
 Set-StrictMode -Off
@@ -32,6 +34,12 @@ $script:Moved    = New-Object System.Collections.ArrayList   # 새 버전으로 
 $script:UpdateFailed = New-Object System.Collections.ArrayList   # 못 옮긴 설치본과 옮기려던 커밋
 $script:Log      = New-Object System.Collections.ArrayList   # -Brief 일 때 화면 대신 모은 진행 출력
 $script:Covered  = New-Object System.Collections.ArrayList   # 실패 가운데 다른 알림이 이미 말한 것
+# 넘겼는데 비어 있으면 실행할 단계가 없다. 넘기지 않은 것과 구분해, 감지가 번호를 빠뜨린 불일치 하나가
+# 모든 단계를 실행하게 만들지 않는다.
+$script:StepsGiven = $PSBoundParameters.ContainsKey('Steps')
+$script:Want = @($Steps.Split(',') | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+$script:Ran = New-Object System.Collections.ArrayList   # 이번 실행에서 실행한 단계
+$script:Current = 0                                      # 지금 실행 중인 단계
 
 # 진행 출력은 모두 여기를 거친다. -Brief 면 모았다가 마무리에서 로그 파일에 쓴다.
 function Show {
@@ -140,6 +148,13 @@ function Remove-RetiredHookEntries {
     }
     return $removed
 }
+function Want([int]$n) {
+    # 넘겨받은 단계만 실행한다. 넘겨받지 않았으면 모두 실행한다.
+    if ($script:StepsGiven -and $script:Want -notcontains $n) { return $false }
+    [void]$script:Ran.Add($n)
+    $script:Current = $n
+    return $true
+}
 function Resolve-Utf8Action([string]$Current) {
     # 비어 있으면 넣는다. 1 이면 할 일이 없고, 0 은 사용자가 끈 것이라 그대로 둔다.
     if ([string]::IsNullOrEmpty($Current)) { return 'set' }
@@ -238,9 +253,7 @@ $script:Refreshed = $false
 # 디스크에 남아 다음 세션이 이어받는다. 마지막에 한 번만 적던 때에는 죽은 실행이
 # 아무것도 안 한 것으로 남아, 같은 반쪽 실행이 매 세션 되풀이됐다.
 #
-# 단계를 건너뛰지는 않는다. 단계는 한 번 하고 마는 이행이 아니라 이 PC 가 목록과
-# 같은지 보는 확인이라, 건너뛰면 사이에 사용자가 지운 것을 못 되돌린다. 멱등이라
-# 다시 돌아도 해가 없고, 이 기록이 막는 것은 알림이 같은 것을 다시 호출하는 일이다.
+# 세션 시작 훅은 불일치한 단계만 넘기고 설치기는 모두 실행한다. 단계는 멱등이라 다시 실행해도 해가 없다.
 function Save-State {
     if ($WhatIfOnly) { return }
     $lines = foreach ($k in $state.Keys) { "$k=$($state[$k])" }
@@ -259,6 +272,7 @@ if (-not $script:ClaudeExe -and -not $WhatIfOnly) {
 
 # ---------------------------------------------------------------- 단계 1
 Show '1. 배포처를 등록하고 최신으로 받아옵니다.'
+if (Want 1) {
 try {
     $settings = Read-Json $settingsPath
     if ($null -eq $settings) { throw "settings.json 을 못 읽었습니다." }
@@ -321,10 +335,12 @@ try {
 # 받아온 시각을 적는다. 알림이 이 값을 보고 오래 안 받아왔는지 판정한다. 저장소에
 # 새 커밋이 없어 사본이 안 움직이는 때에도 이 값은 움직이므로 알림이 되풀이되지 않는다.
 if ($script:Refreshed) { $state['refreshed'] = (Get-Date -Format o) }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 2
 Show '2. 필수 플러그인을 맞춥니다.'
+if (Want 2) {
 try {
     $installed = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
     $settings  = Read-Json $settingsPath
@@ -454,10 +470,12 @@ try {
         }
     }
 } catch { Fail '2' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 3
 Show '3. 더 안 쓰는 플러그인과 배포처를 정리합니다.'
+if (Want 3) {
 try {
     # 플러그인을 먼저 걷고 배포처를 나중에 걷는다. 배포처를 먼저 지우면 그 플러그인을
     # 이름으로 못 호출한다.
@@ -520,10 +538,12 @@ try {
         }
     }
 } catch { Fail '3' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 4
 Show '4. 파이썬 라이브러리를 맞춥니다.'
+if (Want 4) {
 try {
     $req = Join-Path $root 'requirements.txt'
     if (-not (Test-Path -LiteralPath $req)) { throw "라이브러리 목록이 없습니다: $req" }
@@ -547,10 +567,12 @@ try {
         $state['requirements'] = $newHash
     }
 } catch { Fail '4' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 5
 Show '5. PYTHONUTF8 을 봅니다.'
+if (Want 5) {
 try {
     # 감지가 "비어 있다" 로 불일치를 내므로 같은 규칙이어야 알림이 멈춘다.
     $now = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'User')
@@ -563,10 +585,12 @@ try {
         'fail' { Fail '5' "값이 '$now' 입니다. 손으로 1 이나 0 으로 고쳐 주십시오." }
     }
 } catch { Fail '5' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 6
 Show '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
+if (Want 6) {
 
 try {
     $tplDir = Join-Path $root 'templates'
@@ -716,10 +740,12 @@ try {
         }
     }
 } catch { Fail '6' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 7
 Show '7. 더 안 쓰는 스킬 사본과 훅 연결을 정리합니다.'
+if (Want 7) {
 try {
     $skillsRoot = Join-Path $cfg 'skills'
     foreach ($s in @($manifest.retiredSkills)) {
@@ -779,6 +805,7 @@ try {
         }
     }
 } catch { Fail '7' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 마무리

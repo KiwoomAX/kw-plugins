@@ -905,7 +905,7 @@ Check '맞춤이 기록 파일을 지우지 않는다' {
 }
 Check '못 옮긴 원격 커밋을 맞춤이 적고 알림이 읽는다' {
     ($syncCode -match '\$state\["stuck-\$mkName"\]') -and
-    ($hookCode -match "'\^stuck-") -and
+    ($hookCode -match 'stuck-\$mkName') -and
     ($hookCode -match 'KWCT_REMOTE_HEAD') -and ($syncCode -match 'KWCT_REMOTE_HEAD')
 }
 
@@ -1016,7 +1016,7 @@ Check '다른 플러그인이 옮겨진 것을 알리지 않는다' {
 # 2026-09-29 에 사용자가 세션 시작 알림을 줄이라고 정했다. 로그인 안내는 한 줄이고 맞춤을
 # 부르지 않는다. 맞춤을 부르면 불일치 목록과 진행 출력 대신 맞춤의 짧은 결과만 붙인다.
 $syncStub = @'
-param([switch]$Brief, [switch]$WhatIfOnly)
+param([switch]$Brief, [switch]$WhatIfOnly, [string]$Steps, [int]$BudgetSeconds)
 if ($Brief) {
     Write-Host 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
     Write-Host '  - kw-control-tower@kiwoom-ax : c875eb1 → 811b47e'
@@ -1042,6 +1042,21 @@ Check '맞춤을 부르면 짧은 결과만 붙이고 불일치 목록과 진행
         ($o -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
         ($o -notmatch $late) -and ($o -notmatch '불일치') -and ($o -notmatch '배포처를 등록하고')
 }
+# 감지는 무엇이 다른지 안다. 그것을 넘기지 않으면 불일치 하나에 모든 단계가 실행된다.
+$stepsStub = @'
+param([switch]$Brief, [switch]$WhatIfOnly, [string]$Steps, [int]$BudgetSeconds)
+Write-Host 'kw-control-tower: 사내 설정을 맞췄습니다.'
+Write-Host "  - steps=$Steps budget=$BudgetSeconds"
+'@
+Check '감지가 불일치한 단계만 맞춤에 넘긴다' {
+    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -Sync $stepsStub -Leaf 'a1a1a1a1a1a1'
+    $m = [regex]::Match($o, 'steps=([\d,]+)')
+    $got = if ($m.Success) { @($m.Groups[1].Value.Split(',') | ForEach-Object { [int]$_ }) } else { @() }
+    # 가짜 홈은 뒤처짐(1,2)과 필수 미설치(2)와 kw-ax 사본 없음(6)을 늘 갖고, 옛 스킬·훅(7)은 없다.
+    ($got -contains 1) -and ($got -contains 2) -and ($got -contains 6) -and ($got -notcontains 7)
+}
+# 불일치를 적는 곳이 하나라도 Add-Note 를 거치지 않으면 단계 번호가 빠져 그 불일치를 맞추지 못한다.
+Check '감지의 불일치는 모두 단계 번호와 함께 적힌다' { @([regex]::Matches($hookCode, '\$notes\.Add\(')).Count -eq 1 }
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤의 갱신 기록 -------------------------------------------------------
@@ -1057,6 +1072,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $sy 'bin') | Out-Null
 # "Access is denied." 로 안 떠서, 2026-09-29 에 이 PC 에서 성공 시나리오 네 건이 늘 실패했다.
 # .ps1 은 맞춤의 프로세스 안에서 돌고 출력과 종료 코드를 그대로 돌려준다.
 @'
+if ($env:STUB_LOG) { Add-Content -LiteralPath $env:STUB_LOG -Value ($args -join ' ') }
 $a = $args
 $pd = Join-Path $env:USERPROFILE '.claude\plugins'
 if ($a[0] -eq 'plugin' -and $a[1] -eq 'marketplace' -and $a[2] -eq 'update') {
@@ -1083,7 +1099,7 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
-    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief)
+    param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '')
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
@@ -1102,16 +1118,17 @@ function Invoke-SyncScenario {
     'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
     $shaOld | Set-Content (Join-Path $g 'refs\heads\main')
     "ranOnce=2026-01-01`n$State".Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
-    $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$sy\bin;' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' })" 2>&1
+    $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$sy\bin;' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" })" 2>&1
     $log = Join-Path $h '.claude\kw-control-tower.sync.log'
-    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
+    foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
     $ip = Get-Content (Join-Path $pd 'installed_plugins.json') -Raw | ConvertFrom-Json
     @{
         Out   = ($out | ForEach-Object { "$_" }) -join "`n"
         State = (Get-Content (Join-Path $h '.claude\kw-control-tower.state') -Raw)
         Sha   = @($ip.plugins.'kw-control-tower@kiwoom-ax')[0].gitCommitSha
         Log   = $(if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Raw -Encoding UTF8 } else { '' })
+        Calls = $(if (Test-Path -LiteralPath (Join-Path $h 'calls.log')) { Get-Content -LiteralPath (Join-Path $h 'calls.log') -Raw } else { '' })
     }
 }
 
@@ -1121,6 +1138,12 @@ Check '갱신에 성공하면 stuck 을 지운다' { $r.State -notmatch 'stuck-k
 Check '갱신에 성공하면 재시작을 옛 커밋 → 새 커밋으로 안내한다' {
     ($r.Out -match '(?m)^kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.') -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e')
 }
+$r = Invoke-SyncScenario -Steps '6'
+Check '넘겨받은 단계가 아니면 돌지 않는다' {
+    ($r.Sha -eq $shaOld) -and [string]::IsNullOrWhiteSpace($r.Calls) -and ($r.Out -match '넘겨받은 불일치가 없어 넘어갑니다')
+}
+$r = Invoke-SyncScenario -Steps '1,2'
+Check '넘겨받은 단계는 돈다' { $r.Sha -eq $shaNew }
 
 $r = Invoke-SyncScenario -Up 'fail'
 Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
