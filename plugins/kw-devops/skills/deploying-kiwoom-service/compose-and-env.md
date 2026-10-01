@@ -32,7 +32,7 @@ services:
     environment:
       - SERVICE_NAME=kiwoom-<이름>
     restart: unless-stopped
-    healthcheck:                            # 없으면 배포가 100초 뒤 오탐 실패한다
+    healthcheck:                            # 배포 성공 판정. 실패하면 직전 버전으로 되돌린다
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:<컨테이너 포트>/')"]
       interval: 30s
       timeout: 10s
@@ -58,7 +58,7 @@ secrets:
 | 파일 키 — 서비스 계정 JSON 같은 것 | base64 한 줄로 바꿔 `.env` 에 `<이름>_B64` 로 넣는다. secrets.md |
 | 여러 자격증명을 합쳐 쓰려면 | jenkinsfile.md 파라미터 표의 `envCredIds` 행을 따른다 |
 
-**복원된 `.env` 에는 `global-env`(전사 공통)·`env-<조직>`(조직 공통)·`env-<서비스>` 의 키가 차례로 들어 있다.**
+**복원된 `.env` 에는 `global-env`(전사 공통)·`env-ax`·`env-am`(조직 공통)·`env-<서비스>` 의 키가 차례로 들어 있다.**
 앞의 둘은 여러 잡이 함께 쓴다. `env_file: .env` 는 그 파일 전체를 컨테이너에 넣으므로 내 컨테이너가 공용 키까지
 갖는다. 비밀이 아닌 값을 굳이 거기 넣지 않는다.
 

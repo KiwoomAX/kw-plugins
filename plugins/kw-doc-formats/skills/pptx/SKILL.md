@@ -78,10 +78,13 @@ s.addText("자산운용본부 실적", { outline: { size: 1, color: "FFFFFF" } }
 다 만든 뒤 테마를 고쳐라. `.pptx` 는 XML 이 든 압축 파일이다.
 
 ```python
-import re, zipfile
+import os, re, zipfile
 
 def koreanize_theme(src, dst, font="맑은 고딕"):
     """테마의 제목·본문 로마자 슬롯을 한글 글꼴로 바꾼다. ea 는 비운 채로 둔다."""
+    # 표기가 달라도(Z:\ 와 \\cifs\) 같은 파일이면 거부한다. 쓰기 모드가 원본을 먼저 비운다.
+    if os.path.exists(dst) and os.path.samefile(src, dst):
+        raise ValueError("src 와 dst 가 같은 파일이다. 다른 경로로 낸다")
     def fix(m):
         blk = m.group(0)
         blk = re.sub(r'<a:latin typeface="[^"]*"([^/>]*)/>', f'<a:latin typeface="{font}"\\1/>', blk, count=1)
@@ -116,6 +119,18 @@ try {
 }
 ```
 
+### 결과를 눈으로 확인할 때
+
+공식 `document-skills:pptx` 의 시각 확인은 `soffice.py` 로 PDF 를 만들고 `pdftoppm` 으로 이미지를
+뽑는다. **이 PC 에는 LibreOffice 가 없어 앞 단계가 실패한다.** PDF 는 파워포인트 COM 으로 만들고
+`pdftoppm` 은 그대로 쓴다(Poppler 는 설치기가 깐다). 위 예제의 `try` 안에서 한 줄이면 된다.
+
+```powershell
+    $deck.SaveAs($pdf, 32)    # 32 는 PDF 다. $pdf 는 스크래치패드의 절대경로
+```
+
+`.ppt` 를 `.pptx` 로 바꾸는 단계는 `kw-doc-formats:hwp` 의 「구형 워드·PPT를 넘겨받았을 때」를 따른다.
+
 ### 맞출 수 없는 차이 하나 — `lang` 속성
 
 `lang` 속성은 못 맞춘다. 파워포인트는 한글과 영문을 다른 run 으로 쪼개 각각 `ko-KR` 과
@@ -134,7 +149,7 @@ try {
 사람이 매번 Ctrl+A로 고치는 대신 파일을 고친다. `.pptx` 는 XML이 든 압축 파일이다.
 
 ```python
-import re, zipfile
+import os, re, zipfile
 
 TEXT_PARTS = ("ppt/slides/", "ppt/slideLayouts/", "ppt/slideMasters/", "ppt/notesSlides/")
 
@@ -146,6 +161,9 @@ RE_LN  = re.compile(r"<a:ln\b[^>]*/>|<a:ln\b[^>]*>.*?</a:ln>", re.S)
 
 def strip_text_outline(src, dst):
     """글자 속성 안의 윤곽선만 걷어낸다. 도형 테두리는 건드리지 않는다."""
+    # 표기가 달라도(Z:\ 와 \\cifs\) 같은 파일이면 거부한다. 쓰기 모드가 원본을 먼저 비운다.
+    if os.path.exists(dst) and os.path.samefile(src, dst):
+        raise ValueError("src 와 dst 가 같은 파일이다. 다른 경로로 낸다")
     removed = 0
     def scrub(m):
         nonlocal removed

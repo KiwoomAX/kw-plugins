@@ -19,7 +19,8 @@ SKILL.md 의 4단계에서 연다. 0단계에서 도커와 사내 인증서 번�
 4. 복사본에서 돌린다. 빌드는 끝날 때까지 기다린다.
 
    ```powershell
-   docker compose -f docker-compose.yml -f docker-compose.jenkins.yml config | Out-Null   # 문법·병합
+   $f = @('-f', 'docker-compose.yml'); if (Test-Path docker-compose.jenkins.yml) { $f += @('-f', 'docker-compose.jenkins.yml') }
+   docker compose @f config | Out-Null                                                  # 문법·병합
    docker compose up -d --build <서비스>
    docker inspect --format='{{.State.Health.Status}}' kiwoom-<이름>                        # healthy 여야 한다
    ```

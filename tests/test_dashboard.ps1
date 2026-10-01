@@ -41,7 +41,7 @@ Assert "the marketplace ships $PluginName" ($null -ne $entry)
 Assert 'the plugin source is an in-repo path' ($null -ne $entry -and $entry.source -eq './plugins/kw-dashboard')
 Assert 'both descriptions are the same text' ($null -ne $pluginJson.description -and $null -ne $entry -and $pluginJson.description -eq $entry.description)
 Assert 'plugin.json carries no version (commit-based auto update)' ($null -ne $pluginJson -and $null -eq $pluginJson.PSObject.Properties['version'])
-Assert "the control tower requires $PluginId" ($null -ne $manifest -and @($manifest.required) -contains $PluginId)
+Assert "the control tower suggests $PluginId" ($null -ne $manifest -and @($manifest.suggested) -contains $PluginId)
 
 Write-Host '--- skill ---'
 $md = Join-Path $SkillDir 'SKILL.md'
@@ -74,13 +74,7 @@ Assert 'the deploy skill it hands off to ships in this marketplace' (
     ($allText -match 'deploying-kiwoom-service') -and
     (Test-Path (Join-Path $Repo 'plugins/kw-devops/skills/deploying-kiwoom-service/SKILL.md')))
 
-Write-Host '--- claude plugin validate ---'
-Push-Location $Repo
-try {
-    $null = & claude plugin validate ./ 2>&1 | Out-String
-    $code = $LASTEXITCODE
-} finally { Pop-Location }
-Assert 'claude plugin validate exits 0 (warnings allowed)' ($code -eq 0)
+# 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)

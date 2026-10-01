@@ -30,15 +30,76 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 새 대시보드 시작
 
-1. GitHub 의 `KiwoomAX/dashboard-template` 에서 「Use this template」로 `KiwoomAX/dashboard-<본부 영문 이름>`
-   비공개 레포를 만든다.
-2. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
+**저장소를 만들기 전에 이미 있는지 찾는다.** 담당자 PC 의 폴더를 먼저 보고, 없으면 조직을 본다. 찾지 않고
+만들면 같은 본부의 대시보드가 둘이 된다. 둘이 되면 조직 폴더가 같은 `Jenkinsfile` 로 Jenkins 잡을 둘 만들고,
+두 잡이 같은 이름의 컨테이너를 서로 지운다.
+
+1. **담당자에게 이 본부의 대시보드를 만들던 폴더가 PC 에 있는지 묻는다.** 있으면 그 폴더로 옮겨 거기서 이어
+   한다. 새로 받지 않는다. 그 폴더가 어떤 것인지에 따라 갈 곳이 다르다.
+
+   | 폴더에 있는 것 | 어디로 간다 |
+   |---|---|
+   | `src/frontend/src/shell/` 이 있다 | 템플릿으로 만든 대시보드다. 4번으로 간다 |
+   | 그 폴더가 없다 | 옛 대시보드다. 「이미 만든 대시보드를 옮길 때」로 간다 |
+
+   폴더가 없다고 하면 2번으로 간다.
+
+2. 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
+   `Executive_dashboard` 와 `executive-dashboard` 는 같은 후보다.
+
+   ```powershell
+   gh repo list KiwoomAX --limit 1000 --json name,url,pushedAt
+   ```
+
+   `gh` 가 로그인 오류를 내면 멈추고 담당자에게 `gh auth login` 을 직접 실행하라고 알린다. **목록을 보지 못한
+   채로 새 저장소를 만들지 않는다.**
+
+   **배포까지 마친 대시보드는 포트 등록부에도 적혀 있다.** 담당자가 볼 권한이 없어 위 목록에 안 보이는 저장소를
+   여기서 찾는다. `repo` 칸이 저장소 이름이다. 등록부에 닿지 못하면 그것만 알리고 위 목록으로 판단한다.
+
+   ```powershell
+   $q = '{"query":"select port, container, repo from kw_deploy.port where service_type = ''dashboard'' order by port"}'
+   Invoke-RestMethod -Uri 'http://192.7.9.45:8700/v1/query/all-dict' -Method Post -ContentType 'application/json' -Body $q
+   ```
+
+3. 찾은 것이 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가 맞습니까」라고 묻는다. 맞다고
+   하면 받아서 그 폴더에서 이어 한다. 받은 폴더에 `src/frontend/src/shell/` 이 있으면 4번으로 가고, 없으면 옛
+   대시보드이므로 「이미 만든 대시보드를 옮길 때」로 간다.
+
+   ```powershell
+   gh repo clone KiwoomAX/<찾은 이름>
+   ```
+
+   **담당자가 모른다고 하면 만들지 않고 멈춘다.** 이 본부의 대시보드를 전에 만든 사람에게 저장소 주소를
+   물어보라고 알린다. 확신 없이 만들면 둘이 된다.
+
+   없으면 아래로 간다. 이름을 `<본부 영문 이름>-dashboard` 로 제안해 확인받은 뒤 만들고 바로 받는다. 이름은
+   소문자와 하이픈으로 짓는다. **이름을 혼자 정하지 않는다.**
+
+   ```powershell
+   gh repo create KiwoomAX/<본부 영문 이름>-dashboard --template KiwoomAX/dashboard-template --private --clone
+   ```
+
+4. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
    사이드바 무리 이름이 「본부 기능」이 되고, 「팀」으로 끝나면 「팀 기능」이 된다.
-3. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
-4. 레포 폴더에서 `docker compose up -d --build` 로 실행하고 `http://localhost:3000` 을 연다. 사내망에서는 빌드하기
-   전에 사내 인증서 번들(`kw_install` 이 사용자 환경변수 `SSL_CERT_FILE` 에 적어 둔 파일)을 `certs/ePrism.crt` 로
-   복사해 둔다. 이 파일은 레포에 올리지 않는다.
-5. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
+5. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
+6. 백엔드와 화면을 띄우고 `http://localhost:3000` 을 연다. 백엔드가 8000번에서 답하고, 화면 쪽이 `/api` 로
+   시작하는 요청을 그리로 넘긴다. 창을 둘 띄워 하나씩 둔다. 처음 한 번만 설치가 필요하고 그다음부터는 마지막
+   줄만 돌린다.
+
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
+   pip install fastapi "uvicorn[standard]"
+   uvicorn src.backend.main:app --reload
+   ```
+
+   ```powershell
+   cd src/frontend; npm install; npm run dev
+   ```
+
+   설치할 것은 `pyproject.toml` 의 `dependencies` 에 적힌 목록이다. 그 목록이 늘면 늘어난 것도 함께 깐다.
+7. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
 
 ## 기능 붙이기
 
@@ -190,8 +251,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 내보내기 전 확인
 
-브라우저 확인은 `docker compose up -d --build` 로 실행한 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을
-다른 프로그램이 쓰고 있으면 `docker-compose.yml` 의 `3000:80` 에서 왼쪽 값을 잠시 바꿔 확인하고 되돌린다.
+브라우저 확인은 「새 대시보드 시작」 6번대로 띄운 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을 다른
+프로그램이 쓰고 있으면 화면 쪽이 3001번으로 올라가므로 콘솔에 찍힌 주소를 그대로 연다.
 확인이 끝나면 사람이 볼 수 있게 그 주소를 브라우저로 열어 주고, 낮과 밤을 모두 보였는지 함께 적는다.
 
 - [ ] `src/frontend` 에서 `npm test`(타입 검사와 테스트)가 통과한다
