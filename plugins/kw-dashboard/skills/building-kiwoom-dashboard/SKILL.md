@@ -61,17 +61,22 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    사이드바 무리 이름이 「본부 기능」이 되고, 「팀」으로 끝나면 「팀 기능」이 된다.
 5. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
 6. 백엔드와 화면을 띄우고 `http://localhost:3000` 을 연다. 백엔드가 8000번에서 답하고, 화면 쪽이 `/api` 로
-   시작하는 요청을 그리로 넘긴다. 창을 둘 띄워 하나씩 둔다.
+   시작하는 요청을 그리로 넘긴다. 창을 둘 띄워 하나씩 둔다. 처음 한 번만 설치가 필요하고 그다음부터는 마지막
+   줄만 돌린다.
 
    ```powershell
-   uv run --native-tls uvicorn src.backend.main:app --reload
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
+   pip install fastapi "uvicorn[standard]"
+   uvicorn src.backend.main:app --reload
+   ```
+
+   ```powershell
    cd src/frontend; npm install; npm run dev
    ```
 
-   `uv` 가 없다는 오류가 나면 `winget install astral-sh.uv` 로 깔고 다시 돌린다. 사내망에서는 `--native-tls` 가
-   있어야 사내 인증서를 읽는다.
-7. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다. 저장소와 원격이 1번에서 이미 잡혀 있으므로 그 스킬의
-   1단계가 바로 통과한다. 서버가 빌드할 때 쓰는 사내 인증서는 그 스킬이 다룬다.
+   설치할 것은 `pyproject.toml` 의 `dependencies` 에 적힌 목록이다. 그 목록이 늘면 늘어난 것도 함께 깐다.
+7. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
 
 ## 기능 붙이기
 
