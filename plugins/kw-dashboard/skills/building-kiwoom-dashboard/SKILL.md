@@ -43,12 +43,23 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    `gh` 가 로그인 오류를 내면 멈추고 담당자에게 `gh auth login` 을 직접 실행하라고 알린다. **목록을 보지 못한
    채로 새 저장소를 만들지 않는다.**
 
+   **배포까지 마친 대시보드는 포트 등록부에도 적혀 있다.** 담당자가 볼 권한이 없어 위 목록에 안 보이는 저장소를
+   여기서 찾는다. `repo` 칸이 저장소 이름이다. 등록부에 닿지 못하면 그것만 알리고 위 목록으로 판단한다.
+
+   ```powershell
+   $q = '{"query":"select port, container, repo from kw_deploy.port where service_type = ''dashboard'' order by port"}'
+   Invoke-RestMethod -Uri 'http://192.7.9.45:8700/v1/query/all-dict' -Method Post -ContentType 'application/json' -Body $q
+   ```
+
 2. 찾은 것이 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가 맞습니까」라고 묻는다. 맞다고
    하면 받아서 그 폴더에서 작업하고 4번으로 간다.
 
    ```powershell
    gh repo clone KiwoomAX/<찾은 이름>
    ```
+
+   **담당자가 모른다고 하면 만들지 않고 멈춘다.** 이 본부의 대시보드를 전에 만든 사람에게 저장소 주소를
+   물어보라고 알린다. 확신 없이 만들면 둘이 된다.
 
 3. 없으면 이름을 `<본부 영문 이름>-dashboard` 로 제안해 확인받은 뒤 만들고 바로 받는다. 이름은 소문자와
    하이픈으로 짓는다. **이름을 혼자 정하지 않는다.**
