@@ -30,10 +30,21 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 새 대시보드 시작
 
-**저장소를 만들기 전에 조직에 이미 있는지 찾는다.** 찾지 않고 만들면 같은 본부의 대시보드가 둘이 된다. 둘이
-되면 조직 폴더가 같은 `Jenkinsfile` 로 Jenkins 잡을 둘 만들고, 두 잡이 같은 이름의 컨테이너를 서로 지운다.
+**저장소를 만들기 전에 이미 있는지 찾는다.** 담당자 PC 의 폴더를 먼저 보고, 없으면 조직을 본다. 찾지 않고
+만들면 같은 본부의 대시보드가 둘이 된다. 둘이 되면 조직 폴더가 같은 `Jenkinsfile` 로 Jenkins 잡을 둘 만들고,
+두 잡이 같은 이름의 컨테이너를 서로 지운다.
 
-1. 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
+1. **담당자에게 이 본부의 대시보드를 만들던 폴더가 PC 에 있는지 묻는다.** 있으면 그 폴더로 옮겨 거기서 이어
+   한다. 새로 받지 않는다. 그 폴더가 어떤 것인지에 따라 갈 곳이 다르다.
+
+   | 폴더에 있는 것 | 어디로 간다 |
+   |---|---|
+   | `src/frontend/src/shell/` 이 있다 | 템플릿으로 만든 대시보드다. 4번으로 간다 |
+   | 그 폴더가 없다 | 옛 대시보드다. 「이미 만든 대시보드를 옮길 때」로 간다 |
+
+   폴더가 없다고 하면 2번으로 간다.
+
+2. 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
    `Executive_dashboard` 와 `executive-dashboard` 는 같은 후보다.
 
    ```powershell
@@ -51,8 +62,9 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    Invoke-RestMethod -Uri 'http://192.7.9.45:8700/v1/query/all-dict' -Method Post -ContentType 'application/json' -Body $q
    ```
 
-2. 찾은 것이 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가 맞습니까」라고 묻는다. 맞다고
-   하면 받아서 그 폴더에서 작업하고 4번으로 간다.
+3. 찾은 것이 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가 맞습니까」라고 묻는다. 맞다고
+   하면 받아서 그 폴더에서 이어 한다. 받은 폴더에 `src/frontend/src/shell/` 이 있으면 4번으로 가고, 없으면 옛
+   대시보드이므로 「이미 만든 대시보드를 옮길 때」로 간다.
 
    ```powershell
    gh repo clone KiwoomAX/<찾은 이름>
@@ -61,8 +73,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    **담당자가 모른다고 하면 만들지 않고 멈춘다.** 이 본부의 대시보드를 전에 만든 사람에게 저장소 주소를
    물어보라고 알린다. 확신 없이 만들면 둘이 된다.
 
-3. 없으면 이름을 `<본부 영문 이름>-dashboard` 로 제안해 확인받은 뒤 만들고 바로 받는다. 이름은 소문자와
-   하이픈으로 짓는다. **이름을 혼자 정하지 않는다.**
+   없으면 아래로 간다. 이름을 `<본부 영문 이름>-dashboard` 로 제안해 확인받은 뒤 만들고 바로 받는다. 이름은
+   소문자와 하이픈으로 짓는다. **이름을 혼자 정하지 않는다.**
 
    ```powershell
    gh repo create KiwoomAX/<본부 영문 이름>-dashboard --template KiwoomAX/dashboard-template --private --clone
