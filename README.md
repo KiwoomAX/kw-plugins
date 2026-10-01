@@ -52,14 +52,13 @@ PC가 다시 깔아야 한다. 그래서 두 이름을 그대로 둔다.
 
 두 가지이고, 앞의 것이 뒤의 것을 호출한다.
 
-**세션이 시작할 때 감지한다.** 이 PC가 목록과 불일치하는 곳을 열두 가지로 확인한다. 파일만
-읽고 네트워크에 안 나간다. 불일치가 하나도 없으면 아무 말도 하지 않고 끝난다. 이
-PC에서 362밀리초다.
+**클로드 코드를 켤 때 감지한다.** 이 PC가 목록과 불일치하는 곳을 열세 가지로 확인한다. 파일을
+읽고, 원격 커밋 하나만 `curl.exe`로 읽는다. 불일치가 하나도 없으면 아무 말도 하지 않고 끝난다.
 
-**불일치가 있으면 즉시 맞춘다.** 단계가 여덟이고 저마다 독립이라 하나가 실패해도 나머지는
-돈다. 배포처 등록과 사본 받아오기, 필수 플러그인 설치와 되켜기와 뒤처진 설치본 옮기기,
+**불일치가 있으면 즉시 맞춘다.** 단계가 일곱이고 저마다 독립이라 하나가 실패해도 나머지는
+실행된다. 배포처 등록과 사본 받아오기, 필수 플러그인 설치와 되켜기와 뒤처진 설치본 옮기기,
 더 안 쓰는 것 정리, 파이썬 라이브러리, `PYTHONUTF8`, `CLAUDE.md`의 사내 문안, 옛 스킬
-사본과 훅 연결 정리, `python3` 판정이다.
+사본과 훅 연결 정리다. 불일치한 단계만 실행하고, 60초 상한에 닿으면 남은 단계를 다음 세션으로 미룬다. 같은 원인으로 실패한 단계는 그날 다시 호출하지 않는다.
 
 **호출하는 명령을 따로 두지 않는다.** 예전에는 알림이 `/kw-sync` 를 치라고 말하고 끝났는데,
 알림을 읽고 명령을 치는 사람이 없으면 감지가 정확해도 아무것도 안 바뀌었다. 사내 목록에
@@ -75,11 +74,11 @@ PC에서 362밀리초다.
 
 | 무엇 | 값 |
 |---|---|
-| 세션 시작에 도는 훅 | 하나뿐이다 |
-| 외부 프로그램 | 호출하지 않는다. `claude`도 `git`도 `python`도 |
-| 네트워크 | 안 나간다. 디스크에 있는 것만 본다 |
-| 읽는 것 | 파일 여덟과 레지스트리 값 하나. 이 PC에서 합쳐 25KB 미만 |
-| 몸통 시간 | 200밀리초를 넘으면 그 값을 남기고 검사가 떨어진다 |
+| 세션 시작에 실행되는 훅 | 하나뿐이고, 클로드 코드를 켤 때만 실행된다 |
+| 외부 프로그램 | `curl.exe` 하나. 원격 커밋을 읽는다(2026-09-25 승인). `claude`도 `git`도 `python`도 호출하지 않는다 |
+| 네트워크 | `curl.exe`의 2초 요청 하나. 몸통 시간에서 뺀다 |
+| 읽는 것 | 설정 파일과 상태 파일과 사내 문안 사본, 레지스트리 값 하나 |
+| 몸통 시간 | 200밀리초를 넘으면 그 값을 남기고 검사가 묻는다 |
 
 이 PC에서 여러 차례 재니 프로세스까지 합쳐 0.55초 안팎이고 몸통은 다 200밀리초 안이었다.
 세션이 처음 열릴 때 한 번은 넘길 수 있는데, 그때는 알림에 안 섞고 자국만 남긴다.
@@ -99,11 +98,11 @@ PC에서 362밀리초다.
 | `plugins/kw-control-tower/scripts/sync.ps1` | 이 PC를 목록에 맞게 고치는 본체. 알림 훅과 설치기 9단계가 호출한다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 여섯. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
-| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, Query Gateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py` |
+| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워의 계약 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬의 계약 검사 |
 | `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `moving-existing-dashboard.md` |
-| `tests/test_devops.ps1` | 배포 스킬과 Query Gateway 스킬의 계약 검사 |
+| `tests/test_devops.ps1` | 배포 스킬과 DBGateway 스킬과 리포트 검색 스킬의 계약 검사 |
 | `tests/test_dashboard.ps1` | 대시보드 스킬의 계약 검사 |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
 | `docs/superpowers/reviews/` | 그 설계를 검토한 기록 |

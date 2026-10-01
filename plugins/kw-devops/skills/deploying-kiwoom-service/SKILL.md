@@ -24,8 +24,12 @@ repo 하나를 공용 Jenkins 파이프라인에 태운다. **파이프라인 �
 - **도커가 없는 것을 기본으로 둔다.** 검증은 Jenkins 가 하는 것이 정상 경로다. 도커 설치를 요구하지 않는다.
 - **포트는 `pick_port.py` 로 정하고 같은 작업 안에서 `--register` 로 넣는다.** 미루면 다음 사람이 같은 포트를
   골라 나중에 뜨는 쪽이 조용히 죽는다.
-- **`container_name` 을 적고 `healthContainer` 컨테이너에는 healthcheck 를 둔다.** 파이프라인이 이름으로 찾고,
-  healthcheck 가 없으면 100초를 기다린 뒤 멀쩡한 배포를 실패로 떨어뜨린다.
+- **`container_name` 을 적고 빌드하는 서비스마다 healthcheck 를 둔다.** 파이프라인은 healthcheck 로 배포 성공을
+  판정하고, 실패하면 직전 버전으로 되돌린다. healthcheck 가 없는 서비스는 검증 없이 통과하므로 고장 난 배포가
+  그대로 남고, 빌드하는 서비스 어디에도 없으면 배포 자체가 실패로 끝난다.
+- **빌드하는 서비스에는 `image:` 를 적지 않는다.** 파이프라인이 `localhost:5000/<저장소>/<서비스>:<커밋>` 이름을
+  붙여 서버 레지스트리에 올리고, 되돌릴 때 그 커밋 태그를 쓴다. 적어도 덮어쓴다. 공개 이미지를 받아 쓰는
+  서비스(`rabbitmq` 같은 것)만 `image:` 를 둔다.
 - **`main` 에 올린다.** 조직 폴더가 `main` 만 발견한다.
 - **파이프라인 로직을 Jenkinsfile 에 복제하지 않는다.** stage 가 필요하면 그것은 shared-lib 에 넣을 변경이다.
 - **`.env` 와 `certs/` 를 커밋하지 않는다.** 파이프라인이 자격증명에서 빌드마다 복원한다.
@@ -79,7 +83,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --find <저장소 이름> [<co
 |---|---|---|
 | Dockerfile 과 컨테이너 내부 포트 | `EXPOSE`·`CMD` | compose `ports` 오른쪽 값 |
 | 헬스 엔드포인트 | 앱 라우터(`/`·`/health`) | `healthcheck.test` |
-| 소속 조직 | GitHub remote | 등록부 `org` 칸, `envCredIds` 의 `env-<조직>` |
+| 소속 조직 | GitHub remote | 등록부 `org` 칸, `envCredIds` 의 조직 자격증명(KiwoomAX 는 `env-ax`, KiwoomAM 은 `env-am`) |
 | 런타임에 읽는 호스트 파일 | 코드가 여는 절대경로 | Jenkins 덮어쓰기 |
 | `COPY` 하는 경로가 `.gitignore` 에 있는가 | `.gitignore` 와 `COPY` 대조 | 있으면 Jenkins 빌드가 거기서 죽는다. 3단계에서 멀티스테이지로 바꾼다 |
 | 바인드 마운트가 각각 무엇인가 | `volumes:` 한 줄씩 | 설정·코드·자료마다 처리가 다르다 |
@@ -115,8 +119,12 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 1. 비밀 키가 있으면 「AX 팀에 등록 요청 보내기」로 환경변수 등록 요청을 보낸다.
 2. [compose-and-env.md](compose-and-env.md) 와 [secrets.md](secrets.md) 를 끝까지 읽고 `docker-compose.yml` 과,
    필요하면 덮어쓰기 파일과 Dockerfile 수정을 쓴다.
-3. [jenkinsfile.md](jenkinsfile.md) 의 틀로 `Jenkinsfile` 을 쓴다.
-4. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
+3. 처음 올리는 서비스면 방금 쓴 compose 의 `container_name` 으로 2단계의 포트를 **지금 등록한다.** 명령은
+   5단계의 `--register` 줄이다. 「남이 먼저 잡았다」고 하면 2단계로 돌아가 다시 고르고 compose 의 포트를 고친다.
+   미루면 push 와 빌드와 AX 팀 회신을 기다리는 동안 다른 사람이 같은 포트를 고른다. 배포를 그만두면 이 줄이
+   등록부에 남으므로, 담당자에게 AX 팀에 그 줄의 삭제를 요청하라고 알린다.
+4. [jenkinsfile.md](jenkinsfile.md) 의 틀로 `Jenkinsfile` 을 쓴다.
+5. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
 
 ### 4. 검증 — 돌려 보지 않고 됐다고 하지 않는다
 
@@ -147,6 +155,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 | `org` | `KiwoomAM` · `KiwoomAX`. 이미지를 그대로 띄운 인프라는 뺀다 |
 | `repo` | 저장소 이름만 |
 
+3단계에서 넣었으면 「이미 등록돼 있다」고 나온다. 그대로 둔다.
 1단계에서 이미 찾은 서비스도 쓸 포트로 한 번 돌린다 — 비어 있는 `repo` 칸이 채워진다. 「남이 먼저 잡았다」고
 하면 2단계로 돌아간다. **넣지 못해 담당자에게 넘길 때는 `${CLAUDE_SKILL_DIR}` 를 푼 전체 경로로 명령을 적는다.**
 
@@ -177,7 +186,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 | 스케줄 등록 요청 | 6단계에서 돌리겠다고 한 스케줄마다 한 통 |
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<값이 든 파일>" -EnvKeys "<키1>,<키2>"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<값이 든 파일>" -EnvKeys "<키1>,<키2>"
 ```
 
 키 이름만 넘기면 스크립트가 값이 든 파일에서 그 키만 뽑아 첨부하고 화면에는 키 이름만 찍는다. 스케줄 등록 요청은

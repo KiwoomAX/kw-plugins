@@ -1,8 +1,13 @@
 # 세션 시작 알림. 이 PC가 manifest.json 과 불일치한 곳을 말하기만 한다.
 #
-# 계약 다섯을 지킨다. 세션 시작에 도는 훅은 이것 하나이고, 외부 프로세스를 안 호출하고,
-# 네트워크에 안 나가고, 파일 여덟과 레지스트리 값 하나만 읽고, 몸통이 200밀리초를
-# 넘으면 그 값을 상태 파일에 남긴다.
+# 계약 다섯을 지킨다. 세션 시작에 도는 훅은 이것 하나이고, 감지가 외부 프로세스를
+# 새로 호출하려면 개발할 때 사용자에게 먼저 묻고, 네트워크에는 우리 배포처의 원격
+# 커밋을 읽는 요청만 내보내고, 읽는 파일을 새로 늘리려면 개발할 때 사용자에게 먼저
+# 묻고, 몸통이 200밀리초를 넘으면 그 값을 상태 파일에 남긴다. 네트워크 시간은 몸통에
+# 안 센다.
+#
+# 승인된 외부 프로세스는 원격 커밋을 읽는 curl.exe 하나다. 2026-09-25 에 사용자가
+# 승인했다. 묻는 시점은 훅이 돌 때가 아니라 개발할 때다.
 #
 # 아무것도 고치지 않는다. 세션을 막지 않는다. 스스로 실패하면 조용히 물러난다.
 # PowerShell 7 을 전제한다. 설치기가 7 을 winget 으로 깔고, 그래도 없으면 아무것도
@@ -33,6 +38,22 @@ function Get-CheapHash {
     try {
         $bytes = [System.IO.File]::ReadAllBytes($Path)
         return [System.BitConverter]::ToString($md5.ComputeHash($bytes)).Replace('-', '')
+    } finally { $md5.Dispose() }
+}
+
+function Get-StuckPrint {
+    # 실패한 원인이 같은지를 목록 파일 둘의 내용과 날짜와 단계 번호로 가른다. 목록이 바뀌거나
+    # 날이 바뀌면 다시 시도한다. 알림 훅에도 같은 함수가 있다. 글자 그대로 같아야 한다.
+    param([string]$Root, [int]$Step)
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $bytes = New-Object System.Collections.Generic.List[byte]
+        foreach ($f in @('manifest.json', 'requirements.txt')) {
+            $p = Join-Path $Root $f
+            if (Test-Path -LiteralPath $p) { $bytes.AddRange([System.IO.File]::ReadAllBytes($p)) }
+        }
+        $bytes.AddRange([System.Text.Encoding]::UTF8.GetBytes("step$Step " + (Get-Date -Format 'yyyy-MM-dd')))
+        return [System.BitConverter]::ToString($md5.ComputeHash($bytes.ToArray())).Replace('-', '')
     } finally { $md5.Dispose() }
 }
 
@@ -71,6 +92,41 @@ function Test-Marketplace {
     return @{ InSettings = ($null -ne $a); InKnown = ($null -ne $b); Settings = $a; Known = $b }
 }
 
+# 사내 문안 블록을 조립한다. 맞춤(sync.ps1)에도 같은 함수가 있다. 둘이 다르게
+# 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
+function Get-AxBlock([string]$claudeMd) {
+    $files = @('claude-md-ko.md')
+    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
+        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md')
+    }
+    $lines = @('# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)') + @($files | ForEach-Object { "@kw-ax/$_" }) + @('# END AX 설치')
+    return $lines -join "`n"
+}
+
+# kw-ax 로 복사하고 대조할 템플릿이다. 블록이 싣는 파일과, 원칙이 근거로 가리키는 사본이다.
+# 블록이 안 싣는 파일까지 대조하면 싣지도 않는 사본 하나 때문에 맞춤이 실행된다(2026-09-30 이 PC).
+# 알림 훅에도 같은 함수가 있다. 둘이 다르면 맞춤이 복사한 것을 훅이 다르다고 알린다.
+function Get-AxCopies([string]$claudeMd) {
+    $files = @('claude-md-ko.md')
+    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
+        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md', 'domain-korean_subset.md')
+    }
+    return $files
+}
+
+function Read-KwState([string]$Path) {
+    # 상태 파일을 한 번만 읽는다. 질문마다 따로 열던 때에는 같은 파일을 세 번 열었다.
+    $s = @{}
+    $script:Budget.Files++
+    if (Test-Path -LiteralPath $Path) {
+        foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+            $i = $line.IndexOf('=')
+            if ($i -gt 0) { $s[$line.Substring(0, $i)] = $line.Substring($i + 1) }
+        }
+    }
+    return $s
+}
+
 function Get-MarketplaceHead {
     # 배포처 사본이 받아 둔 버전을 읽는다. 네트워크에 안 나간다. 디스크에 이미 있다.
     # git 사본은 HEAD 가 가리키는 ref 파일에 커밋이 있고, git 이 아닌 배포처는
@@ -97,9 +153,58 @@ function Get-MarketplaceHead {
     return $null
 }
 
+function Get-RemoteUrl {
+    # 배포처 등록의 source 에서 원격 주소를 만든다. 원격을 읽을 수 없는 형식이면 $null 이다.
+    # github 이면 저장소 이름으로 만들고, https 주소면 그대로 쓴다. 브랜치나 태그를 지정한
+    # 배포처도 $null 이다. 원격 기본 브랜치와 비교하면 매 세션 다르다고 나와 맞춤이 되풀이된다.
+    param($Source)
+    if ($null -eq $Source -or (Get-Prop $Source 'ref')) { return $null }
+    $repo = Get-Prop $Source 'repo'
+    if ((Get-Prop $Source 'source') -eq 'github' -and $repo) { return "https://github.com/$repo.git" }
+    $url = Get-Prop $Source 'url'
+    if ($url -and $url.StartsWith('https://')) { return $url }
+    return $null
+}
+
+function Get-RemoteHead {
+    # 원격 저장소의 기본 브랜치 커밋을 읽는다. 못 읽으면 $null 이다.
+    #
+    # REST API 가 아니라 git 이 쓰는 info/refs 를 읽는다. REST 는 로그인 없이 IP 하나에
+    # 시간당 60회라서, 외부 IP 하나를 나눠 쓰는 사내 PC 들이 금방 다 쓴다. info/refs 는
+    # 그 한도가 없고 2KB 다. git ls-remote 는 같은 값을 읽지만 530~650밀리초 걸린다.
+    #
+    # curl.exe 로 읽는다. 감지가 외부 프로세스를 호출하지 않는다는 계약의 유일한 예외다.
+    # 2026-09-25 에 새 pwsh 프로세스에서 다섯 번씩 재니 Invoke-WebRequest 가 평균 459ms,
+    # curl.exe 가 377ms 였다. 훅은 매번 새 프로세스라 Invoke-WebRequest 의 첫 호출 준비
+    # 값이 프로세스 하나 띄우는 값보다 컸다. disciplined-coder 도 같은 명령을 쓴다.
+    # 'curl' 로 적으면 Invoke-WebRequest 의 별칭이 되므로 반드시 curl.exe 로 적는다.
+    # 둘 다 Schannel 이라 사내 SSL 검사 장비 아래 성공 조건이 같다. 다른 점은 curl.exe 가
+    # 시스템 프록시를 안 읽는 것이고, 명시적 프록시만 있는 망에서는 실패해 사본과 비교한다.
+    #
+    # 응답의 첫 ref 줄은 '<길이 4자><sha> HEAD\0<기능 목록>' 이다. ' HEAD' 바로 앞의
+    # 40자를 잡으므로 길이 접두사가 sha 에 섞이지 않는다. 비공개 저장소의 401 은 -f 가
+    # 실패로 돌려주고 그때도 $null 이다.
+    param([string]$Url)
+    try {
+        $text = (& curl.exe -s -f -m 2 "$Url/info/refs?service=git-upload-pack" 2>$null) -join "`n"
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $m = [regex]::Match($text, '([0-9a-f]{40}) HEAD')
+        if ($m.Success) { return $m.Groups[1].Value }
+    } catch { }
+    return $null
+}
+
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $notes = New-Object System.Collections.ArrayList   # 맞춤이 고칠 수 있는 것
+$noteSteps = New-Object System.Collections.ArrayList   # $notes 와 같은 순서로 맞춤 단계 번호
+function Add-Note([int[]]$Step, [string]$Text) {
+    [void]$notes.Add($Text)
+    [void]$noteSteps.Add($Step)
+}
 $asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
+$stuckSay = New-Object System.Collections.ArrayList   # 같은 원격 커밋으로 실패해 다시 안 한 것
+$remoteOf = @{}          # 배포처 이름 → 원격 커밋. 맞춤에 넘긴다
+$script:NetMs = 0        # 몸통에 안 세는 네트워크 시간
 
 try {
     $userHome = $env:USERPROFILE
@@ -124,6 +229,7 @@ try {
     $settings  = Read-Json (Join-Path $cfg     'settings.json')
     $installed = Read-Json (Join-Path $plugins 'installed_plugins.json')
     $known     = Read-Json (Join-Path $plugins 'known_marketplaces.json')
+    $kwState = Read-KwState (Join-Path $cfg 'kw-control-tower.state')
 
     $enabled     = Get-Prop $settings  'enabledPlugins'
     $installedOf = Get-Prop $installed 'plugins'
@@ -150,10 +256,10 @@ try {
     }
 
     if ($missing.Count -gt 0) {
-        [void]$notes.Add("필수 플러그인이 안 깔려 있습니다: $($missing -join ', ')")
+        Add-Note 2 "필수 플러그인이 안 깔려 있습니다: $($missing -join ', ')"
     }
     if ($disabled.Count -gt 0) {
-        [void]$notes.Add("필수 플러그인이 꺼져 있습니다: $($disabled -join ', ')")
+        Add-Note 2 "필수 플러그인이 꺼져 있습니다: $($disabled -join ', ')"
     }
 
     # --- 질문 3. 정리하기로 한 플러그인이 남았나 ---------------------------
@@ -164,7 +270,7 @@ try {
         if ((Get-Prop $installedOf $id) -or ($null -ne (Get-Prop $enabled $id))) { [void]$staleP.Add($id) }
     }
     if ($staleP.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 플러그인이 남아 있습니다: $($staleP -join ', ')")
+        Add-Note 3 "더 안 쓰는 플러그인이 남아 있습니다: $($staleP -join ', ')"
     }
 
     # --- 질문 4. 정리하기로 한 배포처가 남았나 -----------------------------
@@ -176,7 +282,7 @@ try {
         if ($m.InSettings -or $m.InKnown) { [void]$staleM.Add($name) }
     }
     if ($staleM.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 배포처가 남아 있습니다: $($staleM -join ', ')")
+        Add-Note 3 "더 안 쓰는 배포처가 남아 있습니다: $($staleM -join ', ')"
     }
 
     # --- 질문 5. 우리 배포처의 자동 갱신이 두 곳 다 켜져 있나 ---------------
@@ -192,26 +298,19 @@ try {
         if (($a -ne $true) -or ($b -ne $true)) { [void]$offAuto.Add($name) }
     }
     if ($offAuto.Count -gt 0) {
-        [void]$notes.Add("자동 갱신이 꺼져 있습니다: $($offAuto -join ', ')")
+        Add-Note 1 "자동 갱신이 꺼져 있습니다: $($offAuto -join ', ')"
     }
 
     # --- 질문 6. 파이썬 라이브러리 목록이 바뀌었나 -------------------------
     # 예산 안에서 이 PC 를 직접 못 읽는 것이 이 하나뿐이라 해시로 측정한다.
     # 재는 것은 파일이다. JSON 의 하위 트리를 해시하면 프로세스마다 값이 달라진다.
-    $stateFile = Join-Path $cfg 'kw-control-tower.state'
     $reqFile   = Join-Path $root 'requirements.txt'
     $script:Budget.Files++
     if (Test-Path -LiteralPath $reqFile) {
         $now = Get-CheapHash $reqFile
-        $was = $null
-        $script:Budget.Files++
-        if (Test-Path -LiteralPath $stateFile) {
-            foreach ($line in (Get-Content -LiteralPath $stateFile -Encoding UTF8)) {
-                if ($line -like 'requirements=*') { $was = $line.Substring(13) }
-            }
-        }
+        $was = $kwState['requirements']
         if ($now -ne $was) {
-            [void]$notes.Add('파이썬 라이브러리 목록이 이 PC에 맞춰진 것과 다릅니다.')
+            Add-Note 4 '파이썬 라이브러리 목록이 이 PC에 맞춰진 것과 다릅니다.'
         }
     }
 
@@ -220,7 +319,7 @@ try {
     $script:Budget.Registry++
     $utf8 = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'User')
     if ($null -eq $utf8) {
-        [void]$notes.Add('PYTHONUTF8 이 설정되어 있지 않습니다. 한글이 깨질 수 있습니다.')
+        Add-Note 5 'PYTHONUTF8 이 설정되어 있지 않습니다. 한글이 깨질 수 있습니다.'
     }
 
     # --- 질문 8. CLAUDE.md 의 사내 문안이 템플릿과 같나 ---------------------
@@ -230,22 +329,43 @@ try {
     $tpl = Join-Path $root 'templates\claude-md-ko.md'
     $mem = Join-Path $cfg 'CLAUDE.md'
     $script:Budget.Files += 2
+    $u8 = New-Object System.Text.UTF8Encoding($false)
+    # 블록은 kw-ax 의 사본을 @import 로 싣는다. 사본이 없으면 @import 가 알리지 않고
+    # 아무것도 싣지 않으며, 낡으면 옛 문안이 실린다. CLAUDE.md 만 보아서는 둘 다 안 드러난다.
+    # 맞춤이 Get-AxCopies 목록을 복사하므로 여기서도 같은 목록을 대조한다.
+    $memText = if (Test-Path -LiteralPath $mem) { [System.IO.File]::ReadAllText($mem, $u8) } else { '' }
+    if (Test-Path -LiteralPath $tpl) {
+        $stale = New-Object System.Collections.ArrayList
+        $tplDir = Split-Path -Parent $tpl
+        foreach ($name in @(Get-AxCopies $memText)) {
+            $src  = Join-Path $tplDir $name
+            $copy = Join-Path (Join-Path $cfg 'kw-ax') $name
+            $script:Budget.Files += 2
+            if (-not (Test-Path -LiteralPath $src)) { continue }
+            if (-not (Test-Path -LiteralPath $copy) -or
+                ([System.IO.File]::ReadAllText($copy, $u8) -ne [System.IO.File]::ReadAllText($src, $u8))) {
+                [void]$stale.Add($name)
+            }
+        }
+        if ($stale.Count -gt 0) {
+            Add-Note 6 "CLAUDE.md 가 싣는 사내 문안 사본이 없거나 배포된 것과 다릅니다: $($stale -join ', ')"
+        }
+    }
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
-        $u8 = New-Object System.Text.UTF8Encoding($false)
-        $block = ([System.IO.File]::ReadAllText($tpl, $u8)).Trim()
-        $now   = [System.IO.File]::ReadAllText($mem, $u8)
+        $now   = $memText
+        $block = Get-AxBlock $now
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
         $found = [regex]::Match($now, $re)
         $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }
         $howMany = @([regex]::Matches($now, $re)).Count
         if (-not $found.Success) {
-            [void]$notes.Add('CLAUDE.md 에 사내 문안 블록이 없습니다.')
+            Add-Note 6 'CLAUDE.md 에 사내 문안 블록이 없습니다.'
         } elseif ($howMany -gt 1) {
             # 개수를 따로 세는 것은 위 정규식이 첫 블록만 잡기 때문이다. 개수를 안
             # 보면 같은 블록이 둘인 파일이 "이미 같다" 로 읽혀 조용히 남는다.
-            [void]$notes.Add("CLAUDE.md 에 사내 문안 블록이 $howMany 개 있습니다.")
+            Add-Note 6 "CLAUDE.md 에 사내 문안 블록이 $howMany 개 있습니다."
         } elseif ((& $norm $found.Value) -ne (& $norm $block)) {
-            [void]$notes.Add('CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.')
+            Add-Note 6 'CLAUDE.md 의 사내 문안 블록이 배포된 것과 다릅니다.'
         }
     }
 
@@ -257,7 +377,7 @@ try {
         if (Test-Path -LiteralPath (Join-Path (Join-Path $cfg 'skills') $name)) { [void]$staleS.Add($name) }
     }
     if ($staleS.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 스킬 사본이 남아 있습니다: $($staleS -join ', ')")
+        Add-Note 7 "더 안 쓰는 스킬 사본이 남아 있습니다: $($staleS -join ', ')"
     }
 
     # 훅 연결은 파일 이름이 아니라 경로로 구분한다. 이 플러그인이 거는 훅의 파일 이름이
@@ -273,7 +393,7 @@ try {
         }
     }
     if ($staleH.Count -gt 0) {
-        [void]$notes.Add("더 안 쓰는 훅 연결이 남아 있습니다: $($staleH -join ', ')")
+        Add-Note 7 "더 안 쓰는 훅 연결이 남아 있습니다: $($staleH -join ', ')"
     }
 
     # --- 질문 11. 우리 배포처에서 온 설치본이 사본보다 뒤처졌나 --------------
@@ -283,46 +403,80 @@ try {
     #
     # 남의 배포처는 안 본다. 회사가 필수로 정한 것만 최신이어야 하고, 남의 것을 언제
     # 올릴지는 사용자가 정한다.
+    #
+    # 2026-09-25 에 견주는 대상을 사본에서 원격으로 바꿨다. 사본은 자동 갱신이 받아 와야
+    # 움직이는데, 자동 갱신은 세션 시작 몇 분 뒤에 도착하거나 아예 안 온다. 사본과만
+    # 견주면 원격에 새 커밋이 있어도 설치본과 사본이 같아 보여 맞춤이 안 돈다. 이 PC 에서
+    # 그렇게 설치본이 PR 하나만큼 뒤처진 채로 세션이 열렸다. 원격을 못 읽으면 사본과 견준다.
+    #
+    # 배포처가 브랜치나 태그를 지정했으면 원격 기본 브랜치와 견주면 안 된다. 매 세션
+    # 다르다고 나와 맞춤이 되풀이된다. 그때는 사본과 견준다.
+    #
+    # 맞춤이 지난번에 같은 원격 커밋으로 옮기지 못했으면 다시 호출하지 않는다. 매 세션
+    # 일 분씩 같은 실패를 되풀이하게 된다. 원격에 새 커밋이 생기면 다시 시도한다.
     $behind = New-Object System.Collections.ArrayList
+    $cloneLate = $false
     foreach ($mk in @($manifest.marketplaces)) {
         if ((Get-Prop $mk 'ours') -ne $true) { continue }
         $mkName = Get-Prop $mk 'name'
-        if (-not $mkName) { continue }
+        if (-not $mkName -or $null -eq $installedOf) { continue }
         $head = Get-MarketplaceHead (Join-Path (Join-Path $plugins 'marketplaces') $mkName)
-        if (-not $head -or $null -eq $installedOf) { continue }
+        $m = Test-Marketplace $settings $known $mkName
+        $src = Get-Prop $m.Known 'source'
+        if ($null -eq $src) { $src = Get-Prop $m.Settings 'source' }
+        $url = Get-RemoteUrl $src
+        $remote = $null
+        if ($url) {
+            $sw.Stop()
+            $net = [System.Diagnostics.Stopwatch]::StartNew()
+            $remote = Get-RemoteHead $url
+            $script:NetMs += $net.ElapsedMilliseconds
+            $sw.Start()
+        }
+        $target = if ($remote) { $remote } else { $head }
+        if (-not $target) { continue }
+        if ($remote) { $remoteOf[$mkName] = $remote }
+        # 사본이 원격보다 뒤일 때만 받아오기(단계 1)가 필요하다.
+        if ($remote -and $head -and -not $remote.StartsWith($head) -and -not $head.StartsWith($remote)) { $cloneLate = $true }
+
+        $late = New-Object System.Collections.ArrayList
         foreach ($pluginId in @($installedOf.PSObject.Properties.Name)) {
             if (-not $pluginId.EndsWith("@$mkName")) { continue }
             foreach ($scope in @(Get-Prop $installedOf $pluginId)) {
                 $sha = Get-Prop $scope 'gitCommitSha'
                 if (-not $sha) { continue }
-                if (-not $head.StartsWith($sha) -and -not $sha.StartsWith($head)) {
-                    [void]$behind.Add($pluginId)
+                if (-not $target.StartsWith($sha) -and -not $sha.StartsWith($target)) {
+                    [void]$late.Add(@{ Id = $pluginId; Sha = $sha })
                     break
                 }
             }
         }
+        if ($late.Count -eq 0) { continue }
+        if ($remote -and $kwState["stuck-$mkName"] -eq $remote) {
+            [void]$stuckSay.Add('  이미 갱신에 실패해 다시 시도하지 않았습니다. 원격에 새 커밋이 생기면 다시 시도합니다.')
+            foreach ($l in $late) { [void]$stuckSay.Add("  - $($l.Id) : $($l.Sha.Substring(0, 7)) → $($remote.Substring(0, 7))") }
+            [void]$stuckSay.Add('  지금 옮기려면 아래를 실행해 주십시오.')
+            [void]$stuckSay.Add("      claude plugin marketplace update $mkName")
+            foreach ($l in $late) { [void]$stuckSay.Add("      claude plugin update $($l.Id)") }
+        } else {
+            foreach ($l in $late) { [void]$behind.Add($l.Id) }
+        }
     }
     if ($behind.Count -gt 0) {
-        [void]$notes.Add("설치본이 배포처 사본보다 뒤처져 있습니다: $(($behind | Select-Object -Unique) -join ', ')")
+        Add-Note $(if ($cloneLate) { @(1, 2) } else { @(2) }) "설치본이 원격보다 뒤처져 있습니다: $(($behind | Select-Object -Unique) -join ', ')"
     }
 
     # --- 질문 12. 배포처 사본을 오래 받아오지 않았나 ------------------------
     # 사본 자체가 낡았는지는 네트워크에 나가야 확실히 안다. 감지는 안 나가므로 대신
     # 마지막으로 받아온 시각을 본다. 맞춤이 받아올 때마다 그 시각을 적으므로, 저장소에
     # 새 커밋이 없어 사본이 안 움직이는 때에도 이 질문이 되풀이되지 않는다.
-    $script:Budget.Files++
-    $refreshed = $null
-    if (Test-Path -LiteralPath $stateFile) {
-        foreach ($line in (Get-Content -LiteralPath $stateFile -Encoding UTF8)) {
-            if ($line -like 'refreshed=*') { $refreshed = $line.Substring(10) }
-        }
-    }
+    $refreshed = $kwState['refreshed']
     $stale = $true
     if ($refreshed) {
         try { $stale = ([datetime]::Parse($refreshed) -lt (Get-Date).AddDays(-14)) } catch { $stale = $true }
     }
     if ($stale) {
-        [void]$notes.Add('배포처 사본을 열나흘 넘게 받아오지 않았습니다.')
+        Add-Note 1 '배포처 사본을 열나흘 넘게 받아오지 않았습니다.'
     }
 
     # --- 질문 13. 사내 GitHub 로그인이 되어 있나 ---------------------------
@@ -345,9 +499,8 @@ try {
         }
     }
     if (-not $loggedIn) {
-        [void]$asks.Add('사내 GitHub 로그인이 아직입니다. 브라우저 승인이 필요해 대신 해 드릴 수 없으니 아래를 직접 실행해 주십시오.')
-        [void]$asks.Add('    gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
-        [void]$asks.Add('조직에 아직 초대되지 않았다면 초대 메일을 먼저 수락하셔야 합니다.')
+        # 한 줄로 낸다. 매 세션 뜨는 안내라 길면 그 아래의 다른 알림을 밀어낸다(2026-09-29 사용자 결정).
+        [void]$asks.Add('사내 GitHub 로그인이 필요합니다. 직접 실행해 주십시오: gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
     }
 }
 catch {
@@ -379,73 +532,48 @@ if ($sw.ElapsedMilliseconds -gt 200) {
     try {
         $over = Join-Path (Join-Path $env:USERPROFILE '.claude') 'kw-control-tower.slow'
         [System.IO.File]::WriteAllText($over,
-            "$(Get-Date -Format o) $($sw.ElapsedMilliseconds)ms files=$($script:Budget.Files)`r`n",
+            "$(Get-Date -Format o) $($sw.ElapsedMilliseconds)ms files=$($script:Budget.Files) net=$($script:NetMs)ms`r`n",
             (New-Object System.Text.UTF8Encoding($false)))
     } catch { }
 }
 
-# --- 자동 갱신이 조용히 한 일을 보여준다 -----------------------------------
+# --- 출력 -------------------------------------------------------------------
 #
-# 클로드 코드의 자동 갱신은 아무 말 없이 설치본을 새 버전으로 옮긴다. 무엇이 언제
-# 바뀌었는지 사용자가 알 길이 없었다. 지난 세션에 본 버전을 적어 두고 달라진 것만
-# 알린다. 불일치한 곳이 하나도 없어도 이것은 말한다.
-#
-# 우리 배포처만 보지 않고 깔린 것을 다 본다. 사용자가 알고 싶은 것은 "무엇이 나도
-# 모르게 바뀌었나" 이고 그 질문에 우리 것과 남의 것의 구별이 없다.
-$changed = New-Object System.Collections.ArrayList
-try {
-    $seenFile = Join-Path $cfg 'kw-control-tower.seen'
-    $seen = @{}
-    if (Test-Path -LiteralPath $seenFile) {
-        foreach ($line in (Get-Content -LiteralPath $seenFile -Encoding UTF8)) {
-            $i = $line.IndexOf('=')
-            if ($i -gt 0) { $seen[$line.Substring(0, $i)] = $line.Substring($i + 1) }
-        }
-    }
-    $now = @{}
-    if ($null -ne $installedOf) {
-        foreach ($pluginId in @($installedOf.PSObject.Properties.Name)) {
-            foreach ($scope in @(Get-Prop $installedOf $pluginId)) {
-                $v = Get-Prop $scope 'version'
-                if (-not $v) { $v = Get-Prop $scope 'gitCommitSha' }
-                if ($v) { $now[$pluginId] = "$v"; break }
-            }
-        }
-    }
-    # 처음 도는 PC 에서는 깔린 것을 통째로 '바뀐 것' 으로 세게 된다. 그때는 적어만
-    # 두고 말하지 않는다. 사용자가 방금 깐 것을 갱신이라고 알리면 거짓말이 된다.
-    if ($seen.Count -gt 0) {
-        foreach ($pluginId in @($now.Keys)) {
-            if ($seen.ContainsKey($pluginId) -and $seen[$pluginId] -ne $now[$pluginId]) {
-                [void]$changed.Add("$pluginId : $($seen[$pluginId]) -> $($now[$pluginId])")
-            }
-        }
-    }
-    if ($now.Count -gt 0) {
-        $lines = foreach ($k in $now.Keys) { "$k=$($now[$k])" }
-        [System.IO.File]::WriteAllLines($seenFile, [string[]]@($lines), (New-Object System.Text.UTF8Encoding($false)))
-    }
-} catch { }
-
-if ($changed.Count -gt 0) {
-    Write-Output 'KW 컨트롤 타워: 지난 세션 뒤로 아래가 새 버전으로 바뀌었습니다.'
-    foreach ($c in ($changed | Sort-Object)) { Write-Output "  - $c" }
-    Write-Output '자동 갱신이 한 것이라 사용자가 실행한 적이 없습니다. 새 버전은 다음에 켤 때부터 실립니다.'
-    if ($notes.Count -gt 0) { Write-Output '' }
+# 할 말을 모아 두었다가 끝에 훅 JSON 하나로 낸다. 그냥 찍으면 Claude 의 맥락에만 실리고
+# 사용자 화면에는 안 보인다. systemMessage 는 사용자에게 띄우고, 같은 문장을
+# additionalContext 로도 넣어 Claude 가 첫 답에서 재시작이나 직접 할 일을 전하게 한다.
+# disciplined-coder 와 2026-09-25 에 이 형식으로 맞췄다.
+$say = New-Object System.Collections.ArrayList
+$syncLog = $null   # 맞춤을 불렀으면 그 진행 기록 파일. Claude 에게만 알린다.
+$restartLine = 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
+function Send-Hook {
+    if ($say.Count -eq 0) { return }
+    $text = ($say -join "`n").TrimEnd()
+    # 맞춤이 찍은 재시작 줄도 여기서 보므로 문구가 아니라 합의한 첫 줄 그대로를 찾는다.
+    $ctx = $text + "`n`n이 알림을 사용자의 첫 요청에 답하기 전에 먼저 전하라."
+    if ($text.Contains($restartLine)) { $ctx += ' 클로드 코드를 다시 켜 달라고 요구하라.' }
+    if ($text -match '(?m)^\s+claude plugin ') { $ctx += ' 적힌 명령을 대신 실행할지 물어라.' }
+    if ($syncLog) { $ctx += " 맞춤의 진행 기록은 $syncLog 에 있다." }
+    @{ systemMessage = $text; hookSpecificOutput = @{ hookEventName = 'SessionStart'; additionalContext = $ctx } } |
+        ConvertTo-Json -Depth 4 -Compress
 }
 
-# 사용자가 직접 해야 하는 것을 먼저 말한다. 맞춤이 뒤에 길게 찍으므로, 뒤에 두면
-# 사람이 할 일이 출력 맨 아래로 밀려 안 읽힌다.
-if ($asks.Count -gt 0) {
-    Write-Output 'KW 컨트롤 타워: 직접 해 주셔야 하는 것이 있습니다.'
-    foreach ($a in $asks) { Write-Output "  $a" }
-    if ($notes.Count -gt 0) { Write-Output '' }
+# 다른 곳(클로드 코드의 자동 갱신, disciplined-coder)이 옮긴 설치본은 알리지 않는다. 갱신은
+# 그것을 한 훅이 그 세션에서만 알린다(2026-09-29 사용자 결정). 알리면 disciplined-coder 가
+# 이미 알린 갱신을 다음 세션에 한 번 더 알리게 된다. 맞춤이 같은 원격 커밋으로 실패한 것은
+# 직접 실행할 명령이 있으므로 알린다. 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다.
+if ($stuckSay.Count -gt 0) {
+    [void]$say.Add('kw-control-tower: 플러그인 버전 알림')
+    foreach ($s in $stuckSay) { [void]$say.Add($s) }
+    [void]$say.Add('')
 }
 
-if ($notes.Count -eq 0) { exit 0 }   # 맞춤이 고칠 것이 없으면 맞춤을 안 호출한다
+# 사용자가 직접 해야 하는 것을 먼저 말한다. 한 가지를 한 줄로 낸다. 직접 할 일은 맞춤을
+# 부르는 이유가 아니므로 아래의 맞춤과 무관하게 뜬다.
+foreach ($a in $asks) { [void]$say.Add("KW 컨트롤 타워: $a") }
+if ($asks.Count -gt 0 -and $notes.Count -gt 0) { [void]$say.Add('') }
 
-Write-Output 'KW 컨트롤 타워: 이 PC 가 사내 설정과 불일치합니다.'
-foreach ($n in $notes) { Write-Output "  - $n" }
+if ($notes.Count -eq 0) { Send-Hook; exit 0 }   # 맞춤이 고칠 것이 없으면 맞춤을 안 호출한다
 
 # --- 여기부터 예산 밖이다 ---------------------------------------------------
 #
@@ -458,28 +586,46 @@ foreach ($n in $notes) { Write-Output "  - $n" }
 #
 # 맞춤은 멱등이다. 없거나 불일치한 것만 고치고 이미 맞는 것은 손대지 않는다. 실패해도
 # 세션을 막지 않는다. 못 한 단계만 다음 세션에 다시 알리고 나머지는 조용하다.
-#
+
+# 같은 원인으로 이미 실패한 단계는 다시 호출하지 않는다. 호출해도 같은 실패가 되풀이될 뿐이다.
+$runSteps = New-Object System.Collections.ArrayList
+$held     = New-Object System.Collections.ArrayList
+foreach ($n in @($noteSteps | ForEach-Object { $_ } | Sort-Object -Unique)) {
+    if ($kwState["stuck-step$n"] -eq (Get-StuckPrint $root $n)) { [void]$held.Add($n) } else { [void]$runSteps.Add($n) }
+}
+if ($held.Count -gt 0) {
+    [void]$say.Add("kw-control-tower: 맞춤이 단계 $($held -join ', ') 에서 같은 원인으로 이미 실패해 다시 시도하지 않았습니다. 기록: $(Join-Path $cfg 'kw-control-tower.sync.log')")
+}
+if ($runSteps.Count -eq 0) { Send-Hook; exit 0 }
+
 # 자식 프로세스로 부른다. 같은 프로세스에서 호출하면 맞춤의 Write-Host 가 성공 스트림에
 # 안 실려 못 잡는다. 둘 다 출력을 UTF-8 로 맞춰 두어 한국어가 안 깨진다.
 $sync = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\sync.ps1'
 if (-not (Test-Path -LiteralPath $sync)) {
-    Write-Output '맞춤 스크립트를 못 찾아 고치지 못했습니다. 설치기를 다시 돌리십시오.'
+    # 맞춤을 못 부를 때만 불일치 목록을 낸다. 맞춤이 돌면 그 결과가 무엇을 고쳤는지 말하므로
+    # 목록을 함께 내면 같은 플러그인이 두 번 나온다.
+    [void]$say.Add('KW 컨트롤 타워: 이 PC 가 사내 설정과 불일치합니다.')
+    foreach ($n in $notes) { [void]$say.Add("  - $n") }
+    [void]$say.Add('맞춤 스크립트를 못 찾아 고치지 못했습니다. 설치기를 다시 돌리십시오.')
+    Send-Hook
     exit 0
 }
 
-Write-Output ''
-# 예산을 아흔 초로 늘린 만큼 세션 시작이 멈춘 것처럼 보인다. 무엇을 기다리는지
-# 먼저 말한다. 이 줄이 없으면 사용자는 클로드 코드가 죽은 줄 안다.
-Write-Output '불일치를 맞춥니다. 받아오고 까는 데 일 분 걸리니 잠시 기다려 주십시오.'
 try {
-    $out = & pwsh -NoProfile -NonInteractive -File $sync 2>&1
-    # 맞춤이 찍는 것을 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
+    # 감지가 읽은 원격 커밋을 넘긴다. 맞춤은 그 커밋까지 옮기지 못했으면 상태 파일에
+    # 적고, 감지는 다음 세션에 그것을 보고 같은 실패로 맞춤을 다시 호출하지 않는다.
+    $env:KWCT_REMOTE_HEAD = (@($remoteOf.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';')
+    # -Brief 로 부른다. 맞춤은 진행 출력을 로그 파일에 두고 결과만 낸다.
+    $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief -Steps ($runSteps -join ',') -BudgetSeconds 60 2>&1
+    $syncLog = Join-Path $cfg 'kw-control-tower.sync.log'
+    # 맞춤이 낸 결과를 그대로 흘린다. 다시 켜라는 안내도 맞춤이 낸다.
     #
     # 여기서 문구를 찾아 판정하던 것을 그만뒀다. 맞춤이 재시작을 호출하는 일을 다섯 가지
     # 하는데 이 정규식은 그중 둘만 잡고 있었다. 갱신과 되켜기와 걷어내기가 빠졌다.
     # 무엇이 재시작을 호출하는지는 그 일을 하는 곳이 안다.
-    foreach ($line in $out) { Write-Output "$line" }
+    foreach ($line in $out) { [void]$say.Add("$line") }
 } catch {
-    Write-Output "맞춤을 돌리지 못했습니다: $($_.Exception.Message)"
+    [void]$say.Add("맞춤을 돌리지 못했습니다: $($_.Exception.Message)")
 }
+Send-Hook
 exit 0

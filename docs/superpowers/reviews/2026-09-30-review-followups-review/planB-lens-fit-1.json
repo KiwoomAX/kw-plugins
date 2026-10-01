@@ -1,0 +1,15 @@
+{"lens":"lens-fit","target":"docs/superpowers/plans/2026-09-30-plugin-fixes.md","doc_type":"설계 (spec·plan)","issues":[
+{"where":"Global Constraints 16행","type":"style","claim":"금지 표현 '막는'","evidence":"`tests/test_devops.ps1` 이 막는다.","principle":"korean-banned-words `막는`"},
+{"where":"Task 2 머리 문단 113행","type":"style","claim":"금지 표현 '판'(보정판)","evidence":"보정판에 COM 대체 경로를 적는다.","principle":"korean-banned-words `판`"},
+{"where":"Task 2 Step 4 xlsx 새 본문 173행","type":"style","claim":"스킬 본문에 금지 표현 '자리'","evidence":"`# ... 확인할 값을 여기서 Write-Output 한다` 자리에 이 줄을 둔다.","principle":"korean-banned-words `자리`; SPECIFIC-NAME"},
+{"where":"Task 2 Step 7 제목 234행","type":"style","claim":"금지 표현 '더한다'","evidence":"common 의 COM 예제 목록에 docx 를 더한다","principle":"korean-banned-words `더하`"},
+{"where":"Task 3 제목 251행, Step 1 260행","type":"style","claim":"금지 표현 '부르고'·'부르는'","evidence":"pwsh 로 부르고 / 5.1)로 부르는 줄만","principle":"korean-banned-words `부르`"},
+{"where":"Task 3·4 커밋 메시지 296·360행","type":"style","claim":"커밋 메시지에 '부르'·'찍'","evidence":"pwsh 로 부르고 / 안 부르고 … UTF-8 로 찍는다","principle":"korean-banned-words `부르`·`찍`"},
+{"where":"Task 1 Step 2 58행, Task 5 Step 2 384행","type":"style","claim":"수사를 대명사처럼 씀","evidence":"위 넷이 `FAIL` / 위 둘이 `FAIL`","principle":"korean-banned-words 하단 지시; SPECIFIC-NAME"},
+{"where":"Task 1–7 Files 뒤","type":"format","claim":"writing-plans 의 Interfaces 블록 누락","evidence":"Files 목록 바로 뒤에 Step 1","principle":"writing-plans Task Structure"},
+{"where":"Task 2 Step 2 153행, Step 8 240행","type":"constraint","claim":"Task 2 안에 명령이 없는데 '같은 명령'으로 가리킴","evidence":"Run: 같은 명령.","principle":"writing-plans No Placeholders"},
+{"where":"Global Constraints 20행과 통과 확인 단계","type":"constraint","claim":"README 는 검사 넷 다 돌리라는데 test_dashboard.ps1 실행 단계가 없음","evidence":"검사 명령: test_doc_formats, test_devops","principle":"README 「손으로 고칠 때 지킬 것」"},
+{"where":"Task 2 Step 5 docx 새 표 머리 187행","type":"style","claim":"표 머리가 명사구가 아님","evidence":"| 공식 스킬의 단계 | 이 PC 에서 |","principle":"LABEL-NOUN"},
+{"where":"Review Focus 24-28행과 작업 제목","type":"style","claim":"'작업 N' 과 'Task N' 혼용","evidence":"작업 1 의 검사가 본다 / ### Task 1","principle":"TERM-ONE"}],
+"principles_applied":["FOCUSED","CHECKABLE","REVERSIBLE","VOCAB-PREF","SPECIFIC-NAME","WRITTEN-ONLY","TERM-ONE","LABEL-NOUN","DOC-TYPE"],
+"notes":"스킬 파일 계약(날짜·실측·python3·CLAUDE_SKILL_DIR)은 지켜졌다. 새 코드 주석에 '찍'(fetch_manifest 주석 '경고를 찍다가')과 '띄운'(docx 예제 '내가 띄운 인스턴스다')이 있으나 코드 주석이라 호출자 판단. Task 5 throw 문자열의 합쇼체·한다체 혼용, Task 6 '다시 센다'/'다시 고른다' 동사 차이는 계약 위반으로 확정하지 못해 올리지 않음. 내용 정확성은 다른 렌즈 몫."}

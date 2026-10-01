@@ -1,0 +1,14 @@
+{"lens":"lens-consistency","target":"docs/superpowers/specs/2026-09-30-review-followups-design.md (+ 두 계획 대조)","issues":[
+{"where":"spec 권장 기록 행 ↔ 계획A Task 10","type":"contradiction","claim":"spec 은 ranOnce PC 가 '그때의 권장 목록'을 처리한 것으로 보고 새 권장은 한 번 깔린다 하나, 계획의 Get-SuggestedDone 은 지금 목록 전부를 돌려주고 검사는 새로 권장이 된 kw-dashboard 를 다시 깔지 않는 것을 통과 조건으로 둔다"},
+{"where":"spec 배포 스킬 ↔ 계획B Task 6","type":"drift","claim":"spec 은 '고른 직후' 등록, 계획은 3단계 이름 확정 직후 등록. spec 미반영"},
+{"where":"계획A Task 10 Step 5 ↔ 기존 설계 274·511·540행","type":"scope","claim":"감지가 권장 미처리를 판정(Add-Note 2)하는 동작이 spec 에 없고 기존 설계의 '`suggested`는 재지 않는다' 절을 고치지 않는다"},
+{"where":"spec 등급 ↔ 계획A Task 10 ↔ 기존 설계 78·189–192행","type":"gap","claim":"기존 설계의 필수·권장 예시(78행 그림, 189–192행 manifest 예시)를 고치지 않는다"},
+{"where":"계획A Task 3 Step 5 ↔ 기존 설계 321행","type":"gap","claim":"321행 '단계 여덟 … 한 단계에는 한 상태 키' 를 고치지 않고, Files 는 299행을 적으나 Step 은 고치지 않는다. 새 키 stuck-step·suggestedDone 과도 상충"},
+{"where":"계획A Task 4 ↔ 기존 설계 349·522행","type":"gap","claim":"349행(설치기 분기를 들고 와 파이썬에게 묻는다, 그 밖의 값은 경고)과 522행을 고치지 않는다. 새 규칙은 그 밖의 값을 Fail 로 처리"},
+{"where":"spec 잠금 ↔ 계획A Task 11 ↔ 기존 설계 455–459·537행","type":"gap","claim":"기존 설계 「잠금이 없는 파일」 절과 위험 목록을 고치지 않는다"},
+{"where":"계획A Task 2·8·9 ↔ 기존 설계 393행","type":"gap","claim":"393행 훅 표의 매처 '없다' 를 고치지 않고, 시간 상한·단계 지문을 기존 설계에 적는 작업이 없다"},
+{"where":"계획A Task 8 Step 2 ↔ Step 5","type":"contradiction","claim":"Step 2 는 새 검사 넷 FAIL 기대, Step 5 는 그중 하나가 그대로 통과한다고 적음"},
+{"where":"계획A Task 9 Step 4 ↔ Task 10 Step 4","type":"contradiction","claim":"권장 설치 실패(Fail '2')가 stuck-step2 를 남겨 같은 날 필수 플러그인 설치·되켜기까지 보류시킨다. '실패한 것만 다시 해 본다'와 상충"},
+{"where":"spec 머리말 ↔ 계획A Task 1·2·12, 계획B Task 1·3·4·5·7","type":"scope","claim":"명백한 결함 18건의 결정이 spec 에 없다. 특히 계획B Task 7 은 spec 「현행 유지」의 금지어 워크플로를 고쳐 유지/수정 구분이 안 된다"}],
+"principles_applied":["NO-ASSUME","STATE-ASSUME","FOCUSED","SPECIFIC-NAME","TERM-ONE"],
+"notes":"spec 결정 열 행과 등급·LibreOffice·포트는 모두 계획 작업으로 이어진다. 지문 구성·상태 키·.kw.bak·60초·10분·10초·단계 1–7 은 일치. 추가 확인: 시간 상한이 claude 호출에만 적용되어 pip(단계 4)가 60초를 넘길 때는 보호되지 않음. -Mk fail 에서 stuck-step1 과 stuck-<배포처> 가 함께 적힐 수 있음. README '열세 가지' 는 코드 질문 수 미확인."}
