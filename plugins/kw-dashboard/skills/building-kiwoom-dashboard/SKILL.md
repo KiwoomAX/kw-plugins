@@ -169,9 +169,10 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 | 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` |
 | 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` |
 
-- 팔레트는 둘이다. 기본은 슬레이트 계열이고, 옛 대시보드가 쓰던 키움 남색과 핑크를 살리려면
-  `index.html` 의 `<html>` 에 `data-palette="kiwoom"` 을 적는다. 바뀌는 것은 차트 1·2순위와 상승색
-  다섯뿐이고 나머지 토큰은 두 팔레트가 같다. 한 대시보드 안에서 팔레트를 섞지 않는다.
+- 팔레트는 키움 색이 기본이다. 차트 1·2순위와 상승색은 키움 남색과 핑크로 나오므로 아무것도 적지 않고
+  그대로 쓴다. 어느 팔레트로 할지 묻지 않는다. 다른 색을 쓰고 싶다는 말이 나올 때만 슬레이트 계열을
+  제안하고, 고르면 `index.html` 의 `<html>` 에 `data-palette="slate"` 한 줄을 적는다. 바뀌는 것은 차트
+  1·2순위와 상승색 다섯뿐이고 나머지 토큰은 두 팔레트가 같다. 한 대시보드 안에서 팔레트를 섞지 않는다.
 - 사이드바와 상태바는 `brand` 를 쓰고 내용 구획은 `accent` 를 쓴다. 둘을 바꿔 쓰지 않는다.
 - 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감
   알림이다. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 낮 3.09 대
