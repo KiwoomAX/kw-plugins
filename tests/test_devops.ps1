@@ -100,6 +100,8 @@ Assert 'an abandoned deploy tells the owner to ask for the row to be removed' ($
 Assert 'step 1 reads the existing origin before anything else' ($text -match '(?m)^git remote get-url origin')
 Assert 'a new repo is created only in github-repo.md, and private' (-not ($text -match 'gh repo create') -and ($refText -match 'gh repo create \S+ --private'))
 Assert 'no skill file force-pushes' (-not ($allText -match '(?m)^\s*git push\b.*(--force|-f\b)'))
+# A copy that already has .git on master would track origin/main from master, and the step-4 push is refused.
+Assert 'joining an existing repo points HEAD at main before reset' ($refText -match '(?s)git symbolic-ref HEAD refs/heads/main.*?git reset origin/main')
 
 Write-Host '--- pick_port.py --check ---'
 # Offline self-check: band arithmetic and the enum values the DB constraint holds.

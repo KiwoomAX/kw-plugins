@@ -33,7 +33,12 @@ gh repo list KiwoomAM --limit 1000 --json name,url,pushedAt
 `gh` 가 로그인 오류를 내면 멈추고, 담당자에게 `gh auth login` 을 직접 실행하라고 알린다. 목록을 보지 못한 채로
 새 저장소를 만들지 않는다.
 
-**목록에 보이지 않는 저장소는 없는 것으로 본다.** 담당자가 볼 권한이 없는 비공개 저장소는 담당자의 저장소가
+**등록부에서 찾힌 저장소는 목록에 없어도 새로 만들지 않는다.** `--find` 가 이 서비스의 줄을 내면 그 서비스는 이미
+배포돼 있고, 새 저장소는 같은 컨테이너를 지우는 잡을 하나 더 만든다. 담당자에게 그 줄의 `repo` 저장소에 쓰기 권한을
+저장소 관리자에게 요청하라고 알리고 멈춘다. `repo` 칸이 비어 있으면 AX 팀에 그 컨테이너의 저장소 주소를 물어보라고
+알린다.
+
+**등록부에도 목록에도 없는 저장소는 없는 것으로 본다.** 담당자가 볼 권한이 없는 비공개 저장소는 담당자의 저장소가
 아니므로 새로 만드는 쪽이 맞다.
 
 ## 담당자에게 확인받기
@@ -53,6 +58,7 @@ gh repo list KiwoomAM --limit 1000 --json name,url,pushedAt
 if (-not (Test-Path .git)) { git init -b main }
 git remote add origin <찾은 주소>
 git fetch origin
+git symbolic-ref HEAD refs/heads/main   # .git 이 이미 있고 브랜치가 master 같은 이름이어도 main 으로 맞춘다
 git reset origin/main        # 작업 폴더 파일은 그대로 두고 기준만 원격 main 으로 맞춘다
 git branch -u origin/main
 git status --short
@@ -62,8 +68,11 @@ git status --short
 
 **이 시점에는 스킬이 아직 아무 파일도 쓰지 않았으므로, `git status` 의 차이는 모두 복사본과 원격의 차이다.** 차이가
 있으면 목록을 보여 주고 파일마다 담당자가 고친 파일인지 묻는다. 담당자가 고치지 않은 파일은 복사본이 원격보다
-오래돼 생긴 차이다. 그대로 커밋하면 남이 올린 변경을 되돌리므로 `git restore <파일>` 로 원격 것을 받는다. `??` 로
-나오는 `.env`·`certs/` 는 커밋하지 않는다 — 3단계가 `.gitignore` 에 넣는다.
+오래돼 생긴 차이다. 그대로 커밋하면 남이 올린 변경을 되돌리므로 `git restore <파일>` 로 원격 것을 받는다.
+
+**`??` 로 나오는 파일도 담당자가 만든 파일인지 묻는다.** 원격에서 지운 파일이 복사본에 남은 것일 수 있고, 이 파일은
+`git restore` 로 처리되지 않아 커밋하면 되살아난다. 담당자가 만들지 않은 `??` 파일과 `.env`·`certs/` 는 커밋하지
+않는다 — `.env`·`certs/` 는 3단계가 `.gitignore` 에 넣는다. 커밋할 때는 `git add -A` 대신 파일 이름을 지정한다.
 
 push 는 4단계에서 한다.
 
