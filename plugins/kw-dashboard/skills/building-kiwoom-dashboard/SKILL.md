@@ -5,7 +5,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 # building-kiwoom-dashboard
 
-본부 · 팀 대시보드는 `KiwoomAX/dashboard-template` 레포를 복제해 만든다. 화면은 세 구획이다.
+본부 · 팀 대시보드는 `KiwoomAX/dashboard-template` 저장소를 복제해 만든다. 화면은 세 구획이다.
 
 | 구획 | 누가 그리나 | 규칙 |
 |---|---|---|
@@ -13,7 +13,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 | 상태바(오른쪽 위) | 셸. 페이지는 값만 넘긴다 | 강제 |
 | 내용 구획(오른쪽 아래) | 페이지 | 권장 |
 
-셸은 `src/frontend/src/shell/` 이다. 셸 사용법은 레포의 코드 주석과 타입과 콘솔 경고가 알려 준다.
+셸은 `src/frontend/src/shell/` 이다. 셸 사용법은 저장소의 코드 주석과 타입과 콘솔 경고가 알려 준다.
 이 스킬은 코드가 알려 주지 않는 것만 적는다.
 
 ## 강제 — 사이드바와 상태바
@@ -34,17 +34,17 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 만들면 같은 본부의 대시보드가 둘이 된다. 둘이 되면 조직 폴더가 같은 `Jenkinsfile` 로 Jenkins 잡을 둘 만들고,
 두 잡이 같은 이름의 컨테이너를 서로 지운다.
 
-1. **담당자에게 이 본부의 대시보드를 만들던 폴더가 PC 에 있는지 묻는다.** 있으면 그 폴더로 옮겨 거기서 이어
-   한다. 새로 받지 않는다. 그 폴더가 어떤 것인지에 따라 갈 곳이 다르다.
+1. **폴더 확인.** 담당자에게 이 본부의 대시보드를 만들던 폴더가 PC 에 있는지 묻는다. 있으면 그 폴더로 옮겨
+   거기서 이어서 작업한다. 새로 받지 않는다. 그 폴더에 무엇이 있는지에 따라 갈 곳이 다르다.
 
    | 폴더에 있는 것 | 어디로 간다 |
    |---|---|
-   | `src/frontend/src/shell/` 이 있다 | 템플릿으로 만든 대시보드다. 4번으로 간다 |
-   | 그 폴더가 없다 | 옛 대시보드다. 「이미 만든 대시보드를 옮길 때」로 간다 |
+   | `src/frontend/src/shell/` 이 있다 | 템플릿으로 만든 대시보드다. 「조직 이름 적기」로 간다 |
+   | `src/frontend/src/shell/` 이 없다 | 옛 대시보드다. 「이미 만든 대시보드를 옮길 때」로 간다 |
 
-   폴더가 없다고 하면 2번으로 간다.
+   폴더가 없다고 하면 「조직 저장소 찾기」로 간다.
 
-2. 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
+2. **조직 저장소 찾기.** 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
    `Executive_dashboard` 와 `executive-dashboard` 는 같은 후보다.
 
    ```powershell
@@ -62,13 +62,17 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    Invoke-RestMethod -Uri 'http://192.7.9.45:8700/v1/query/all-dict' -Method Post -ContentType 'application/json' -Body $q
    ```
 
-3. 찾은 것이 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가 맞습니까」라고 묻는다. 맞다고
-   하면 받아서 그 폴더에서 이어 한다. 받은 폴더에 `src/frontend/src/shell/` 이 있으면 4번으로 가고, 없으면 옛
-   대시보드이므로 「이미 만든 대시보드를 옮길 때」로 간다.
+3. **찾은 저장소 확인.** 찾은 저장소가 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가
+   맞습니까」라고 묻는다. 맞다고 하면 받아서 그 폴더에서 이어서 작업한다. 받은 폴더에 `src/frontend/src/shell/`
+   이 있으면 「조직 이름 적기」로 가고, 없으면 옛 대시보드이므로 「이미 만든 대시보드를 옮길 때」로 간다.
 
    ```powershell
    gh repo clone KiwoomAX/<찾은 이름>
    ```
+
+   **포트 등록부에서만 찾았으면 받지 못한다.** `gh repo list` 에 안 보이고 등록부에만 있는 저장소는 담당자에게
+   볼 권한이 없어 `gh repo clone` 이 `Could not resolve to a Repository` 로 실패한다. 등록부에는 마지막 push 시각도
+   없다. 「저장소는 있으나 볼 권한이 없다」고 알리고 AX 팀에 권한을 요청하라고 한 뒤 멈춘다. 새로 만들지 않는다.
 
    **담당자가 모른다고 하면 만들지 않고 멈춘다.** 이 본부의 대시보드를 전에 만든 사람에게 저장소 주소를
    물어보라고 알린다. 확신 없이 만들면 둘이 된다.
@@ -80,26 +84,25 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    gh repo create KiwoomAX/<본부 영문 이름>-dashboard --template KiwoomAX/dashboard-template --private --clone
    ```
 
-4. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
+4. **조직 이름 적기.** `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
    사이드바 무리 이름이 「본부 기능」이 되고, 「팀」으로 끝나면 「팀 기능」이 된다.
-5. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
-6. 백엔드와 화면을 띄우고 `http://localhost:3000` 을 연다. 백엔드가 8000번에서 답하고, 화면 쪽이 `/api` 로
-   시작하는 요청을 그리로 넘긴다. 창을 둘 띄워 하나씩 둔다. 처음 한 번만 설치가 필요하고 그다음부터는 마지막
-   줄만 돌린다.
+5. **다른 본부 목록.** `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
+6. **로컬에서 실행.** 백엔드와 화면을 실행하고 `http://localhost:3000` 을 연다. 백엔드가 8000번에서 답하고,
+   화면 쪽이 `/api` 로 시작하는 요청을 그리로 넘긴다. PowerShell 창을 둘 열어 아래 두 블록을 하나씩 실행한다.
+   설치는 처음 한 번만 하면 되고, 그다음부터는 첫 블록의 마지막 줄과 `cd src/frontend; npm run dev` 만 실행한다.
 
    ```powershell
    python -m venv .venv
-   .venv\Scripts\Activate.ps1
-   pip install fastapi "uvicorn[standard]"
-   uvicorn src.backend.main:app --reload
+   .venv\Scripts\python -m pip install fastapi "uvicorn[standard]"
+   .venv\Scripts\python -m uvicorn src.backend.main:app --reload
    ```
 
    ```powershell
    cd src/frontend; npm install; npm run dev
    ```
 
-   설치할 것은 `pyproject.toml` 의 `dependencies` 에 적힌 목록이다. 그 목록이 늘면 늘어난 것도 함께 깐다.
-7. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
+   설치할 목록은 `pyproject.toml` 의 `dependencies` 에 적혀 있다. 그 목록이 늘면 늘어난 것도 함께 설치한다.
+7. **서버 배포.** 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
 
 ## 기능 붙이기
 
@@ -141,7 +144,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 - 사이드바 메뉴에 기능을 추가하려면 본부 승인이 있어야 한다.
 - 권한 설정은 배포하기 전에 AX 팀에 요청한다. 누가 어느 대시보드와 기능을 보는지는 AX 팀이 정한다.
-- 메뉴에 붙인 기능마다 설명 문서를 레포의 `docs/` 에 둔다. 형식은 PDF 나 Word 이고 PDF 를 권장한다. 파일
+- 메뉴에 붙인 기능마다 설명 문서를 저장소의 `docs/` 에 둔다. 형식은 PDF 나 Word 이고 PDF 를 권장한다. 파일
   이름은 API 와 같은 기능 이름으로 짓는다(`/api/kpi` → `docs/kpi.pdf`). 화면 목적 · 데이터 출처와 갱신 주기 ·
   지표 정의(계산식) · 문의처를 적는다. 화면을 고치면 문서도 고친다.
 - 설명 문서는 사람이 쓴다. 에이전트는 데이터 출처나 문의처를 지어내지 않고, 문서가 없으면 없다고 알린다.
@@ -174,11 +177,12 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
   제안하고, 고르면 `index.html` 의 `<html>` 에 `data-palette="slate"` 한 줄을 적는다. 바뀌는 것은 차트
   1·2순위와 상승색 다섯뿐이고 나머지 토큰은 두 팔레트가 같다. 한 대시보드 안에서 팔레트를 섞지 않는다.
 - 사이드바와 상태바는 `brand` 를 쓰고 내용 구획은 `accent` 를 쓴다. 둘을 바꿔 쓰지 않는다.
-- 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감
-  알림이다. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 낮 3.09 대
-  밤 10.2 로 두 테마의 무게가 어긋난다.
+- 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감 알림과
+  실패다. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 대비가 낮 3.09,
+  밤 10.2 로 테마에 따라 눈에 띄는 정도가 크게 달라진다.
 - 확인이 필요한 것만 굵은 글씨에 옅은 면(`-weak`)을 준다. 진행과 완료는 보통 굵기에 면 없이 글자만 둔다.
-- 한 화면에 색감은 둘까지 권장하고 회색을 포함해 세 계열을 넘기지 않는다.
+- 한 화면에 색감은 둘까지 권장하고 회색을 포함해 세 계열을 넘기지 않는다. 차트 안의 계열은 이 셈에서 빼고
+  아래 차트 규칙으로 센다.
 - 겹치지 않는 차트(도넛 · 단일 막대)는 `chart-1` · `chart-2` 와 회색 셋만 쓴다. 색감이 셋 이상 필요하면
   스킬이 값을 주지 않으므로 어떤 색을 쓸지 사람에게 묻는다.
 - 겹치는 차트(꺾은선 여럿)는 `chart-4` 까지 쓴다. 넷을 넘으면 색을 더 만들지 않고 「기타」로 묶거나 차트를
@@ -189,8 +193,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
   조각 위로 올라타 한 곳만 간격이 사라진다. 조각 길이는 비율에서 계산하고 조각마다 간격만큼 뺀다.
 - 등락에 `status-ok` · `status-bad` 를 빌려 쓰지 않는다. 상태와 등락은 뜻이 다르다. 자금 유입과 유출은
   등락이므로 `rise` · `fall` 을 쓴다.
-- 옅은 면은 투명도로 만들지 않고 낮은 흰 면에, 밤은 카드 면에 12% 섞은 고정값으로 둔다. 그래야 대비를
-  계산할 수 있다.
+- 옅은 면은 투명도로 만들지 않고, 그 색을 낮에는 흰 면에, 밤에는 카드 면에 12% 섞은 고정값으로 둔다. 그래야
+  대비를 계산할 수 있다.
 - `#333` 이나 `red-500` 같은 값을 직접 쓰지 않는다. 새 색이 필요하면 셸 밖에 자기 CSS 파일을 만들어 토큰을
   정의한다. 낮(`:root`), OS 설정의 밤(`@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme="light"])`),
   사용자가 고른 밤(`:root[data-theme="dark"]`) 세 곳에 모두 적는다. 그다음 `@theme inline` 에 `--color-<이름>` 으로
@@ -221,13 +225,13 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ### 값이 없을 때와 숫자
 
-화면은 값이 있을 때만 그려지지 않는다. 네 상태를 모두 적는다.
+값이 있을 때의 화면만 만들지 않는다. 아래 네 상태의 화면도 함께 만든다.
 
 | 상태 | 어떻게 보이나 |
 |---|---|
 | 불러오는 중 | 그 구획의 자리를 지키고 「불러오는 중입니다」를 보조 글자색 13px 로 적는다. 자리를 비우면 화면이 흔들린다 |
 | 값이 없음 | 같은 자리에 「아직 값이 없습니다」를 보조 글자색 13px 로 적는다. 왜 없는지 아는 때는 한 줄로 덧붙인다 |
-| 불러오지 못함 | 마감 알림 색으로 적고 옅은 면을 준다. 다시 받을 수 있으면 단추를 함께 둔다 |
+| 불러오지 못함 | `status-bad` 로 적고 옅은 면을 준다. 다시 받을 수 있으면 단추를 함께 둔다 |
 | 권한이 없음 | 보조 글자색으로 적고 누구에게 물어야 하는지 함께 적는다 |
 
 - 금액 · 비율 · 건수처럼 자릿수를 맞춰야 하는 숫자에는 `tabular-nums` 를 준다. 빼면 글꼴의 숫자 폭이 달라
@@ -261,15 +265,16 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 - CSS 속성 이름과 값으로 묻지 않는다. `zoom` 을 1/1.12 로 둘지, `minmax` 를 어떻게 잡을지, 몇 px 로 할지는
   사람이 고를 것이 아니다. 고를 것은 화면의 모습이고, 값은 고른 모습에 맞춰 만드는 쪽이 정한다
-- 후보를 한 화면에 담고 탭으로 갈아 끼우게 만들어 연다. 창을 둘 띄워 번갈아 보게 하지 않는다
+- 후보를 한 화면에 담고 탭으로 갈아 끼우게 만들어 연다. 창을 둘 열어 번갈아 보게 하지 않는다. 코드 상태가
+  둘이어서 한 화면에 담을 수 없을 때만 예외다 — 옮긴 대시보드에 공용 디자인을 적용할지 정하는 단계가 그렇다
 - 낮과 밤을 함께 물을 때도 같은 화면에서 전환하게 한다
 - 한 번에 하나만 바꾸고 나머지는 고정한다. 한 화면에서 둘 이상이 함께 바뀌면 무엇 때문에 달라 보이는지
-  가릴 수 없다
+  구분할 수 없다
 - 화면과 함께 지금 모습과 제안을 한 줄로 적는다. 화면만 띄우고 고르라고 하지 않는다
 
 ## 내보내기 전 확인
 
-브라우저 확인은 「새 대시보드 시작」 6번대로 띄운 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을 다른
+브라우저 확인은 「새 대시보드 시작」의 「로컬에서 실행」대로 실행한 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을 다른
 프로그램이 쓰고 있으면 화면 쪽이 3001번으로 올라가므로 콘솔에 찍힌 주소를 그대로 연다.
 확인이 끝나면 사람이 볼 수 있게 그 주소를 브라우저로 열어 주고, 낮과 밤을 모두 보였는지 함께 적는다.
 
@@ -277,6 +282,6 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 - [ ] 브라우저 개발자 도구의 Console 탭에 `[shell]` 경고와 오류가 없다
 - [ ] `git diff --stat -- src/frontend/src/shell src/frontend/index.html` 이 비어 있다
 - [ ] 낮과 밤에서 모두 보인다. 사이드바를 편 채 알림 서랍을 연 상태에서도 내용 구획이 깨지지 않는다
-- [ ] 새로 만든 화면의 글자 크기가 표 안의 값이고, 색은 토큰 이름이다. 옮겨 온 화면은 옛 모양 그대로다
+- [ ] 새로 만든 화면의 글자 크기가 표 안의 값이고, 색은 토큰 이름이다. 공용 디자인 적용을 승인받지 않았다면 옮겨 온 화면은 옛 모양 그대로다
 - [ ] 화면이 없는 기능이 메뉴에 없고, 대표 기능 하나가 `path: '/'` 다
 - [ ] `docs/` 에 새 기능의 설명 문서가 있다. 없으면 사람에게 알린다
