@@ -30,15 +30,48 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 새 대시보드 시작
 
-1. GitHub 의 `KiwoomAX/dashboard-template` 에서 「Use this template」로 `KiwoomAX/<본부 영문 이름>-dashboard`
-   비공개 레포를 만든다.
-2. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
+**저장소를 만들기 전에 조직에 이미 있는지 찾는다.** 찾지 않고 만들면 같은 본부의 대시보드가 둘이 된다. 둘이
+되면 조직 폴더가 같은 `Jenkinsfile` 로 Jenkins 잡을 둘 만들고, 두 잡이 같은 이름의 컨테이너를 서로 지운다.
+
+1. 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
+   `Executive_dashboard` 와 `executive-dashboard` 는 같은 후보다.
+
+   ```powershell
+   gh repo list KiwoomAX --limit 1000 --json name,url,pushedAt
+   ```
+
+   `gh` 가 로그인 오류를 내면 멈추고 담당자에게 `gh auth login` 을 직접 실행하라고 알린다. **목록을 보지 못한
+   채로 새 저장소를 만들지 않는다.**
+
+2. 찾은 것이 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가 맞습니까」라고 묻는다. 맞다고
+   하면 받아서 그 폴더에서 작업하고 4번으로 간다.
+
+   ```powershell
+   gh repo clone KiwoomAX/<찾은 이름>
+   ```
+
+3. 없으면 이름을 `<본부 영문 이름>-dashboard` 로 제안해 확인받은 뒤 만들고 바로 받는다. 이름은 소문자와
+   하이픈으로 짓는다. **이름을 혼자 정하지 않는다.**
+
+   ```powershell
+   gh repo create KiwoomAX/<본부 영문 이름>-dashboard --template KiwoomAX/dashboard-template --private --clone
+   ```
+
+4. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
    사이드바 무리 이름이 「본부 기능」이 되고, 「팀」으로 끝나면 「팀 기능」이 된다.
-3. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
-4. 레포 폴더에서 `docker compose up -d --build` 로 실행하고 `http://localhost:3000` 을 연다. 사내망에서는 빌드하기
-   전에 사내 인증서 번들(`kw_install` 이 사용자 환경변수 `SSL_CERT_FILE` 에 적어 둔 파일)을 `certs/ePrism.crt` 로
-   복사해 둔다. 이 파일은 레포에 올리지 않는다.
-5. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
+5. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
+6. 백엔드와 화면을 띄우고 `http://localhost:3000` 을 연다. 백엔드가 8000번에서 답하고, 화면 쪽이 `/api` 로
+   시작하는 요청을 그리로 넘긴다. 창을 둘 띄워 하나씩 둔다.
+
+   ```powershell
+   uv run --native-tls uvicorn src.backend.main:app --reload
+   cd src/frontend; npm install; npm run dev
+   ```
+
+   `uv` 가 없다는 오류가 나면 `winget install astral-sh.uv` 로 깔고 다시 돌린다. 사내망에서는 `--native-tls` 가
+   있어야 사내 인증서를 읽는다.
+7. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다. 저장소와 원격이 1번에서 이미 잡혀 있으므로 그 스킬의
+   1단계가 바로 통과한다. 서버가 빌드할 때 쓰는 사내 인증서는 그 스킬이 다룬다.
 
 ## 기능 붙이기
 
@@ -174,8 +207,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 내보내기 전 확인
 
-브라우저 확인은 `docker compose up -d --build` 로 실행한 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을
-다른 프로그램이 쓰고 있으면 `docker-compose.yml` 의 `3000:80` 에서 왼쪽 값을 잠시 바꿔 확인하고 되돌린다.
+브라우저 확인은 「새 대시보드 시작」 6번대로 띄운 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을 다른
+프로그램이 쓰고 있으면 화면 쪽이 3001번으로 올라가므로 콘솔에 찍힌 주소를 그대로 연다.
 
 - [ ] `src/frontend` 에서 `npm test`(타입 검사와 테스트)가 통과한다
 - [ ] 브라우저 개발자 도구의 Console 탭에 `[shell]` 경고와 오류가 없다
