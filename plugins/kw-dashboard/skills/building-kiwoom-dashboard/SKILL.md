@@ -172,10 +172,37 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 | 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` |
 | 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` |
 
-- 팔레트는 템플릿 기본값을 그대로 쓴다. 차트 1순위가 남색이고 2순위가 청록이며 상승이 빨강이다. 어느
-  팔레트로 할지 묻지 않는다. 키움 색을 쓰고 싶다는 말이 나오면 `index.html` 의 `<html>` 에
-  `data-palette="kiwoom"` 한 줄을 적는다. 그러면 차트 1·2순위가 키움 남색과 핑크가 되고 상승도 핑크가
-  된다. 바뀌는 토큰은 다섯뿐이고 나머지는 두 팔레트가 같다. 한 대시보드 안에서 팔레트를 섞지 않는다.
+- 색은 템플릿 기본값을 그대로 쓴다. 차트 1순위가 남색이고 2순위가 청록이며 상승이 빨강이다. 어느 색으로
+  할지 묻지 않는다.
+- 옛 대시보드가 쓰던 키움 남색과 핑크는 셸 토큰에 `-kiwoom` 이름으로 함께 들어 있다. 키움 색을 쓰고
+  싶다는 말이 나오면 `index.html` 을 고치지 말고, 대시보드 자기 CSS 파일에 아래 토막을 적어 다섯 이름을
+  되가리킨다. 그러면 화면 코드는 `chart-1` · `rise` 를 그대로 쓰면서 색만 바뀐다. 바뀌는 토큰은 차트
+  1·2순위와 상승색 다섯뿐이고 나머지는 두 색감이 같다. 한 대시보드 안에서 두 색감을 섞지 않는다.
+
+  ```css
+  :root,
+  :root[data-theme="dark"] {
+    --chart-1: var(--chart-1-kiwoom);
+    --chart-2: var(--chart-2-kiwoom);
+    --rise: var(--rise-kiwoom);
+    --rise-fill: var(--rise-fill-kiwoom);
+    --rise-weak: var(--rise-weak-kiwoom);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --chart-1: var(--chart-1-kiwoom);
+      --chart-2: var(--chart-2-kiwoom);
+      --rise: var(--rise-kiwoom);
+      --rise-fill: var(--rise-fill-kiwoom);
+      --rise-weak: var(--rise-weak-kiwoom);
+    }
+  }
+  ```
+
+  선택자를 셸과 같은 모양으로 맞춘다. `:root[data-theme="dark"]` 가 `:root` 보다 점수가 높아, 평범한
+  `:root` 한 블록만 적으면 낮만 바뀌고 밤에는 기본 색이 그대로 나온다. 후보도 테마마다 값을 보유하므로
+  되가리키기만 하면 낮과 밤이 함께 따라온다.
 - 사이드바와 상태바는 `brand` 를 쓰고 내용 구획은 `accent` 를 쓴다. 둘을 바꿔 쓰지 않는다.
 - 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감 알림과
   실패다. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 대비가 낮 3.09,
