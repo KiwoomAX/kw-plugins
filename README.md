@@ -96,6 +96,7 @@ PC가 다시 깔아야 한다. 그래서 두 이름을 그대로 둔다.
 | `plugins/kw-control-tower/manifest.json` | **목록의 원본.** 새 플러그인은 여기에 추가한다 |
 | `plugins/kw-control-tower/hooks/` | 세션 시작 알림, 도커 인증서 안내, `python3` 가드 |
 | `plugins/kw-control-tower/scripts/sync.ps1` | 이 PC를 목록에 맞게 고치는 본체. 알림 훅과 설치기 9단계가 호출한다 |
+| `plugins/kw-control-tower/scripts/git-identity.ps1` | git 커밋 명의를 GitHub 계정의 사내 메일로 제안하고, 사용자가 승인한 값을 적는다. 알림 훅의 안내를 받은 클로드가 실행한다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 여섯. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
 | `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document` |

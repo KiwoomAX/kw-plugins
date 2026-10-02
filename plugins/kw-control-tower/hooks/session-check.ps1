@@ -127,6 +127,31 @@ function Read-KwState([string]$Path) {
     return $s
 }
 
+function Read-GitIdentity([string]$Path) {
+    # ~/.gitconfig 에서 커밋 명의와, 그 메일을 사용자가 승인한 기록을 읽는다. git 을 실행하지
+    # 않고 파일을 직접 읽는다. 감지가 외부 프로세스를 늘리지 않는다는 계약 때문이다.
+    # git 처럼 섹션과 키의 대소문자를 가리지 않고, 따옴표와 줄 끝 주석을 값에서 뺀다.
+    # include 로 다른 파일에 둔 값은 못 읽는다. 그런 PC 는 명의 스크립트가 승인한 값을 이
+    # 파일에 다시 적으므로 한 번 확인하면 안내가 멈춘다.
+    $id = @{ Name = $null; Email = $null; Approved = $null }
+    $script:Budget.Files++
+    if (-not (Test-Path -LiteralPath $Path)) { return $id }
+    $section = ''
+    foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+        $t = $line.Trim()
+        if ($t -match '^\[\s*([^\]\s"]+)') { $section = $Matches[1].ToLowerInvariant(); continue }
+        if ($t -notmatch '^([A-Za-z][\w-]*)\s*=\s*(.*)$') { continue }
+        $key = "$section.$($Matches[1].ToLowerInvariant())"
+        $val = ($Matches[2] -replace '\s+[#;].*$', '').Trim().Trim('"')
+        switch ($key) {
+            'user.name'                      { $id.Name = $val }
+            'user.email'                     { $id.Email = $val }
+            'kw-control-tower.approvedemail' { $id.Approved = $val }
+        }
+    }
+    return $id
+}
+
 function Get-MarketplaceHead {
     # 배포처 사본이 받아 둔 버전을 읽는다. 네트워크에 안 나간다. 디스크에 이미 있다.
     # git 사본은 HEAD 가 가리키는 ref 파일에 커밋이 있고, git 이 아닌 배포처는
@@ -202,6 +227,11 @@ function Add-Note([int[]]$Step, [string]$Text) {
     [void]$noteSteps.Add($Step)
 }
 $asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
+$askHints = New-Object System.Collections.ArrayList   # $asks 와 같은 순서로 클로드에게만 주는 지시
+function Add-Ask([string]$Text, [string]$Hint) {
+    [void]$asks.Add($Text)
+    [void]$askHints.Add($Hint)
+}
 $stuckSay = New-Object System.Collections.ArrayList   # 같은 원격 커밋으로 실패해 다시 안 한 것
 $remoteOf = @{}          # 배포처 이름 → 원격 커밋. 맞춤에 넘긴다
 $script:NetMs = 0        # 몸통에 안 세는 네트워크 시간
@@ -480,7 +510,7 @@ try {
     }
 
     # --- 질문 13. 사내 GitHub 로그인이 되어 있나 ---------------------------
-    # 이것만 $asks 로 간다. 브라우저 승인이 필요해 맞춤이 대신 못 한다. $notes 에
+    # 이것은 $asks 로 간다. 브라우저 승인이 필요해 맞춤이 대신 못 한다. $notes 에
     # 넣으면 로그인 안 한 PC 에서 매 세션 맞춤이 돌고도 아무것도 못 고친다.
     #
     # "고칠 수 있는 것만 확인한다" 는 규칙의 예외다. 그 규칙을 둔 이유는 못 고치는
@@ -498,9 +528,47 @@ try {
             if ($line -match '^\s*github\.com\s*:') { $loggedIn = $true; break }
         }
     }
+    # 클로드가 이 명령을 대신 실행하면 gh 의 입력이 터미널이 아니라서, gh 가 브라우저를 여는
+    # 단계를 건너뛰고 코드와 주소만 출력한다(2026-10-02 이 PC 에서 확인). 코드 입력 페이지는
+    # 늘 같은 주소라 먼저 연다. start 는 PowerShell 과 Git Bash 에서 기본 브라우저를 연다. 두 명령을
+    # ; 로 이으므로 cmd 에서는 ; 뒤가 start 의 인자로 넘어가 로그인이 실행되지 않는다. 직원의 터미널은
+    # PowerShell 이고 클로드의 셸은 Git Bash 라 cmd 는 쓰지 않는다(PR #42 리뷰).
+    # 코드는 --clipboard 가 클립보드에 넣으므로 사용자는 열린 페이지에 붙여 넣기만 한다.
+    # user:email 은 git 명의를 GitHub 계정의 메일로 맞추는 데 쓴다. 기본 로그인에는 없다.
+    # 명의 스크립트(git-identity.ps1)에도 같은 명령이 있다. 글자 그대로 같아야 한다.
+    $loginCommand = 'start https://github.com/login/device; gh auth login --web --git-protocol https --skip-ssh-key --clipboard --scopes user:email'
+
+    # --- 질문 14. git 커밋 명의를 사용자가 확인했나 ------------------------
+    # 명의가 비어 있으면 클로드가 대화 맥락에 있는 클로드 계정 메일로 채운다. 클로드 계정을
+    # 여럿이 같이 쓰는 PC 에서 직원의 커밋이 AX 팀 직원 이름으로 올라갔다(이슈 #28). 비어
+    # 있는지만 보면 이미 남의 메일이 든 PC 를 정상으로 보므로, 지금 메일이 사용자가 승인한
+    # 메일과 같은지를 본다. 승인은 명의 스크립트가 같은 파일에 적는다.
+    #
+    # 이것도 $asks 로 간다. 무엇이 본인 메일인지는 사용자가 승인해야 해서 맞춤이 대신 못 한다.
+    # 로그인 전에는 GitHub 에서 메일을 못 읽으므로 로그인 안내 하나만 내고, 클로드가 로그인
+    # 뒤에 이어 간다. ~/.gitconfig 를 읽는 것은 2026-10-02 에 사용자가 승인했다.
+    $gitId = Read-GitIdentity (Join-Path $userHome '.gitconfig')
+    $idOk = $gitId.Name -and $gitId.Email -and ($gitId.Approved -eq $gitId.Email)
+    # 로그인과 메일 읽기 권한 추가는 사람이 브라우저에서 승인할 때까지 끝나지 않아, 도구의 기본
+    # 시간 제한 2분으로는 끊긴다. 이미 로그인한 직원은 모두 처음 한 번 권한을 더하므로 명의 안내에도
+    # 같은 지시를 붙인다(PR #42 리뷰).
+    $browserHint = "먼저 '열리는 브라우저 페이지에 Ctrl+V 로 코드를 붙여 넣고 승인하십시오'라고 본문에 알리고, 시간 제한을 10분으로 두고 실행하라."
+    # 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 명의 스크립트는 클로드의 셸에서 따로 실행되어
+    # 그것을 물려받지 않으므로 같은 옵션을 적는다(PR #42 리뷰).
+    $idScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\git-identity.ps1'
+    $idHint = "git 명의는 pwsh -NoProfile -ExecutionPolicy Bypass -File `"$idScript`" 로 제안을 받아 지금 값과 제안 값을 본문에 보이고, " +
+              '사용자가 승인한 뒤에만 같은 스크립트를 -Apply -Name -Email 로 실행하라. 대화 맥락에 있는 이름이나 메일로 채우지 않는다. ' +
+              "스크립트가 메일 읽기 권한을 더하는 명령을 알리면 그 명령을 실행할 때도 $browserHint"
+
     if (-not $loggedIn) {
         # 한 줄로 낸다. 매 세션 뜨는 안내라 길면 그 아래의 다른 알림을 밀어낸다(2026-09-29 사용자 결정).
-        [void]$asks.Add('사내 GitHub 로그인이 필요합니다. 직접 실행해 주십시오: gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
+        $hint = "로그인 명령을 대신 실행할 때는 $browserHint"
+        if (-not $idOk) { $hint += " 로그인이 끝나면 git 명의 확인으로 이어 간다. $idHint" }
+        Add-Ask "사내 GitHub 로그인이 필요합니다. 다음을 실행하고 열리는 페이지에 Ctrl+V 로 코드를 붙여 넣으십시오: $loginCommand" $hint
+    } elseif (-not $idOk) {
+        $text = if ($gitId.Email) { "git 커밋 명의를 아직 확인하지 않았습니다(user.email: $($gitId.Email))." }
+                else { 'git 커밋 명의(user.name · user.email)가 비어 있습니다.' }
+        Add-Ask "$text 클로드에게 「git 명의 맞춰 줘」라고 하십시오." $idHint
     }
 }
 catch {
@@ -553,6 +621,7 @@ function Send-Hook {
     $ctx = $text + "`n`n이 알림을 사용자의 첫 요청에 답하기 전에 먼저 전하라."
     if ($text.Contains($restartLine)) { $ctx += ' 클로드 코드를 다시 켜 달라고 요구하라.' }
     if ($text -match '(?m)^\s+claude plugin ') { $ctx += ' 적힌 명령을 대신 실행할지 물어라.' }
+    foreach ($hint in $askHints) { if ($hint) { $ctx += " $hint" } }
     if ($syncLog) { $ctx += " 맞춤의 진행 기록은 $syncLog 에 있다." }
     @{ systemMessage = $text; hookSpecificOutput = @{ hookEventName = 'SessionStart'; additionalContext = $ctx } } |
         ConvertTo-Json -Depth 4 -Compress
