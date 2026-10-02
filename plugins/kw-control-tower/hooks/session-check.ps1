@@ -530,8 +530,10 @@ try {
     }
     # 클로드가 이 명령을 대신 실행하면 gh 의 입력이 터미널이 아니라서, gh 가 브라우저를 여는
     # 단계를 건너뛰고 코드와 주소만 출력한다(2026-10-02 이 PC 에서 확인). 코드 입력 페이지는
-    # 늘 같은 주소라 먼저 연다. start 는 PowerShell 과 cmd 와 Git Bash 에서 모두 기본 브라우저를
-    # 연다. 코드는 --clipboard 가 클립보드에 넣으므로 사용자는 열린 페이지에 붙여 넣기만 한다.
+    # 늘 같은 주소라 먼저 연다. start 는 PowerShell 과 Git Bash 에서 기본 브라우저를 연다. 두 명령을
+    # ; 로 이으므로 cmd 에서는 ; 뒤가 start 의 인자로 넘어가 로그인이 실행되지 않는다. 직원의 터미널은
+    # PowerShell 이고 클로드의 셸은 Git Bash 라 cmd 는 쓰지 않는다(PR #42 리뷰).
+    # 코드는 --clipboard 가 클립보드에 넣으므로 사용자는 열린 페이지에 붙여 넣기만 한다.
     # user:email 은 git 명의를 GitHub 계정의 메일로 맞추는 데 쓴다. 기본 로그인에는 없다.
     # 명의 스크립트(git-identity.ps1)에도 같은 명령이 있다. 글자 그대로 같아야 한다.
     $loginCommand = 'start https://github.com/login/device; gh auth login --web --git-protocol https --skip-ssh-key --clipboard --scopes user:email'
@@ -547,14 +549,20 @@ try {
     # 뒤에 이어 간다. ~/.gitconfig 를 읽는 것은 2026-10-02 에 사용자가 승인했다.
     $gitId = Read-GitIdentity (Join-Path $userHome '.gitconfig')
     $idOk = $gitId.Name -and $gitId.Email -and ($gitId.Approved -eq $gitId.Email)
+    # 로그인과 메일 읽기 권한 추가는 사람이 브라우저에서 승인할 때까지 끝나지 않아, 도구의 기본
+    # 시간 제한 2분으로는 끊긴다. 이미 로그인한 직원은 모두 처음 한 번 권한을 더하므로 명의 안내에도
+    # 같은 지시를 붙인다(PR #42 리뷰).
+    $browserHint = "먼저 '열리는 브라우저 페이지에 Ctrl+V 로 코드를 붙여 넣고 승인하십시오'라고 본문에 알리고, 시간 제한을 10분으로 두고 실행하라."
+    # 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 명의 스크립트는 클로드의 셸에서 따로 실행되어
+    # 그것을 물려받지 않으므로 같은 옵션을 적는다(PR #42 리뷰).
     $idScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\git-identity.ps1'
-    $idHint = "git 명의는 pwsh -NoProfile -File `"$idScript`" 로 제안을 받아 지금 값과 제안 값을 본문에 보이고, " +
-              '사용자가 승인한 뒤에만 같은 스크립트를 -Apply -Name -Email 로 실행하라. 대화 맥락에 있는 이름이나 메일로 채우지 않는다.'
+    $idHint = "git 명의는 pwsh -NoProfile -ExecutionPolicy Bypass -File `"$idScript`" 로 제안을 받아 지금 값과 제안 값을 본문에 보이고, " +
+              '사용자가 승인한 뒤에만 같은 스크립트를 -Apply -Name -Email 로 실행하라. 대화 맥락에 있는 이름이나 메일로 채우지 않는다. ' +
+              "스크립트가 메일 읽기 권한을 더하는 명령을 알리면 그 명령을 실행할 때도 $browserHint"
 
     if (-not $loggedIn) {
         # 한 줄로 낸다. 매 세션 뜨는 안내라 길면 그 아래의 다른 알림을 밀어낸다(2026-09-29 사용자 결정).
-        # 로그인은 사람이 브라우저에서 승인할 때까지 끝나지 않아 도구의 기본 시간 제한 2분으로는 끊긴다.
-        $hint = "로그인 명령을 대신 실행할 때는 먼저 '열리는 브라우저 페이지에 Ctrl+V 로 코드를 붙여 넣고 승인하십시오'라고 본문에 알리고, 시간 제한을 10분으로 두고 실행하라."
+        $hint = "로그인 명령을 대신 실행할 때는 $browserHint"
         if (-not $idOk) { $hint += " 로그인이 끝나면 git 명의 확인으로 이어 간다. $idHint" }
         Add-Ask "사내 GitHub 로그인이 필요합니다. 다음을 실행하고 열리는 페이지에 Ctrl+V 로 코드를 붙여 넣으십시오: $loginCommand" $hint
     } elseif (-not $idOk) {

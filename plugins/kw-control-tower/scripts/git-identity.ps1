@@ -1,7 +1,10 @@
 # git 커밋 명의를 GitHub 계정에 맞춘다. 세션 시작 알림이 명의를 확인하라고 할 때 클로드가 실행한다.
 #
-#   pwsh -NoProfile -File git-identity.ps1                                    제안만 낸다. 아무것도 안 바꾼다
-#   pwsh -NoProfile -File git-identity.ps1 -Apply -Name <이름> -Email <메일>   사용자가 승인한 값을 적는다
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File git-identity.ps1                                    제안만 낸다
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File git-identity.ps1 -Apply -Name <이름> -Email <메일>   승인한 값을 적는다
+#
+# 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 이 스크립트는 클로드의 셸에서 따로 실행되어 그것을
+# 물려받지 않으므로 같은 옵션으로 실행한다(PR #42 리뷰).
 #
 # 제안과 적용을 나눈 것은 그 사이에 사용자 승인을 두기 위해서다. 명의가 비어 있으면 클로드가
 # 대화 맥락에 있는 클로드 계정 메일로 채우는데, 클로드 계정을 여럿이 같이 쓰는 PC 에서는 그것이
@@ -13,6 +16,8 @@
 #
 # 적는 곳은 ~/.gitconfig 하나로 고정한다. 세션 시작 알림이 git 을 실행하지 않고 그 파일을 직접
 # 읽어 승인 여부를 판정하므로, git config --global 이 다른 위치(XDG)에 적으면 안내가 끝나지 않는다.
+# 거꾸로 HOME 이 따로 있거나 홈 폴더가 다른 드라이브(HOMEDRIVE)인 PC 에서는 git 이 ~/.gitconfig 가
+# 아닌 파일을 전역 설정으로 읽는다. 그래서 승인을 적기 전에 git 이 적은 값을 실제로 읽는지 확인한다.
 #
 # 종료 코드는 0 이 제안을 냈거나 적은 것, 1 이 실패, 2 가 로그인 필요, 3 이 메일 읽기 권한 필요다.
 
@@ -73,6 +78,14 @@ if ($Apply) {
     if ($Email -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') { throw "메일 형식 아님: -Email '$Email' — 사용자가 승인한 메일을 넘겨야 함" }
     Set-GitValue 'user.name' $Name
     Set-GitValue 'user.email' $Email
+    # 승인을 적은 뒤에는 훅의 안내가 사라진다. git 이 다른 파일을 읽는 PC 에서 그대로 적으면 커밋은
+    # 여전히 그 파일의 명의로 올라가는데 아무도 모른다. 그래서 승인은 확인이 끝난 뒤에 적는다(PR #42 리뷰).
+    $seen = Invoke-Native $script:Git @('config', '--global', '--get', 'user.email')
+    if (($seen.Code -ne 0) -or ($seen.Text.Trim() -ne $Email)) {
+        $where = (Invoke-Native $script:Git @('config', '--global', '--show-origin', '--get', 'user.email')).Text.Trim()
+        if (-not $where) { $where = '전역 설정에 user.email 없음' }
+        throw "명의 적용 확인 실패: git 이 읽는 전역 user.email 이 $gitConfig 에 적은 '$Email' 과 다름 ($where) — HOME 환경변수나 홈 폴더(HOMEDRIVE) 때문에 git 이 다른 파일을 읽는 PC 라 승인을 적지 않음"
+    }
     Set-GitValue $approvedKey $Email
     Write-Output "git 커밋 명의를 적었습니다: user.name = $Name, user.email = $Email ($gitConfig)"
     exit 0
@@ -119,5 +132,5 @@ Write-Output "  user.name  = $proposedName"
 Write-Output "  user.email = $proposedEmail"
 if (-not $account.name) { Write-Output '  GitHub 프로필에 이름이 없어 계정 이름을 제안합니다.' }
 Write-Output '사용자가 승인하면 아래를 실행한다. 사용자가 다른 값을 고르면 그 값으로 바꿔 실행한다.'
-Write-Output "  pwsh -NoProfile -File `"$PSCommandPath`" -Apply -Name `"$proposedName`" -Email `"$proposedEmail`""
+Write-Output "  pwsh -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Apply -Name `"$proposedName`" -Email `"$proposedEmail`""
 exit 0

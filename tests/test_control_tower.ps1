@@ -1148,6 +1148,18 @@ Check '명의 안내는 클로드에게 승인을 받은 뒤에만 적용하라�
     $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
     ($c -match 'git-identity\.ps1') -and ($c -match '-Apply') -and ($c -match '승인')
 }
+# 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 명의 스크립트는 클로드의 셸에서 따로 실행되어
+# 그것을 물려받지 않으므로, 정책이 Restricted 나 AllSigned 인 PC 에서 거부된다(PR #42 리뷰).
+Check '명의 스크립트를 실행 정책을 우회해 실행하라고 한다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
+    $c -match 'pwsh -NoProfile -ExecutionPolicy Bypass -File "[^"]*git-identity\.ps1"'
+}
+# 이미 로그인한 직원은 처음 한 번 메일 읽기 권한을 더한다. 그것도 브라우저 승인을 기다리므로
+# 로그인과 같은 안내가 없으면 기본 시간 제한 2분에 끊긴다(PR #42 리뷰).
+Check '로그인한 PC 의 명의 안내에도 권한 추가의 붙여 넣기 안내와 시간 제한이 있다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
+    ($c -match '권한') -and ($c -match 'Ctrl\+V') -and ($c -match '10분')
+}
 # 가짜 홈은 불일치가 늘 있어 "로그인 안내만 있는 PC" 를 못 만든다. 맞춤을 부르는 조건이
 # 불일치 목록 하나뿐인지를 코드에서 본다.
 Check '로그인 안내는 맞춤을 부르는 조건이 아니다' {
@@ -1224,14 +1236,17 @@ exit 1
 '@ | Set-Content -LiteralPath (Join-Path $ghBin 'gh.ps1') -Encoding UTF8
 function Invoke-Identity {
     # 가짜 홈에서 명의 스크립트를 돌려 출력과 종료 코드와 남은 .gitconfig 를 돌려준다.
-    param([string]$Emails, [string]$GitConfig, [string]$ArgText, [string]$User)
+    # git 은 HOME 이 있으면 그 아래 .gitconfig 를 전역 설정으로 읽는다. 기본은 가짜 홈과 같게 두고,
+    # -GitHome 을 주면 git 이 다른 파일을 읽는 PC 를 흉내 낸다.
+    param([string]$Emails, [string]$GitConfig, [string]$ArgText, [string]$User, [string]$GitHome)
     $h = Join-Path $scn ("i-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     New-Item -ItemType Directory -Force -Path $h | Out-Null
+    $gitHomeDir = if ($GitHome) { $GitHome } else { $h }
     $cfgPath = Join-Path $h '.gitconfig'
     if ($GitConfig) { [System.IO.File]::WriteAllText($cfgPath, $GitConfig, (New-Object System.Text.UTF8Encoding($false))) }
     $env:KWCT_GH_EMAILS = $Emails
     $env:KWCT_GH_USER = $User
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:PATH='$ghBin;' + `$env:PATH; & '$idScript' $ArgText; exit `$LASTEXITCODE" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:HOME='$gitHomeDir'; `$env:PATH='$ghBin;' + `$env:PATH; & '$idScript' $ArgText; exit `$LASTEXITCODE" 2>&1
     $code = $LASTEXITCODE
     Remove-Item Env:\KWCT_GH_EMAILS, Env:\KWCT_GH_USER -ErrorAction SilentlyContinue
     @{
@@ -1245,7 +1260,8 @@ Check '제안할 때는 지금 값과 GitHub 계정의 값을 보이고 아무�
     $before = "[user]`n`temail = ax@kiwoomam.com`n"
     $r = Invoke-Identity -Emails $emailsJson -GitConfig $before
     ($r.Code -eq 0) -and ($r.Out -match 'ax@kiwoomam\.com') -and ($r.Out -match '홍길동') -and
-        ($r.Out -match '-Apply -Name "홍길동" -Email "hong@kiwoomam\.com"') -and ($r.Config -eq $before)
+        ($r.Out -match 'pwsh -NoProfile -ExecutionPolicy Bypass -File "[^"]+" -Apply -Name "홍길동" -Email "hong@kiwoomam\.com"') -and
+        ($r.Config -eq $before)
 }
 Check '메일 읽기 권한이 없으면 권한을 더하는 명령을 알리고 멈춘다' {
     $r = Invoke-Identity -Emails 'scope'
@@ -1269,6 +1285,16 @@ Check '승인한 값을 적으면 알림 훅이 더 묻지 않는다' {
 Check '메일 형식이 아니면 적지 않고 실패한다' {
     $r = Invoke-Identity -ArgText "-Apply -Name '홍길동' -Email 'not-an-email'"
     ($r.Code -ne 0) -and ($null -eq $r.Config)
+}
+# HOME 이 따로 있거나 홈 폴더가 다른 드라이브인 PC 에서는 git 이 ~/.gitconfig 가 아닌 파일을 읽는다.
+# 그때 승인을 적으면 훅의 안내는 사라지는데 커밋은 여전히 다른 명의로 올라간다. 승인을 적기 전에
+# git 이 실제로 읽는 값을 확인하고, 다르면 승인을 적지 않고 어느 파일인지 알린다(PR #42 리뷰).
+Check 'git 이 다른 전역 설정을 읽으면 승인을 적지 않고 그 사실을 알린다' {
+    $other = Join-Path $scn ("g-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path $other | Out-Null
+    $r = Invoke-Identity -ArgText "-Apply -Name '홍길동' -Email 'hong@kiwoomam.com'" -GitHome $other
+    ($r.Code -ne 0) -and ($r.Config -match 'hong@kiwoomam\.com') -and ($r.Config -notmatch '(?i)approvedEmail') -and
+        ($r.Out -match 'HOME')
 }
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
