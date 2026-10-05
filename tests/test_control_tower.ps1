@@ -136,11 +136,11 @@ Check '명령과 인자를 나눠 적는다' {
     @($all | Where-Object { $_.command -ne 'pwsh' -or @($_.args).Count -lt 6 }).Count -eq 0
 }
 # matcher 는 도구 이름만 거른다. 명령 내용을 거르는 것은 if 이고, 이것이 없으면
-# 도커도 python3 도 아닌 명령마다 프로세스가 뜬다.
+# 도커가 아닌 명령마다 프로세스가 뜬다. python3 가드는 disciplined-coder 가 맡는다(2026-10-06).
 Check '도구 훅마다 if 규칙이 적용돼 있다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $tool = @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
-    (@($tool).Count -eq 4) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
+    (@($tool).Count -eq 2) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
 }
 Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
@@ -232,7 +232,7 @@ Write-Host '한글'
 # BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽고, BOM 이 없으면 5.1 로 돌렸을 때
 # 한글이 조용히 깨지는 것이 아니라 파싱 오류로 죽어서 잘못 호출한 것이 그 줄에서 드러난다.
 foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plugin 'scripts\sync.ps1'),
-                 (Join-Path $plugin 'hooks\python3-guard.ps1'), (Join-Path $plugin 'hooks\docker-cert-reminder.ps1'))) {
+                 (Join-Path $plugin 'hooks\docker-cert-reminder.ps1'))) {
     Check "UTF-8 BOM 이 없다: $(Split-Path $f -Leaf)" {
         $b = [System.IO.File]::ReadAllBytes($f)
         -not ($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191)
@@ -501,50 +501,6 @@ Check '맞춤이 남은 플러그인이 있는 배포처를 안 걷는다' {
     $syncSrc -match '가 아직 깔려 있어 그대로 둡니다'
 }
 
-# --- python3 가드 -----------------------------------------------------------
-Write-Host ''
-Write-Host 'python3 가드'
-$guard = Join-Path $plugin 'hooks\python3-guard.ps1'
-$fake2 = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-g-" + [guid]::NewGuid().ToString('n').Substring(0,8))
-New-Item -ItemType Directory -Force -Path (Join-Path $fake2 '.claude') | Out-Null
-
-function Invoke-Guard {
-    # 판정은 가드가 호출할 때 한다. 검사는 KWCT_PYTHON3_PROBE 로 판정을 주입해 이 PC 의 python3 에
-    # 기대지 않는다. 빈 값을 주면 주입하지 않고 실제 판정 경로를 실행한다.
-    param([string]$Command, [string]$Verdict = 'redirector')
-    $payload = @{ tool_name = 'Bash'; tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
-    $probe = if ($Verdict) { "`$env:KWCT_PYTHON3_PROBE='$Verdict'; " } else { '' }
-    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake2'; $probe& '$guard'" 2>&1 | Out-String)
-}
-
-Check '맨 앞의 python3 을 막는다'            { (Invoke-Guard 'python3 -c "print(1)"') -match 'deny' }
-Check '판정이 안내판이 아니면 안 막는다'      { -not ((Invoke-Guard 'python3 -c "print(1)"' 'real') -match 'deny') }
-Check 'python3 이 없으면 안 막는다'             { -not ((Invoke-Guard 'python3 -c "print(1)"' 'absent') -match 'deny') }
-Check 'python 은 안 막는다'                   { -not ((Invoke-Guard 'python -c "print(1)"') -match 'deny') }
-Check 'py -3 은 안 막는다'                    { -not ((Invoke-Guard 'py -3 -c "print(1)"') -match 'deny') }
-Check 'python312 처럼 이름이 다르면 안 막는다' { -not ((Invoke-Guard 'python312 -V') -match 'deny') }
-Check 'python3.12 도 안 막는다'                { -not ((Invoke-Guard 'python3.12 -V') -match 'deny') }
-Check 'wsl 안의 python3 은 안 막는다'          { -not ((Invoke-Guard 'wsl python3 -c "print(1)"') -match 'deny') }
-Check 'docker exec 안의 python3 도 안 막는다'  { -not ((Invoke-Guard 'docker exec c python3 -V') -match 'deny') }
-Check '따옴표 안의 python3 은 안 막는다'       { -not ((Invoke-Guard 'echo "run python3 later"') -match 'deny') }
-Check '파이프 뒤의 python3 은 막는다'          { (Invoke-Guard 'cat x | python3 -') -match 'deny' }
-Check '앞에 VAR=값 이 붙어도 막는다'           { (Invoke-Guard 'FOO=1 python3 -V') -match 'deny' }
-# 옛 버전이 상태 파일에 적은 판정이 남아 있어도 가드는 그것을 안 본다.
-Check '가드가 상태 파일을 안 읽는다' { (Get-Content $guard -Raw) -notmatch 'kw-control-tower\.state' }
-Check '옛 판정 줄이 남아 있어도 주입한 판정을 따른다' {
-    'python3=redirector' | Set-Content -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.state')
-    -not ((Invoke-Guard 'python3 -V' 'real') -match 'deny')
-}
-# 주입 없이 실제 경로를 실행해도 가드가 스스로 실패하지 않는다. 실패하면 자국을 남긴다.
-Check '실제 판정 경로가 오류 없이 끝난다' {
-    Remove-Item -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.error') -ErrorAction SilentlyContinue
-    $null = Invoke-Guard 'python3 -V' ''
-    -not (Test-Path -LiteralPath (Join-Path $fake2 '.claude\kw-control-tower.error'))
-}
-Check '맞춤이 python3 을 판정하지 않는다' { $syncSrc -notmatch 'fsutil' }
-
-Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
-
 # --- 사용자 파일을 쓸 때 ----------------------------------------------------
 Write-Host ''
 Write-Host '사용자 파일 쓰기'
@@ -656,17 +612,9 @@ Write-Host '표준입력'
 # [Console]::In 은 콘솔 코드페이지로 해석한다. 한국어 윈도는 949 라 클로드가 보내는
 # UTF-8 한글이 깨지고 따옴표 짝이 틀어져 JSON 이 무너진다. 그러면 가드가 판정을 못 하고
 # 통과시켜, 한글이 든 명령만 골라 샌다. 2026-09-19 에 949 와 65001 로 확인했다.
-foreach ($h in @('python3-guard.ps1', 'docker-cert-reminder.ps1')) {
-    $src = Get-Content (Join-Path $plugin (Join-Path 'hooks' $h)) -Raw
-    Check "표준입력을 UTF-8 로 직접 읽는다: $h" {
-        ($src -match 'OpenStandardInput') -and ($src -notmatch '\$Console\]::In\.ReadToEnd')
-    }
-}
-# 5.1 의 ConvertFrom-Json 은 예외 메시지에 입력 전체를 포함한다. 그대로 적으면 명령 전문과
-# 세션 기록 경로가 자국에 쌓인다.
-Check '가드가 예외 메시지를 통째로 남기지 않는다' {
-    $src = Get-Content (Join-Path $plugin 'hooks\python3-guard.ps1') -Raw
-    $src -match 'Substring\(0, 120\)'
+$src = Get-Content (Join-Path $plugin 'hooks\docker-cert-reminder.ps1') -Raw
+Check '표준입력을 UTF-8 로 직접 읽는다: docker-cert-reminder.ps1' {
+    ($src -match 'OpenStandardInput') -and ($src -notmatch '\$Console\]::In\.ReadToEnd')
 }
 
 # 짝 없는 BEGIN 이 있으면 손대지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이 새 블록의
