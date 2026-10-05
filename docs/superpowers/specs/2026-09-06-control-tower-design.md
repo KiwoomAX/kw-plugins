@@ -460,6 +460,8 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 | 파이썬 라이브러리 | 선언대로 깐다 | 안 만진다 |
 | 상태 파일 | `kw-control-tower.state` | 자기 이름의 파일 |
 
+**disciplined-coder는 필수 플러그인이다(2026-10-05 사용자 결정).** 선언의 `marketplaces`에 `chshin-tools`(`chshin84/disciplined-coder`)를, `required`에 `disciplined-coder@chshin-tools`를 둔다. 맞춤은 다른 필수 플러그인과 같이 깔고 켜기만 하고, `CLAUDE.md`의 원칙과 금지어 목록은 disciplined-coder가 자기 세션 시작 훅으로 싣는다. 그 전에는 컨트롤 타워가 원칙 사본(`claude-md-ko-principles.md`)과 근거 사본(`domain-korean_subset.md`)과 금지어 목록(`korean-banned-words.md`)을 템플릿으로 들고, disciplined-coder 블록이 없는 PC에서만 AX 블록에 실었다. 사본은 원본이 바뀔 때마다 손으로 다시 옮겨야 했고, 금지어 목록은 워크플로(`sync-banned-words.yml`)가 매일 받아 왔다. 이 결정으로 사본 셋과 워크플로와 조건 분기를 없앴고, AX 블록은 `@kw-ax/claude-md-ko.md` 한 줄만 싣는다. 금지어 목록의 원본도 disciplined-coder 저장소로 옮긴다. 잃는 것은 Git Bash가 없는 PC다. disciplined-coder 훅이 `bash`로 실행되므로 그런 PC에는 원칙이 실리지 않는다. 설치기가 Git과 PowerShell 7과 파이썬을 모두 깔므로 설치기를 거친 PC는 해당하지 않는다. python3 가드는 두 체계에 모두 남는다. disciplined-coder의 가드는 `Bash` 도구만 보고, 컨트롤 타워의 가드는 `PowerShell` 도구도 본다.
+
 `PYTHONUTF8`을 둘 다 설정하게 된다. 값이 같고 단계가 멱등이라 해가 없으며, 이것이 「결과는 겹쳐도 되고 스크립트만 나눈다」의 뜻이다.
 
 `disciplined-coder`가 `claude-plugins-official`도 만진다는 말이 두 초안에 걸쳐 각주로 남아 있는데 **근거가 없다.** 넷째 검토가 그쪽 캐시 버전 열일곱과 마켓플레이스 클론 전체에 그 문자열이 한 번도 안 나온다는 것을 확인했다. 지금 그쪽 코드는 자기 마켓플레이스만 고른다. 실제로 그렇게 바뀌면 그때 표에 추가한다.

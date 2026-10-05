@@ -593,33 +593,6 @@ Check '맞춤을 호출할지는 notes 만 보고 정한다' {
 }
 # 상태에 따라 갈리는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
 # 사람은 읽고 넘겨도 아무 일이 없다. 그런 것은 점검이 맡는다.
-# 목록은 KiwoomAX/korean-banned-words 가 만들어 낸 것을 받아 온 것이다. 여기서 만들지
-# 않는다. 만드는 곳이 둘이면 목록은 한 곳에서 나오는데 그것을 어떻게 쓰라는 안내가
-# 두 곳에서 따로 쓰인다. 실제로 그렇게 나뉘었다.
-Check '금지어 목록이 생성물이라고 밝힌다' {
-    $bw = Get-Content (Join-Path $plugin 'templates\korean-banned-words.md') -Raw -Encoding UTF8
-    ($bw -match '이 파일은 생성물이다') -and ($bw -match 'korean-banned-words')
-}
-# 받아 오는 장치가 없으면 원본이 바뀌어도 아무도 모른다.
-Check '목록을 받아 오는 워크플로가 있다' {
-    $wf = Join-Path $repo '.github\workflows\sync-banned-words.yml'
-    (Test-Path -LiteralPath $wf) -and ((Get-Content $wf -Raw -Encoding UTF8) -match 'korean-banned-words\.md')
-}
-# 비교 기준이 main 이라, 열린 PR 이 병합되기 전에는 매일 같은 내용의 PR 이 하나씩 더 열렸다.
-# 브랜치를 하나로 고정하고, 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다.
-# 같은 내용 비교는 줄 끝을 맞춘 뒤에 한다. 앞 단계가 받은 파일을 CRLF 로 바꾸고, git show 는 저장소에 든 LF 를 내므로 그대로 비교하면 늘 다르다.
-Check '금지어 워크플로가 브랜치 하나에 PR 하나를 유지한다' {
-    $wfText = Get-Content (Join-Path $repo '.github\workflows\sync-banned-words.yml') -Raw -Encoding UTF8
-    ($wfText -match 'BRANCH=chore/banned-words-sync') -and ($wfText -notmatch 'date -u') -and
-    ($wfText -match 'gh pr list --head') -and ($wfText -match 'git fetch origin "\$BRANCH"') -and
-    ($wfText -match "sed 's/\\r\$//'") -and
-    ($wfText.IndexOf('gh pr list --head') -lt $wfText.IndexOf('git fetch origin "$BRANCH"'))
-}
-# 여기서 만들면 안내가 두 벌이 된다.
-Check '이 저장소에 생성기가 없다' {
-    -not (Test-Path -LiteralPath (Join-Path $repo 'scripts\build-banned-words.ps1'))
-}
-
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     $tplSrc -notmatch 'gh auth login'
@@ -720,69 +693,44 @@ Check '훅은 문구로 재시작을 판정하지 않는다' {
 # --- 문안 조립 ---------------------------------------------------------------
 Write-Host ''
 Write-Host '문안 조립'
-# 답변 원칙과 한국어 지시사항과 금지어 목록은 disciplined-coder 도 싣는다. 그쪽 블록이
-# CLAUDE.md 에 있으면 사내 문안만 @import 하고, 없으면 원칙과 목록까지 @import 한다.
-# 공용 블록은 쓰지 않는다. 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+# 답변 원칙과 금지어 목록은 필수 플러그인 disciplined-coder 가 싣는다(2026-10-05 사용자 결정).
+# AX 블록은 사내 문안만 @import 한다. 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+Check 'disciplined-coder 가 필수이고 그 배포처가 선언에 있다' {
+    $mf = Get-Content (Join-Path $plugin 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    (@($mf.required) -contains 'disciplined-coder@chshin-tools') -and
+    (@($mf.marketplaces | Where-Object { $_.name -eq 'chshin-tools' -and $_.repo -eq 'chshin84/disciplined-coder' }).Count -eq 1)
+}
 $assembled = @{}
 foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '훅'; Path = 'hooks\session-check.ps1' })) {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin $pair.Path), [ref]$null, [ref]$null)
     $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxBlock' }, $true)
-    Check "$($pair.Name)에 Get-AxBlock 이 있다" { $null -ne $fn }
-    if ($null -eq $fn) { continue }
+    $fc  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxCopies' }, $true)
+    Check "$($pair.Name)에 Get-AxBlock 과 Get-AxCopies 가 있다" { ($null -ne $fn) -and ($null -ne $fc) }
+    if ($null -eq $fn -or $null -eq $fc) { continue }
     . ([scriptblock]::Create($fn.Extent.Text))
-    $with    = Get-AxBlock "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n"
-    $without = Get-AxBlock "앞`n"
-    $assembled[$pair.Name] = "$with`n----`n$without"
-    Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안만 싣는다" {
-        $with -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n# END AX[^\n]*$'
+    . ([scriptblock]::Create($fc.Extent.Text))
+    $block = Get-AxBlock
+    $assembled[$pair.Name] = "$block|$(@(Get-AxCopies) -join ',')"
+    Check "$($pair.Name): 사내 문안만 싣는다" {
+        $block -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n# END AX[^\n]*$'
     }
-    Check "$($pair.Name): disciplined-coder 가 없으면 원칙과 목록까지 싣는다" {
-        $without -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n@kw-ax/claude-md-ko-principles\.md\n@kw-ax/korean-banned-words\.md\n# END AX[^\n]*$'
-    }
-    # 블록이 가리키는 파일이 템플릿에 없으면 @import 가 아무것도 싣지 않고, 그 상태를 아무도 못 본다.
-    Check "$($pair.Name): 블록이 싣는 파일이 템플릿에 있다" {
-        $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$'))
-        ($refs.Count -gt 0) -and (@($refs | Where-Object { -not (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $_.Groups[1].Value))) }).Count -eq 0)
-    }
-    # 경로에 공백이 들어가면 어디까지가 경로인지 구분되지 않는다.
-    Check "$($pair.Name): @import 경로에 공백이 없다" { $without -notmatch '(?m)^@[^\n]* ' }
-    $fc = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxCopies' }, $true)
-    Check "$($pair.Name)에 Get-AxCopies 가 있다" { $null -ne $fc }
-    if ($null -ne $fc) {
-        . ([scriptblock]::Create($fc.Extent.Text))
-        $cw = @(Get-AxCopies "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n")
-        $co = @(Get-AxCopies "앞`n")
-        $assembled["$($pair.Name)-copies"] = "$($cw -join ',')|$($co -join ',')"
-        Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안 사본 하나만 다룬다" { ($cw -join ',') -eq 'claude-md-ko.md' }
-        Check "$($pair.Name): 블록이 싣는 파일이 모두 사본 목록에 있다" {
-            $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$') | ForEach-Object { $_.Groups[1].Value })
-            @($refs | Where-Object { $co -notcontains $_ }).Count -eq 0
-        }
-        Check "$($pair.Name): 원칙이 근거로 가리키는 사본도 다룬다" { $co -contains 'domain-korean_subset.md' }
-    }
+    Check "$($pair.Name): 사본 목록이 블록이 싣는 파일과 같다" { (@(Get-AxCopies) -join ',') -eq 'claude-md-ko.md' }
 }
-Check '맞춤과 훅이 같은 블록을 조립한다' { $assembled['맞춤'] -eq $assembled['훅'] }
-Check '맞춤과 훅이 같은 사본 목록을 쓴다' { $assembled['맞춤-copies'] -eq $assembled['훅-copies'] }
+Check '맞춤과 훅이 같은 블록과 사본 목록을 쓴다' { $assembled['맞춤'] -eq $assembled['훅'] }
+# 블록이 가리키는 파일이 템플릿에 없으면 @import 가 아무것도 싣지 않고, 그 상태를 아무도 못 본다.
+Check '블록이 싣는 파일이 템플릿에 있다' { Test-Path -LiteralPath (Join-Path $plugin 'templates\claude-md-ko.md') }
 # 블록을 맞춤이 만들므로 템플릿에 마커가 있으면 사본을 싣는 순간 마커가 한 벌 더 생긴다.
 Check '사내 문안 템플릿에 마커가 없다' {
     (Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8) -notmatch '(?m)^#\s*(BEGIN|END) AX'
 }
-# 원칙이 근거 사본을 kw-ax 의 경로로 가리키므로 그 사본도 템플릿에 있어야 맞춤이 복사한다.
-Check '원칙이 가리키는 근거 사본이 템플릿에 있다' {
-    $pr = Get-Content (Join-Path $plugin 'templates\claude-md-ko-principles.md') -Raw -Encoding UTF8
-    $m  = [regex]::Match($pr, '~/\.claude/kw-ax/([\w.-]+\.md)')
-    $m.Success -and (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $m.Groups[1].Value)))
-}
 Check '맞춤이 블록을 쓰기 전에 템플릿을 kw-ax 로 복사한다' {
     $c = $syncSrc.IndexOf("Join-Path `$cfg 'kw-ax'")
-    ($c -ge 0) -and ($c -lt $syncSrc.IndexOf('$block = Get-AxBlock $fileNow'))
+    ($c -ge 0) -and ($c -lt $syncSrc.IndexOf('$block = Get-AxBlock'))
 }
 Check '훅이 kw-ax 사본을 템플릿과 대조한다' { $hookCode -match "Join-Path `\`$cfg 'kw-ax'" }
 # 공용 블록을 쓰던 옛 버전의 흔적이 남으면 목록이 두 벌 실린다.
 Check '맞춤이 공용 블록을 새로 쓰지 않는다' { $syncSrc -notmatch "'# BEGIN korean-banned-words" }
-Check '맞춤이 옛 공용 블록을 disciplined-coder 가 없을 때만 걷는다' {
-    $syncSrc.Contains('if ($original -notmatch ''(?m)^#\s*BEGIN disciplined-coder\b'' -and $original -match $reShared)')
-}
+Check '맞춤이 kw-ax 사본을 가리키는 옛 공용 블록을 지운다' { $syncSrc.Contains('if ($original -match $reShared)') }
 
 # --- 도커 인증서 안내 -------------------------------------------------------
 Write-Host ''
@@ -1353,7 +1301,7 @@ function Invoke-SyncScenario {
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
     $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
-             'document-skills@anthropic-agent-skills')
+             'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
     $plug = @{}; $en = @{}
     foreach ($id in $ids) {
         $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })

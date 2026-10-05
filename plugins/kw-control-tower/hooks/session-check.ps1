@@ -93,26 +93,14 @@ function Test-Marketplace {
 }
 
 # 사내 문안 블록을 조립한다. 맞춤(sync.ps1)에도 같은 함수가 있다. 둘이 다르게
-# 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
-function Get-AxBlock([string]$claudeMd) {
-    $files = @('claude-md-ko.md')
-    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
-        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md')
-    }
-    $lines = @('# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)') + @($files | ForEach-Object { "@kw-ax/$_" }) + @('# END AX 설치')
-    return $lines -join "`n"
+# 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다. 원칙과 금지어 목록은 필수 플러그인인
+# disciplined-coder 가 싣는다(2026-10-05 사용자 결정).
+function Get-AxBlock {
+    return "# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)`n@kw-ax/claude-md-ko.md`n# END AX 설치"
 }
 
-# kw-ax 로 복사하고 대조할 템플릿이다. 블록이 싣는 파일과, 원칙이 근거로 가리키는 사본이다.
-# 블록이 안 싣는 파일까지 대조하면 싣지도 않는 사본 하나 때문에 맞춤이 실행된다(2026-09-30 이 PC).
-# 알림 훅에도 같은 함수가 있다. 둘이 다르면 맞춤이 복사한 것을 훅이 다르다고 알린다.
-function Get-AxCopies([string]$claudeMd) {
-    $files = @('claude-md-ko.md')
-    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
-        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md', 'domain-korean_subset.md')
-    }
-    return $files
-}
+# kw-ax 로 복사하고 대조할 템플릿이다. 알림 훅에도 같은 함수가 있다.
+function Get-AxCopies { return @('claude-md-ko.md') }
 
 function Read-KwState([string]$Path) {
     # 상태 파일을 한 번만 읽는다. 질문마다 따로 열던 때에는 같은 파일을 세 번 열었다.
@@ -367,7 +355,7 @@ try {
     if (Test-Path -LiteralPath $tpl) {
         $stale = New-Object System.Collections.ArrayList
         $tplDir = Split-Path -Parent $tpl
-        foreach ($name in @(Get-AxCopies $memText)) {
+        foreach ($name in @(Get-AxCopies)) {
             $src  = Join-Path $tplDir $name
             $copy = Join-Path (Join-Path $cfg 'kw-ax') $name
             $script:Budget.Files += 2
@@ -383,7 +371,7 @@ try {
     }
     if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
         $now   = $memText
-        $block = Get-AxBlock $now
+        $block = Get-AxBlock
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
         $found = [regex]::Match($now, $re)
         $norm  = { param($t) ($t -replace "`r`n", "`n").Trim() }

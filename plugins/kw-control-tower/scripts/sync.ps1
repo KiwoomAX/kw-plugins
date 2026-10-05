@@ -258,28 +258,14 @@ if ([string]::IsNullOrEmpty($userHome)) { Write-Error '윈도가 아닙니다. �
 
 # 사내 문안 블록을 조립한다. 블록은 문안을 직접 싣지 않고 ~/.claude/kw-ax/ 에 복사한
 # 템플릿을 @import 로 싣는다. 템플릿이 바뀌어도 블록은 그대로라 CLAUDE.md 를 다시 쓰지 않는다.
-# CLAUDE.md 에 disciplined-coder 블록이 있으면 답변 원칙과 한국어 지시사항과 금지어 목록을
-# 그쪽이 실으므로 사내 문안만 싣는다.
+# 원칙과 금지어 목록은 필수 플러그인인 disciplined-coder 가 싣는다(2026-10-05 사용자 결정).
 # 점검 훅에도 같은 함수가 있다. 둘이 다르게 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
-function Get-AxBlock([string]$claudeMd) {
-    $files = @('claude-md-ko.md')
-    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
-        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md')
-    }
-    $lines = @('# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)') + @($files | ForEach-Object { "@kw-ax/$_" }) + @('# END AX 설치')
-    return $lines -join "`n"
+function Get-AxBlock {
+    return "# BEGIN AX 설치 (자동 생성 블록 — 직접 고치지 마십시오)`n@kw-ax/claude-md-ko.md`n# END AX 설치"
 }
 
-# kw-ax 로 복사하고 대조할 템플릿이다. 블록이 싣는 파일과, 원칙이 근거로 가리키는 사본이다.
-# 블록이 안 싣는 파일까지 대조하면 싣지도 않는 사본 하나 때문에 맞춤이 실행된다(2026-09-30 이 PC).
-# 알림 훅에도 같은 함수가 있다. 둘이 다르면 맞춤이 복사한 것을 훅이 다르다고 알린다.
-function Get-AxCopies([string]$claudeMd) {
-    $files = @('claude-md-ko.md')
-    if ($claudeMd -notmatch '(?m)^#\s*BEGIN disciplined-coder\b') {
-        $files += @('claude-md-ko-principles.md', 'korean-banned-words.md', 'domain-korean_subset.md')
-    }
-    return $files
-}
+# kw-ax 로 복사하고 대조할 템플릿이다. 알림 훅에도 같은 함수가 있다.
+function Get-AxCopies { return @('claude-md-ko.md') }
 
 function Get-MarketplaceHead {
     # 배포처 사본이 받아 둔 버전을 읽는다. 알림 훅의 같은 이름 함수와 같은 것을 본다.
@@ -722,9 +708,8 @@ try {
     $target = Join-Path $userHome '.claude\CLAUDE.md'
     $axDir = Join-Path $cfg 'kw-ax'
     if (-not $WhatIfOnly -and -not (Test-Path -LiteralPath $axDir)) { New-Item -ItemType Directory -Path $axDir | Out-Null }
-    # 블록이 싣는 파일과 원칙이 가리키는 근거 사본만 복사한다. 훅도 Get-AxCopies 로 같은 목록을 대조한다.
-    $mdNow = if (Test-Path -LiteralPath $target) { [System.IO.File]::ReadAllText($target, $utf8) } else { '' }
-    foreach ($name in @(Get-AxCopies $mdNow)) {
+    # 훅도 Get-AxCopies 로 같은 목록을 대조한다.
+    foreach ($name in @(Get-AxCopies)) {
         $src  = Join-Path $tplDir $name
         if (-not (Test-Path -LiteralPath $src)) { continue }
         $copy = Join-Path $axDir $name
@@ -783,16 +768,14 @@ try {
         $fileNow = ''
         if (Test-Path -LiteralPath $target) { $fileNow = [System.IO.File]::ReadAllText($target, $utf8) }
         $original = $fileNow
-        $block = Get-AxBlock $fileNow
+        $block = Get-AxBlock
 
-        # 옛 버전은 금지어 목록을 AX 블록 바깥의 공용 블록으로 실었다. 지금은
-        # disciplined-coder 가 없을 때 AX 블록 안에 싣는다. 그때 옛 공용 블록이 남아
-        # 있으면 목록이 두 벌 실리므로, 우리 목록을 가리키는 공용 블록만 걷는다.
-        # disciplined-coder 가 있으면 공용 블록은 그쪽 것이라 건드리지 않는다.
+        # 옛 버전은 금지어 목록을 AX 블록 바깥의 공용 블록으로 실었다. 목록은 이제
+        # disciplined-coder 가 실으므로, kw-ax 사본을 가리키는 공용 블록이 남아 있으면 지운다.
         $reShared = '(?ms)^#\s*BEGIN korean-banned-words\b[^\r\n]*\r?\n@kw-ax/korean-banned-words\.md\r?\n#\s*END korean-banned-words[^\r\n]*(\r?\n)?'
-        if ($original -notmatch '(?m)^#\s*BEGIN disciplined-coder\b' -and $original -match $reShared) {
+        if ($original -match $reShared) {
             $original = [regex]::Replace($original, $reShared, '') -replace '(\r?\n){3,}', '$1$1'
-            Note 'CLAUDE.md 에서 옛 금지어 공용 블록을 걷습니다. 목록은 이제 사내 문안 블록 안에 실립니다.'
+            Note 'CLAUDE.md 에서 옛 금지어 공용 블록을 지웁니다. 목록은 이제 disciplined-coder 가 싣습니다.'
         }
 
         # 템플릿의 줄바꿈은 깃이 어떻게 체크아웃했는지에 따라 달라진다. 그대로 쓰면 PC 마다
