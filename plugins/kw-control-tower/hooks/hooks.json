@@ -23,13 +23,6 @@
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/docker-cert-reminder.ps1"],
             "if": "Bash(docker *)",
             "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "pwsh",
-            "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1"],
-            "if": "Bash(python3*)",
-            "timeout": 10
           }
         ]
       },
@@ -42,13 +35,6 @@
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/docker-cert-reminder.ps1"],
             "if": "PowerShell(docker *)",
             "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "pwsh",
-            "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1"],
-            "if": "PowerShell(python3*)",
-            "timeout": 10
           }
         ]
       }
