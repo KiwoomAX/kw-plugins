@@ -5,7 +5,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 # building-kiwoom-dashboard
 
-본부 · 팀 대시보드는 `KiwoomAX/dashboard-template` 레포를 복제해 만든다. 화면은 세 구획이다.
+본부 · 팀 대시보드는 `KiwoomAX/dashboard-template` 저장소를 복제해 만든다. 화면은 세 구획이다.
 
 | 구획 | 누가 그리나 | 규칙 |
 |---|---|---|
@@ -13,7 +13,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 | 상태바(오른쪽 위) | 셸. 페이지는 값만 넘긴다 | 강제 |
 | 내용 구획(오른쪽 아래) | 페이지 | 권장 |
 
-셸은 `src/frontend/src/shell/` 이다. 셸 사용법은 레포의 코드 주석과 타입과 콘솔 경고가 알려 준다.
+셸은 `src/frontend/src/shell/` 이다. 셸 사용법은 저장소의 코드 주석과 타입과 콘솔 경고가 알려 준다.
 이 스킬은 코드가 알려 주지 않는 것만 적는다.
 
 ## 강제 — 사이드바와 상태바
@@ -24,18 +24,85 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
   상태바 모양까지 바꾼다. 모양은 요소마다 Tailwind 클래스로 준다.
 - **셸이 쓰는 클래스 이름을 내용 구획 CSS 에 다시 정의하지 않는다.** `.shell` · `.rail` · `.topbar` · `.side` ·
   `.nav-item` · `.content` 같은 이름이다. 겹치면 이름을 바꾼다.
+- **왼쪽 세로 띠를 붙이지 않는다.** 카드 · 표의 행 · 안내문 · 알림 항목 어디에도 `border-left` 나
+  `box-shadow: inset 3px 0 0` 같은 색 띠를 두지 않는다. 고른 행과 강조 카드와 안내문은 면 색과 글자색으로만
+  나타낸다.
 
 ## 새 대시보드 시작
 
-1. GitHub 의 `KiwoomAX/dashboard-template` 에서 「Use this template」로 `KiwoomAX/<본부 영문 이름>-dashboard`
-   비공개 레포를 만든다.
-2. `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
+**저장소를 만들기 전에 이미 있는지 찾는다.** 담당자 PC 의 폴더를 먼저 보고, 없으면 조직을 본다. 찾지 않고
+만들면 같은 본부의 대시보드가 둘이 된다. 둘이 되면 조직 폴더가 같은 `Jenkinsfile` 로 Jenkins 잡을 둘 만들고,
+두 잡이 같은 이름의 컨테이너를 서로 지운다.
+
+1. **폴더 확인.** 담당자에게 이 본부의 대시보드를 만들던 폴더가 PC 에 있는지 묻는다. 있으면 그 폴더로 옮겨
+   거기서 이어서 작업한다. 새로 받지 않는다. 그 폴더에 무엇이 있는지에 따라 갈 곳이 다르다.
+
+   | 폴더에 있는 것 | 어디로 간다 |
+   |---|---|
+   | `src/frontend/src/shell/` 이 있다 | 템플릿으로 만든 대시보드다. 「조직 이름 적기」로 간다 |
+   | `src/frontend/src/shell/` 이 없다 | 옛 대시보드다. 「이미 만든 대시보드를 옮길 때」로 간다 |
+
+   폴더가 없다고 하면 「조직 저장소 찾기」로 간다.
+
+2. **조직 저장소 찾기.** 조직의 저장소 이름을 받아 이 본부의 대시보드가 있는지 본다. 대소문자와 `-`·`_` 차이는 무시한다 —
+   `Executive_dashboard` 와 `executive-dashboard` 는 같은 후보다.
+
+   ```powershell
+   gh repo list KiwoomAX --limit 1000 --json name,url,pushedAt
+   ```
+
+   `gh` 가 로그인 오류를 내면 멈추고 담당자에게 `gh auth login` 을 직접 실행하라고 알린다. **목록을 보지 못한
+   채로 새 저장소를 만들지 않는다.**
+
+   **배포까지 마친 대시보드는 포트 등록부에도 적혀 있다.** 담당자가 볼 권한이 없어 위 목록에 안 보이는 저장소를
+   여기서 찾는다. `repo` 칸이 저장소 이름이다. 등록부에 닿지 못하면 그것만 알리고 위 목록으로 판단한다.
+
+   ```powershell
+   $q = '{"query":"select port, container, repo from kw_deploy.port where service_type = ''dashboard'' order by port"}'
+   Invoke-RestMethod -Uri 'http://192.7.9.45:8700/v1/query/all-dict' -Method Post -ContentType 'application/json' -Body $q
+   ```
+
+3. **찾은 저장소 확인.** 찾은 저장소가 있으면 주소와 마지막 push 시각을 보여 주고 「이 본부의 대시보드가
+   맞습니까」라고 묻는다. 맞다고 하면 받아서 그 폴더에서 이어서 작업한다. 받은 폴더에 `src/frontend/src/shell/`
+   이 있으면 「조직 이름 적기」로 가고, 없으면 옛 대시보드이므로 「이미 만든 대시보드를 옮길 때」로 간다.
+
+   ```powershell
+   gh repo clone KiwoomAX/<찾은 이름>
+   ```
+
+   **포트 등록부에서만 찾았으면 받지 못한다.** `gh repo list` 에 안 보이고 등록부에만 있는 저장소는 담당자에게
+   볼 권한이 없어 `gh repo clone` 이 `Could not resolve to a Repository` 로 실패한다. 등록부에는 마지막 push 시각도
+   없다. 「저장소는 있으나 볼 권한이 없다」고 알리고 AX 팀에 권한을 요청하라고 한 뒤 멈춘다. 새로 만들지 않는다.
+
+   **담당자가 모른다고 하면 만들지 않고 멈춘다.** 이 본부의 대시보드를 전에 만든 사람에게 저장소 주소를
+   물어보라고 알린다. 확신 없이 만들면 둘이 된다.
+
+   없으면 아래로 간다. 이름을 `<본부 영문 이름>-dashboard` 로 제안해 확인받은 뒤 만들고 바로 받는다. 이름은
+   소문자와 하이픈으로 짓는다. **이름을 혼자 정하지 않는다.**
+
+   ```powershell
+   gh repo create KiwoomAX/<본부 영문 이름>-dashboard --template KiwoomAX/dashboard-template --private --clone
+   ```
+
+4. **조직 이름 적기.** `src/frontend/src/dashboard.config.ts` 의 `org` 를 조직도에 적힌 이름 그대로 적는다. 이름이 「본부」로 끝나면
    사이드바 무리 이름이 「본부 기능」이 되고, 「팀」으로 끝나면 「팀 기능」이 된다.
-3. `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
-4. 레포 폴더에서 `docker compose up -d --build` 로 실행하고 `http://localhost:3000` 을 연다. 사내망에서는 빌드하기
-   전에 사내 인증서 번들(`kw_install` 이 사용자 환경변수 `SSL_CERT_FILE` 에 적어 둔 파일)을 `certs/ePrism.crt` 로
-   복사해 둔다. 이 파일은 레포에 올리지 않는다.
-5. 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
+5. **다른 본부 목록.** `others` 에는 실제로 화면이 있는 다른 본부 대시보드만 적는다. 비어 있으면 본부 전환 목록을 달지 않는다.
+6. **로컬에서 실행.** 백엔드와 화면을 실행하고 `http://localhost:3000` 을 연다. 백엔드가 8000번에서 답하고,
+   화면 쪽이 `/api` 로 시작하는 요청을 그리로 넘긴다. PowerShell 창을 둘 열어 아래 두 블록을 하나씩 실행한다.
+   설치는 처음 한 번만 하면 되고, 그다음부터는 첫 블록의 마지막 줄과 `cd src/frontend; npm run dev` 만 실행한다.
+
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\python -m pip install fastapi "uvicorn[standard]"
+   .venv\Scripts\python -m uvicorn src.backend.main:app --reload
+   ```
+
+   ```powershell
+   cd src/frontend; npm install; npm run dev
+   ```
+
+   설치할 목록은 `pyproject.toml` 의 `dependencies` 에 적혀 있다. 그 목록이 늘면 늘어난 것도 함께 설치한다.
+7. **서버 배포.** 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
 
 ## 기능 붙이기
 
@@ -49,8 +116,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    주소 `/` 로 들어온 사람은 템플릿의 빈 첫 화면을 본다.
 3. **화면이 아직 없는 기능은 메뉴에 넣지 않는다.** 화면이 생길 때 줄을 추가한다. `locked: true` 는 화면이 있는데
    권한이 없는 기능에만 쓴다. 툴팁이 「접근 권한이 없습니다」라서 화면이 없는 기능에 쓰면 뜻이 틀린다.
-4. **카테고리 안 기능이 하나뿐이면 묶지 않고 낱개로 둔다.** 한 기능을 카테고리에 넣어 달라는 요청을 받으면
-   낱개로 두고, 둘째 기능이 생길 때 묶는다고 알린다.
+4. **카테고리에 들지 않은 낱개 기능은 카테고리 앞이나 뒤에 모아 둔다.** 홈처럼 첫 화면이 되는 기능은 카테고리
+   앞에 둔다. 카테고리 사이에 끼우면 콘솔에 경고가 나온다. 카테고리 안 기능이 하나뿐이어도 된다.
 5. 기능 이름은 한글 13자 안쪽을 권장한다. 넘으면 두 줄로 접혀 그 줄만 키가 커진다.
 6. 백엔드 API 는 `src/backend` 에 라우터로 만들어 `/api/<기능 이름>` 아래에 붙인다. 기능 이름은 영문 소문자와
    하이픈으로 짓고(`/api/kpi`), 알림 서랍은 `/api/alerts` 를 쓴다. nginx 가 `/api/` 로 시작하는 요청만 백엔드로
@@ -77,7 +144,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 - 사이드바 메뉴에 기능을 추가하려면 본부 승인이 있어야 한다.
 - 권한 설정은 배포하기 전에 AX 팀에 요청한다. 누가 어느 대시보드와 기능을 보는지는 AX 팀이 정한다.
-- 메뉴에 붙인 기능마다 설명 문서를 레포의 `docs/` 에 둔다. 형식은 PDF 나 Word 이고 PDF 를 권장한다. 파일
+- 메뉴에 붙인 기능마다 설명 문서를 저장소의 `docs/` 에 둔다. 형식은 PDF 나 Word 이고 PDF 를 권장한다. 파일
   이름은 API 와 같은 기능 이름으로 짓는다(`/api/kpi` → `docs/kpi.pdf`). 화면 목적 · 데이터 출처와 갱신 주기 ·
   지표 정의(계산식) · 문의처를 적는다. 화면을 고치면 문서도 고친다.
 - 설명 문서는 사람이 쓴다. 에이전트는 데이터 출처나 문의처를 지어내지 않고, 문서가 없으면 없다고 알린다.
@@ -93,16 +160,68 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 | 쓰임 | 이름 |
 |---|---|
-| 바탕과 면 | `bg-surface-app` · `bg-surface` · `bg-surface-sunken` · `bg-surface-hover` |
+| 바탕과 면 | `bg-surface-app` · `bg-surface` · `bg-surface-sunken` · `bg-surface-hover` · `bg-surface-dialog` |
 | 글자 | `text-on-surface` · `text-on-surface-variant` · `text-on-surface-tertiary` |
 | 선 | `border-outline` · `border-outline-strong` |
-| 상태(정상 · 지연 · 위험) | `status-ok` · `status-warn` · `status-bad` |
-| 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` |
-| 차트 선과 격자 | `chart-1` · `grid` |
-| 강조 | `brand` · `on-brand` |
+| 내용 구획 강조(칩 · 단추 · 막대) | `accent` · `on-accent` · `accent-weak` |
+| 셸 강조(사이드바 · 상태바) | `brand` · `on-brand` |
+| 표 머리 | `bg-th` · `text-on-th` |
+| 고른 행 | `bg-row-sel` |
+| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak` |
+| 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` · `rise-fill` · `fall-fill` · `rise-weak` · `fall-weak` |
+| 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` |
+| 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` |
 
-- 색 계열은 상태 세 가지를 쓰기를 권장한다. 색이 보이면 뜻이 있어야 한다.
-- 등락에 `status-ok` · `status-bad` 를 빌려 쓰지 않는다. 상태와 등락은 뜻이 다르다.
+- 색은 템플릿 기본값을 그대로 쓴다. 차트 1순위가 남색이고 2순위가 청록이며 상승이 빨강이다. 어느 색으로
+  할지 묻지 않는다.
+- 옛 대시보드가 쓰던 키움 남색과 핑크는 셸 토큰에 `-kiwoom` 이름으로 함께 들어 있다. 키움 색을 쓰고
+  싶다는 말이 나오면 `index.html` 을 고치지 말고, 대시보드 자기 CSS 파일에 아래 토막을 적어 다섯 이름을
+  되가리킨다. 그러면 화면 코드는 `chart-1` · `rise` 를 그대로 쓰면서 색만 바뀐다. 바뀌는 토큰은 차트
+  1·2순위와 상승색 다섯뿐이고 나머지는 두 색감이 같다. 한 대시보드 안에서 두 색감을 섞지 않는다.
+
+  ```css
+  :root,
+  :root[data-theme="dark"] {
+    --chart-1: var(--chart-1-kiwoom);
+    --chart-2: var(--chart-2-kiwoom);
+    --rise: var(--rise-kiwoom);
+    --rise-fill: var(--rise-fill-kiwoom);
+    --rise-weak: var(--rise-weak-kiwoom);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --chart-1: var(--chart-1-kiwoom);
+      --chart-2: var(--chart-2-kiwoom);
+      --rise: var(--rise-kiwoom);
+      --rise-fill: var(--rise-fill-kiwoom);
+      --rise-weak: var(--rise-weak-kiwoom);
+    }
+  }
+  ```
+
+  선택자를 셸과 같은 모양으로 맞춘다. `:root[data-theme="dark"]` 가 `:root` 보다 점수가 높아, 평범한
+  `:root` 한 블록만 적으면 낮만 바뀌고 밤에는 기본 색이 그대로 나온다. 후보도 테마마다 값을 보유하므로
+  되가리키기만 하면 낮과 밤이 함께 따라온다.
+- 사이드바와 상태바는 `brand` 를 쓰고 내용 구획은 `accent` 를 쓴다. 둘을 바꿔 쓰지 않는다.
+- 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감 알림과
+  실패다. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 대비가 낮 3.09,
+  밤 10.2 로 테마에 따라 눈에 띄는 정도가 크게 달라진다.
+- 확인이 필요한 것만 굵은 글씨에 옅은 면(`-weak`)을 준다. 진행과 완료는 보통 굵기에 면 없이 글자만 둔다.
+- 한 화면에 색감은 둘까지 권장하고 회색을 포함해 세 계열을 넘기지 않는다. 차트 안의 계열은 이 셈에서 빼고
+  아래 차트 규칙으로 센다.
+- 겹치지 않는 차트(도넛 · 단일 막대)는 `chart-1` · `chart-2` 와 회색 셋만 쓴다. 색감이 셋 이상 필요하면
+  스킬이 값을 주지 않으므로 어떤 색을 쓸지 사람에게 묻는다.
+- 겹치는 차트(꺾은선 여럿)는 `chart-4` 까지 쓴다. 넷을 넘으면 색을 더 만들지 않고 「기타」로 묶거나 차트를
+  나눈다.
+- 막대 위에 선을 겹쳐 그리는 차트에서 그 선은 `chart-2-over` 를 쓴다. 낮에는 2순위와 같은 값이고 밤에는
+  흰색이라, 어두운 화면에서 선이 막대에 묻히지 않는다. 겹치지 않는 차트는 `chart-2` 를 그대로 쓴다.
+- 도넛을 `stroke-dasharray` 로 그릴 때 마지막 조각의 시작 위치와 길이의 합이 둘레를 넘으면 그 조각이 첫
+  조각 위로 올라타 한 곳만 간격이 사라진다. 조각 길이는 비율에서 계산하고 조각마다 간격만큼 뺀다.
+- 등락에 `status-ok` · `status-bad` 를 빌려 쓰지 않는다. 상태와 등락은 뜻이 다르다. 자금 유입과 유출은
+  등락이므로 `rise` · `fall` 을 쓴다.
+- 옅은 면은 투명도로 만들지 않고, 그 색을 낮에는 흰 면에, 밤에는 카드 면에 12% 섞은 고정값으로 둔다. 그래야
+  대비를 계산할 수 있다.
 - `#333` 이나 `red-500` 같은 값을 직접 쓰지 않는다. 새 색이 필요하면 셸 밖에 자기 CSS 파일을 만들어 토큰을
   정의한다. 낮(`:root`), OS 설정의 밤(`@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme="light"])`),
   사용자가 고른 밤(`:root[data-theme="dark"]`) 세 곳에 모두 적는다. 그다음 `@theme inline` 에 `--color-<이름>` 으로
@@ -114,11 +233,13 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 |---|---|---|
 | 큰 수치(지표 값) | 17px | `text-[17px]` |
 | 본문 · 표 내용 · 카드 제목(굵게) | 14px | `text-[14px]` |
-| 부제 · 보조 설명 | 13px | `text-[13px]` |
-| 라벨 · 표 머리 | 12px | `text-[12px]` |
+| 부제 · 보조 설명 · 표 머리 | 13px | `text-[13px]` |
+| 라벨 | 12px | `text-[12px]` |
 | 뱃지 · 각주 | 11px | `text-[11px]` |
 | 부가 설명 | 10px | `text-[10px]` |
 
+- 서체는 셸이 정한다. 화면에서 `font-family` 를 다시 주지 않는다. 사내 PC 에 기본으로 깔린 맑은 고딕을
+  쓰고 웹폰트는 내보내지 않는다. 파일이 없는 서체를 앞에 두면 PC 마다 다른 서체로 그려진다.
 - 표에 없는 크기는 쓰지 않는다. Tailwind 기본 크기 가운데 `text-base` · `text-lg` · `text-xl` · `text-2xl` 은 표에
   없는 크기다. 같은 쓰임은 화면이 달라도 같은 크기로 둔다.
 - 셸이 내용 구획을 1.12배로 확대한다. 표의 값은 CSS 에 적는 값이고 확대는 셸이 한다.
@@ -129,10 +250,25 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 - 크기는 카드 머리 14 · 글자 옆 표시 12~13 · 증감 화살표 10 이다.
 - 획 두께는 셸과 같게 `strokeWidth={1.7}` 을 넘긴다.
 
+### 값이 없을 때와 숫자
+
+값이 있을 때의 화면만 만들지 않는다. 아래 네 상태의 화면도 함께 만든다.
+
+| 상태 | 어떻게 보이나 |
+|---|---|
+| 불러오는 중 | 그 구획의 자리를 지키고 「불러오는 중입니다」를 보조 글자색 13px 로 적는다. 자리를 비우면 화면이 흔들린다 |
+| 값이 없음 | 같은 자리에 「아직 값이 없습니다」를 보조 글자색 13px 로 적는다. 왜 없는지 아는 때는 한 줄로 덧붙인다 |
+| 불러오지 못함 | `status-bad` 로 적고 옅은 면을 준다. 다시 받을 수 있으면 단추를 함께 둔다 |
+| 권한이 없음 | 보조 글자색으로 적고 누구에게 물어야 하는지 함께 적는다 |
+
+- 금액 · 비율 · 건수처럼 자릿수를 맞춰야 하는 숫자에는 `tabular-nums` 를 준다. 빼면 글꼴의 숫자 폭이 달라
+  위아래 줄의 자릿수가 어긋나 보인다. 표의 숫자 칸과 지표 값이 여기에 해당한다.
+
 ### 배치
 
 - 데스크톱 전용이다. 창이 1120px 보다 좁아지면 가로 스크롤이 생긴다. 좁은 창에서 내용 구획을 어떻게 둘지는
   페이지가 정한다.
+- 셸이 「동작 줄이기」 설정을 받아 전환과 애니메이션을 끈다. 내용 구획에서 다시 적지 않아도 함께 걸린다.
 - 레이아웃 폭을 고정 px(`w-[800px]`)로 묶지 않는다. 알림 서랍이 열리면 내용 구획이 340px 좁아지고, 사이드바를
   접으면 200px 넓어진다. 그리드 비율과 `minmax` 로 폭을 나눈다. 너무 넓어지지 않게 `max-w-*` 로 상한을 두는 것은
   괜찮다. 내용 구획이 가장 좁은 상태는 사이드바를 편 채 알림 서랍을 연 상태다.
@@ -146,18 +282,33 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 옮기는지와, 옮기다 끊기는 연결을 어떻게 잇는지가 그 파일에 있다.
 
 옮길 때는 옛 대시보드가 이 스킬의 권장 규칙보다 앞선다. 기능 이름과 카테고리와 화면 안 모양은 옛 것 그대로
-옮기고, 규칙과 상충하면 고치지 말고 사람에게 묻는다. 옮기기 시작하기 전에 주요 변경점을 목업으로 보여 주고
-승인을 받는다.
+옮기고, 규칙과 상충하면 고치지 말고 사람에게 묻는다. 승인은 두 번 받는다. 옮기기 시작하기 전에 주요 변경점을
+목업으로 보여 주고 한 번, 옮기기가 끝난 뒤 공용 디자인을 적용할지 실제 화면 두 벌로 보여 주고 한 번이다.
+
+## 화면을 두고 물을 때
+
+**보이는 것을 정해야 하면 브라우저로 띄워 눈으로 고르게 하는 것이 기본이다.** 글로만 묻지 않는다. 캡처 파일
+이름이나 경로만 적지도 않는다. 사람이 파일을 찾아 여는 동안 무엇을 묻는지 잊는다.
+
+- CSS 속성 이름과 값으로 묻지 않는다. `zoom` 을 1/1.12 로 둘지, `minmax` 를 어떻게 잡을지, 몇 px 로 할지는
+  사람이 고를 것이 아니다. 고를 것은 화면의 모습이고, 값은 고른 모습에 맞춰 만드는 쪽이 정한다
+- 후보를 한 화면에 담고 탭으로 갈아 끼우게 만들어 연다. 창을 둘 열어 번갈아 보게 하지 않는다. 코드 상태가
+  둘이어서 한 화면에 담을 수 없을 때만 예외다 — 옮긴 대시보드에 공용 디자인을 적용할지 정하는 단계가 그렇다
+- 낮과 밤을 함께 물을 때도 같은 화면에서 전환하게 한다
+- 한 번에 하나만 바꾸고 나머지는 고정한다. 한 화면에서 둘 이상이 함께 바뀌면 무엇 때문에 달라 보이는지
+  구분할 수 없다
+- 화면과 함께 지금 모습과 제안을 한 줄로 적는다. 화면만 띄우고 고르라고 하지 않는다
 
 ## 내보내기 전 확인
 
-브라우저 확인은 `docker compose up -d --build` 로 실행한 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을
-다른 프로그램이 쓰고 있으면 `docker-compose.yml` 의 `3000:80` 에서 왼쪽 값을 잠시 바꿔 확인하고 되돌린다.
+브라우저 확인은 「새 대시보드 시작」의 「로컬에서 실행」대로 실행한 뒤 `http://localhost:3000` 에서 한다. 이 PC 에서 3000번을 다른
+프로그램이 쓰고 있으면 화면 쪽이 3001번으로 올라가므로 콘솔에 찍힌 주소를 그대로 연다.
+확인이 끝나면 사람이 볼 수 있게 그 주소를 브라우저로 열어 주고, 낮과 밤을 모두 보였는지 함께 적는다.
 
 - [ ] `src/frontend` 에서 `npm test`(타입 검사와 테스트)가 통과한다
 - [ ] 브라우저 개발자 도구의 Console 탭에 `[shell]` 경고와 오류가 없다
 - [ ] `git diff --stat -- src/frontend/src/shell src/frontend/index.html` 이 비어 있다
 - [ ] 낮과 밤에서 모두 보인다. 사이드바를 편 채 알림 서랍을 연 상태에서도 내용 구획이 깨지지 않는다
-- [ ] 새로 만든 화면의 글자 크기가 표 안의 값이고, 색은 토큰 이름이다. 옮겨 온 화면은 옛 모양 그대로다
+- [ ] 새로 만든 화면의 글자 크기가 표 안의 값이고, 색은 토큰 이름이다. 공용 디자인 적용을 승인받지 않았다면 옮겨 온 화면은 옛 모양 그대로다
 - [ ] 화면이 없는 기능이 메뉴에 없고, 대표 기능 하나가 `path: '/'` 다
 - [ ] `docs/` 에 새 기능의 설명 문서가 있다. 없으면 사람에게 알린다
