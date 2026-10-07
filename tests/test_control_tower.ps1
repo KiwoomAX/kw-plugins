@@ -174,8 +174,9 @@ Check '원격 요청을 curl.exe 로 제한시간 2초와 -f 를 두고 적는�
 Check '네트워크 시간을 몸통에 안 센다' {
     $hookCode -match '(?s)\$sw\.Stop\(\).{0,120}Get-RemoteHead.{0,120}\$sw\.Start\(\)'
 }
-# 허용하는 쓰기는 자국 파일 둘(느림 $over, 오류 $log)뿐이다. 버전 기억 파일은 2026-09-29 에
-# 다른 곳이 옮긴 설치본을 알리지 않기로 하면서 없앴다.
+# 허용하는 쓰기는 자국 파일 둘(느림 $over, 오류 $log)과, 명의 안내를 낸 주를 적는 상태 파일
+# ($statePath) 한 줄뿐이다. 상태 파일은 2026-10-07 에 명의 안내를 주 1회로 줄이면서 더했다.
+# 버전 기억 파일은 2026-09-29 에 다른 곳이 옮긴 설치본을 알리지 않기로 하면서 없앴다.
 # 명령 이름만 보던 때에는 [IO.File]::WriteAllText 같은 .NET 쓰기를 못 잡았다. 쓰기 수단을
 # 줄마다 찾고, 그 줄이 허용한 파일을 가리키지 않으면 위반으로 센다.
 function Get-HookWriteViolations {
@@ -183,9 +184,9 @@ function Get-HookWriteViolations {
     $write = '\[(System\.)?IO\.File\]::(WriteAll\w+|Append\w+|Create\w*|Open\w*|Delete|Move|Copy|Replace)|' +
              '\b(Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Tee-Object)\b|' +
              '(?<![0-9])>>?\s*(?!\$null\b)[\$''"\w]'
-    @($Code -split "`n" | Where-Object { $_ -match $write -and $_ -notmatch '\$(over|log)\b' })
+    @($Code -split "`n" | Where-Object { $_ -match $write -and $_ -notmatch '\$(over|log|statePath)\b' })
 }
-Check '훅이 아무 파일도 안 고친다 (자국 파일 둘은 뺀다)' {
+Check '훅이 아무 파일도 안 고친다 (자국 파일 둘과 상태 파일은 뺀다)' {
     (Get-HookWriteViolations $hookCode).Count -eq 0
 }
 # 위 검사가 실제로 위반을 잡는지 쓰기 수단마다 한 줄씩 넣은 복사본으로 본다.
@@ -918,8 +919,9 @@ function Invoke-Scenario {
     param([string]$Installed, [string]$Remote, [hashtable]$Source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' },
           [string]$Clone, [string]$State, [string]$Seen, [string]$Version, [string]$Leaf = 'c875eb136526',
           [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync,
-          [string]$GitConfig, [switch]$Context)
+          [string]$GitConfig, [switch]$Context, [switch]$StateAfter)
     # -Context 를 주면 사용자에게 보일 본문 대신 클로드에게만 가는 지시를 돌려준다.
+    # -StateAfter 를 주면 훅이 끝난 뒤의 상태 파일 내용을 돌려준다.
     $home2 = Join-Path $scn ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     # 로그인 여부는 APPDATA 아래 hosts.yml 로 판정한다. 미로그인을 흉내 낼 때는 빈 폴더를 준다.
     $app = Join-Path $home2 'appdata'
@@ -945,6 +947,10 @@ function Invoke-Scenario {
     $env:KWCT_STUB = $Remote
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$home2'; `$env:APPDATA='$app'; `$env:CLAUDE_PLUGIN_ROOT='$root'; & '$root\hooks\session-check.ps1'" 2>&1
     Remove-Item Env:\KWCT_STUB
+    if ($StateAfter) {
+        $sp = Join-Path $home2 '.claude\kw-control-tower.state'
+        return $(if (Test-Path -LiteralPath $sp) { Get-Content -LiteralPath $sp -Raw -Encoding UTF8 } else { '' })
+    }
     $txt = ($out | ForEach-Object { "$_" }) -join "`n"
     try {
         $j = $txt | ConvertFrom-Json
@@ -1026,6 +1032,23 @@ Check '승인한 명의와 같으면 안내하지 않는다' {
 Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
     $cfg = "[user]`n`tname = 홍길동`n`temail = ax@kiwoomam.com`n[kw-control-tower]`n`tapprovedEmail = hong@kiwoomam.com`n"
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $cfg) -match "$idLine.*ax@kiwoomam\.com"
+}
+# 승인 전까지 매 세션 뜨면 소음이 되므로 그 주(월~일)의 첫 세션에만 안내한다(2026-10-07 사용자 결정).
+$today = Get-Date
+$thisWeek = '{0}-W{1:D2}' -f [System.Globalization.ISOWeek]::GetYear($today), [System.Globalization.ISOWeek]::GetWeekOfYear($today)
+Check '이번 주에 이미 안내했으면 명의 안내를 다시 내지 않는다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -State "identityAskedWeek=$thisWeek") -notmatch $idLine
+}
+Check '지난주에 안내했으면 이번 주에 다시 안내한다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -State "identityAskedWeek=2000-W01") -match "(?m)^KW 컨트롤 타워: $idLine"
+}
+Check '명의 안내를 내면 이번 주를 적고 상태 파일의 다른 줄은 그대로 둔다' {
+    $s = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -State "refreshed=2026-01-01`nidentityAskedWeek=2000-W01" -StateAfter
+    ($s -match "(?m)^identityAskedWeek=$thisWeek\r?$") -and ($s -match '(?m)^refreshed=2026-01-01\r?$') -and
+        (@([regex]::Matches($s, '(?m)^identityAskedWeek=')).Count -eq 1)
+}
+Check '승인한 명의면 상태 파일에 안내한 주를 적지 않는다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idApproved -StateAfter) -notmatch 'identityAskedWeek'
 }
 # git 은 섹션과 키의 대소문자를 가리지 않고, 따옴표와 줄 끝 주석을 값에서 뺀다. 훅이 다르게 읽으면
 # 승인한 PC 에서도 안내가 끝나지 않는다.

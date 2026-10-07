@@ -9,7 +9,8 @@
 # 승인된 외부 프로세스는 원격 커밋을 읽는 curl.exe 하나다. 2026-09-25 에 사용자가
 # 승인했다. 묻는 시점은 훅이 돌 때가 아니라 개발할 때다.
 #
-# 아무것도 고치지 않는다. 세션을 막지 않는다. 스스로 실패하면 조용히 물러난다.
+# 아무것도 고치지 않는다. 쓰는 것은 자국 파일 둘과, 상태 파일에 명의 안내를 낸 주를 적는
+# 한 줄뿐이다. 세션을 막지 않는다. 스스로 실패하면 조용히 물러난다.
 # PowerShell 7 을 전제한다. 설치기가 7 을 winget 으로 깔고, 그래도 없으면 아무것도
 # 안 깔고 끝내므로, 7 이 없는 PC 에는 이 훅도 없다.
 #
@@ -247,7 +248,8 @@ try {
     $settings  = Read-Json (Join-Path $cfg     'settings.json')
     $installed = Read-Json (Join-Path $plugins 'installed_plugins.json')
     $known     = Read-Json (Join-Path $plugins 'known_marketplaces.json')
-    $kwState = Read-KwState (Join-Path $cfg 'kw-control-tower.state')
+    $statePath = Join-Path $cfg 'kw-control-tower.state'
+    $kwState = Read-KwState $statePath
 
     $enabled     = Get-Prop $settings  'enabledPlugins'
     $installedOf = Get-Prop $installed 'plugins'
@@ -554,9 +556,24 @@ try {
         if (-not $idOk) { $hint += " 로그인이 끝나면 git 명의 확인으로 이어 간다. $idHint" }
         Add-Ask "사내 GitHub 로그인이 필요합니다. 다음을 실행하고 열리는 페이지에 Ctrl+V 로 코드를 붙여 넣으십시오: $loginCommand" $hint
     } elseif (-not $idOk) {
-        $text = if ($gitId.Email) { "git 커밋 명의를 아직 확인하지 않았습니다(user.email: $($gitId.Email))." }
-                else { 'git 커밋 명의(user.name · user.email)가 비어 있습니다.' }
-        Add-Ask "$text 클로드에게 「git 명의 맞춰 줘」라고 하십시오." $idHint
+        # 승인 전까지 매 세션 뜨면 소음이 되므로 그 주(월~일)의 첫 세션에만 안내한다(2026-10-07
+        # 사용자 결정). 감지가 쓰는 설정 밖 파일의 예외로, 안내를 낸 주를 상태 파일에 한 줄 적는다.
+        # 맞춤은 상태 파일의 모르는 키를 읽은 그대로 다시 적으므로 이 줄을 지우지 않는다.
+        $today = Get-Date
+        $week = '{0}-W{1:D2}' -f [System.Globalization.ISOWeek]::GetYear($today), [System.Globalization.ISOWeek]::GetWeekOfYear($today)
+        if ($kwState['identityAskedWeek'] -ne $week) {
+            $text = if ($gitId.Email) { "git 커밋 명의를 아직 확인하지 않았습니다(user.email: $($gitId.Email))." }
+                    else { 'git 커밋 명의(user.name · user.email)가 비어 있습니다.' }
+            Add-Ask "$text 클로드에게 「git 명의 맞춰 줘」라고 하십시오." $idHint
+            # 적지 못해도 다른 알림은 내야 하므로 여기서 삼킨다. 그 주의 다음 세션에 한 번 더 뜰 뿐이다.
+            try {
+                $keep = @()
+                if (Test-Path -LiteralPath $statePath) {
+                    $keep = @(Get-Content -LiteralPath $statePath -Encoding UTF8 | Where-Object { $_ -notmatch '^identityAskedWeek=' })
+                }
+                [System.IO.File]::WriteAllLines($statePath, [string[]]@($keep + "identityAskedWeek=$week"), $u8)
+            } catch { }
+        }
     }
 }
 catch {
