@@ -248,7 +248,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 - lucide-react 아이콘만 쓴다. 직접 그리지 않는다.
 - 크기는 카드 머리 14 · 글자 옆 표시 12~13 · 증감 화살표 10 이다.
-- 획 두께는 셸과 같게 `strokeWidth={1.7}` 을 넘긴다.
+- 획 두께는 셸과 같게 아이콘에 `className="ic"` 를 붙인다. 셸 CSS 가 획 두께 1.7 과 색을 정한다.
 
 ### 값이 없을 때와 숫자
 
@@ -261,8 +261,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 | 불러오지 못함 | `status-bad` 로 적고 옅은 면을 준다. 다시 받을 수 있으면 단추를 함께 둔다 |
 | 권한이 없음 | 보조 글자색으로 적고 누구에게 물어야 하는지 함께 적는다 |
 
-- 금액 · 비율 · 건수처럼 자릿수를 맞춰야 하는 숫자에는 `tabular-nums` 를 준다. 빼면 글꼴의 숫자 폭이 달라
-  위아래 줄의 자릿수가 어긋나 보인다. 표의 숫자 칸과 지표 값이 여기에 해당한다.
+- 숫자 자릿수 정렬(`tabular-nums`)은 셸이 화면 전체에 적용한다. 화면에서 다시 주지 않는다.
 
 ### 배치
 
