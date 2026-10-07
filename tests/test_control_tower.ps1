@@ -898,10 +898,11 @@ exit 0
 $shaOld = 'c875eb136526601501928d8cb888b258cf04f366'
 $shaNew = '811b47e87fec64c141e23ef69634eafb638b4d40'
 
-function New-Root([string]$Leaf, [string]$Sync) {
+function New-Root([string]$Leaf, [string]$Sync, [string]$Day) {
     # 이 플러그인의 폴더 이름이 곧 실행 중인 버전이다. 자동 갱신 판정이 그것을 본다.
     # $Sync 를 주면 맞춤 자리에 그 스텁을 둔다. 안 주면 맞춤을 지워 훅이 맞춤을 못 찾게 한다.
-    $r = if ($Sync) { Join-Path $scn "root-sync\$Leaf" } else { Join-Path $scn "root\$Leaf" }
+    # $Day 는 복사본이 오늘로 볼 요일이다. 요일마다 복사본을 따로 둔다.
+    $r = if ($Sync) { Join-Path $scn "root-sync-$Day\$Leaf" } else { Join-Path $scn "root-$Day\$Leaf" }
     if (-not (Test-Path $r)) {
         Copy-Item -LiteralPath $plugin -Destination $r -Recurse
         if ($Sync) { $Sync | Set-Content -LiteralPath (Join-Path $r 'scripts\sync.ps1') -Encoding UTF8 }
@@ -909,6 +910,7 @@ function New-Root([string]$Leaf, [string]$Sync) {
         $h = Join-Path $r 'hooks\session-check.ps1'
         $t = [System.IO.File]::ReadAllText($h)
         $t = $t.Replace('& curl.exe -s -f -m 2 "$Url/info/refs?service=git-upload-pack"', "& pwsh -NoProfile -File '$stub'")
+        $t = $t.Replace('(Get-Date).DayOfWeek', "[DayOfWeek]::$Day")
         [System.IO.File]::WriteAllText($h, $t, (New-Object System.Text.UTF8Encoding($false)))
     }
     $r
@@ -918,8 +920,9 @@ function Invoke-Scenario {
     param([string]$Installed, [string]$Remote, [hashtable]$Source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' },
           [string]$Clone, [string]$State, [string]$Seen, [string]$Version, [string]$Leaf = 'c875eb136526',
           [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync,
-          [string]$GitConfig, [switch]$Context)
+          [string]$GitConfig, [switch]$Context, [string]$Day = 'Monday')
     # -Context 를 주면 사용자에게 보일 본문 대신 클로드에게만 가는 지시를 돌려준다.
+    # -Day 는 훅이 오늘로 볼 요일이다. 명의 안내가 월요일에만 뜨므로 기본을 월요일로 둔다.
     $home2 = Join-Path $scn ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     # 로그인 여부는 APPDATA 아래 hosts.yml 로 판정한다. 미로그인을 흉내 낼 때는 빈 폴더를 준다.
     $app = Join-Path $home2 'appdata'
@@ -941,7 +944,7 @@ function Invoke-Scenario {
     if ($State) { $State | Set-Content (Join-Path $home2 '.claude\kw-control-tower.state') }
     if ($Seen)  { $Seen  | Set-Content (Join-Path $home2 '.claude\kw-control-tower.seen') }
     if ($GitConfig) { [System.IO.File]::WriteAllText((Join-Path $home2 '.gitconfig'), $GitConfig, (New-Object System.Text.UTF8Encoding($false))) }
-    $root = New-Root $Leaf $Sync
+    $root = New-Root $Leaf $Sync $Day
     $env:KWCT_STUB = $Remote
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$home2'; `$env:APPDATA='$app'; `$env:CLAUDE_PLUGIN_ROOT='$root'; & '$root\hooks\session-check.ps1'" 2>&1
     Remove-Item Env:\KWCT_STUB
@@ -1026,6 +1029,20 @@ Check '승인한 명의와 같으면 안내하지 않는다' {
 Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
     $cfg = "[user]`n`tname = 홍길동`n`temail = ax@kiwoomam.com`n[kw-control-tower]`n`tapprovedEmail = hong@kiwoomam.com`n"
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $cfg) -match "$idLine.*ax@kiwoomam\.com"
+}
+# 승인 전까지 매 세션 뜨면 소음이 되므로 월요일에만 안내한다(2026-10-07 사용자 결정).
+# 시나리오는 복사본의 요일 판정을 바꿔 끼워 돌린다. 원본에서 그 글자가 바뀌면 바꿔 끼우기가
+# 조용히 빗나가 시나리오가 실행한 요일을 따르게 되므로, 글자가 그대로 있는지 먼저 본다.
+Check '명의 안내의 요일 판정이 시나리오가 바꿔 끼우는 글자 그대로다' {
+    $hookCode -match '-not \$idOk -and \(Get-Date\)\.DayOfWeek -eq \[DayOfWeek\]::Monday'
+}
+Check '월요일이 아니면 승인하지 않은 명의라도 안내하지 않는다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday'
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday' -Context
+    ($o -notmatch $idLine) -and ($c -notmatch 'git-identity\.ps1')
+}
+Check '월요일이 아니어도 로그인 안내는 낸다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh -Day 'Tuesday') -match 'gh auth login'
 }
 # git 은 섹션과 키의 대소문자를 가리지 않고, 따옴표와 줄 끝 주석을 값에서 뺀다. 훅이 다르게 읽으면
 # 승인한 PC 에서도 안내가 끝나지 않는다.

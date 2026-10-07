@@ -553,7 +553,10 @@ try {
         $hint = "로그인 명령을 대신 실행할 때는 $browserHint"
         if (-not $idOk) { $hint += " 로그인이 끝나면 git 명의 확인으로 이어 간다. $idHint" }
         Add-Ask "사내 GitHub 로그인이 필요합니다. 다음을 실행하고 열리는 페이지에 Ctrl+V 로 코드를 붙여 넣으십시오: $loginCommand" $hint
-    } elseif (-not $idOk) {
+    } elseif (-not $idOk -and (Get-Date).DayOfWeek -eq [DayOfWeek]::Monday) {
+        # 승인 전까지 매 세션 뜨면 소음이 되므로 월요일에만 안내한다(2026-10-07 사용자 결정).
+        # 안내한 날을 적어 두면 감지가 파일을 쓰게 되므로 요일만 본다. 월요일에는 세션마다 뜨고,
+        # 월요일에 세션을 안 여는 PC 에는 뜨지 않는다.
         $text = if ($gitId.Email) { "git 커밋 명의를 아직 확인하지 않았습니다(user.email: $($gitId.Email))." }
                 else { 'git 커밋 명의(user.name · user.email)가 비어 있습니다.' }
         Add-Ask "$text 클로드에게 「git 명의 맞춰 줘」라고 하십시오." $idHint
