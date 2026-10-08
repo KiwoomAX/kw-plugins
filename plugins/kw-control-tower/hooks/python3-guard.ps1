@@ -79,7 +79,7 @@ try {
         [void]$sb.Append($c)
     }
 
-    # 셸 구분자로 나눠 조각마다 첫 낱말을 본다. 앞에 붙은 VAR=값 은 걷어낸다.
+    # 셸 구분자로 나눠 조각마다 첫 낱말을 본다. 앞에 붙은 VAR=값 은 제거한다.
     $hit = $false
     foreach ($seg in ([regex]::Split($sb.ToString(), '[\|&;\(\)`\r\n]'))) {
         $s = $seg.TrimStart()

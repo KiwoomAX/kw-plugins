@@ -3,8 +3,8 @@
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File git-identity.ps1                                    제안만 낸다
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File git-identity.ps1 -Apply -Name <이름> -Email <메일>   승인한 값을 적는다
 #
-# 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 이 스크립트는 클로드의 셸에서 따로 실행되어 그것을
-# 물려받지 않으므로 같은 옵션으로 실행한다(PR #42 리뷰).
+# 훅은 모두 -ExecutionPolicy Bypass 로 실행된다. 이 스크립트는 클로드의 셸에서 따로 실행되어 그
+# 옵션을 물려받지 않으므로 같은 옵션을 붙여 실행한다(PR #42 리뷰).
 #
 # 제안과 적용을 나눈 것은 그 사이에 사용자 승인을 두기 위해서다. 명의가 비어 있으면 클로드가
 # 대화 맥락에 있는 클로드 계정 메일로 채우는데, 클로드 계정을 여럿이 같이 쓰는 PC 에서는 그것이
@@ -16,7 +16,7 @@
 #
 # 적는 곳은 ~/.gitconfig 하나로 고정한다. 세션 시작 알림이 git 을 실행하지 않고 그 파일을 직접
 # 읽어 승인 여부를 판정하므로, git config --global 이 다른 위치(XDG)에 적으면 안내가 끝나지 않는다.
-# 거꾸로 HOME 이 따로 있거나 홈 폴더가 다른 드라이브(HOMEDRIVE)인 PC 에서는 git 이 ~/.gitconfig 가
+# 반대로 HOME 이 따로 있거나 홈 폴더가 다른 드라이브(HOMEDRIVE)인 PC 에서는 git 이 ~/.gitconfig 가
 # 아닌 파일을 전역 설정으로 읽는다. 그래서 승인을 적기 전에 git 이 적은 값을 실제로 읽는지 확인한다.
 #
 # 종료 코드는 0 이 제안을 냈거나 적은 것, 1 이 실패, 2 가 로그인 필요, 3 이 메일 읽기 권한 필요다.
@@ -41,8 +41,8 @@ $loginCommand = 'start https://github.com/login/device; gh auth login --web --gi
 $scopeCommand = 'start https://github.com/login/device; gh auth refresh -h github.com -s user:email --clipboard'
 
 function Select-CommitEmail($Emails, [string]$Domain) {
-    # 인증된 메일만 본다. 사내 메일이 있으면 그중 주 메일을, 주 메일이 아니면 첫째를 고른다.
-    # 사내 메일이 없으면 주 메일을 고른다. 고를 것이 없으면 $null 이다.
+    # 인증된 메일만 본다. 사내 메일이 있으면 그중 주 메일을 고르고, 주 메일이 없으면 첫 번째 사내
+    # 메일을 고른다. 사내 메일이 없으면 주 메일을 고른다. 고를 것이 없으면 $null 이다.
     $verified = @($Emails | Where-Object { $_.verified -eq $true })
     $corp = @($verified | Where-Object { "$($_.email)".ToLowerInvariant().EndsWith($Domain.ToLowerInvariant()) })
     $pick = @($corp | Where-Object { $_.primary -eq $true }) + $corp + @($verified | Where-Object { $_.primary -eq $true })
@@ -52,7 +52,7 @@ function Select-CommitEmail($Emails, [string]$Domain) {
 
 function Invoke-Native([string]$Exe, [string[]]$ArgList) {
     # 네이티브 명령의 표준 오류를 출력에 합쳐 돌려준다. 이 범위에서만 Stop 을 풀어, 표준 오류
-    # 한 줄이 예외로 바뀌어 종료 코드를 보기 전에 스크립트가 죽지 않게 한다.
+    # 한 줄이 예외로 바뀌어 종료 코드를 보기 전에 스크립트가 중단되지 않게 한다.
     $ErrorActionPreference = 'Continue'
     $out = & $Exe @ArgList 2>&1 | ForEach-Object { "$_" }
     return @{ Code = $LASTEXITCODE; Text = ($out -join "`n") }
@@ -66,25 +66,25 @@ function Get-GitValue([string]$Key) {
 
 function Set-GitValue([string]$Key, [string]$Value) {
     $r = Invoke-Native $script:Git @('config', '--file', $gitConfig, $Key, $Value)
-    if ($r.Code -ne 0) { throw "git config 실패: $Key ($gitConfig) — $($r.Text)" }
+    if ($r.Code -ne 0) { throw "git config 실패: $Key ($gitConfig). git 출력: $($r.Text)" }
 }
 
 $script:Git = (Get-Command git -ErrorAction SilentlyContinue).Source
-if (-not $script:Git) { throw 'git 없음: PATH 에서 git 을 찾지 못함 — 설치기를 다시 실행해야 함' }
+if (-not $script:Git) { throw 'git 없음: PATH 에서 git 을 찾지 못함. 설치기를 다시 실행해야 함' }
 
 if ($Apply) {
-    # 승인받은 값을 그대로 적는다. 승인은 사용자가 했으므로 GitHub 계정과 다시 견주지 않는다.
-    if ([string]::IsNullOrWhiteSpace($Name)) { throw '이름 없음: -Name 이 비어 있음 — 사용자가 승인한 이름을 넘겨야 함' }
-    if ($Email -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') { throw "메일 형식 아님: -Email '$Email' — 사용자가 승인한 메일을 넘겨야 함" }
+    # 승인받은 값을 그대로 적는다. 승인은 사용자가 했으므로 GitHub 계정과 다시 비교하지 않는다.
+    if ([string]::IsNullOrWhiteSpace($Name)) { throw '이름 없음: -Name 이 비어 있음. 사용자가 승인한 이름을 넘겨야 함' }
+    if ($Email -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') { throw "메일 형식 아님: -Email '$Email'. 사용자가 승인한 메일을 넘겨야 함" }
     Set-GitValue 'user.name' $Name
     Set-GitValue 'user.email' $Email
-    # 승인을 적은 뒤에는 훅의 안내가 사라진다. git 이 다른 파일을 읽는 PC 에서 그대로 적으면 커밋은
-    # 여전히 그 파일의 명의로 올라가는데 아무도 모른다. 그래서 승인은 확인이 끝난 뒤에 적는다(PR #42 리뷰).
+    # 승인을 적으면 훅의 안내가 멈춘다. git 이 다른 파일을 읽는 PC 에서 확인 없이 적으면 커밋은 여전히
+    # 그 파일의 명의로 올라가는데 아무도 알아채지 못한다. 그래서 확인이 끝난 뒤에 승인을 적는다(PR #42 리뷰).
     $seen = Invoke-Native $script:Git @('config', '--global', '--get', 'user.email')
     if (($seen.Code -ne 0) -or ($seen.Text.Trim() -ne $Email)) {
         $where = (Invoke-Native $script:Git @('config', '--global', '--show-origin', '--get', 'user.email')).Text.Trim()
         if (-not $where) { $where = '전역 설정에 user.email 없음' }
-        throw "명의 적용 확인 실패: git 이 읽는 전역 user.email 이 $gitConfig 에 적은 '$Email' 과 다름 ($where) — HOME 환경변수나 홈 폴더(HOMEDRIVE) 때문에 git 이 다른 파일을 읽는 PC 라 승인을 적지 않음"
+        throw "명의 적용 확인 실패: git 이 읽는 전역 user.email 이 $gitConfig 에 적은 '$Email' 과 다름 ($where). HOME 환경변수나 홈 폴더(HOMEDRIVE) 때문에 git 이 다른 파일을 읽는 PC 라 승인을 적지 않음"
     }
     Set-GitValue $approvedKey $Email
     Write-Output "git 커밋 명의를 적었습니다: user.name = $Name, user.email = $Email ($gitConfig)"
@@ -92,7 +92,7 @@ if ($Apply) {
 }
 
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
-if (-not $gh) { throw 'gh 없음: PATH 에서 GitHub CLI 를 찾지 못함 — 설치기를 다시 실행해야 함' }
+if (-not $gh) { throw 'gh 없음: PATH 에서 GitHub CLI 를 찾지 못함. 설치기를 다시 실행해야 함' }
 
 $user = Invoke-Native $gh @('api', 'user')
 if ($user.Code -ne 0) {
@@ -111,7 +111,7 @@ if ($emails.Code -ne 0) {
     exit 3
 }
 $proposedEmail = Select-CommitEmail ($emails.Text | ConvertFrom-Json) $corpDomain
-if (-not $proposedEmail) { throw "인증된 메일 없음: GitHub 계정 $($account.login) — GitHub 설정의 Emails 에서 메일 인증이 필요함" }
+if (-not $proposedEmail) { throw "인증된 메일 없음: GitHub 계정 $($account.login). GitHub 설정의 Emails 에서 메일 인증이 필요함" }
 $proposedName = if ($account.name) { $account.name } else { $account.login }
 
 $curName     = Get-GitValue 'user.name'

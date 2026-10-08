@@ -2,14 +2,14 @@
 #
 #   pwsh -File tests\test_control_tower.ps1
 #
-# 알림 훅은 격리된 가짜 홈에서 돌려 실제 설정을 안 건드린다.
+# 알림 훅은 격리된 가짜 홈에서 실행해 실제 설정을 건드리지 않는다.
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
-$ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기가 7 없이는 아무것도 안 깐다.
+$ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기는 7 이 없으면 아무것도 설치하지 않는다.
 
 # 훅·맞춤·명의 스크립트는 UTF-8 로 출력하고, PowerShell 은 자식 프로세스의 출력을
 # [Console]::OutputEncoding 으로 읽는다. 이 값은 PC 의 코드페이지를 따르므로(한국어 윈도는 949)
@@ -32,10 +32,9 @@ function Check {
     }
 }
 
-# 실패로 판정하지 않고 사용자에게 물을 것으로 모은다. 2026-09-25 에 사용자가 훅의 세
-# 제약(외부 프로세스, 네트워크, 몸통 200밀리초)을 금지에서 "개발할 때 먼저 묻는다" 로
-# 바꿨다. 이 검사가 걸리면 측정값이나 새 호출을 보이고 사용자 승인을 받은 뒤 승인
-# 목록을 고친다.
+# 실패로 판정하지 않고 사용자에게 물을 것으로 모은다. 훅의 세 제약(외부 프로세스, 네트워크,
+# 몸통 200밀리초)은 금지가 아니라 "개발할 때 먼저 묻는다" 이다(2026-09-25 사용자 결정).
+# 이 검사에 걸리면 측정값이나 새 호출을 보이고 사용자 승인을 받은 뒤 승인 목록을 고친다.
 $script:AskList = New-Object System.Collections.ArrayList
 function Ask {
     param([string]$Name, [scriptblock]$Body)
@@ -72,17 +71,16 @@ Check 'plugin.json 이 JSON 이다'      { $null -ne (Get-Content (Join-Path $pl
 Check 'manifest.json 이 JSON 이다'    { $null -ne (Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json) }
 Check 'hooks.json 이 JSON 이다'       { $null -ne (Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json) }
 
-# 클로드 코드가 읽는 JSON 에 밑줄 접두 키를 두지 않는다. 한동안 그것으로 주석을 흉내
-# 냈는데 형식에 없는 키라, 플러그인을 적재할 때마다 "unknown keys ignored" 경고가 떴다.
-# 이상이 없으면 아무 말도 안 한다는 이 플러그인의 첫째 규율을 그 경고가 매 세션 어겼다.
-# 적을 것은 이 검사들의 주석과 README 에 있고, 거기서는 설명에 그치지 않고 강제된다.
+# 클로드 코드가 읽는 JSON 에 밑줄 접두 키를 두지 않는다. 형식에 없는 키라 플러그인을 적재할
+# 때마다 "unknown keys ignored" 경고가 표시되어, 이상이 없으면 아무 말도 하지 않는다는 이
+# 플러그인의 첫째 규율을 매 세션 어긴다. 설명은 이 검사들의 주석과 README 에 둔다.
 #
-# manifest.json 은 뺀다. 그것은 클로드 코드가 안 읽고 sync.ps1 이 읽는 우리 파일이라
-# 경고를 내지 않고, 그 주석들은 목록을 고칠 사람이 바로 보는 곳이다.
+# manifest.json 은 뺀다. 클로드 코드가 아니라 sync.ps1 이 읽는 파일이라 경고가 나지 않고,
+# 그 주석은 목록을 고칠 사람이 바로 보는 곳이다.
 #
-# 아는 키를 나열해 견주지 않고 밑줄만 막는다. 나열하면 형식에 키가 하나 늘 때마다
-# 사람이 이 목록을 맞춰야 하고, 안 맞추면 멀쩡한 키에서 검사가 떨어진다.
-# 플러그인을 추가할 때 이 목록을 손으로 고치지 않도록 plugins 아래를 모은다. kw-dashboard 가 빠져 있었다.
+# 아는 키를 나열해 비교하지 않고 밑줄만 막는다. 나열하면 형식에 키가 늘 때마다 이 목록을
+# 손으로 맞춰야 하고, 맞추지 않으면 멀쩡한 키에서 검사가 실패한다.
+# 플러그인을 추가할 때 이 목록을 손으로 고치지 않도록 plugins 아래를 모은다.
 $claudeJsonFiles = @((Join-Path $repo '.claude-plugin\marketplace.json'), (Join-Path $plugin 'hooks\hooks.json')) +
     @(Get-ChildItem (Join-Path $repo 'plugins') -Directory | ForEach-Object { Join-Path $_.FullName '.claude-plugin\plugin.json' } | Where-Object { Test-Path -LiteralPath $_ })
 Check '클로드 코드가 읽는 JSON 에 밑줄 주석 키가 없다' {
@@ -110,8 +108,8 @@ Write-Host ''
 Write-Host '훅의 예산'
 $hookSrc = Get-Content (Join-Path $plugin 'hooks\session-check.ps1') -Raw
 
-# 주석을 걷어낸 코드만 검사한다. 주석에 적힌 낱말을 코드로 세면 자기 설명이 자기
-# 검사를 떨어뜨린다. 실제로 한 번 그렇게 됐다.
+# 주석을 제외한 코드만 검사한다. 주석에 적힌 낱말까지 코드로 세면 설명이 검사를
+# 실패시킨다.
 function Get-CodeOnly {
     param([string]$Text)
     ($Text -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
@@ -130,20 +128,20 @@ Check '세션 시작 훅이 하나뿐이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     @($j.hooks.SessionStart).Count -eq 1 -and @($j.hooks.SessionStart[0].hooks).Count -eq 1
 }
-Check '훅을 pwsh 로 건다' {
+Check '훅을 pwsh 로 실행한다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $j.hooks.SessionStart[0].hooks[0].command -eq 'pwsh'
 }
-# 한 문자열로 적으면 셸이 그것을 다시 구분하고, 사용자 이름에 공백이 든 PC 에서
-# 플러그인 경로가 거기서 깨진다. 나눠 적으면 셸을 안 거친다.
+# 한 문자열로 적으면 셸이 그것을 다시 나누므로, 사용자 이름에 공백이 든 PC 에서
+# 플러그인 경로가 깨진다. 나눠 적으면 셸을 거치지 않는다.
 Check '명령과 인자를 나눠 적는다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $all = @($j.hooks.SessionStart[0].hooks) + @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
     @($all | Where-Object { $_.command -ne 'pwsh' -or @($_.args).Count -lt 6 }).Count -eq 0
 }
 # matcher 는 도구 이름만 거른다. 명령 내용을 거르는 것은 if 이고, 이것이 없으면
-# 도커도 python3 도 아닌 명령마다 프로세스가 뜬다.
-Check '도구 훅마다 if 규칙이 적용돼 있다' {
+# 도커도 python3 도 아닌 명령마다 프로세스가 실행된다.
+Check '도구 훅마다 if 규칙이 적용되어 있다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $tool = @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
     (@($tool).Count -eq 4) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
@@ -156,8 +154,8 @@ Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
     }
     $bad -eq 0
 }
-# 감지가 외부 프로그램을 호출하면 불일치한 곳이 없는 세션까지 값을 문다. 맞춤을 호출하는
-# 것은 이 검사 뒤의 코드이고, 그것은 불일치한 세션에서만 돈다. 승인된 것은 원격 커밋을
+# 감지가 외부 프로그램을 호출하면 불일치한 곳이 없는 세션까지 그 비용을 치른다. 맞춤을
+# 호출하는 것은 이 검사 뒤의 코드이고, 불일치한 세션에서만 실행된다. 승인된 것은 원격 커밋을
 # 읽는 curl.exe 하나다. 그 밖의 것이 보이면 실패가 아니라 사용자에게 물을 것이다.
 Ask '감지의 외부 프로그램이 승인된 curl.exe 뿐이다' {
     # & 뒤가 변수나 괄호면 스크립트 블록 호출이라 뺀다. 이름으로 부르는 것만 프로그램이다.
@@ -168,7 +166,7 @@ Ask '감지의 외부 프로그램이 승인된 curl.exe 뿐이다' {
     ($hookDetect -notmatch 'Get-FileHash')
 }
 # 감지가 나가는 네트워크는 원격 커밋을 읽는 요청 하나뿐이다. REST API 는 IP 하나에
-# 시간당 60회라 사내 PC 들이 나눠 쓰면 다 쓴다. 새 호출이 보이면 사용자에게 물을 것이다.
+# 시간당 60회라 사내 PC 들이 나눠 쓰면 금방 소진된다. 새 호출이 보이면 사용자에게 물을 것이다.
 Ask '훅의 네트워크가 승인된 info/refs 요청뿐이다' {
     (@([regex]::Matches($hookCode, '&\s*curl\.exe')).Count -eq 1) -and
     ($hookCode -notmatch 'Invoke-WebRequest|Invoke-RestMethod|api\.github\.com|System\.Net\.') -and
@@ -180,10 +178,9 @@ Check '원격 요청을 curl.exe 로 제한시간 2초와 -f 를 두고 적는�
 Check '네트워크 시간을 몸통에 안 센다' {
     $hookCode -match '(?s)\$sw\.Stop\(\).{0,120}Get-RemoteHead.{0,120}\$sw\.Start\(\)'
 }
-# 허용하는 쓰기는 자국 파일 둘(느림 $over, 오류 $log)뿐이다. 버전 기억 파일은 2026-09-29 에
-# 다른 곳이 옮긴 설치본을 알리지 않기로 하면서 없앴다.
-# 명령 이름만 보던 때에는 [IO.File]::WriteAllText 같은 .NET 쓰기를 못 잡았다. 쓰기 수단을
-# 줄마다 찾고, 그 줄이 허용한 파일을 가리키지 않으면 위반으로 센다.
+# 허용하는 쓰기는 자국 파일 둘(느림 $over, 오류 $log)뿐이다. 명령 이름뿐 아니라
+# [IO.File]::WriteAllText 같은 .NET 쓰기까지 줄마다 찾고, 그 줄이 허용한 파일을 가리키지
+# 않으면 위반으로 센다.
 function Get-HookWriteViolations {
     param([string]$Code)
     $write = '\[(System\.)?IO\.File\]::(WriteAll\w+|Append\w+|Create\w*|Open\w*|Delete|Move|Copy|Replace)|' +
@@ -191,7 +188,7 @@ function Get-HookWriteViolations {
              '(?<![0-9])>>?\s*(?!\$null\b)[\$''"\w]'
     @($Code -split "`n" | Where-Object { $_ -match $write -and $_ -notmatch '\$(over|log)\b' })
 }
-Check '훅이 아무 파일도 안 고친다 (자국 파일 둘은 뺀다)' {
+Check '훅이 아무 파일도 고치지 않는다 (자국 파일 둘은 제외한다)' {
     (Get-HookWriteViolations $hookCode).Count -eq 0
 }
 # 위 검사가 실제로 위반을 잡는지 쓰기 수단마다 한 줄씩 넣은 복사본으로 본다.
@@ -206,28 +203,28 @@ Check '쓰기 검사가 쓰기 수단마다 위반을 잡는다' {
     if ($missed.Count -gt 0) { Write-Host "       못 잡은 줄: $($missed -join ' | ')" }
     $missed.Count -eq 0
 }
-# 자국 파일이 영원히 자라면 그것도 이 PC 를 더럽히는 것이다.
+# 자국 파일이 끝없이 커지면 그것도 이 PC 를 바꾸는 것이다.
 Check '느림 자국은 덧붙이지 않고 덮어쓴다' { $hookCode -match 'WriteAllText\(\$over' }
-Check '오류 자국은 스무 줄까지만 남긴다'   { $hookCode -match '\$keep\.Count -gt 20' }
-# 감지 표가 적은 질문을 훅이 다 재야 한다. CLAUDE.md 문안 검사가 표에는 있고
-# 훅에는 없어서, 사내 문안을 손으로 고쳐도 아무도 모르는 상태였다.
+Check '오류 자국은 20줄까지만 남긴다'   { $hookCode -match '\$keep\.Count -gt 20' }
+# 감지 표에 적은 질문을 훅이 모두 측정해야 한다. 표에만 있고 훅에 없는 질문은 그
+# 불일치를 아무도 알아채지 못한다.
 Check '훅이 감지 표의 질문을 다 측정한다' {
     $spec2 = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw -Encoding UTF8
     # 표 머리에 바로 붙여 잡는다. 절 머리부터 잡으면 표 앞 문단에서 끊긴다.
-    $tbl = [regex]::Match($spec2, "(?s)\| 질문 \| 어디서 재나 \|.*?(?=\r?\n\r?\n)").Value
+    $tbl = [regex]::Match($spec2, "(?s)\| 질문 \| 어디서 측정하나 \|.*?(?=\r?\n\r?\n)").Value
     $rows = @([regex]::Matches($tbl, "(?m)^\|(?!-)")).Count - 1   # 머리 줄을 뺀다
     $asked = @([regex]::Matches($hookSrc, "(?m)^\s*# --- 질문 ")).Count
-    # 한 주석이 질문 둘을 덮는 곳이 있어 주석 수가 아니라 번호의 최댓값을 센다
-    # 한 주석이 질문 둘을 덮을 때 앞말에 따라 '과' 도 되고 '와' 도 된다.
+    # 한 주석이 질문 둘을 덮는 곳이 있어 주석 수가 아니라 번호의 최댓값을 센다.
+    # 그때 앞말에 따라 '과' 도 쓰고 '와' 도 쓴다.
     $nums = @([regex]::Matches($hookSrc, '# --- 질문 (\d+)(?:[과와] (\d+))?')) |
             ForEach-Object { [int]$_.Groups[1].Value; if ($_.Groups[2].Success) { [int]$_.Groups[2].Value } }
     ($asked -gt 0) -and (($nums | Measure-Object -Maximum).Maximum -eq $rows)
 }
-Check '훅이 CLAUDE.md 문안을 견준다' {
+Check '훅이 CLAUDE.md 문안을 비교한다' {
     ($hookCode -match 'claude-md-ko\.md') -and ($hookCode -match 'BEGIN AX')
 }
-# 5.1 을 버렸으므로 그 문법 제약을 더 지킬 이유가 없다. 대신 되돌아가지 않았는지를 본다.
-# 훅이 powershell.exe 로 돌면 한국어가 ANSI 로 읽혀 조용히 깨진다.
+# 5.1 의 문법 제약은 더 지키지 않고, 5.1 로 되돌아가지 않았는지만 본다.
+# 훅이 powershell.exe 로 실행되면 한국어가 ANSI 로 읽혀 조용히 깨진다.
 Check '훅이 5.1 을 호출하지 않는다' {
     ($hookCode -notmatch 'powershell\.exe') -and ($hookCode -match 'pwsh')
 }
@@ -235,15 +232,15 @@ Check '훅이 5.1 을 호출하지 않는다' {
 # --- 한글이 안 깨진다 ---------------------------------------------
 Write-Host ''
 Write-Host '한글'
-# BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽고, BOM 이 없으면 5.1 로 돌렸을 때
-# 한글이 조용히 깨지는 것이 아니라 파싱 오류로 죽어서 잘못 호출한 것이 그 줄에서 드러난다.
+# BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽고, BOM 이 없으면 5.1 로 잘못 실행했을 때
+# 한글이 조용히 깨지지 않고 그 줄에서 파싱 오류로 드러난다.
 foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plugin 'scripts\sync.ps1'),
                  (Join-Path $plugin 'hooks\python3-guard.ps1'), (Join-Path $plugin 'hooks\docker-cert-reminder.ps1'))) {
     Check "UTF-8 BOM 이 없다: $(Split-Path $f -Leaf)" {
         $b = [System.IO.File]::ReadAllBytes($f)
         -not ($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191)
     }
-    Check "한글이 성한 채로 읽힌다: $(Split-Path $f -Leaf)" {
+    Check "한글이 깨지지 않고 읽힌다: $(Split-Path $f -Leaf)" {
         (Get-Content -LiteralPath $f -Raw -Encoding UTF8) -match '[가-힣]'
     }
 }
@@ -260,21 +257,21 @@ foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $plugin 'hooks'), (Join-P
 # --- 두 스크립트가 같은 해시를 낸다 ----------------------------------------
 Write-Host ''
 Write-Host '해시가 두 곳에서 같다'
-Check '알림 훅과 맞춤이 같은 해시 함수를 보유한다' {
+Check '알림 훅과 맞춤이 같은 해시 함수를 쓴다' {
     $a = ([regex]::Match($hookSrc, '(?s)function Get-CheapHash \{.*?\n\}')).Value
     $s = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
     $b = ([regex]::Match($s, '(?s)function Get-CheapHash \{.*?\n\}')).Value
-    # 주석은 다를 수 있으므로 계산하는 줄만 견준다
+    # 주석은 다를 수 있으므로 계산하는 줄만 비교한다
     $strip = { param($t) ($t -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n" }
     (& $strip $a).Trim() -eq (& $strip $b).Trim()
 }
 
-# --- 맞춤이 옛 훅 연결만 걷는다 --------------------------------------------
-# 2026-09-28 에 다른 직원 PC 에서 단계 7 이 "'hooks' 속성을 찾을 수 없습니다" 로 실패했다.
-# hooks 키가 없는 그룹에서 Get-Prop 이 $null 을 돌려주고, @() 가 그것을 원소 하나로 세어
-# 없는 속성에 값을 넣으려 했다. 사용자가 써 둔 그룹은 모양이 어떻든 그대로 남아야 한다.
+# --- 맞춤이 옛 훅 연결만 제거한다 ------------------------------------------
+# hooks 키가 없는 그룹에서 Get-Prop 이 $null 을 돌려주면 @() 가 그것을 원소 하나로 세어 없는
+# 속성에 값을 넣으려 한다(2026-09-28 다른 직원 PC 에서 단계 7 실패). 사용자가 써 둔 그룹은
+# 모양과 관계없이 그대로 남아야 한다.
 Write-Host ''
-Write-Host '맞춤이 옛 훅 연결만 걷는다'
+Write-Host '맞춤이 옛 훅 연결만 제거한다'
 $syncSrcH = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
 foreach ($fn in @('Get-Prop', 'Remove-RetiredHookEntries')) {
     . ([scriptblock]::Create(([regex]::Match($syncSrcH, "(?s)function $fn \{.*?\n\}")).Value))
@@ -285,7 +282,7 @@ $newH = '{ "type": "command", "command": "pwsh -File C:\\Users\\u\\.claude\\plug
 function Invoke-HookPrune([string]$Json) {
     $h = $Json | ConvertFrom-Json
     $n = Remove-RetiredHookEntries $h $retiredH
-    # 저장했다 다시 읽은 모양으로 견준다. 맞춤은 이것을 settings.json 에 쓴다.
+    # 저장했다 다시 읽은 모양으로 비교한다. 맞춤은 이것을 settings.json 에 쓴다.
     @{ Removed = $n; Hooks = ($h | ConvertTo-Json -Depth 20 | ConvertFrom-Json) }
 }
 Check 'hooks 키가 없는 그룹을 만나도 멈추지 않고 그 그룹에 hooks 를 새로 만들지 않는다' {
@@ -305,7 +302,7 @@ Check 'hooks 가 빈 배열인 그룹은 그대로 남는다' {
     $g = @($r.Hooks.PreToolUse)
     ($r.Removed -eq 1) -and ($g.Count -eq 1) -and ($g[0].matcher -eq 'Bash') -and ($null -ne $g[0].PSObject.Properties['hooks'])
 }
-Check '옛 훅과 새 훅이 섞인 그룹에서 옛 훅만 걷고 다른 이벤트는 그대로 둔다' {
+Check '옛 훅과 새 훅이 섞인 그룹에서 옛 훅만 제거하고 다른 이벤트는 그대로 둔다' {
     $r = Invoke-HookPrune "{ `"PreToolUse`": [ { `"matcher`": `"Write`", `"hooks`": [ $oldH, $newH ] } ], `"Stop`": [ { `"hooks`": [ { `"type`": `"command`", `"command`": `"echo hi`" } ] } ] }"
     ($r.Removed -eq 1) -and (@(@($r.Hooks.PreToolUse)[0].hooks).Count -eq 1) -and
         (@(@($r.Hooks.PreToolUse)[0].hooks)[0].command -like '*kiwoom-ax*') -and
@@ -328,7 +325,7 @@ Check '설정 파일이 하나도 없으면 조용히 물러난다' {
 `$env:USERPROFILE='$fake'; `$env:CLAUDE_PLUGIN_ROOT='$quietRoot'
 & '$quietRoot\hooks\session-check.ps1'
 "@ 2>&1
-    # 목록은 읽히지만 필수 플러그인이 없으므로 말은 한다. 다만 죽지 않아야 한다.
+    # 목록은 읽히지만 필수 플러그인이 없으므로 알림은 낸다. 다만 오류로 끝나지 않아야 한다.
     $LASTEXITCODE -eq 0
 }
 
@@ -343,7 +340,7 @@ Check '목록 파일이 없으면 아무 말도 안 한다' {
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 
-# 그냥 찍으면 Claude 맥락에만 실리고 사용자 화면에는 안 보인다. 할 말이 있으면 훅 JSON
+# 그냥 출력하면 Claude 맥락에만 실리고 사용자 화면에는 보이지 않는다. 할 말이 있으면 훅 JSON
 # 한 줄로 내고 systemMessage 와 additionalContext 를 둘 다 채운다.
 Check '할 말이 있으면 훅 JSON 으로 사용자와 Claude 에게 함께 낸다' {
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @"
@@ -358,7 +355,7 @@ Check '할 말이 있으면 훅 JSON 으로 사용자와 Claude 에게 함께 �
     ($j.hookSpecificOutput.additionalContext.StartsWith($j.systemMessage))
 }
 
-# 넘기면 실패가 아니라 측정값을 보이고 사용자에게 물을 것이다. 측정과 기록은 그대로다.
+# 예산을 넘겨도 실패가 아니라 측정값을 보이고 사용자에게 물을 것으로 남긴다. 측정값을 기록하는지는 따로 검사한다.
 $slowNote = ''
 Ask '몸통이 200밀리초 안에 끝난다' {
     $slow = Join-Path $fake '.claude\kw-control-tower.slow'
@@ -370,7 +367,7 @@ Ask '몸통이 200밀리초 안에 끝난다' {
     if (Test-Path -LiteralPath $slow) { $script:slowNote = (Get-Content -LiteralPath $slow -Raw).Trim(); Write-Host "       측정값: $script:slowNote" }
     -not (Test-Path -LiteralPath $slow)
 }
-Check '몸통이 넘으면 측정값을 기록한다' { $hookCode -match 'kw-control-tower\.slow' -and $hookCode -match 'ElapsedMilliseconds -gt 200' }
+Check '몸통이 예산을 넘으면 측정값을 기록한다' { $hookCode -match 'kw-control-tower\.slow' -and $hookCode -match 'ElapsedMilliseconds -gt 200' }
 
 Check '훅이 스스로 오류를 남기지 않았다' {
     -not (Test-Path -LiteralPath (Join-Path $fake '.claude\kw-control-tower.error'))
@@ -383,22 +380,22 @@ Write-Host ''
 Write-Host '맞춤의 미리보기'
 $syncSrc = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
 Check '미리보기가 한 일처럼 적지 않는다' { $syncSrc -match '안 함 · 미리보기' }
-Check '안 깔린 것에만 install 을 쓴다'    { $syncSrc -match "if \(-not \`$onDisk\)" -and $syncSrc -match "'plugin', 'enable'" }
-# 파이썬을 다루는 단계는 없을 때 알아듣게 말하는데 클로드를 다루는 단계는 셸
-# 오류를 그대로 뱉고 있었다. 같은 규율을 건다.
+Check '설치되지 않은 것에만 install 을 쓴다'    { $syncSrc -match "if \(-not \`$onDisk\)" -and $syncSrc -match "'plugin', 'enable'" }
+# 파이썬을 다루는 단계처럼 클로드를 다루는 단계도 클로드가 없을 때 무엇이 없는지 알아듣게
+# 말해야 한다. 이름으로 부르면 셸 오류가 그대로 나온다.
 Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
     ($syncSrc -match '\$script:ClaudeExe = \(Get-Command claude') -and
     ($syncSrc -match '\$file = \$script:ClaudeExe') -and
     ($syncSrc -notmatch '& claude @ClaudeArgs')
 }
 Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
-Check '되켠 것을 따로 적는다'              { $syncSrc -match '되켠 것' }
+Check '다시 켠 것을 따로 적는다'              { $syncSrc -match '다시 켠 것' }
 Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\[A-Za-z0-9\._-\]\+\$" }
-Check '지우기 전에 사본을 뜬다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
+Check '지우기 전에 사본을 남긴다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
 
-# 파이썬의 기본 인코딩으로 정하던 때에는 판정식 sys.getdefaultencoding() 이 파이썬 3 에서
-# 언제나 utf-8 이라 한 번도 넣지 못했다. 감지와 같은 규칙으로 비어 있으면 넣는다.
+# 감지와 같은 규칙으로 비어 있으면 넣는다. 파이썬의 기본 인코딩으로는 판정하지 않는다.
+# sys.getdefaultencoding() 은 파이썬 3 에서 언제나 utf-8 이라 한 번도 넣지 못한다.
 Check 'PYTHONUTF8 이 비어 있으면 넣고 0 과 1 은 그대로 둔다' {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin 'scripts\sync.ps1'), [ref]$null, [ref]$null)
     $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-Utf8Action' }, $true)
@@ -410,8 +407,8 @@ Check 'PYTHONUTF8 이 비어 있으면 넣고 0 과 1 은 그대로 둔다' {
 }
 Check '맞춤이 파이썬 기본 인코딩으로 판정하지 않는다' { $syncSrc -notmatch 'getdefaultencoding' }
 
-# 감지는 목록 해시로 판정한다. 맞춤도 해시가 같으면 pip 을 호출하지 않는다. 설치기가 모든 단계를
-# 실행할 때 사내 프록시를 거치는 pip 이 그때마다 실행되던 것을 없앤다.
+# 감지는 목록 해시로 판정한다. 맞춤도 해시가 같으면 pip 을 호출하지 않아, 설치기가 모든 단계를
+# 실행할 때 사내 프록시를 거치는 pip 이 매번 실행되지 않게 한다.
 Check '라이브러리 목록이 같으면 pip 을 안 부른다' {
     $b = [regex]::Match($syncSrc, "(?s)Show '4\..*?(?=Show '5\.)").Value
     $gate = $b.IndexOf("`$state['requirements'] -eq `$newHash")
@@ -432,13 +429,11 @@ Check '필수 플러그인의 배포처가 목록에 등록되어 있다' {
     $mkNames = @($mf.marketplaces | ForEach-Object { $_.name })
     @($mf.required | Where-Object { $mkNames -notcontains ($_ -split '@')[1] }).Count -eq 0
 }
-# replacedBy 는 이 PC 가 실제로 보유하게 될 플러그인 이름이어야 한다. 배포처 이름을
-# 하나 잘못 적으면 installed_plugins.json 의 키와 안 맞고, 단계 7 이 "대체가 아직
-# 안 깔렸다"고 말하며 영원히 넘어간다. 옛 스킬 사본이 남아 같은 스킬이 두 벌 실리는데,
-# 화면에는 이유가 틀린 안내만 찍히므로 아무도 알아채지 못한다. 2026-09-06 에
-# document-formats 가 정확히 그 상태였다.
-Check 'replacedBy 가 이 PC 에 실제로 깔릴 플러그인을 가리킨다' {
-    # 컨트롤 타워 자신은 목록에 없다. 설치기가 깔고, 이 스크립트는 그 안에서 돈다.
+# replacedBy 는 이 PC 에 실제로 설치될 플러그인 이름이어야 한다. 배포처 이름을 잘못 적으면
+# installed_plugins.json 의 키와 맞지 않아 단계 7 이 대체가 아직 없다며 계속 건너뛴다. 그러면
+# 옛 스킬 사본이 남아 같은 스킬이 두 벌 실리고, 화면에는 이유가 틀린 안내만 표시된다.
+Check 'replacedBy 가 이 PC 에 실제로 설치될 플러그인을 가리킨다' {
+    # 컨트롤 타워 자신은 목록에 없다. 설치기가 설치하고, 이 스크립트는 그 안에서 실행된다.
     $willHave = @($mf.required) + @($mf.suggested) + @('kw-control-tower@kiwoom-ax')
     $named    = @(@($mf.retiredPlugins) + @($mf.retiredSkills) |
                   Where-Object { $_.replacedBy } | ForEach-Object { $_.replacedBy })
@@ -448,7 +443,7 @@ Check '정리 항목마다 언제 넣었는지 적혀 있다' {
     $all = @($mf.retiredPlugins) + @($mf.retiredMarketplaces) + @($mf.retiredSkills) + @($mf.retiredHooks)
     @($all | Where-Object { -not $_.since }).Count -eq 0
 }
-Check '은퇴 훅은 이름과 경로를 함께 보유한다' {
+Check '은퇴 훅은 이름과 경로를 함께 적는다' {
     @($mf.retiredHooks | Where-Object { -not $_.file -or -not $_.pathContains }).Count -eq 0
 }
 # 읽히는 것과 형식이 맞는 것은 다르다. 키 이름을 하나 잘못 적으면 JSON 으로는
@@ -465,9 +460,9 @@ Check '알림도 칸이 빠진 목록에서 물러난다' { $hookCode -match "�
 
 $badManifest = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-bad-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path $badManifest | Out-Null
-# 홈도 가짜로 준다. 훅은 칸이 빠진 목록을 만나면 물러나면서 자국을 남기는데, 여기에
-# 진짜 USERPROFILE 을 넘기던 때에는 검사를 돌릴 때마다 사용자의 실제 프로필에 있는
-# kw-control-tower.error 가 자랐다. 이 파일 첫 줄의 "이 PC 를 안 바꾼다" 를 그것이 어겼다.
+# 홈도 가짜로 준다. 훅은 칸이 빠진 목록을 만나면 물러나면서 자국을 남기므로, 진짜
+# USERPROFILE 을 넘기면 실제 프로필의 kw-control-tower.error 가 커져 이 파일 첫 줄의
+# "이 PC 를 안 바꾼다" 를 어긴다.
 $badHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-badhome-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path (Join-Path $badHome '.claude') | Out-Null
 Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
@@ -475,22 +470,22 @@ Check '칸이 빠진 목록으로는 알림이 아무 말도 안 한다' {
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$badHome'; `$env:CLAUDE_PLUGIN_ROOT='$badManifest'; & '$quietRoot\hooks\session-check.ps1'" 2>&1
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
-# 자국이 가짜 홈 안에 떨어져야 모래상자가 성립한다. 위 검사만으로는 훅이 조용한 것만
-# 보고 어디에 적었는지는 안 본다.
-Check '물러나며 남긴 자국이 가짜 홈 안에 떨어진다' {
+# 자국이 가짜 홈 안에 남아야 샌드박스가 성립한다. 위 검사는 훅이 조용한지만 보고
+# 어디에 적었는지는 보지 않는다.
+Check '물러나며 남긴 자국이 가짜 홈 안에 남는다' {
     Test-Path -LiteralPath (Join-Path $badHome '.claude\kw-control-tower.error')
 }
 Remove-Item -LiteralPath $badManifest -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $badHome -Recurse -Force -ErrorAction SilentlyContinue
-# 이 마켓플레이스는 자기 레포 안의 것만 낸다. 외부 레포를 플러그인 원본으로
-# 가리키면 SSH 로 클론해 사내 PC 에서 실패하는 것을 2026-09-06 에 확인했다.
+# 이 마켓플레이스는 자기 레포 안의 플러그인만 배포한다. 외부 레포를 플러그인 원본으로
+# 가리키면 SSH 로 클론해 사내 PC 에서 실패한다(2026-09-06 확인).
 Check '마켓플레이스가 외부 레포를 원본으로 안 가리킨다' {
     $mk = Get-Content (Join-Path $repo '.claude-plugin\marketplace.json') -Raw | ConvertFrom-Json
     @($mk.plugins | Where-Object { $_.source -isnot [string] -or -not $_.source.StartsWith('./') }).Count -eq 0
 }
-# required 에 적은 것이 배포처 목록에 없으면 이름으로 못 호출한다. 올리기 전에는 아무도
-# 안 잡고, 사내 PC 마다 맞춤이 설치에 실패하면서 드러난다. 고칠 곳이 둘인데 한 곳만
-# 고치기 쉬워서 계약으로 못 박는다.
+# required 에 적은 것이 배포처 목록에 없으면 이름으로 설치할 수 없다. 배포 전에는 드러나지
+# 않고 사내 PC 마다 맞춤이 설치에 실패하면서 드러난다. 고칠 곳이 두 곳이라 한 곳만 고치기
+# 쉬우므로 계약으로 고정한다.
 Check '필수 목록의 플러그인이 배포처 목록에도 있다' {
     $mk2 = Get-Content (Join-Path $repo '.claude-plugin\marketplace.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $sold = @($mk2.plugins | ForEach-Object { $_.name })
@@ -501,19 +496,18 @@ Check '필수 목록의 플러그인이 배포처 목록에도 있다' {
     }
     $bad.Count -eq 0
 }
-# 먼저 걷고 설치가 실패하면 그 플러그인이 아예 없는 PC 가 된다. 실제로 그렇게
-# 됐던 적이 있어 계약으로 못 박는다.
+# 먼저 제거하고 설치가 실패하면 그 플러그인이 아예 없는 PC 가 된다. 그래서 대체자를
+# 계약으로 요구한다.
 Check '정리할 플러그인에는 대체자가 적혀 있다' {
     @($mf.retiredPlugins | Where-Object { -not $_.replacedBy }).Count -eq 0
 }
-Check '맞춤이 대체를 확인한 뒤에 걷는다' {
-    $syncSrc -match '대체할 \$by 가 아직 안 깔려 있어'
+Check '맞춤이 대체를 확인한 뒤에 제거한다' {
+    $syncSrc -match '대체할 \$by 가 아직 설치되지 않아'
 }
-# 플러그인에만 대체 가드를 적용하고 배포처에 적용하지 않으면 그 둘이 불일치한다. 설치가 실패해 옛
-# 플러그인이 그대로 남은 PC 에서 배포처만 걷혀, 깔린 플러그인의 출처가 사라진다.
-# 정리 목록에 배포처를 처음 올리면서 드러난 문제다.
-Check '맞춤이 남은 플러그인이 있는 배포처를 안 걷는다' {
-    $syncSrc -match '가 아직 깔려 있어 그대로 둡니다'
+# 배포처에도 플러그인과 같은 대체 가드를 둔다. 없으면 설치가 실패해 옛 플러그인이 그대로 남은
+# PC 에서 배포처만 제거되어, 설치된 플러그인의 출처가 사라진다.
+Check '맞춤이 남은 플러그인이 있는 배포처를 제거하지 않는다' {
+    $syncSrc -match '가 아직 설치되어 있어 그대로 둡니다'
 }
 
 # --- python3 가드 -----------------------------------------------------------
@@ -590,14 +584,13 @@ Remove-Item -LiteralPath $quietRoot -Recurse -Force -ErrorAction SilentlyContinu
 # --- 훅이 맞춤을 호출한다 -----------------------------------------------------
 Write-Host ''
 Write-Host '훅이 맞춤을 호출한다'
-# 사람이 호출하는 명령을 없앴다. 알림을 읽고 명령을 치는 사람이 없으면 감지가
-# 아무것도 바꾸지 못하기 때문이다. 호출하는 곳은 훅 하나이고, 설치기 9단계는
-# 예전처럼 같은 스크립트를 직접 호출한다.
+# 맞춤은 사람이 아니라 훅이 호출한다. 알림을 읽고 명령을 입력하는 사람이 없으면 감지가
+# 아무것도 바꾸지 못하기 때문이다. 그 밖에는 설치기 9단계가 같은 스크립트를 직접 호출한다.
 Check '훅이 맞춤 스크립트를 호출한다'      { $hookCode -match 'sync\.ps1' }
 Check '훅이 호출하는 스크립트가 실재한다'  { Test-Path -LiteralPath (Join-Path $plugin 'scripts\sync.ps1') }
-# 불일치한 곳이 없으면 맞춤을 안 호출한다. 이 경계가 사라지면 모든 세션이 맞춤 값을 문다.
-# 사용자가 직접 해야 하는 것은 맞춤을 안 호출한다. 호출하면 로그인 안 한 PC 에서 매 세션
-# 맞춤이 돌고도 아무것도 못 고친다.
+# 불일치한 곳이 없으면 맞춤을 호출하지 않는다. 이 경계가 사라지면 모든 세션이 맞춤의 비용을
+# 치른다. 사용자가 직접 해야 하는 것도 맞춤을 호출하지 않는다. 호출하면 로그인하지 않은 PC 에서
+# 매 세션 맞춤이 실행되고도 아무것도 고치지 못한다.
 Check '직접 할 일과 맞춤이 고칠 것을 나눠 적는다' {
     ($hookCode -match '\$asks\s*=\s*New-Object') -and ($hookCode -match '\$notes\s*=\s*New-Object')
 }
@@ -606,8 +599,8 @@ Check '맞춤을 호출할지는 notes 만 보고 정한다' {
 ]*\}\s*(#[^
 ]*)?'
 }
-# 상태에 따라 갈리는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
-# 사람은 읽고 넘겨도 아무 일이 없다. 그런 것은 점검이 맡는다.
+# 상태에 따라 달라지는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
+# 사람은 읽고 넘겨도 아무 일이 없다. 그런 안내는 점검이 맡는다.
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     $tplSrc -notmatch 'gh auth login'
@@ -618,9 +611,8 @@ Check '점검이 GitHub 로그인을 확인한다' {
 Check '맞춤은 GitHub 로그인을 건드리지 않는다' {
     (Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw) -notmatch 'gh auth login'
 }
-# 클로드가 로그인 명령을 대신 실행하면 gh 의 입력이 터미널이 아니라서, gh 가 브라우저를 여는
-# 단계를 건너뛰고 코드와 주소만 출력한다(2026-10-02 이 PC 에서 확인). 코드 입력 페이지는 늘 같은
-# 주소라 먼저 열어 둔다. 메일 읽기 권한은 git 명의를 GitHub 계정에 맞추는 데 쓰고, 기본 로그인에는 없다.
+# 클로드가 대신 실행하면 gh 가 브라우저를 열지 않으므로 코드 입력 페이지를 먼저 연다.
+# 메일 읽기 권한은 git 명의를 GitHub 계정에 맞추는 데 쓰고, 기본 로그인에는 없다.
 Check '로그인 안내가 코드 입력 페이지를 먼저 열고 메일 읽기 권한을 함께 받는다' {
     $hookCode -match "\`$loginCommand = 'start https://github\.com/login/device; gh auth login --web [^']*--clipboard --scopes user:email'"
 }
@@ -632,8 +624,7 @@ Check '알림 훅과 명의 스크립트가 같은 로그인 명령을 낸다' {
     $b = [regex]::Match((Get-Content (Join-Path $plugin 'scripts\git-identity.ps1') -Raw -Encoding UTF8), $re).Groups[1].Value
     $a -and ($a -eq $b)
 }
-# 명의가 비어 있으면 클로드가 대화 맥락에 있는 클로드 계정 메일로 채운다. 계정을 같이 쓰는
-# PC 에서 직원의 커밋이 AX 팀 직원 이름으로 올라갔다(이슈 #28).
+# 명의가 비어 있으면 클로드가 대화 맥락에 있는 클로드 계정 메일로 채운다(이슈 #28).
 Check '문안 템플릿이 맥락의 메일로 git 명의를 채우지 말라고 한다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     ($tplSrc -match 'user\.email') -and ($tplSrc -match '채우지 않는다')
@@ -660,7 +651,7 @@ Check '알림과 맞춤이 같은 함수로 사본 버전을 읽는다' {
     $syncSrc2 = Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw
     ($hookSrc -match 'function Get-MarketplaceHead') -and ($syncSrc2 -match 'function Get-MarketplaceHead')
 }
-# 읽기 전용 자동 변수를 덮어쓰면 그 블록이 통째로 죽는다. 실제로 그렇게 됐다.
+# 읽기 전용 자동 변수에 값을 넣으면 그 블록 전체가 실패한다.
 Check '읽기 전용 자동 변수를 안 쓴다' {
     ($hookSrc -notmatch '\$pid\b') -and ((Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw) -notmatch '\$pid\b')
 }
@@ -669,8 +660,8 @@ Check '읽기 전용 자동 변수를 안 쓴다' {
 Write-Host ''
 Write-Host '표준입력'
 # [Console]::In 은 콘솔 코드페이지로 해석한다. 한국어 윈도는 949 라 클로드가 보내는
-# UTF-8 한글이 깨지고 따옴표 짝이 틀어져 JSON 이 무너진다. 그러면 가드가 판정을 못 하고
-# 통과시켜, 한글이 든 명령만 골라 샌다. 2026-09-19 에 949 와 65001 로 확인했다.
+# UTF-8 한글이 깨지고 따옴표 짝이 어긋나 JSON 을 읽지 못한다. 그러면 가드가 판정하지 못해
+# 한글이 든 명령만 빠져나간다(2026-09-19, 949 와 65001 로 확인).
 foreach ($h in @('python3-guard.ps1', 'docker-cert-reminder.ps1')) {
     $src = Get-Content (Join-Path $plugin (Join-Path 'hooks' $h)) -Raw
     Check "표준입력을 UTF-8 로 직접 읽는다: $h" {
@@ -679,19 +670,19 @@ foreach ($h in @('python3-guard.ps1', 'docker-cert-reminder.ps1')) {
 }
 # 5.1 의 ConvertFrom-Json 은 예외 메시지에 입력 전체를 포함한다. 그대로 적으면 명령 전문과
 # 세션 기록 경로가 자국에 쌓인다.
-Check '가드가 예외 메시지를 통째로 남기지 않는다' {
+Check '가드가 예외 메시지를 전부 남기지 않는다' {
     $src = Get-Content (Join-Path $plugin 'hooks\python3-guard.ps1') -Raw
     $src -match 'Substring\(0, 120\)'
 }
 
 # 짝 없는 BEGIN 이 있으면 손대지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이 새 블록의
-# END 와 짝지어져 둘 사이의 사용자 글이 통째로 지워진다. 재현했다. 블록을 세는 검사는
-# 이것을 못 잡는다. 세어 보면 하나가 맞기 때문이다.
+# END 와 짝지어져 둘 사이의 사용자 글이 모두 지워진다. 블록 개수는 하나로 맞으므로 개수를
+# 세는 검사로는 잡지 못한다.
 Check '짝 없는 BEGIN 을 만나면 멈춘다' { $syncSrc -match "END 가 없는 '# BEGIN AX'" }
-Check '여는 마커 수와 짝 수를 견준다' { $syncSrc.Contains('$opens -gt $pairs') }
+Check '여는 마커 수와 짝 수를 비교한다' { $syncSrc.Contains('$opens -gt $pairs') }
 
-# 클로드 코드는 켤 때 플러그인을 읽는다. 깔거나 옮기거나 켜거나 걷은 것은 그 세션에
-# 안 실린다. 훅이 맞춤의 출력에서 문구를 찾아 판정하던 때는 다섯 중 둘만 잡고 있었다.
+# 클로드 코드는 켤 때 플러그인을 읽으므로, 설치하거나 옮기거나 켜거나 제거한 것은 그
+# 세션에 실리지 않는다. 그래서 플러그인을 바꾸는 호출마다 재시작 깃발을 설정한다.
 Check '플러그인을 바꾸는 곳마다 재시작 깃발을 설정한다' {
     $calls = @([regex]::Matches($syncSrc, "Invoke-Claude @\('plugin', '(install|update|enable|uninstall)'")).Count
     $flags = @([regex]::Matches($syncSrc, '\$script:Restart = \$true')).Count
@@ -700,7 +691,7 @@ Check '플러그인을 바꾸는 곳마다 재시작 깃발을 설정한다' {
 Check '맞춤이 다시 켜라고 알린다' {
     $syncSrc -match '다시 켜야 새 버전이 적용됩니다'
 }
-# 훅이 문구로 판정하면 문구가 늘 때마다 함께 고쳐야 하고, 실제로 빠졌다.
+# 훅이 문구로 판정하면 문구가 늘 때마다 함께 고쳐야 한다. 재시작 여부는 맞춤이 정한다.
 Check '훅은 문구로 재시작을 판정하지 않는다' {
     $hookCode -notmatch '플러그인을 깔았습니다'
 }
@@ -752,27 +743,24 @@ Write-Host ''
 Write-Host '도커 인증서 안내'
 $dockerHook = Join-Path $plugin 'hooks\docker-cert-reminder.ps1'
 $dockerSrc  = Get-Content $dockerHook -Raw
-# 옛 설치기는 번들이 없는 PC 에 이 훅을 아예 적용하지 않았다. 플러그인 훅은 연결이 PC 마다
-# 갈리지 않으므로 그 판정을 훅 자신이 해야 한다.
+# 플러그인 훅은 모든 PC 에 똑같이 연결되므로, 번들이 없는 PC 인지는 훅 자신이 판정해야 한다.
 Check '번들이 없으면 아무 말도 안 한다' { $dockerSrc -match 'Test-Path -LiteralPath \$bundleFile\)\) \{ exit 0 \}' }
 Check '어떤 상황에도 호출을 안 막는다'   { $dockerSrc -notmatch "permissionDecision" }
-# 번들 위치를 박아 두면 설치기가 그것을 옮길 때 이 훅만 옛 곳을 가리킨 채 남는다.
-# 실제로 그렇게 됐다. 설치기가 D:\corp-certs 로 옮겼는데 훅은 %LOCALAPPDATA% 를 보고
-# 있어서, 새로 설치한 PC 에서 이 안내가 통째로 사라질 참이었다.
+# 번들 위치를 코드에 고정하면 설치기가 번들을 옮길 때 이 훅만 옛 위치를 가리킨 채 남는다.
 Check '번들 위치를 환경변수에서 읽는다'  { $dockerSrc -match '\$env:SSL_CERT_FILE' }
 # 콘솔 코드페이지가 949 면 한국어 안내가 cp949 로 나가 Claude 가 UTF-8 로 읽을 때 깨진다.
-# 같은 플러그인의 다른 훅 둘은 이미 맞춘다.
+# 같은 플러그인의 세션 시작 훅도 같은 설정을 쓴다.
 Check '도커 안내 훅이 나가는 인코딩을 UTF-8 로 맞춘다' {
     $dockerSrc.Contains('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)')
 }
 # 주석은 빼고 본다. 왜 이렇게 바뀌었는지 설명하려면 옛 경로를 적을 수밖에 없는데,
 # 그것까지 막으면 이유를 적지 말라는 검사가 된다.
-Check '번들 위치를 코드에 안 박는다' {
+Check '번들 위치를 코드에 고정하지 않는다' {
     $codeOnly = (($dockerSrc -split "`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
     $codeOnly -notmatch 'LOCALAPPDATA'
 }
 # 안내에 적히는 마운트 경로도 그 변수에서 와야 한다. 판정만 고치고 문안을 두면
-# 훅은 옳게 켜지면서 사용자에게는 없는 폴더를 마운트하라고 시킨다.
+# 훅은 옳게 동작하면서 사용자에게는 없는 폴더를 마운트하라고 안내한다.
 Check '안내 문안의 경로도 실제 번들 폴더다' {
     ($dockerSrc -match '__BUNDLE_DIR__') -and ($dockerSrc -match "Replace\('__BUNDLE_DIR__', \`$bundleDir\)")
 }
@@ -785,7 +773,7 @@ Check '번들 없는 PC 에서 실제로 조용하다' {
     [string]::IsNullOrWhiteSpace(($out | Out-String).Trim())
 }
 # 번들이 어디 있든 따라가야 하므로, 흉내 내는 곳도 %LOCALAPPDATA% 아래가 아닌
-# 임시 폴더로 둔다. 경로가 코드에 박혀 있으면 이 검사가 실패한다.
+# 임시 폴더로 둔다. 경로가 코드에 고정되어 있으면 이 검사가 실패한다.
 $bundleStub = Join-Path $noBundle 'somewhere\ca-bundle.pem'
 Check '번들 있는 PC 에서는 말한다' {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $bundleStub) | Out-Null
@@ -810,19 +798,19 @@ Write-Host 'CLAUDE.md 단계'
 # 전체 줄 일치로 찾으면 옛 문구를 못 찾고 블록을 하나 더 붙인다.
 Check '마커를 접두로 찾는다'          { $syncSrc.Contains('^#\s*BEGIN AX\b') -and $syncSrc.Contains('^#\s*END AX[^\r\n]*') }
 Check '마커 바깥은 안 건드린다'        { $syncSrc -match '마커 바깥은 안 건드렸습니다' }
-Check '고치기 전에 사본을 뜬다'        { $syncSrc -match '\$target\.bak' }
+Check 'CLAUDE.md 를 고치기 전에 사본을 남긴다' { $syncSrc -match '\$target\.bak' }
 Check '잠금 폴더 이름을 상대와 맞춘다' { $syncSrc -match '\$target\.lock' -and $syncSrc -match "lock\.gate" }
 Check '오래 잡힌 잠금은 빼앗는다'      { $syncSrc -match 'heldsince' -and $syncSrc -match '\-ge 10' }
 Check '남의 잠금은 안 지운다'          { $syncSrc -match "\`$owner -eq \`$token" }
 Check '줄바꿈을 대상 파일에 맞춘다'    { $syncSrc -match '\$nl' }
-# 블록이 둘이 되면 다음 실행이 자기 블록을 못 찾아 또 하나를 붙인다. 사용자 파일이라
-# 그렇게 두느니 안 쓴다.
+# 블록이 둘이 되면 다음 실행이 자기 블록을 못 찾아 또 하나를 붙인다. 사용자 파일이므로
+# 그 상태로 두느니 쓰지 않는다.
 Check '쓰기 전에 블록이 하나인지 본다' { $syncSrc -match '블록이 하나여야 하는데' }
 # 블록이 둘이면 정규식이 첫 것만 보고 "이미 같다" 로 끝나 중복이 조용히 남는다.
 Check '블록이 둘 이상이면 하나로 줄인다' { $syncSrc -match '개 있어 하나로 줄였습니다' }
 Check '훅도 블록 개수를 센다'            { $hookCode -match '개 있습니다' }
-# 메모리에서 고친 것과 파일에 있던 것을 견주면 "이미 같다" 로 끝나 안 써진다.
-Check '견주는 대상은 파일에 있던 것이다' {
+# 메모리에서 고친 것과 파일에 있던 것을 비교하면 "이미 같다" 로 끝나 쓰지 않는다.
+Check '비교 대상은 파일에 있던 것이다' {
     ($syncSrc -match '\$merged -eq \$fileNow') -and ($syncSrc -notmatch '\$merged -eq \$original')
 }
 Check '쓴 뒤에도 다시 본다'            { $syncSrc -match '쓴 뒤에 블록이 하나가 아닙니다' }
@@ -838,8 +826,7 @@ Check '맞춤 잠금을 상태 파일 읽기 전에 잡는다' {
 # --- 문서와 코드를 대조한다 ---------------------------------------------------
 Write-Host ''
 Write-Host '문서와 코드'
-# 설계 문서가 단계를 일곱으로 세는데 코드가 여덟인 적이 있었다. 사람이 셀 일이
-# 아니라 대조하면 되는 일이다.
+# 문서에 적은 단계 수는 사람이 세지 않고 코드와 대조한다.
 $spec = Get-Content (Join-Path $repo 'docs\superpowers\specs\2026-09-06-control-tower-design.md') -Raw -Encoding UTF8
 $readme = Get-Content (Join-Path $repo 'README.md') -Raw -Encoding UTF8
 
@@ -870,7 +857,7 @@ Check '설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다' {
     ($spec -notmatch '"required": \[ "kw-doc-formats@kiwoom-ax" \]')
 }
 # 알림이 호출하는 맞춤 스크립트가 이 플러그인 안에 있어야 한다. 밖을 가리키면 플러그인을
-# 옮기거나 지운 PC 에서 알림만 뜨고 아무것도 안 고쳐진다.
+# 옮기거나 지운 PC 에서 알림만 표시되고 아무것도 고쳐지지 않는다.
 Check '알림이 자기 플러그인 안의 맞춤을 호출한다' {
     $hookCode -match 'Split-Path -Parent \$PSScriptRoot'
 }
@@ -949,7 +936,7 @@ Check '알림이 원격 커밋을 맞춤에 넘기고 지난 실패 기록으로
 }
 
 # --- 원격 확인의 조건들 -----------------------------------------------------
-# 훅 복사본의 curl.exe 호출을 스텁으로 바꿔 가짜 홈에서 돌린다. 스텁은 길이 접두사와
+# 훅 복사본의 curl.exe 호출을 스텁으로 바꿔 가짜 홈에서 실행한다. 스텁은 길이 접두사와
 # NUL 이 섞인 pkt-line 을 내거나 실패한다. 복사본에는 맞춤이 없어 실제로 고치지 않는다.
 Write-Host ''
 Write-Host '원격 확인의 조건들'
@@ -983,13 +970,13 @@ function New-Root([string]$Leaf, [string]$Sync, [string]$Day) {
     $r
 }
 function Invoke-Scenario {
-    # 가짜 홈을 만들고 훅을 돌려 사용자에게 보일 본문을 돌려준다.
+    # 가짜 홈을 만들고 훅을 실행해 사용자에게 보일 본문을 돌려준다.
     param([string]$Installed, [string]$Remote, [hashtable]$Source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' },
           [string]$Clone, [string]$State, [string]$Seen, [string]$Version, [string]$Leaf = 'c875eb136526',
           [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync,
           [string]$GitConfig, [switch]$Context, [string]$Day = 'Monday', [string[]]$Leftover = @())
     # -Context 를 주면 사용자에게 보일 본문 대신 클로드에게만 가는 지시를 돌려준다.
-    # -Day 는 훅이 오늘로 볼 요일이다. 명의 안내가 월요일에만 뜨므로 기본을 월요일로 둔다.
+    # -Day 는 훅이 오늘로 볼 요일이다. 명의 안내가 월요일에만 표시되므로 기본을 월요일로 둔다.
     $home2 = Join-Path $scn ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     # 로그인 여부는 APPDATA 아래 hosts.yml 로 판정한다. 미로그인을 흉내 낼 때는 빈 폴더를 준다.
     $app = Join-Path $home2 'appdata'
@@ -1081,7 +1068,7 @@ Check '다른 플러그인이 옮겨진 것을 알리지 않는다' {
             -Seen "kw-control-tower@kiwoom-ax=811b47e87fec`nother@elsewhere=aaaaaaaaaaaa"
     ($o -notmatch 'other@elsewhere') -and ($o -notmatch '다시 켜야')
 }
-# 2026-09-29 에 사용자가 세션 시작 알림을 줄이라고 정했다. 로그인 안내는 한 줄이고 맞춤을
+# 세션 시작 알림은 짧게 둔다(2026-09-29 사용자 결정). 로그인 안내는 한 줄이고 맞춤을
 # 부르지 않는다. 맞춤을 부르면 불일치 목록과 진행 출력 대신 맞춤의 짧은 결과만 붙인다.
 $syncStub = @'
 param([switch]$Brief, [switch]$WhatIfOnly, [string]$Steps, [int]$BudgetSeconds)
@@ -1116,9 +1103,9 @@ Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
     $cfg = "[user]`n`tname = 홍길동`n`temail = ax@kiwoomam.com`n[kw-control-tower]`n`tapprovedEmail = hong@kiwoomam.com`n"
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $cfg) -match "$idLine.*ax@kiwoomam\.com"
 }
-# 승인 전까지 매 세션 뜨면 소음이 되므로 월요일에만 안내한다(2026-10-07 사용자 결정).
-# 시나리오는 복사본의 요일 판정을 바꿔 끼워 돌린다. 원본에서 그 글자가 바뀌면 바꿔 끼우기가
-# 조용히 빗나가 시나리오가 실행한 요일을 따르게 되므로, 글자가 그대로 있는지 먼저 본다.
+# 요일 규칙의 근거는 설계 문서의 「명의 안내는 월요일에만 낸다」에 있다.
+# 시나리오는 복사본의 요일 판정을 바꿔 끼워 실행한다. 원본의 그 글자가 바뀌면 치환이 조용히
+# 빗나가 실제 실행 요일을 따르므로, 글자가 그대로인지 먼저 본다.
 Check '명의 안내의 요일 판정이 시나리오가 바꿔 끼우는 글자 그대로다' {
     $hookCode -match '-not \$idOk -and \(Get-Date\)\.DayOfWeek -eq \[DayOfWeek\]::Monday'
 }
@@ -1170,7 +1157,7 @@ Check '화면에 낼 말도 규칙도 없으면 아무것도 내지 않는다' {
 Check '월요일이 아니어도 로그인 안내는 낸다' {
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh -Day 'Tuesday') -match 'gh auth login'
 }
-# git 은 섹션과 키의 대소문자를 가리지 않고, 따옴표와 줄 끝 주석을 값에서 뺀다. 훅이 다르게 읽으면
+# git 은 섹션과 키의 대소문자를 구분하지 않고, 따옴표와 줄 끝 주석을 값에서 뺀다. 훅이 다르게 읽으면
 # 승인한 PC 에서도 안내가 끝나지 않는다.
 Check '대소문자와 따옴표와 주석이 달라도 같은 명의로 읽는다' {
     $cfg = "# 메모`n[User]`n`tName = `"홍길동`"`n`tEMAIL = hong@kiwoomam.com ; 사내 메일`n[kw-control-tower]`n`tapprovedemail = hong@kiwoomam.com`n"
@@ -1187,7 +1174,7 @@ Check '명의 안내는 클로드에게 승인을 받은 뒤에만 적용하라�
     $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
     ($c -match 'git-identity\.ps1') -and ($c -match '-Apply') -and ($c -match '승인')
 }
-# 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 명의 스크립트는 클로드의 셸에서 따로 실행되어
+# 훅은 모두 -ExecutionPolicy Bypass 로 실행된다. 명의 스크립트는 클로드의 셸에서 따로 실행되어
 # 그것을 물려받지 않으므로, 정책이 Restricted 나 AllSigned 인 PC 에서 거부된다(PR #42 리뷰).
 Check '명의 스크립트를 실행 정책을 우회해 실행하라고 한다' {
     $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
@@ -1240,7 +1227,7 @@ Check '맞춤과 훅이 같은 지문을 만든다' {
     $a -and ($a -eq $b)
 }
 # --- git 명의 스크립트 ------------------------------------------------------
-# gh 자리에 스텁을 두고 가짜 홈에서 돌린다. 스크립트는 ~/.gitconfig 만 고치므로 진짜 설정을
+# gh 자리에 스텁을 두고 가짜 홈에서 실행한다. 스크립트는 ~/.gitconfig 만 고치므로 진짜 설정을
 # 안 건드린다. 스텁은 KWCT_GH_USER 가 fail 이면 로그인 안 된 것을, KWCT_GH_EMAILS 가 scope 면
 # 메일 읽기 권한이 없는 것을 흉내 낸다.
 Write-Host ''
@@ -1274,7 +1261,7 @@ if ($a -eq 'api user/emails') {
 exit 1
 '@ | Set-Content -LiteralPath (Join-Path $ghBin 'gh.ps1') -Encoding UTF8
 function Invoke-Identity {
-    # 가짜 홈에서 명의 스크립트를 돌려 출력과 종료 코드와 남은 .gitconfig 를 돌려준다.
+    # 가짜 홈에서 명의 스크립트를 실행해 출력과 종료 코드와 남은 .gitconfig 를 돌려준다.
     # git 은 HOME 이 있으면 그 아래 .gitconfig 를 전역 설정으로 읽는다. 기본은 가짜 홈과 같게 두고,
     # -GitHome 을 주면 git 이 다른 파일을 읽는 PC 를 흉내 낸다.
     param([string]$Emails, [string]$GitConfig, [string]$ArgText, [string]$User, [string]$GitHome)
@@ -1315,7 +1302,7 @@ Check '이미 승인한 값이 GitHub 계정과 같으면 바꿀 것이 없다�
     $r = Invoke-Identity -Emails $emailsJson -GitConfig $idApproved
     ($r.Code -eq 0) -and ($r.Out -match '바꿀 것이 없습니다') -and ($r.Out -notmatch '-Apply')
 }
-# 스크립트가 적는 키와 훅이 읽는 키가 어긋나면 승인해도 안내가 끝나지 않는다. 둘을 이어서 돌린다.
+# 스크립트가 적는 키와 훅이 읽는 키가 어긋나면 승인해도 안내가 끝나지 않는다. 둘을 이어서 실행한다.
 Check '승인한 값을 적으면 알림 훅이 더 묻지 않는다' {
     $r = Invoke-Identity -ArgText "-Apply -Name '홍길동' -Email 'hong@kiwoomam.com'"
     ($r.Code -eq 0) -and $r.Config -and
@@ -1338,17 +1325,16 @@ Check 'git 이 다른 전역 설정을 읽으면 승인을 적지 않고 그 사
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤의 갱신 기록 -------------------------------------------------------
-# 맞춤이 갱신에 성공하면 재시작을 안내하는지, 실패하면 버전 알림을 내고 재시도를
-# 실행하는지 실제로 돌려 본다. PATH 앞에 claude.cmd
-# 스텁을 둔다. 맞춤은 단계 1·2 와 마무리만 떼어 돌린다. 나머지 단계는 파이썬을 깔고
-# 진짜 레지스트리를 건드려 가짜 홈으로 가둘 수 없다.
+# 맞춤이 갱신에 성공하면 재시작을 안내하는지, 실패하면 버전 알림을 내고 다시 시도하는지
+# 실제로 실행해 확인한다. PATH 앞에 claude.ps1 스텁을 둔다. 맞춤은 단계 1·2 와 마무리만 떼어
+# 실행한다. 나머지 단계는 파이썬을 설치하고 진짜 레지스트리를 건드려 가짜 홈에 가둘 수 없다.
 Write-Host ''
 Write-Host '맞춤의 갱신 기록'
 $sy = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-sync-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path (Join-Path $sy 'bin') | Out-Null
 # 스텁은 .cmd 가 아니라 .ps1 로 둔다. .cmd 가 부르는 pwsh 가 스토어 버전이면 가짜 홈에서
-# "Access is denied." 로 안 떠서, 2026-09-29 에 이 PC 에서 성공 시나리오 네 건이 늘 실패했다.
-# .ps1 은 맞춤의 프로세스 안에서 돌고 출력과 종료 코드를 그대로 돌려준다.
+# "Access is denied." 로 실행되지 않는다. .ps1 은 맞춤의 프로세스 안에서 실행되고 출력과
+# 종료 코드를 그대로 돌려준다.
 @'
 if ($env:STUB_LOG) { Add-Content -LiteralPath $env:STUB_LOG -Value ($args -join ' ') }
 $a = $args
@@ -1389,7 +1375,7 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 [System.IO.File]::WriteAllText($syncCut, $syncText.Substring(0, $cut3) + $syncText.Substring($cutEnd), (New-Object System.Text.UTF8Encoding($false)))
 
 function Invoke-SyncScenario {
-    # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
+    # 가짜 홈에서 떼어 낸 맞춤을 실행하고 출력과 상태 파일과 설치본을 돌려준다.
     param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
           [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '', [switch]$CloneCurrent, [string]$RealClone = '',
           [string[]]$Leftover = @())
@@ -1467,11 +1453,11 @@ Check '갱신에 성공하면 재시작을 옛 커밋 → 새 커밋으로 안�
     ($r.Out -match '(?m)^kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.') -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e')
 }
 $r = Invoke-SyncScenario -Steps '6'
-Check '넘겨받은 단계가 아니면 돌지 않는다' {
+Check '넘겨받은 단계가 아니면 실행하지 않는다' {
     ($r.Sha -eq $shaOld) -and [string]::IsNullOrWhiteSpace($r.Calls) -and ($r.Out -match '넘겨받은 불일치가 없어 넘어갑니다')
 }
 $r = Invoke-SyncScenario -Steps '1,2'
-Check '넘겨받은 단계는 돈다' { $r.Sha -eq $shaNew }
+Check '넘겨받은 단계는 실행한다' { $r.Sha -eq $shaNew }
 # 훅 제한은 90초다. 맞춤이 그것을 넘기면 알림이 사라진다고 보고, 맞춤 스스로 멈추고 남은 단계를 다음
 # 세션으로 미룬다. .ps1 스텁은 이 프로세스 안에서 실행되어 한 호출 안에서는 끊지 못한다.
 $r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Brief
@@ -1512,7 +1498,7 @@ $r = Invoke-SyncScenario -Mk 'inuse' -Steps '1' -RealClone 'ok' -Budget 20
 Check '남은 시간이 모자라면 git 으로 받지 않는다' { $r.Clone -ne $r.Src }
 $r = Invoke-SyncScenario -Steps '1' -State 'stuck-step1=00000000000000000000000000000000'
 Check '단계가 성공하면 지문을 지운다' { $r.State -notmatch 'stuck-step1' }
-# 매번 상한을 넘기는 단계를 켤 때마다 다시 실행하지 않게, 끊긴 단계도 그날은 다시 호출하지 않는다.
+# 매번 상한을 넘기는 단계를 클로드 코드를 켤 때마다 다시 실행하지 않게, 끊긴 단계도 그날은 다시 호출하지 않는다.
 Check '상한에 끊긴 단계도 지문을 적는다' { $hangRun.State -match '(?m)^stuck-step1=' }
 # 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
 $r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
@@ -1525,23 +1511,23 @@ Check '권장 설치에 성공한 것만 기록한다' {
 }
 # 권장 하나의 실패는 단계 2 전체를 막지 않는다. 막으면 같은 날 필수 플러그인 교정까지 보류된다.
 Check '권장 설치 실패는 단계 지문을 남기지 않는다' { $r.State -notmatch 'stuck-step2' }
-# 기록된 것은 사용자가 지운 뒤에도 다시 깔지 않는다.
+# 기록된 것은 사용자가 지운 뒤에도 다시 설치하지 않는다.
 $r = Invoke-SyncScenario -NoRanOnce -Steps '2' -Drop 'kw-dashboard@kiwoom-ax' `
         -State 'suggestedDone=kw-devops@kiwoom-ax;kw-dashboard@kiwoom-ax;superpowers@claude-plugins-official;playwright@claude-plugins-official;frontend-design@claude-plugins-official'
-Check '기록된 권장 플러그인은 지워도 다시 안 깐다' { $r.Calls -notmatch 'plugin install kw-dashboard' }
-# ranOnce 만 있는 옛 PC 는 이행 때의 권장 목록을 처리한 것으로 본다. 그 목록의 것은 다시 깔지 않고,
-# 이행 뒤 권장에 새로 올린 것은 한 번 깐다.
+Check '기록된 권장 플러그인은 지워도 다시 설치하지 않는다' { $r.Calls -notmatch 'plugin install kw-dashboard' }
+# ranOnce 만 있는 옛 PC 는 이행 때의 권장 목록을 처리한 것으로 본다. 그 목록의 것은 다시 설치하지
+# 않고, 이행 뒤 권장에 새로 올린 것은 한 번 설치한다.
 $r = Invoke-SyncScenario -Steps '2' -Drop 'superpowers@claude-plugins-official'
-Check 'ranOnce 만 있는 PC 에서 옛 권장은 지웠으면 다시 안 깐다' { $r.Calls -notmatch 'plugin install superpowers' }
+Check 'ranOnce 만 있는 PC 에서 옛 권장은 지웠으면 다시 설치하지 않는다' { $r.Calls -notmatch 'plugin install superpowers' }
 $r = Invoke-SyncScenario -Steps '2' -Drop 'kw-dashboard@kiwoom-ax'
-Check 'ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다' { $r.Calls -match 'plugin install kw-dashboard@kiwoom-ax' }
+Check 'ranOnce 만 있는 PC 에도 새 권장은 한 번 설치한다' { $r.Calls -match 'plugin install kw-dashboard@kiwoom-ax' }
 $r = Invoke-SyncScenario -Steps '1,2'
 Check '맞춤이 끝나면 잠금을 치운다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
 $r = Invoke-SyncScenario -Steps '1,2' -Lock 'fresh'
 Check '다른 맞춤이 실행 중이면 넘긴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 넘깁니다') -and ($r.Code -eq 0) }
 $r = Invoke-SyncScenario -Steps '1,2' -Lock 'stale'
 Check '10분 넘은 잠금은 치우고 실행한다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
-# 상한에 끊긴 실행도 잠금을 남기지 않는다. Task 8 의 끊김 시나리오를 다시 실행한다.
+# 상한에 끊긴 실행도 잠금을 남기지 않는다. 위의 끊김 시나리오를 다시 실행한다.
 $r = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
 Check '상한에 끊긴 실행도 잠금을 치운다' { -not $r.LockLeft }
 
@@ -1559,8 +1545,7 @@ Check '배포처를 못 받아와도 원격 커밋으로 알린다' {
 }
 
 # 세션 시작 훅은 맞춤을 -Brief 로 부른다. 진행 출력은 로그 파일로 가고 화면에는 재시작
-# 안내와 옮긴 설치본 한 줄씩만 남는다. 2026-09-29 재현에서 같은 네 플러그인이 여섯 번
-# 되풀이되어 알림이 55줄이 됐다.
+# 안내와 옮긴 설치본 한 줄씩만 남는다.
 $r = Invoke-SyncScenario -Brief
 Check '짧게 부르면 재시작 안내 아래 한 일을 한 줄씩만 낸다' {
     $lines = @($r.Out -split "`n" | Where-Object { $_.Trim() })
@@ -1673,8 +1658,8 @@ Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 # --- 맞춤이 끝까지 간다 -----------------------------------------------------
 Write-Host ''
 Write-Host '맞춤이 끝까지 간다'
-# 맞춤은 네트워크와 pip 을 거치므로 감지의 십 초 예산 안에 안 끝난다. 훅이 그것을
-# 동기로 호출하므로 예산이 짧으면 반쯤 하다 죽는다. 보통의 PC 가 한 번에 끝낼 만큼 준다.
+# 맞춤은 네트워크와 pip 을 거치므로 오래 걸린다. 훅이 그것을 동기로 호출하므로 훅 제한이
+# 짧으면 중간에 끊긴다. 보통의 PC 가 한 번에 끝낼 만큼 제한을 둔다.
 Check '세션 시작 훅의 예산이 맞춤을 끝낼 만큼이다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $j.hooks.SessionStart[0].hooks[0].timeout -ge 90
@@ -1688,7 +1673,7 @@ Check '훅이 맞춤에 훅 제한보다 짧은 상한을 넘긴다' {
 Check '맞춤이 claude 의 표준입력을 바로 닫는다' { $syncSrc -match '\$p\.StandardInput\.Close\(\)' }
 # 설치와 갱신은 클로드 코드를 다시 켜야 적용되므로 /clear 나 resume 에서 다시 맞춰도 이 세션에는
 # 안 실린다. 켤 때만 실행한다.
-Check '세션 시작 훅은 클로드 코드를 켤 때만 돈다' {
+Check '세션 시작 훅은 클로드 코드를 켤 때만 실행된다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     (@($j.hooks.SessionStart).Count -eq 1) -and ($j.hooks.SessionStart[0].matcher -eq 'startup')
 }
@@ -1697,8 +1682,8 @@ Check '세션 시작 훅은 클로드 코드를 켤 때만 돈다' {
 Check '맞춤의 출력을 훅 출력에 싣는다' {
     $hookCode -match 'foreach \(\$line in \$out\) \{ \[void\]\$say\.Add'
 }
-# 상태를 마지막에 한 번만 적으면 예산에 막혀 죽은 실행이 아무것도 안 한 것으로 남아,
-# 다음 세션이 처음부터 다시 돌고 그것이 영영 되풀이된다. 단계는 저마다 독립이고
+# 상태를 마지막에 한 번만 적으면 예산에 막혀 끊긴 실행이 아무것도 안 한 것으로 남아,
+# 다음 세션이 처음부터 다시 실행하고 그것이 끝없이 되풀이된다. 단계는 저마다 독립이고
 # 멱등이므로 단계가 끝날 때마다 적어 거기까지의 진행을 남긴다.
 $stepBodies = @([regex]::Split($syncCode, "(?m)^Show '\d+\. ") | Select-Object -Skip 1)
 Check '단계 조각이 단계 수와 같다' { $stepBodies.Count -eq $codeSteps.Count }
@@ -1706,8 +1691,8 @@ Check '단계마다 끝에서 상태를 적는다' {
     @($stepBodies | Where-Object { $_ -notmatch '(?m)^Save-State\b' }).Count -eq 0
 }
 # 적는 곳이 단계 안에 있기만 해서는 모자란다. 상태를 고치고 나서 적어야 한다.
-# 적고 나서 고치면 그 값은 다음 단계가 끝날 때까지 디스크에 안 남아, 그 사이에
-# 죽으면 그대로 유실된다. 단계 1 의 refreshed 가 실제로 그랬다.
+# 적고 나서 고치면 그 값은 다음 단계가 끝날 때까지 디스크에 남지 않아, 그 사이에
+# 실행이 끊기면 유실된다.
 Check '단계마다 상태를 고친 뒤에 적는다' {
     $bad = 0
     foreach ($b in $stepBodies) {
@@ -1735,13 +1720,13 @@ Check '훅을 호출하는 검사가 진짜 홈을 안 넘긴다' {
 
 # 진짜 플러그인 폴더의 훅을 실행하면 훅이 옆의 진짜 맞춤을 찾아 호출한다. 가짜 홈에는 필수
 # 플러그인이 없어 불일치가 늘 생기므로 맞춤이 실행되고, 이 PC 의 파이썬과 레지스트리가 바뀐다.
-Check '훅을 호출하는 검사가 진짜 플러그인 폴더의 훅을 안 돌린다' {
+Check '훅을 호출하는 검사가 진짜 플러그인 폴더의 훅을 실행하지 않는다' {
     $self = Get-Content $PSCommandPath -Raw -Encoding UTF8
     $self -notmatch '''\$plugin\\hooks\\session-check\.ps1'''
 }
 
 # --- 마켓플레이스 검증 ------------------------------------------------------
-# 저장소 전체를 한 번 검증한다. 플러그인별 검사 셋이 각자 같은 검증을 실행하던 것을 여기로 모았다.
+# 저장소 전체를 여기서 한 번만 검증한다. 플러그인별 검사는 같은 검증을 따로 실행하지 않는다.
 Write-Host ''
 Write-Host '마켓플레이스 검증'
 Push-Location $repo
