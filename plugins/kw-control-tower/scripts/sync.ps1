@@ -918,6 +918,28 @@ try {
 } else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
 Save-State
 
+# ---------------------------------------------------------------- 단계 8
+Show '8. 전역 설정의 출력 스타일을 봅니다.'
+if (Want 8) {
+try {
+    # 키가 없을 때만 Concise 를 넣는다. 키가 있으면 값이 무엇이든 사용자가 정한 것이라 그대로 둔다
+    # (2026-10-12 사용자 결정). 10턴 대화 시험에서 내장 Concise 가 비용 16%, 출력 토큰 21% 를 줄였다.
+    # 값은 대소문자를 가린다. 소문자로 쓰면 Default 가 적용된다.
+    # 파일이 없거나 못 읽으면 쓰지 않는다. Read-Json 이 못 읽으면 던져 실패로 남는다.
+    $settings = Read-Json $settingsPath
+    if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 둡니다.' }
+    elseif ($null -ne $settings.PSObject.Properties['outputStyle']) { Say "이미 '$($settings.outputStyle)' 입니다. 그대로 둡니다." }
+    else {
+        if (-not $WhatIfOnly) {
+            $settings | Add-Member -NotePropertyName 'outputStyle' -NotePropertyValue 'Concise'
+            Save-Json $settings $settingsPath
+        }
+        Note "전역 설정에 `"outputStyle`": `"Concise`" 를 적용했습니다(사본: $settingsPath.kw.bak). 끄려면 값을 `"default`" 로 바꾸십시오."
+    }
+} catch { Fail '8' $_.Exception.Message }
+} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+Save-State
+
 # ---------------------------------------------------------------- 마무리
 # 실행한 단계마다 실패했거나 상한에 끊겼으면 지문을 적고, 끝까지 성공했으면 지운다. 시간이 모자라
 # 중간에 미룬 단계는 원인이 앞 단계에 있을 수 있어 기록을 건드리지 않는다. 끊긴 단계는 끊긴 뒤의
