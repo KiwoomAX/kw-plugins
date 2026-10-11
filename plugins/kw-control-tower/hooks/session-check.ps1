@@ -558,6 +558,14 @@ try {
                 else { 'git 커밋 명의(user.name · user.email)가 비어 있습니다.' }
         Add-Ask "$text 클로드에게 「git 명의 맞춰 줘」라고 하십시오." $idHint
     }
+
+    # --- 질문 15. 전역 설정에 outputStyle 키가 있나 --------------------------
+    # 키가 없을 때만 불일치로 본다. 값이 무엇이든 키가 있으면 사용자가 정한 것이라 말하지 않는다.
+    # "default" 로 바꾼 사람에게 매 세션 Concise 를 다시 넣지 않기 위해서다(2026-10-12 사용자 결정).
+    # settings.json 이 없으면 고칠 대상이 없으므로 말하지 않는다. 이미 읽은 파일이라 예산이 늘지 않는다.
+    if ($null -ne $settings -and $null -eq $settings.PSObject.Properties['outputStyle']) {
+        Add-Note 8 '전역 설정에 outputStyle 이 없습니다.'
+    }
 }
 catch {
     # 사용자에게는 조용히 물러난다. 세션 시작을 훅의 사정으로 어지럽히지 않는다.

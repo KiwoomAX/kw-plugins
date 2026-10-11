@@ -77,7 +77,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
     깔아 주는 것 ─ kw-doc-formats, document-skills (필수)
                  └ kw-devops, kw-dashboard, superpowers, playwright, frontend-design (권장)
     고치는 것   ─ 파이썬 라이브러리, PYTHONUTF8, CLAUDE.md 문안 블록,
-                  register-corp-certs 스킬, 도커 인증서 훅,
+                  register-corp-certs 스킬, 도커 인증서 훅, python3 가드,
                   은퇴한 플러그인·마켓플레이스·스킬·훅의 정리
 ```
 
@@ -155,7 +155,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 | `templates/claude-md-ko.md` | `CLAUDE.md`의 `# BEGIN AX 설치` 블록 |
 | `skills/register-corp-certs/` | `kw_install`에서 옮겨 온다 |
 | `hooks/docker-cert-reminder.ps1` | 옮겨 온다 |
-| `hooks/python3-guard.ps1` | 새로 만들었다가 disciplined-coder 로 넘겼다(2026-10-06) |
+| `hooks/python3-guard.ps1` | 새로 만들었다. 2026-10-06에 disciplined-coder로 넘겼다가 2026-10-12에 되찾았다 |
 
 플러그인은 `plugins/kw-control-tower/` 아래에 산다. 레포 루트를 플러그인으로 삼으면 이 마켓플레이스가 다른 플러그인을 포함할 수 없다.
 
@@ -246,6 +246,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 | 파이썬 라이브러리가 선언과 맞나 | `requirements.txt`의 해시와 상태 파일 | 맞춤 단계 4 |
 | `PYTHONUTF8`이 설정해졌나 | `HKCU\Environment`의 값 자체 | 맞춤 단계 5 |
 | `CLAUDE.md` 블록이 템플릿과 같나 | 마커 사이를 템플릿과 글자로 견준다 | 맞춤 단계 6 |
+| 전역 설정에 `outputStyle` 키가 있나 | `settings.json` 최상위의 키 자체. 값은 안 본다 | 맞춤 단계 8 |
 | 은퇴한 스킬이 남았나 | `~/.claude/skills/<이름>/` 폴더가 있나 | 맞춤 단계 7 |
 | 은퇴한 훅이 남았나 | `settings.json`의 `hooks`에 옛 표식이 있나 | 맞춤 단계 7 |
 | 설치본이 원격보다 뒤처졌나 | 원격 `info/refs`의 `HEAD` 커밋(못 읽거나 배포처가 ref를 지정했으면 사본의 `.git` 이 가리키는 커밋)과 `installed_plugins.json`의 `gitCommitSha` | 맞춤 단계 1이 사본을 받아오고 단계 2가 `claude plugin update` |
@@ -334,7 +335,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 
 ## 맞춤이 고친다
 
-단계 일곱이고 각각 독립이며 멱등이다. **한 단계가 실패해도 나머지는 돈다.** 단계와 감지의 질문이 하나씩 맞물린다. 세션 시작 훅은 불일치마다 단계 번호를 붙여 그 단계만 넘기고, 설치기는 인자 없이 호출해 모든 단계를 실행한다(2026-09-30 변경). 불일치 하나에 모든 단계가 실행되어 이 실행이 세션 시작 상한을 소모하던 문제를 차단한다.
+단계 여덟이고 각각 독립이며 멱등이다. **한 단계가 실패해도 나머지는 돈다.** 단계와 감지의 질문이 하나씩 맞물린다. 세션 시작 훅은 불일치마다 단계 번호를 붙여 그 단계만 넘기고, 설치기는 인자 없이 호출해 모든 단계를 실행한다(2026-09-30 변경). 불일치 하나에 모든 단계가 실행되어 이 실행이 세션 시작 상한을 소모하던 문제를 차단한다.
 
 1. **마켓플레이스를 등록한다.** 선언의 셋을 `known_marketplaces.json`과 `extraKnownMarketplaces` **두 파일에 함께** 적는다. `ours`인 것의 자동 갱신이 꺼져 있으면 두 파일 모두 되켠다. **남의 마켓플레이스는 항목 자체가 없을 때만 넣고, 넣을 때 자동 갱신 키는 안 건드린다.** 그 키를 켜고 끄는 것은 언제나 사용자의 몫이다.
 2. **`required`를 깐다.** 안 깔린 것은 `install`, 깔렸는데 꺼진 것은 `enable`이다. **`suggested`는 플러그인마다 한 번만 깐다(2026-09-30 변경).** 깔았거나 이미 있던 것을 상태 파일의 `suggestedDone`에 적고, 사용자가 나중에 지워도 다시 깔지 않는다. 실패한 것은 단계 2가 다음에 실행될 때 다시 해 본다. 옛 `ranOnce`만 있는 PC는 이행 때의 권장 목록을 처리한 것으로 보고, 그 뒤에 권장에 올린 것은 한 번 깐다.
@@ -343,6 +344,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 5. **`PYTHONUTF8`이 비어 있으면 1을 넣는다(2026-09-30 변경).** 0은 사용자가 끈 것이라 그대로 둔다. 파이썬의 기본 인코딩을 측정해 정하던 때에는 판정식이 늘 utf-8을 돌려줘 한 번도 넣지 못했다.
 6. **`CLAUDE.md`의 `# BEGIN AX 설치` 블록을 다시 쓴다.** 마커 바깥은 건드리지 않는다.
 7. **은퇴한 스킬과 훅을 걷는다.**
+8. **`settings.json`에 `outputStyle` 키가 없으면 `"Concise"`를 넣는다(2026-10-12 사용자 결정).** 키가 있으면 값이 무엇이든 그대로 둔다. 사용자가 `"default"`로 바꾸면 다시 넣지 않기 위해서다. 10턴 대화 8개 조합을 두 번씩 시험해 내장 Concise 출력 스타일이 비용 16%, 출력 토큰 21%를 줄이고 블라인드 평가의 읽기 편함을 0.65점 올렸다(완결성은 0.6점 내렸다). 값은 대소문자를 가리며 소문자로 쓰면 Default가 적용된다. 고치기 전에 `settings.json.kw.bak` 사본을 남기고, 파일이 없거나 JSON으로 안 읽히면 쓰지 않는다. 프로젝트의 `.claude/settings*.json`에 같은 키가 있으면 그 값이 우선하고, `/config`와 `/output-style`은 프로젝트의 `settings.local.json`에 저장하므로 이 단계와 겹치지 않는다([output styles](https://code.claude.com/docs/en/output-styles)).
 
 마지막에 무엇을 했는지 요약하고, 되켠 것이 있으면 그것을 따로 적는다.
 
@@ -404,7 +406,7 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 |---|---|---|
 | `session-check.ps1` | 세션이 시작할 때 | `startup`. 클로드 코드를 켤 때만 실행한다(2026-09-30 변경) |
 | `docker-cert-reminder.ps1` | 도구를 호출하기 전 | `Bash`와 `PowerShell` 둘, `if` 규칙은 `docker *` |
-| `python3-guard.ps1` | 2026-10-06에 없앴다 | disciplined-coder의 가드가 `Bash`와 `PowerShell` 매처로 같은 일을 한다 |
+| `python3-guard.ps1` | 도구를 호출하기 전 | `Bash`와 `PowerShell` 둘, `if` 규칙은 `python3`으로 시작하는 호출 |
 
 도구 훅을 두 매처에 다 거는 것은 이 PC의 `defaultShell`이 `powershell`이기 때문이다. 하나만 적용하면 실제로 쓰이는 경로가 감시에서 빠진다. 설치기가 도커 훅을 이미 그렇게 건다(`setup.ps1:1273-1274`).
 
@@ -460,9 +462,9 @@ kw-control-tower (하나. 목록도 들고 이 PC도 고친다)
 | 파이썬 라이브러리 | 선언대로 깐다 | 안 만진다 |
 | 상태 파일 | `kw-control-tower.state` | 자기 이름의 파일 |
 
-**disciplined-coder는 필수 플러그인이다(2026-10-05 사용자 결정).** 선언의 `marketplaces`에 `chshin-tools`(`chshin84/disciplined-coder`)를, `required`에 `disciplined-coder@chshin-tools`를 둔다. 맞춤은 다른 필수 플러그인과 같이 깔고 켜기만 하고, `CLAUDE.md`의 원칙과 금지어 목록은 disciplined-coder가 자기 세션 시작 훅으로 싣는다. 그 전에는 컨트롤 타워가 원칙 사본(`claude-md-ko-principles.md`)과 근거 사본(`domain-korean_subset.md`)과 금지어 목록(`korean-banned-words.md`)을 템플릿으로 들고, disciplined-coder 블록이 없는 PC에서만 AX 블록에 실었다. 사본은 원본이 바뀔 때마다 손으로 다시 옮겨야 했고, 금지어 목록은 워크플로(`sync-banned-words.yml`)가 매일 받아 왔다. 이 결정으로 사본 셋과 워크플로와 조건 분기를 없앴고, AX 블록은 `@kw-ax/claude-md-ko.md` 한 줄만 싣는다. 금지어 목록의 원본도 disciplined-coder 저장소로 옮긴다. 잃는 것은 Git Bash가 없는 PC다. disciplined-coder 훅이 `bash`로 실행되므로 그런 PC에는 원칙이 실리지 않는다. 설치기가 Git과 PowerShell 7과 파이썬을 모두 깔므로 설치기를 거친 PC는 해당하지 않는다. python3 가드는 disciplined-coder가 맡는다. 처음에는 disciplined-coder의 가드가 `Bash` 도구만 보아 컨트롤 타워의 가드를 남겼다. 2026-10-06에 disciplined-coder가 `PowerShell` 매처를 추가해(`a30dcac`) 컨트롤 타워의 가드와 그 훅 등록 둘을 없앴다.
+**disciplined-coder는 필수 플러그인이다(2026-10-05 사용자 결정).** 선언의 `marketplaces`에 `chshin-tools`(`chshin84/disciplined-coder`)를, `required`에 `disciplined-coder@chshin-tools`를 둔다. 맞춤은 다른 필수 플러그인과 같이 깔고 켜기만 하고, `CLAUDE.md`의 원칙과 금지어 목록은 disciplined-coder가 자기 세션 시작 훅으로 싣는다. 그 전에는 컨트롤 타워가 원칙 사본(`claude-md-ko-principles.md`)과 근거 사본(`domain-korean_subset.md`)과 금지어 목록(`korean-banned-words.md`)을 템플릿으로 들고, disciplined-coder 블록이 없는 PC에서만 AX 블록에 실었다. 사본은 원본이 바뀔 때마다 손으로 다시 옮겨야 했고, 금지어 목록은 워크플로(`sync-banned-words.yml`)가 매일 받아 왔다. 이 결정으로 사본 셋과 워크플로와 조건 분기를 없앴고, AX 블록은 `@kw-ax/claude-md-ko.md` 한 줄만 싣는다. 금지어 목록의 원본도 disciplined-coder 저장소로 옮긴다. 잃는 것은 Git Bash가 없는 PC다. disciplined-coder 훅이 `bash`로 실행되므로 그런 PC에는 원칙이 실리지 않는다. 설치기가 Git과 PowerShell 7과 파이썬을 모두 깔므로 설치기를 거친 PC는 해당하지 않는다. python3 가드는 컨트롤 타워가 맡는다. 처음에는 두 체계에 모두 두었고, 2026-10-06에 disciplined-coder가 `PowerShell` 매처를 추가해(`a30dcac`) 컨트롤 타워의 가드를 없앴다. 2026-10-12에 사용자가 python3 가드와 `PYTHONUTF8` 설정을 작업 규율이 아니라 사내 PC 환경 정비로 보고 컨트롤 타워로 되돌리기로 정했다. 사외 disciplined-coder 사용자는 두 기능을 잃는다. 컨트롤 타워는 지웠던 `python3-guard.ps1`과 훅 등록 둘을 되살렸고, disciplined-coder는 자기 쪽 사본을 지운다.
 
-`PYTHONUTF8`을 둘 다 설정하게 된다. 값이 같고 단계가 멱등이라 해가 없으며, 이것이 「결과는 겹쳐도 되고 스크립트만 나눈다」의 뜻이다.
+disciplined-coder가 자기 사본을 지우기 전까지는 `PYTHONUTF8`과 python3 가드를 두 체계가 함께 적용한다. 값과 판정이 같고 단계가 멱등이라 해가 없으며, 이것이 「결과는 겹쳐도 되고 스크립트만 나눈다」의 뜻이다.
 
 `disciplined-coder`가 `claude-plugins-official`도 만진다는 말이 두 초안에 걸쳐 각주로 남아 있는데 **근거가 없다.** 넷째 검토가 그쪽 캐시 버전 열일곱과 마켓플레이스 클론 전체에 그 문자열이 한 번도 안 나온다는 것을 확인했다. 지금 그쪽 코드는 자기 마켓플레이스만 고른다. 실제로 그렇게 바뀌면 그때 표에 추가한다.
 
