@@ -247,6 +247,15 @@ foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plug
         (Get-Content -LiteralPath $f -Raw -Encoding UTF8) -match '[가-힣]'
     }
 }
+# 이 검사는 파일 맨 앞에서 콘솔을 UTF-8 로 맞추고, 그 설정은 자식 프로세스에도 이어질 수 있다.
+# 그러면 스크립트가 스스로 UTF-8 출력을 설정하지 않아도 출력 대조 검사가 통과하지만, 클로드 코드가
+# 실행할 때는 코드페이지가 949 인 PC 에서 한글이 깨진다. 그래서 설정이 코드에 있는지를 따로 본다.
+# 스크립트가 늘어도 빠지지 않게 목록을 적지 않고 두 폴더의 스크립트를 모두 본다.
+foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $plugin 'hooks'), (Join-Path $plugin 'scripts') -Filter '*.ps1')) {
+    Check "출력 인코딩을 UTF-8 로 맞춘다: $($f.Name)" {
+        (Get-CodeOnly (Get-Content -LiteralPath $f.FullName -Raw)).Contains('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)')
+    }
+}
 
 # --- 두 스크립트가 같은 해시를 낸다 ----------------------------------------
 Write-Host ''
