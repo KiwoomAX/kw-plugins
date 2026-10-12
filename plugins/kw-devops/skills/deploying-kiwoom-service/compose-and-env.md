@@ -2,6 +2,8 @@
 
 SKILL.md 의 3단계에서 연다. `Jenkinsfile` 틀은 jenkinsfile.md 에 있다.
 
+## compose 틀
+
 아래 틀을 그대로 두고 이름·포트·경로만 바꾼다. 안 쓰는 줄은 지운다 — 주석까지 그대로 옮겨
 붙이지 않는다.
 
@@ -47,6 +49,8 @@ secrets:
 프론트엔드(nginx)면 `build.args` 로 `VITE_*` 를 넘기고 `ports` 를 `"<호스트>:80"` 으로 두며
 `healthcheck` 는 `["CMD", "wget", "-qO-", "http://127.0.0.1/"]` 로 바꾼다. `localhost` 로 적으면 컨테이너
 안에서 `::1` 로 먼저 풀려, IPv4 에만 붙은 nginx 가 거부하고 늘 unhealthy 가 된다.
+
+## 환경변수
 
 **환경변수가 어디서 오는지 먼저 정한다.** `.env` 없이는 서비스가 안 도는데, 그 파일은 repo 에
 없다 — 파이프라인이 Jenkins 자격증명에서 빌드마다 복원한다.
@@ -99,6 +103,8 @@ error while interpolating services.backend.environment.[]:
 
 **비밀을 넘기는 통로는 secrets.md 에 있다.** 개인키·`.env` 값·파일 키·사내 CA 를 빌드와 실행에 넘기는 법이다. 기존 Dockerfile 이 비밀을 이미지에 넣으면 그 파일대로 고친다.
 
+## 멀티스테이지와 사내 CA
+
 **빌드 산출물이 저장소에 없으면 멀티스테이지로 바꾼다.**
 
 1단계에서 「`COPY` 하는 경로가 `.gitignore` 에 있다」가 나왔으면 그 산출물은 **누군가 자기 PC 에서
@@ -131,6 +137,8 @@ FROM nginx:1.29-alpine
 COPY --from=build /web/dist /usr/share/nginx/html
 ```
 
+## 빌드 컨텍스트와 .dockerignore
+
 **빌드 컨텍스트를 저장소 루트로 둔다.** `certs/` 와 소스를 둘 다 봐야 하기 때문이다.
 compose 의 `context` 가 하위 폴더를 가리키고 있으면 루트로 올린다.
 
@@ -141,6 +149,8 @@ compose 의 `context` 가 하위 폴더를 가리키고 있으면 루트로 올�
 `.env`·`data/` 까지 올라간다. **파일 끝에는 `.env` 와 `**/*.pem` 을 다시 막는 두 줄을 둔다.** 실수로 연 경로나
 `COPY . .` 가 있어도 비밀이 빌드 컨텍스트에 실리지 않게 하는 마지막 방어선이다. 원래 하위 폴더에 있던 `.dockerignore`(예: `web/.dockerignore`)는 더는
 쓰이지 않으므로 지운다.
+
+## Jenkins 덮어쓰기와 런타임 자료
 
 **`docker-compose.jenkins.yml`** — 바인드 마운트가 있을 때만 만든다.
 
@@ -202,8 +212,14 @@ mkdir -p /home/chshin84/opt/<저장소 이름>/data
 관심사가 다르다. **이 스킬이 옮기자고 하지 않는다** — 지금 자료가 어디 있는지만 확인해(바로 아래)
 절대경로로 적고, 옮기는 것은 따로 정할 일이라고 알린다.
 
-**이미 도는 서비스를 넘겨받을 때** — 1단계의 `--find` 가 「뜬다」를 찍었으면 이 서비스는 Jenkins
-밖에서 이미 돌고 있다. 두 가지가 달라진다.
+새 대시보드는 대개 런타임 자료가 아예 없다 — 그때는 이 마운트를 만들지 않는다.
+
+마운트가 아예 없으면 이 파일을 만들지 말고 Jenkinsfile 에서 `composeFiles: ['docker-compose.yml']`
+하나만 넘긴다.
+
+## 이미 도는 서비스를 넘겨받을 때
+
+1단계의 `--find` 가 「뜬다」를 출력했으면 이 서비스는 Jenkins 밖에서 이미 실행 중이다. 두 가지가 달라진다.
 
 **지금 쓰는 경로를 짐작하지 않는다.** 담당자는 서버를 볼 수 없고, README 나 폴더 구조로 추측한
 경로가 틀리면 첫 배포가 자료 없는 화면을 띄운다. AX 팀에 「`<컨테이너>` 가 지금 쓰는 마운트 경로를
@@ -224,10 +240,7 @@ docker inspect <컨테이너> --format '{{range .Mounts}}{{.Source}} -> {{.Desti
 그대로 넘겨받은 것이다. 사용자에게 「수동 빌드를 누르는 순간 지금 화면이 잠깐 내려갔다 다시 뜬다」고
 미리 알린다.
 
-새 대시보드는 대개 런타임 자료가 아예 없다 — 그때는 이 마운트를 만들지 않는다.
-
-마운트가 아예 없으면 이 파일을 만들지 말고 Jenkinsfile 에서 `composeFiles: ['docker-compose.yml']`
-하나만 넘긴다.
+## compose 위치와 프로젝트 이름
 
 **compose 가 저장소 루트에 없어도 된다.** `docker compose -f docker/compose.yml` 은 그 파일이 있는
 폴더를 기준으로 경로를 푼다. Jenkinsfile 에 그 경로를 적으면 그만이다. `docker-compose.jenkins.yml` 도

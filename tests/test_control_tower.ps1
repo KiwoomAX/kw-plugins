@@ -52,6 +52,7 @@ foreach ($rel in @(
     'hooks\hooks.json',
     'hooks\session-check.ps1',
     'scripts\sync.ps1',
+    'scripts\git-identity.ps1',
     'requirements.txt'
 )) {
     Check "있다: $rel" { Test-Path -LiteralPath (Join-Path $plugin $rel) }
@@ -592,33 +593,6 @@ Check '맞춤을 호출할지는 notes 만 보고 정한다' {
 }
 # 상태에 따라 갈리는 안내를 CLAUDE.md 문안에 두면, 끝낸 사람도 매 세션 읽고 안 한
 # 사람은 읽고 넘겨도 아무 일이 없다. 그런 것은 점검이 맡는다.
-# 목록은 KiwoomAX/korean-banned-words 가 만들어 낸 것을 받아 온 것이다. 여기서 만들지
-# 않는다. 만드는 곳이 둘이면 목록은 한 곳에서 나오는데 그것을 어떻게 쓰라는 안내가
-# 두 곳에서 따로 쓰인다. 실제로 그렇게 나뉘었다.
-Check '금지어 목록이 생성물이라고 밝힌다' {
-    $bw = Get-Content (Join-Path $plugin 'templates\korean-banned-words.md') -Raw -Encoding UTF8
-    ($bw -match '이 파일은 생성물이다') -and ($bw -match 'korean-banned-words')
-}
-# 받아 오는 장치가 없으면 원본이 바뀌어도 아무도 모른다.
-Check '목록을 받아 오는 워크플로가 있다' {
-    $wf = Join-Path $repo '.github\workflows\sync-banned-words.yml'
-    (Test-Path -LiteralPath $wf) -and ((Get-Content $wf -Raw -Encoding UTF8) -match 'korean-banned-words\.md')
-}
-# 비교 기준이 main 이라, 열린 PR 이 병합되기 전에는 매일 같은 내용의 PR 이 하나씩 더 열렸다.
-# 브랜치를 하나로 고정하고, 열린 PR 의 브랜치가 이미 같은 내용이면 push 하지 않는다.
-# 같은 내용 비교는 줄 끝을 맞춘 뒤에 한다. 앞 단계가 받은 파일을 CRLF 로 바꾸고, git show 는 저장소에 든 LF 를 내므로 그대로 비교하면 늘 다르다.
-Check '금지어 워크플로가 브랜치 하나에 PR 하나를 유지한다' {
-    $wfText = Get-Content (Join-Path $repo '.github\workflows\sync-banned-words.yml') -Raw -Encoding UTF8
-    ($wfText -match 'BRANCH=chore/banned-words-sync') -and ($wfText -notmatch 'date -u') -and
-    ($wfText -match 'gh pr list --head') -and ($wfText -match 'git fetch origin "\$BRANCH"') -and
-    ($wfText -match "sed 's/\\r\$//'") -and
-    ($wfText.IndexOf('gh pr list --head') -lt $wfText.IndexOf('git fetch origin "$BRANCH"'))
-}
-# 여기서 만들면 안내가 두 벌이 된다.
-Check '이 저장소에 생성기가 없다' {
-    -not (Test-Path -LiteralPath (Join-Path $repo 'scripts\build-banned-words.ps1'))
-}
-
 Check '문안 템플릿에 GitHub 로그인 안내가 없다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     $tplSrc -notmatch 'gh auth login'
@@ -628,6 +602,30 @@ Check '점검이 GitHub 로그인을 확인한다' {
 }
 Check '맞춤은 GitHub 로그인을 건드리지 않는다' {
     (Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw) -notmatch 'gh auth login'
+}
+# 클로드가 로그인 명령을 대신 실행하면 gh 의 입력이 터미널이 아니라서, gh 가 브라우저를 여는
+# 단계를 건너뛰고 코드와 주소만 출력한다(2026-10-02 이 PC 에서 확인). 코드 입력 페이지는 늘 같은
+# 주소라 먼저 열어 둔다. 메일 읽기 권한은 git 명의를 GitHub 계정에 맞추는 데 쓰고, 기본 로그인에는 없다.
+Check '로그인 안내가 코드 입력 페이지를 먼저 열고 메일 읽기 권한을 함께 받는다' {
+    $hookCode -match "\`$loginCommand = 'start https://github\.com/login/device; gh auth login --web [^']*--clipboard --scopes user:email'"
+}
+# 로그인 명령은 알림 훅과 명의 스크립트 두 곳에 있다. 훅이 로그인됐다고 본 PC 에서도 토큰이
+# 만료됐으면 스크립트가 로그인을 안내해야 하기 때문이다. 둘이 다르면 안내가 두 갈래가 된다.
+Check '알림 훅과 명의 스크립트가 같은 로그인 명령을 낸다' {
+    $re = "\`$loginCommand = '([^']+)'"
+    $a = [regex]::Match($hookCode, $re).Groups[1].Value
+    $b = [regex]::Match((Get-Content (Join-Path $plugin 'scripts\git-identity.ps1') -Raw -Encoding UTF8), $re).Groups[1].Value
+    $a -and ($a -eq $b)
+}
+# 명의가 비어 있으면 클로드가 대화 맥락에 있는 클로드 계정 메일로 채운다. 계정을 같이 쓰는
+# PC 에서 직원의 커밋이 AX 팀 직원 이름으로 올라갔다(이슈 #28).
+Check '문안 템플릿이 맥락의 메일로 git 명의를 채우지 말라고 한다' {
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
+    ($tplSrc -match 'user\.email') -and ($tplSrc -match '채우지 않는다')
+}
+# 감지는 외부 프로세스를 늘리지 않는다. 명의는 git 을 실행하지 않고 파일에서 읽는다.
+Check '감지가 git 을 실행하지 않고 .gitconfig 를 직접 읽는다' {
+    ($hookDetect -match "Join-Path \`$userHome '\.gitconfig'") -and ($hookDetect -notmatch '(?m)^[^#\r\n]*\bgit\s+config\b')
 }
 
 Check '맞춤 호출이 경계 뒤에 있다' {
@@ -695,69 +693,44 @@ Check '훅은 문구로 재시작을 판정하지 않는다' {
 # --- 문안 조립 ---------------------------------------------------------------
 Write-Host ''
 Write-Host '문안 조립'
-# 답변 원칙과 한국어 지시사항과 금지어 목록은 disciplined-coder 도 싣는다. 그쪽 블록이
-# CLAUDE.md 에 있으면 사내 문안만 @import 하고, 없으면 원칙과 목록까지 @import 한다.
-# 공용 블록은 쓰지 않는다. 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+# 답변 원칙과 금지어 목록은 필수 플러그인 disciplined-coder 가 싣는다(2026-10-05 사용자 결정).
+# AX 블록은 사내 문안만 @import 한다. 맞춤과 훅의 함수를 따로 꺼내 실제로 조립해 본다.
+Check 'disciplined-coder 가 필수이고 그 배포처가 선언에 있다' {
+    $mf = Get-Content (Join-Path $plugin 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    (@($mf.required) -contains 'disciplined-coder@chshin-tools') -and
+    (@($mf.marketplaces | Where-Object { $_.name -eq 'chshin-tools' -and $_.repo -eq 'chshin84/disciplined-coder' }).Count -eq 1)
+}
 $assembled = @{}
 foreach ($pair in @(@{ Name = '맞춤'; Path = 'scripts\sync.ps1' }, @{ Name = '훅'; Path = 'hooks\session-check.ps1' })) {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin $pair.Path), [ref]$null, [ref]$null)
     $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxBlock' }, $true)
-    Check "$($pair.Name)에 Get-AxBlock 이 있다" { $null -ne $fn }
-    if ($null -eq $fn) { continue }
+    $fc  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxCopies' }, $true)
+    Check "$($pair.Name)에 Get-AxBlock 과 Get-AxCopies 가 있다" { ($null -ne $fn) -and ($null -ne $fc) }
+    if ($null -eq $fn -or $null -eq $fc) { continue }
     . ([scriptblock]::Create($fn.Extent.Text))
-    $with    = Get-AxBlock "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n"
-    $without = Get-AxBlock "앞`n"
-    $assembled[$pair.Name] = "$with`n----`n$without"
-    Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안만 싣는다" {
-        $with -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n# END AX[^\n]*$'
+    . ([scriptblock]::Create($fc.Extent.Text))
+    $block = Get-AxBlock
+    $assembled[$pair.Name] = "$block|$(@(Get-AxCopies) -join ',')"
+    Check "$($pair.Name): 사내 문안만 싣는다" {
+        $block -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n# END AX[^\n]*$'
     }
-    Check "$($pair.Name): disciplined-coder 가 없으면 원칙과 목록까지 싣는다" {
-        $without -match '(?s)^# BEGIN AX[^\n]*\n@kw-ax/claude-md-ko\.md\n@kw-ax/claude-md-ko-principles\.md\n@kw-ax/korean-banned-words\.md\n# END AX[^\n]*$'
-    }
-    # 블록이 가리키는 파일이 템플릿에 없으면 @import 가 아무것도 싣지 않고, 그 상태를 아무도 못 본다.
-    Check "$($pair.Name): 블록이 싣는 파일이 템플릿에 있다" {
-        $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$'))
-        ($refs.Count -gt 0) -and (@($refs | Where-Object { -not (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $_.Groups[1].Value))) }).Count -eq 0)
-    }
-    # 경로에 공백이 들어가면 어디까지가 경로인지 구분되지 않는다.
-    Check "$($pair.Name): @import 경로에 공백이 없다" { $without -notmatch '(?m)^@[^\n]* ' }
-    $fc = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AxCopies' }, $true)
-    Check "$($pair.Name)에 Get-AxCopies 가 있다" { $null -ne $fc }
-    if ($null -ne $fc) {
-        . ([scriptblock]::Create($fc.Extent.Text))
-        $cw = @(Get-AxCopies "앞`n# BEGIN disciplined-coder (managed — do not edit)`n@x`n# END disciplined-coder (managed — do not edit)`n")
-        $co = @(Get-AxCopies "앞`n")
-        $assembled["$($pair.Name)-copies"] = "$($cw -join ',')|$($co -join ',')"
-        Check "$($pair.Name): disciplined-coder 가 있으면 사내 문안 사본 하나만 다룬다" { ($cw -join ',') -eq 'claude-md-ko.md' }
-        Check "$($pair.Name): 블록이 싣는 파일이 모두 사본 목록에 있다" {
-            $refs = @([regex]::Matches($without, '(?m)^@kw-ax/(\S+)$') | ForEach-Object { $_.Groups[1].Value })
-            @($refs | Where-Object { $co -notcontains $_ }).Count -eq 0
-        }
-        Check "$($pair.Name): 원칙이 근거로 가리키는 사본도 다룬다" { $co -contains 'domain-korean_subset.md' }
-    }
+    Check "$($pair.Name): 사본 목록이 블록이 싣는 파일과 같다" { (@(Get-AxCopies) -join ',') -eq 'claude-md-ko.md' }
 }
-Check '맞춤과 훅이 같은 블록을 조립한다' { $assembled['맞춤'] -eq $assembled['훅'] }
-Check '맞춤과 훅이 같은 사본 목록을 쓴다' { $assembled['맞춤-copies'] -eq $assembled['훅-copies'] }
+Check '맞춤과 훅이 같은 블록과 사본 목록을 쓴다' { $assembled['맞춤'] -eq $assembled['훅'] }
+# 블록이 가리키는 파일이 템플릿에 없으면 @import 가 아무것도 싣지 않고, 그 상태를 아무도 못 본다.
+Check '블록이 싣는 파일이 템플릿에 있다' { Test-Path -LiteralPath (Join-Path $plugin 'templates\claude-md-ko.md') }
 # 블록을 맞춤이 만들므로 템플릿에 마커가 있으면 사본을 싣는 순간 마커가 한 벌 더 생긴다.
 Check '사내 문안 템플릿에 마커가 없다' {
     (Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8) -notmatch '(?m)^#\s*(BEGIN|END) AX'
 }
-# 원칙이 근거 사본을 kw-ax 의 경로로 가리키므로 그 사본도 템플릿에 있어야 맞춤이 복사한다.
-Check '원칙이 가리키는 근거 사본이 템플릿에 있다' {
-    $pr = Get-Content (Join-Path $plugin 'templates\claude-md-ko-principles.md') -Raw -Encoding UTF8
-    $m  = [regex]::Match($pr, '~/\.claude/kw-ax/([\w.-]+\.md)')
-    $m.Success -and (Test-Path -LiteralPath (Join-Path $plugin (Join-Path 'templates' $m.Groups[1].Value)))
-}
 Check '맞춤이 블록을 쓰기 전에 템플릿을 kw-ax 로 복사한다' {
     $c = $syncSrc.IndexOf("Join-Path `$cfg 'kw-ax'")
-    ($c -ge 0) -and ($c -lt $syncSrc.IndexOf('$block = Get-AxBlock $fileNow'))
+    ($c -ge 0) -and ($c -lt $syncSrc.IndexOf('$block = Get-AxBlock'))
 }
 Check '훅이 kw-ax 사본을 템플릿과 대조한다' { $hookCode -match "Join-Path `\`$cfg 'kw-ax'" }
 # 공용 블록을 쓰던 옛 버전의 흔적이 남으면 목록이 두 벌 실린다.
 Check '맞춤이 공용 블록을 새로 쓰지 않는다' { $syncSrc -notmatch "'# BEGIN korean-banned-words" }
-Check '맞춤이 옛 공용 블록을 disciplined-coder 가 없을 때만 걷는다' {
-    $syncSrc.Contains('if ($original -notmatch ''(?m)^#\s*BEGIN disciplined-coder\b'' -and $original -match $reShared)')
-}
+Check '맞춤이 kw-ax 사본을 가리키는 옛 공용 블록을 지운다' { $syncSrc.Contains('if ($original -match $reShared)') }
 
 # --- 도커 인증서 안내 -------------------------------------------------------
 Write-Host ''
@@ -875,7 +848,7 @@ Check 'README 가 코드와 같은 수로 센다' {
 }
 # 설계 문서는 살아 있는 설계다. 코드가 바뀌었는데 옛 문장이 남으면 다음 사람이 옛 규칙을 따른다.
 Check '설계 문서에 바뀐 규칙의 옛 문장이 남아 있지 않다' {
-    ($spec -notmatch '단계 여덟') -and ($spec -notmatch '사내 것은 필수라 없으면 알리고') -and
+    ($spec -notmatch '사내 것은 필수라 없으면 알리고') -and
     ($spec -notmatch '세션 시작 훅에는 매처가 없다') -and ($spec -notmatch '없다\. 도구 매처가 붙는 훅이 아니다') -and
     ($spec -notmatch '\| 설정한다 \| 물어서 설정한다 \|') -and
     ($spec -notmatch '파이썬에게 기본 인코딩을 물어 `utf-8`이 아닐 때만') -and
@@ -977,10 +950,11 @@ exit 0
 $shaOld = 'c875eb136526601501928d8cb888b258cf04f366'
 $shaNew = '811b47e87fec64c141e23ef69634eafb638b4d40'
 
-function New-Root([string]$Leaf, [string]$Sync) {
+function New-Root([string]$Leaf, [string]$Sync, [string]$Day) {
     # 이 플러그인의 폴더 이름이 곧 실행 중인 버전이다. 자동 갱신 판정이 그것을 본다.
     # $Sync 를 주면 맞춤 자리에 그 스텁을 둔다. 안 주면 맞춤을 지워 훅이 맞춤을 못 찾게 한다.
-    $r = if ($Sync) { Join-Path $scn "root-sync\$Leaf" } else { Join-Path $scn "root\$Leaf" }
+    # $Day 는 복사본이 오늘로 볼 요일이다. 요일마다 복사본을 따로 둔다.
+    $r = if ($Sync) { Join-Path $scn "root-sync-$Day\$Leaf" } else { Join-Path $scn "root-$Day\$Leaf" }
     if (-not (Test-Path $r)) {
         Copy-Item -LiteralPath $plugin -Destination $r -Recurse
         if ($Sync) { $Sync | Set-Content -LiteralPath (Join-Path $r 'scripts\sync.ps1') -Encoding UTF8 }
@@ -988,6 +962,7 @@ function New-Root([string]$Leaf, [string]$Sync) {
         $h = Join-Path $r 'hooks\session-check.ps1'
         $t = [System.IO.File]::ReadAllText($h)
         $t = $t.Replace('& curl.exe -s -f -m 2 "$Url/info/refs?service=git-upload-pack"', "& pwsh -NoProfile -File '$stub'")
+        $t = $t.Replace('(Get-Date).DayOfWeek', "[DayOfWeek]::$Day")
         [System.IO.File]::WriteAllText($h, $t, (New-Object System.Text.UTF8Encoding($false)))
     }
     $r
@@ -996,7 +971,10 @@ function Invoke-Scenario {
     # 가짜 홈을 만들고 훅을 돌려 사용자에게 보일 본문을 돌려준다.
     param([string]$Installed, [string]$Remote, [hashtable]$Source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' },
           [string]$Clone, [string]$State, [string]$Seen, [string]$Version, [string]$Leaf = 'c875eb136526',
-          [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync, [string[]]$Leftover = @())
+          [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync,
+          [string]$GitConfig, [switch]$Context, [string]$Day = 'Monday', [string[]]$Leftover = @())
+    # -Context 를 주면 사용자에게 보일 본문 대신 클로드에게만 가는 지시를 돌려준다.
+    # -Day 는 훅이 오늘로 볼 요일이다. 명의 안내가 월요일에만 뜨므로 기본을 월요일로 둔다.
     $home2 = Join-Path $scn ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     # 로그인 여부는 APPDATA 아래 hosts.yml 로 판정한다. 미로그인을 흉내 낼 때는 빈 폴더를 준다.
     $app = Join-Path $home2 'appdata'
@@ -1023,12 +1001,17 @@ function Invoke-Scenario {
         if ($age -ne 'fresh') { $dir.LastWriteTime = (Get-Date).AddMinutes(-15) }
     }
     if ($Seen)  { $Seen  | Set-Content (Join-Path $home2 '.claude\kw-control-tower.seen') }
-    $root = New-Root $Leaf $Sync
+    if ($GitConfig) { [System.IO.File]::WriteAllText((Join-Path $home2 '.gitconfig'), $GitConfig, (New-Object System.Text.UTF8Encoding($false))) }
+    $root = New-Root $Leaf $Sync $Day
     $env:KWCT_STUB = $Remote
     $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$home2'; `$env:APPDATA='$app'; `$env:CLAUDE_PLUGIN_ROOT='$root'; & '$root\hooks\session-check.ps1'" 2>&1
     Remove-Item Env:\KWCT_STUB
     $txt = ($out | ForEach-Object { "$_" }) -join "`n"
-    try { return (($txt | ConvertFrom-Json).systemMessage) } catch { return $txt }
+    try {
+        $j = $txt | ConvertFrom-Json
+        if ($Context) { return $j.hookSpecificOutput.additionalContext }
+        return $j.systemMessage
+    } catch { return $txt }
 }
 $late = '설치본이 원격보다 뒤처져 있습니다'
 
@@ -1100,6 +1083,67 @@ Check '로그인 안 한 PC 에는 로그인 안내를 한 줄로 알린다' {
 Check '로그인한 PC 에는 로그인 안내를 안 낸다' {
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec') -notmatch 'gh auth login'
 }
+# 명의가 비어 있는지만 보면 이미 남의 메일이 든 PC 를 정상으로 본다. 그래서 사용자가 승인한
+# 메일과 지금 메일이 같은지를 본다. 승인은 명의 스크립트가 같은 파일에 적는다.
+$idLine = 'git 커밋 명의'
+$idSet = "[user]`n`tname = 홍길동`n`temail = hong@kiwoomam.com`n"
+$idApproved = $idSet + "[kw-control-tower]`n`tapprovedEmail = hong@kiwoomam.com`n"
+Check 'git 명의가 비어 있으면 확인을 안내한다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec') -match "(?m)^KW 컨트롤 타워: $idLine.*비어 있습니다"
+}
+Check '승인하지 않은 명의가 들어 있으면 그 메일을 보이고 확인을 안내한다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet) -match "(?m)^KW 컨트롤 타워: $idLine.*hong@kiwoomam\.com"
+}
+Check '승인한 명의와 같으면 안내하지 않는다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idApproved) -notmatch $idLine
+}
+Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
+    $cfg = "[user]`n`tname = 홍길동`n`temail = ax@kiwoomam.com`n[kw-control-tower]`n`tapprovedEmail = hong@kiwoomam.com`n"
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $cfg) -match "$idLine.*ax@kiwoomam\.com"
+}
+# 승인 전까지 매 세션 뜨면 소음이 되므로 월요일에만 안내한다(2026-10-07 사용자 결정).
+# 시나리오는 복사본의 요일 판정을 바꿔 끼워 돌린다. 원본에서 그 글자가 바뀌면 바꿔 끼우기가
+# 조용히 빗나가 시나리오가 실행한 요일을 따르게 되므로, 글자가 그대로 있는지 먼저 본다.
+Check '명의 안내의 요일 판정이 시나리오가 바꿔 끼우는 글자 그대로다' {
+    $hookCode -match '-not \$idOk -and \(Get-Date\)\.DayOfWeek -eq \[DayOfWeek\]::Monday'
+}
+Check '월요일이 아니면 승인하지 않은 명의라도 안내하지 않는다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday'
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday' -Context
+    ($o -notmatch $idLine) -and ($c -notmatch 'git-identity\.ps1')
+}
+Check '월요일이 아니어도 로그인 안내는 낸다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh -Day 'Tuesday') -match 'gh auth login'
+}
+# git 은 섹션과 키의 대소문자를 가리지 않고, 따옴표와 줄 끝 주석을 값에서 뺀다. 훅이 다르게 읽으면
+# 승인한 PC 에서도 안내가 끝나지 않는다.
+Check '대소문자와 따옴표와 주석이 달라도 같은 명의로 읽는다' {
+    $cfg = "# 메모`n[User]`n`tName = `"홍길동`"`n`tEMAIL = hong@kiwoomam.com ; 사내 메일`n[kw-control-tower]`n`tapprovedemail = hong@kiwoomam.com`n"
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $cfg) -notmatch $idLine
+}
+# 로그인 전에는 명의를 GitHub 에서 읽을 수 없다. 안내를 둘 내지 않고, 클로드가 로그인 뒤에 이어 가게 한다.
+# 로그인은 사람이 브라우저에서 승인할 때까지 끝나지 않으므로 기본 시간 제한 2분으로는 끊긴다.
+Check '로그인 안 한 PC 에는 명의 안내를 따로 내지 않고 로그인 뒤에 이어 가게 한다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh -Context
+    ($o -notmatch $idLine) -and ($c -match 'git-identity\.ps1') -and ($c -match 'Ctrl\+V') -and ($c -match '10분')
+}
+Check '명의 안내는 클로드에게 승인을 받은 뒤에만 적용하라고 한다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
+    ($c -match 'git-identity\.ps1') -and ($c -match '-Apply') -and ($c -match '승인')
+}
+# 훅은 모두 -ExecutionPolicy Bypass 로 돈다. 명의 스크립트는 클로드의 셸에서 따로 실행되어
+# 그것을 물려받지 않으므로, 정책이 Restricted 나 AllSigned 인 PC 에서 거부된다(PR #42 리뷰).
+Check '명의 스크립트를 실행 정책을 우회해 실행하라고 한다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
+    $c -match 'pwsh -NoProfile -ExecutionPolicy Bypass -File "[^"]*git-identity\.ps1"'
+}
+# 이미 로그인한 직원은 처음 한 번 메일 읽기 권한을 더한다. 그것도 브라우저 승인을 기다리므로
+# 로그인과 같은 안내가 없으면 기본 시간 제한 2분에 끊긴다(PR #42 리뷰).
+Check '로그인한 PC 의 명의 안내에도 권한 추가의 붙여 넣기 안내와 시간 제한이 있다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Context
+    ($c -match '권한') -and ($c -match 'Ctrl\+V') -and ($c -match '10분')
+}
 # 가짜 홈은 불일치가 늘 있어 "로그인 안내만 있는 PC" 를 못 만든다. 맞춤을 부르는 조건이
 # 불일치 목록 하나뿐인지를 코드에서 본다.
 Check '로그인 안내는 맞춤을 부르는 조건이 아니다' {
@@ -1139,6 +1183,102 @@ Check '맞춤과 훅이 같은 지문을 만든다' {
     $a = [regex]::Match($hookSrc, '(?s)function Get-StuckPrint \{.*?\n\}').Value
     $b = [regex]::Match((Get-Content (Join-Path $plugin 'scripts\sync.ps1') -Raw), '(?s)function Get-StuckPrint \{.*?\n\}').Value
     $a -and ($a -eq $b)
+}
+# --- git 명의 스크립트 ------------------------------------------------------
+# gh 자리에 스텁을 두고 가짜 홈에서 돌린다. 스크립트는 ~/.gitconfig 만 고치므로 진짜 설정을
+# 안 건드린다. 스텁은 KWCT_GH_USER 가 fail 이면 로그인 안 된 것을, KWCT_GH_EMAILS 가 scope 면
+# 메일 읽기 권한이 없는 것을 흉내 낸다.
+Write-Host ''
+Write-Host 'git 명의 스크립트'
+$idScript = Join-Path $plugin 'scripts\git-identity.ps1'
+Check '메일은 인증된 사내 메일을 먼저 고르고 없으면 주 메일을 고른다' {
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($idScript, [ref]$null, [ref]$null)
+    $fn  = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Select-CommitEmail' }, $true)
+    if ($null -eq $fn) { return $false }
+    . ([scriptblock]::Create($fn.Extent.Text))
+    $mk = { param($e, $p, $v) [pscustomobject]@{ email = $e; primary = $p; verified = $v } }
+    $corp = '@kiwoomam.com'
+    $a = Select-CommitEmail @((& $mk 'me@gmail.com' $true $true), (& $mk 'hong@kiwoomam.com' $false $true)) $corp
+    $b = Select-CommitEmail @((& $mk 'hong@kiwoomam.com' $false $false), (& $mk 'me@gmail.com' $true $true)) $corp
+    $c = Select-CommitEmail @((& $mk 'x@kiwoomam.com' $false $true), (& $mk 'y@KiwoomAM.com' $true $true)) $corp
+    $d = Select-CommitEmail @((& $mk 'me@gmail.com' $false $false)) $corp
+    ($a -eq 'hong@kiwoomam.com') -and ($b -eq 'me@gmail.com') -and ($c -eq 'y@KiwoomAM.com') -and ($null -eq $d)
+}
+$ghBin = Join-Path $scn 'gh-bin'
+New-Item -ItemType Directory -Force -Path $ghBin | Out-Null
+@'
+$a = $args -join ' '
+if ($a -eq 'api user') {
+    if ($env:KWCT_GH_USER -eq 'fail') { 'gh: To get started with GitHub CLI, please run:  gh auth login'; exit 4 }
+    '{"login":"hong","name":"홍길동","id":1}'; exit 0
+}
+if ($a -eq 'api user/emails') {
+    if ($env:KWCT_GH_EMAILS -eq 'scope') { 'gh: This API operation needs the "user" scope.'; exit 1 }
+    $env:KWCT_GH_EMAILS; exit 0
+}
+exit 1
+'@ | Set-Content -LiteralPath (Join-Path $ghBin 'gh.ps1') -Encoding UTF8
+function Invoke-Identity {
+    # 가짜 홈에서 명의 스크립트를 돌려 출력과 종료 코드와 남은 .gitconfig 를 돌려준다.
+    # git 은 HOME 이 있으면 그 아래 .gitconfig 를 전역 설정으로 읽는다. 기본은 가짜 홈과 같게 두고,
+    # -GitHome 을 주면 git 이 다른 파일을 읽는 PC 를 흉내 낸다.
+    param([string]$Emails, [string]$GitConfig, [string]$ArgText, [string]$User, [string]$GitHome)
+    $h = Join-Path $scn ("i-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path $h | Out-Null
+    $gitHomeDir = if ($GitHome) { $GitHome } else { $h }
+    $cfgPath = Join-Path $h '.gitconfig'
+    if ($GitConfig) { [System.IO.File]::WriteAllText($cfgPath, $GitConfig, (New-Object System.Text.UTF8Encoding($false))) }
+    $env:KWCT_GH_EMAILS = $Emails
+    $env:KWCT_GH_USER = $User
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:HOME='$gitHomeDir'; `$env:PATH='$ghBin;' + `$env:PATH; & '$idScript' $ArgText; exit `$LASTEXITCODE" 2>&1
+    $code = $LASTEXITCODE
+    Remove-Item Env:\KWCT_GH_EMAILS, Env:\KWCT_GH_USER -ErrorAction SilentlyContinue
+    @{
+        Out    = ($out | ForEach-Object { "$_" }) -join "`n"
+        Code   = $code
+        Config = if (Test-Path -LiteralPath $cfgPath) { [System.IO.File]::ReadAllText($cfgPath) } else { $null }
+    }
+}
+$emailsJson = '[{"email":"me@gmail.com","primary":true,"verified":true},{"email":"hong@kiwoomam.com","primary":false,"verified":true}]'
+Check '제안할 때는 지금 값과 GitHub 계정의 값을 보이고 아무것도 안 적는다' {
+    $before = "[user]`n`temail = ax@kiwoomam.com`n"
+    $r = Invoke-Identity -Emails $emailsJson -GitConfig $before
+    ($r.Code -eq 0) -and ($r.Out -match 'ax@kiwoomam\.com') -and ($r.Out -match '홍길동') -and
+        ($r.Out -match 'pwsh -NoProfile -ExecutionPolicy Bypass -File "[^"]+" -Apply -Name "홍길동" -Email "hong@kiwoomam\.com"') -and
+        ($r.Config -eq $before)
+}
+Check '메일 읽기 권한이 없으면 권한을 더하는 명령을 알리고 멈춘다' {
+    $r = Invoke-Identity -Emails 'scope'
+    ($r.Code -eq 3) -and ($r.Out -match 'start https://github\.com/login/device; gh auth refresh -h github\.com -s user:email --clipboard') -and
+        ($null -eq $r.Config)
+}
+Check '로그인이 안 되어 있으면 로그인 명령을 알리고 멈춘다' {
+    $r = Invoke-Identity -Emails $emailsJson -User 'fail'
+    ($r.Code -eq 2) -and ($r.Out -match 'gh auth login --web') -and ($null -eq $r.Config)
+}
+Check '이미 승인한 값이 GitHub 계정과 같으면 바꿀 것이 없다고 한다' {
+    $r = Invoke-Identity -Emails $emailsJson -GitConfig $idApproved
+    ($r.Code -eq 0) -and ($r.Out -match '바꿀 것이 없습니다') -and ($r.Out -notmatch '-Apply')
+}
+# 스크립트가 적는 키와 훅이 읽는 키가 어긋나면 승인해도 안내가 끝나지 않는다. 둘을 이어서 돌린다.
+Check '승인한 값을 적으면 알림 훅이 더 묻지 않는다' {
+    $r = Invoke-Identity -ArgText "-Apply -Name '홍길동' -Email 'hong@kiwoomam.com'"
+    ($r.Code -eq 0) -and $r.Config -and
+        ((Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $r.Config) -notmatch $idLine)
+}
+Check '메일 형식이 아니면 적지 않고 실패한다' {
+    $r = Invoke-Identity -ArgText "-Apply -Name '홍길동' -Email 'not-an-email'"
+    ($r.Code -ne 0) -and ($null -eq $r.Config)
+}
+# HOME 이 따로 있거나 홈 폴더가 다른 드라이브인 PC 에서는 git 이 ~/.gitconfig 가 아닌 파일을 읽는다.
+# 그때 승인을 적으면 훅의 안내는 사라지는데 커밋은 여전히 다른 명의로 올라간다. 승인을 적기 전에
+# git 이 실제로 읽는 값을 확인하고, 다르면 승인을 적지 않고 어느 파일인지 알린다(PR #42 리뷰).
+Check 'git 이 다른 전역 설정을 읽으면 승인을 적지 않고 그 사실을 알린다' {
+    $other = Join-Path $scn ("g-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path $other | Out-Null
+    $r = Invoke-Identity -ArgText "-Apply -Name '홍길동' -Email 'hong@kiwoomam.com'" -GitHome $other
+    ($r.Code -ne 0) -and ($r.Config -match 'hong@kiwoomam\.com') -and ($r.Config -notmatch '(?i)approvedEmail') -and
+        ($r.Out -match 'HOME')
 }
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -1202,7 +1342,7 @@ function Invoke-SyncScenario {
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
     $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
-             'document-skills@anthropic-agent-skills')
+             'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
     $plug = @{}; $en = @{}
     foreach ($id in $ids) {
         $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })
@@ -1414,6 +1554,66 @@ Check '남은 배포처 교체 폴더를 지운다' {
 $r = Invoke-SyncScenario -State "python3=redirector`npython3Target=C:\x\python3.exe"
 Check '맞춤이 옛 python3 판정 줄을 지운다' { $r.State -notmatch '(?m)^python3' }
 Remove-Item -LiteralPath $sy -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- 출력 스타일 -------------------------------------------------------------
+Write-Host ''
+Write-Host '출력 스타일'
+# 맞춤의 앞머리와 단계 8 과 마무리만 떼어 가짜 홈에서 실행한다. 클로드를 다루는 단계가 없어 스텁이 필요 없다.
+$os = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-os-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path $os | Out-Null
+$cut1 = $syncText.IndexOf('# ---------------------------------------------------------------- 단계 1')
+$cut8 = $syncText.IndexOf('# ---------------------------------------------------------------- 단계 8')
+$osCut = Join-Path $os 'sync-os.ps1'
+[System.IO.File]::WriteAllText($osCut, $syncText.Substring(0, $cut1) + $syncText.Substring($cut8), (New-Object System.Text.UTF8Encoding($false)))
+
+function Invoke-OutputStyle {
+    # $Settings 가 $null 이면 settings.json 을 만들지 않는다. 문자열이면 그대로 쓴다.
+    param($Settings)
+    $h = Join-Path $os ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path (Join-Path $h '.claude') | Out-Null
+    $sp = Join-Path $h '.claude\settings.json'
+    if ($null -ne $Settings) { [System.IO.File]::WriteAllText($sp, $Settings, (New-Object System.Text.UTF8Encoding($false))) }
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$osCut' -Brief -Steps '8'; exit `$LASTEXITCODE" 2>&1
+    @{
+        Code = $LASTEXITCODE
+        Out  = ($out | ForEach-Object { "$_" }) -join "`n"
+        Text = $(if (Test-Path -LiteralPath $sp) { [System.IO.File]::ReadAllText($sp) } else { $null })
+        Bak  = (Test-Path -LiteralPath "$sp.kw.bak")
+    }
+}
+
+$r = Invoke-OutputStyle '{ "model": "opus", "enabledPlugins": { "a@b": true } }'
+Check '키가 없으면 Concise 를 넣고 남의 키는 그대로 둔다' {
+    $j = $r.Text | ConvertFrom-Json
+    ($j.outputStyle -ceq 'Concise') -and ($j.model -eq 'opus') -and ($j.enabledPlugins.'a@b' -eq $true)
+}
+Check '넣기 전에 사본을 남긴다' { $r.Bak }
+Check '넣었으면 사본 경로와 끄는 법을 한 줄로 알린다' {
+    $r.Out -match '(?m)^  - 전역 설정에 "outputStyle": "Concise" 를 적용했습니다\(사본: .+settings\.json\.kw\.bak\)\. 끄려면 값을 "default" 로 바꾸십시오\.$'
+}
+$r = Invoke-OutputStyle '{ "outputStyle": "default" }'
+Check '키가 있으면 값이 무엇이든 그대로 두고 말하지 않는다' {
+    ($r.Text -match '"outputStyle": "default"') -and -not $r.Bak -and [string]::IsNullOrWhiteSpace($r.Out)
+}
+$r = Invoke-OutputStyle '{ "outputStyle": '
+Check 'JSON 이 깨져 있으면 고치지 않는다' { ($r.Text -eq '{ "outputStyle": ') -and -not $r.Bak -and ($r.Code -ne 0) }
+$r = Invoke-OutputStyle $null
+Check 'settings.json 이 없으면 만들지 않는다' { ($null -eq $r.Text) -and [string]::IsNullOrWhiteSpace($r.Out) }
+
+# 감지는 키가 없을 때만 단계 8 을 넘긴다. 맞춤을 뺀 사본으로 훅을 실행하면 불일치 목록이 그대로 나온다.
+$osQuiet = Join-Path $os 'quiet'
+Copy-Item -LiteralPath $plugin -Destination $osQuiet -Recurse
+Remove-Item -LiteralPath (Join-Path $osQuiet 'scripts\sync.ps1')
+function Invoke-HookWith([string]$Settings) {
+    $h = Join-Path $os ("k-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path (Join-Path $h '.claude\plugins') | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $h '.claude\settings.json'), $Settings, (New-Object System.Text.UTF8Encoding($false)))
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$osQuiet'; & '$osQuiet\hooks\session-check.ps1'" 2>&1
+    ($out | ForEach-Object { "$_" }) -join "`n"
+}
+Check '감지가 outputStyle 키가 없으면 알린다' { (Invoke-HookWith '{}') -match 'outputStyle 이 없습니다' }
+Check '감지가 outputStyle 키가 있으면 말하지 않는다' { (Invoke-HookWith '{ "outputStyle": "default" }') -notmatch 'outputStyle' }
+Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤이 끝까지 간다 -----------------------------------------------------
 Write-Host ''

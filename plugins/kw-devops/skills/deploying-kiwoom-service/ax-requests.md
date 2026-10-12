@@ -80,7 +80,7 @@ Add-Content -LiteralPath "<값이 든 파일>" -Value ("`n<이름>_B64=" + [Conv
 SKILL.md 6단계가 가른 요청 종류마다 형식이 다르다. 보내기 전에 셋을 챙긴다.
 
 - `vercel.json` 의 `schedule` 은 UTC 이므로 실행 주기를 한국 시간으로 옮겨 적는다.
-- 컨테이너 실행형이 자료를 쓰면 compose-and-env.md 의 `docker-compose.jenkins.yml` 절을 따라 자료 마운트를 먼저 적고
+- 컨테이너 실행형이 자료를 쓰면 compose-and-env.md 의 「Jenkins 덮어쓰기와 런타임 자료」 절을 따라 자료 마운트를 먼저 적고
   push 한다.
 - 스케줄에만 쓰는 비밀 키(주소 호출형이 헤더에 싣는 `CRON_SECRET` 같은 것)가 있으면 환경변수 등록 요청을 한 통 더
   보낸다. 3단계에서 보낸 키는 빼고 새 키만 담는다.
