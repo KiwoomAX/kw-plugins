@@ -11,6 +11,12 @@ $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
 $ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기가 7 없이는 아무것도 안 깐다.
 
+# 훅·맞춤·명의 스크립트는 UTF-8 로 출력하고, PowerShell 은 자식 프로세스의 출력을
+# [Console]::OutputEncoding 으로 읽는다. 이 값은 PC 의 코드페이지를 따르므로(한국어 윈도는 949)
+# 맞추지 않으면 한글이 깨져 출력을 대조하는 검사가 모두 실패한다. 결과를 낸 뒤 원래 값으로 되돌린다.
+$consoleEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+
 $script:Pass = 0
 $script:FailList = New-Object System.Collections.ArrayList
 
@@ -1645,6 +1651,7 @@ try { $null = & claude plugin validate ./ 2>&1 | Out-String; $validateCode = $LA
 Check 'claude plugin validate 가 0 으로 끝난다(경고는 허용)' { $validateCode -eq 0 }
 
 # --- 결과 -----------------------------------------------------------------
+[Console]::OutputEncoding = $consoleEncoding
 Write-Host ''
 if ($script:AskList.Count -gt 0) {
     Write-Host "사용자에게 물을 것 $($script:AskList.Count) 건 (실패가 아니다)" -ForegroundColor Yellow
