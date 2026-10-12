@@ -96,8 +96,13 @@ def manifest(fetch_doc=fetch) -> tuple[dict, str | None]:
         os.replace(tmp, CACHE)
     except OSError:
         tmp.unlink(missing_ok=True)
-    # 화면 단위 매니페스트의 옛 사본이다. 더 쓰지 않으므로, 남아서 직접 읽히지 않게 지운다.
-    CACHE.with_name("manifest.json").unlink(missing_ok=True)
+    # 화면 단위 매니페스트의 옛 사본들이다. 더 쓰지 않으므로, 남아서 직접 읽히지 않게 지운다.
+    # 다른 프로세스가 열고 있어 못 지우면(Windows) 다음 실행에 다시 지우면 되므로 넘긴다.
+    for name in ("manifest.json", "manifest.md"):
+        try:
+            CACHE.with_name(name).unlink(missing_ok=True)
+        except OSError:
+            pass
     return doc, None
 
 
@@ -138,6 +143,13 @@ def _selfcheck() -> None:
         old.write_text("{}", encoding="utf-8")
         assert manifest(lambda: new) == (new, None), "사본이 없으면 받아서 낸다"
         assert not old.exists(), "새 사본을 저장하면 옛 화면 단위 사본을 지운다"
+        # 옛 사본을 지우지 못해도(Windows 에서 다른 프로세스가 열고 있을 때) 받은 문서를 그대로 낸다
+        CACHE.unlink()
+        old.mkdir()
+        try:
+            assert manifest(lambda: new) == (new, None), "옛 사본을 못 지워도 받은 문서를 낸다"
+        finally:
+            old.rmdir()
         assert manifest(lambda: other) == (new, None), "사본이 싱싱하면 받지 않는다"
         os.utime(CACHE, (0, 0))
         assert manifest(lambda: other) == (other, None), "사본이 낡으면 다시 받는다"
