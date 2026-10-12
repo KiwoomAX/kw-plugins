@@ -1088,10 +1088,50 @@ Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
 Check '명의 안내의 요일 판정이 시나리오가 바꿔 끼우는 글자 그대로다' {
     $hookCode -match '-not \$idOk -and \(Get-Date\)\.DayOfWeek -eq \[DayOfWeek\]::Monday'
 }
-Check '월요일이 아니면 승인하지 않은 명의라도 안내하지 않는다' {
+# 명의가 비어 있으면 월요일이 아닌 날에도 이슈 #28 을 막는 규칙이 매 세션 클로드에게 간다.
+# 화면에는 내지 않고, 클로드가 먼저 꺼내지 않게 Send-Hook 이 규칙 앞에 붙이는 머리말로 구분한다.
+$quietLead = '사용자에게 먼저 꺼내지 말고'
+Check '월요일이 아니어도 명의가 비어 있으면 화면에 내지 않고 클로드에게만 보호 규칙을 준다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Day 'Tuesday'
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Day 'Tuesday' -Context
+    ($o -notmatch $idLine) -and ($c -match $quietLead) -and ($c -match 'git-identity\.ps1') -and ($c -match '대화 맥락')
+}
+# 명의가 들어 있으면 커밋이 그대로 성공해 클로드가 명의를 채울 일이 없다. 승인 전이어도 규칙을 싣지 않는다.
+Check '월요일이 아니면 승인 전 명의가 들어 있어도 안내도 보호 규칙도 내지 않는다' {
     $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday'
     $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday' -Context
-    ($o -notmatch $idLine) -and ($c -notmatch 'git-identity\.ps1')
+    ($o -notmatch $idLine) -and ($c -notmatch $quietLead) -and ($c -notmatch 'git-identity\.ps1')
+}
+Check '승인한 명의면 요일과 상관없이 보호 규칙을 주지 않는다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idApproved -Day 'Tuesday' -Context
+    ($c -notmatch $quietLead) -and ($c -notmatch 'git-identity\.ps1')
+}
+# 가짜 홈은 불일치가 늘 있어 화면에 낼 말이 없는 세션을 시나리오로 만들 수 없다. 그래서
+# Send-Hook 을 떼어 화면에 낼 말 없이 규칙만 있는 세션을 본다.
+function Invoke-SendHook([string[]]$Screen, [string[]]$Rules) {
+    $fn = [regex]::Match($hookSrc, '(?s)function Send-Hook \{.*?\n\}').Value
+    & {
+        $say = New-Object System.Collections.ArrayList; foreach ($s in $Screen) { [void]$say.Add($s) }
+        $quietRules = New-Object System.Collections.ArrayList; foreach ($r in $Rules) { [void]$quietRules.Add($r) }
+        $askHints = @(); $syncLog = $null; $restartLine = 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
+        . ([scriptblock]::Create($fn))
+        Send-Hook
+    }
+}
+Check '화면에 낼 말 없이 규칙만 있으면 화면 알림과 먼저 전하라는 지시 없이 규칙만 준다' {
+    $j = Invoke-SendHook -Rules @('규칙 하나.') | ConvertFrom-Json
+    $ctx = $j.hookSpecificOutput.additionalContext
+    ($null -eq $j.PSObject.Properties['systemMessage']) -and ($ctx -match $quietLead) -and
+        ($ctx -match '규칙 하나') -and ($ctx -notmatch '먼저 전하라')
+}
+Check '화면에 낼 말이 있으면 규칙은 머리말을 붙여 따로 준다' {
+    $j = Invoke-SendHook -Screen @('KW 컨트롤 타워: 알림.') -Rules @('규칙 하나.') | ConvertFrom-Json
+    $ctx = $j.hookSpecificOutput.additionalContext
+    ($j.systemMessage -eq 'KW 컨트롤 타워: 알림.') -and ($j.systemMessage -notmatch '규칙 하나') -and
+        ($ctx -match '먼저 전하라') -and ($ctx -match "$quietLead.*규칙 하나")
+}
+Check '화면에 낼 말도 규칙도 없으면 아무것도 내지 않는다' {
+    $null -eq (Invoke-SendHook)
 }
 Check '월요일이 아니어도 로그인 안내는 낸다' {
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh -Day 'Tuesday') -match 'gh auth login'

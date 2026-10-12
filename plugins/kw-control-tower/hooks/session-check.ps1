@@ -220,6 +220,10 @@ function Add-Ask([string]$Text, [string]$Hint) {
     [void]$asks.Add($Text)
     [void]$askHints.Add($Hint)
 }
+# 화면에 내지 않고 클로드에게만 주는 규칙. 매 세션 실려도 대화를 끊지 않게, 클로드가 먼저
+# 꺼내지 않고 해당하는 작업을 할 때만 지키도록 Send-Hook 이 머리말을 붙인다.
+$quietRules = New-Object System.Collections.ArrayList
+function Add-QuietRule([string]$Rule) { [void]$quietRules.Add($Rule) }
 $stuckSay = New-Object System.Collections.ArrayList   # 같은 원격 커밋으로 실패해 다시 안 한 것
 $remoteOf = @{}          # 배포처 이름 → 원격 커밋. 맞춤에 넘긴다
 $script:NetMs = 0        # 몸통에 안 세는 네트워크 시간
@@ -547,6 +551,10 @@ try {
     $idHint = "git 명의는 pwsh -NoProfile -ExecutionPolicy Bypass -File `"$idScript`" 로 제안을 받아 지금 값과 제안 값을 본문에 보이고, " +
               '사용자가 승인한 뒤에만 같은 스크립트를 -Apply -Name -Email 로 실행하라. 대화 맥락에 있는 이름이나 메일로 채우지 않는다. ' +
               "스크립트가 메일 읽기 권한을 더하는 명령을 알리면 그 명령을 실행할 때도 $browserHint"
+    # 월요일이 아닌 날 명의가 비어 있으면 화면 안내 대신 클로드에게만 주는 보호 규칙. Send-Hook 이
+    # "사용자에게 먼저 꺼내지 말고 해당하는 작업을 할 때만 지켜라" 는 머리말을 붙이므로 규칙 내용만 적는다.
+    $idQuietRule = "git 명의가 비어 있다. 커밋하려는데 명의가 필요하면 대화 맥락에 있는 이름이나 메일로 채우지 말고, " +
+                   "pwsh -NoProfile -ExecutionPolicy Bypass -File `"$idScript`" 로 제안을 받아 사용자가 승인한 뒤에 적용하라."
 
     if (-not $loggedIn) {
         # 한 줄로 낸다. 매 세션 뜨는 안내라 길면 그 아래의 다른 알림을 밀어낸다(2026-09-29 사용자 결정).
@@ -560,6 +568,9 @@ try {
         $text = if ($gitId.Email) { "git 커밋 명의를 아직 확인하지 않았습니다(user.email: $($gitId.Email))." }
                 else { 'git 커밋 명의(user.name · user.email)가 비어 있습니다.' }
         Add-Ask "$text 클로드에게 「git 명의 맞춰 줘」라고 하십시오." $idHint
+    } elseif (-not $gitId.Name -or -not $gitId.Email) {
+        # 명의가 들어 있으면 커밋이 그대로 성공해 클로드가 명의를 채울 일이 없으므로 비었을 때만 준다.
+        Add-QuietRule $idQuietRule
     }
 
     # --- 질문 15. 전역 설정에 outputStyle 키가 있나 --------------------------
@@ -614,16 +625,25 @@ $say = New-Object System.Collections.ArrayList
 $syncLog = $null   # 맞춤을 불렀으면 그 진행 기록 파일. Claude 에게만 알린다.
 $restartLine = 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
 function Send-Hook {
-    if ($say.Count -eq 0) { return }
-    $text = ($say -join "`n").TrimEnd()
-    # 맞춤이 찍은 재시작 줄도 여기서 보므로 문구가 아니라 합의한 첫 줄 그대로를 찾는다.
-    $ctx = $text + "`n`n이 알림을 사용자의 첫 요청에 답하기 전에 먼저 전하라."
-    if ($text.Contains($restartLine)) { $ctx += ' 클로드 코드를 다시 켜 달라고 요구하라.' }
-    if ($text -match '(?m)^\s+claude plugin ') { $ctx += ' 적힌 명령을 대신 실행할지 물어라.' }
-    foreach ($hint in $askHints) { if ($hint) { $ctx += " $hint" } }
-    if ($syncLog) { $ctx += " 맞춤의 진행 기록은 $syncLog 에 있다." }
-    @{ systemMessage = $text; hookSpecificOutput = @{ hookEventName = 'SessionStart'; additionalContext = $ctx } } |
-        ConvertTo-Json -Depth 4 -Compress
+    if ($say.Count -eq 0 -and $quietRules.Count -eq 0) { return }
+    $ctx = @()
+    $out = @{ hookSpecificOutput = @{ hookEventName = 'SessionStart' } }
+    if ($say.Count -gt 0) {
+        $text = ($say -join "`n").TrimEnd()
+        $out.systemMessage = $text
+        # 맞춤이 찍은 재시작 줄도 여기서 보므로 문구가 아니라 합의한 첫 줄 그대로를 찾는다.
+        $alert = $text + "`n`n이 알림을 사용자의 첫 요청에 답하기 전에 먼저 전하라."
+        if ($text.Contains($restartLine)) { $alert += ' 클로드 코드를 다시 켜 달라고 요구하라.' }
+        if ($text -match '(?m)^\s+claude plugin ') { $alert += ' 적힌 명령을 대신 실행할지 물어라.' }
+        foreach ($hint in $askHints) { if ($hint) { $alert += " $hint" } }
+        if ($syncLog) { $alert += " 맞춤의 진행 기록은 $syncLog 에 있다." }
+        $ctx += $alert
+    }
+    if ($quietRules.Count -gt 0) {
+        $ctx += '다음 규칙은 사용자에게 먼저 꺼내지 말고, 해당하는 작업을 할 때만 지켜라. ' + ($quietRules -join ' ')
+    }
+    $out.hookSpecificOutput.additionalContext = $ctx -join "`n`n"
+    $out | ConvertTo-Json -Depth 4 -Compress
 }
 
 # 다른 곳(클로드 코드의 자동 갱신, disciplined-coder)이 옮긴 설치본은 알리지 않는다. 갱신은
