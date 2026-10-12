@@ -225,7 +225,6 @@ function Add-Ask([string]$Text, [string]$Hint) {
 # 꺼내지 않고 해당하는 작업을 할 때만 지키도록 Send-Hook 이 머리말을 붙인다.
 $quietRules = New-Object System.Collections.ArrayList
 function Add-QuietRule([string]$Rule) { [void]$quietRules.Add($Rule) }
-$stuckSay = New-Object System.Collections.ArrayList   # 같은 원격 커밋으로 실패해 다시 안 한 것
 $remoteOf = @{}          # 배포처 이름 → 원격 커밋. 맞춤에 넘긴다
 $script:NetMs = 0        # 몸통에 안 세는 네트워크 시간
 
