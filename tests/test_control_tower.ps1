@@ -948,15 +948,15 @@ Check '원격 주소를 source 에서 만들고 ref 가 있으면 안 만든다'
 Check '재시작 안내가 맞춘 형식이고 옛 커밋과 새 커밋을 적는다' {
     ($syncCode -match "'kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.'") -and
     ($hookCode -match "'kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.'") -and
-    ($hookCode -match "'kw-control-tower: 플러그인 버전 알림'") -and
+    ($syncCode -match "'kw-control-tower: 플러그인 버전 알림'") -and
     ($syncCode -match '\$mv\.Old\.Substring\(0, 7\)\) → \$newShort')
 }
 Check '맞춤이 기록 파일을 지우지 않는다' {
     $syncCode -notmatch 'Remove-Item[^\r\n]*(seenPath|statePath|kw-control-tower\.(seen|state))'
 }
-Check '못 옮긴 원격 커밋을 맞춤이 적고 알림이 읽는다' {
-    ($syncCode -match '\$state\["stuck-\$mkName"\]') -and
-    ($hookCode -match 'stuck-\$mkName') -and
+# 세션마다 다시 시도하므로(2026-10-12 사용자 결정) 알림은 지난 실패 기록을 보고 넘기지 않는다.
+Check '알림이 원격 커밋을 맞춤에 넘기고 지난 실패 기록으로 넘기지 않는다' {
+    ($hookCode -notmatch 'stuck-\$mkName') -and
     ($hookCode -match 'KWCT_REMOTE_HEAD') -and ($syncCode -match 'KWCT_REMOTE_HEAD')
 }
 
@@ -996,7 +996,7 @@ function Invoke-Scenario {
     # 가짜 홈을 만들고 훅을 돌려 사용자에게 보일 본문을 돌려준다.
     param([string]$Installed, [string]$Remote, [hashtable]$Source = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins' },
           [string]$Clone, [string]$State, [string]$Seen, [string]$Version, [string]$Leaf = 'c875eb136526',
-          [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync)
+          [string]$Other, [string]$OtherUpdated, [switch]$NoGh, [string]$Sync, [string[]]$Leftover = @())
     $home2 = Join-Path $scn ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     # 로그인 여부는 APPDATA 아래 hosts.yml 로 판정한다. 미로그인을 흉내 낼 때는 빈 폴더를 준다.
     $app = Join-Path $home2 'appdata'
@@ -1016,6 +1016,12 @@ function Invoke-Scenario {
         $Clone | Set-Content (Join-Path $g 'refs\heads\main')
     }
     if ($State) { $State | Set-Content (Join-Path $home2 '.claude\kw-control-tower.state') }
+    foreach ($lo in $Leftover) {
+        # '이름|fresh' 는 방금 바뀐 폴더다. 그 밖에는 15분 전에 바뀐 것으로 둔다.
+        $n, $age = $lo -split '\|'
+        $dir = New-Item -ItemType Directory -Force -Path (Join-Path $pd "marketplaces\$n")
+        if ($age -ne 'fresh') { $dir.LastWriteTime = (Get-Date).AddMinutes(-15) }
+    }
     if ($Seen)  { $Seen  | Set-Content (Join-Path $home2 '.claude\kw-control-tower.seen') }
     $root = New-Root $Leaf $Sync
     $env:KWCT_STUB = $Remote
@@ -1040,15 +1046,28 @@ Check 'ref 를 지정한 배포처는 원격 대신 사본과 비교한다' {
     $src = @{ source = 'github'; repo = 'KiwoomAX/kw-plugins'; ref = 'v1' }
     (Invoke-Scenario -Installed $shaOld -Remote $shaNew -Source $src -Clone $shaOld) -notmatch $late
 }
-Check '같은 원격 커밋으로 실패했으면 맞춤을 다시 안 부르고 명령을 알린다' {
-    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "stuck-kiwoom-ax=$shaNew"
-    ($o -match '(?m)^kw-control-tower: 플러그인 버전 알림') -and
-    ($o -match '이미 갱신에 실패해 다시 시도하지 않았습니다') -and ($o -notmatch $late) -and
-    ($o -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
-    ($o -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax')
+# 그날 세 번 실패했거나 시간 상한에 막혔으면 그날은 다시 시도하지 않는다(2026-10-12 사용자 결정).
+$today = Get-Date -Format 'yyyy-MM-dd'
+Check '그날 세 번 실패했으면 맞춤을 안 부르고 명령을 알린다' {
+    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "updateFails=$today;3"
+    ($o -match '(?m)^kw-control-tower: 플러그인 버전 알림') -and ($o -match '오늘 갱신이 막혀') -and ($o -notmatch $late) -and
+    ($o -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and ($o -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax')
 }
-Check '원격에 새 커밋이 생기면 다시 시도한다' {
-    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "stuck-kiwoom-ax=0123456789012345678901234567890123456789"
+Check '세 번 미만이거나 날짜가 지났으면 다시 시도한다' {
+    $a = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "updateFails=$today;2"
+    $b = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State 'updateFails=2000-01-01;3'
+    ($a -match $late) -and ($b -match $late) -and ("$a$b" -notmatch '오늘 갱신이 막혀')
+}
+# 배포처 교체에 실패해 남은 폴더는 배포처를 구분하지 않고 맞춤에 넘긴다(2026-10-12 사용자 결정).
+Check '배포처 교체에 실패해 남은 폴더를 알린다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Leftover 'other.bak', 'x..clone') -match '남은 폴더가 있습니다: (other\.bak, x\.\.clone|x\.\.clone, other\.bak)'
+}
+Check '방금 바뀐 교체 폴더와 등록된 이름의 폴더는 알리지 않는다' {
+    (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Leftover 'other.bak|fresh', 'kiwoom-ax') -notmatch '남은 폴더'
+}
+# 세션마다 갱신을 시도한다(2026-10-12 사용자 결정). 옛 버전이 적은 실패 기록이 남아 있어도 넘기지 않는다.
+Check '같은 원격 커밋으로 실패한 기록이 있어도 다시 시도한다' {
+    $o = Invoke-Scenario -Installed $shaOld -Remote $shaNew -State "stuck-kiwoom-ax=$shaNew"
     ($o -match $late) -and ($o -notmatch '이미 갱신에 실패해')
 }
 # 다른 곳(클로드 코드의 자동 갱신, disciplined-coder)이 옮긴 설치본은 알리지 않는다. 갱신은
@@ -1124,8 +1143,8 @@ Check '맞춤과 훅이 같은 지문을 만든다' {
 Remove-Item -LiteralPath $scn -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 맞춤의 갱신 기록 -------------------------------------------------------
-# 맞춤이 갱신에 성공하면 stuck 을 지우고 재시작을 안내하는지, 실패하면
-# stuck 에 원격 커밋을 적고 버전 알림을 내는지 실제로 돌려 본다. PATH 앞에 claude.cmd
+# 맞춤이 갱신에 성공하면 재시작을 안내하는지, 실패하면 버전 알림을 내고 재시도를
+# 실행하는지 실제로 돌려 본다. PATH 앞에 claude.cmd
 # 스텁을 둔다. 맞춤은 단계 1·2 와 마무리만 떼어 돌린다. 나머지 단계는 파이썬을 깔고
 # 진짜 레지스트리를 건드려 가짜 홈으로 가둘 수 없다.
 Write-Host ''
@@ -1142,6 +1161,10 @@ $pd = Join-Path $env:USERPROFILE '.claude\plugins'
 if ($a[0] -eq 'plugin' -and $a[1] -eq 'marketplace' -and $a[2] -eq 'update') {
     if ($env:STUB_SLEEP) { Start-Sleep -Seconds ([int]$env:STUB_SLEEP) }
     if ($env:STUB_MK -eq 'fail') { exit 1 }
+    if ($env:STUB_MK -eq 'inuse') {
+        'Could not replace the marketplace directory at X because it is in use; the existing copy was kept and the next refresh will try again.'
+        exit 1
+    }
     if ($a[3] -eq 'kiwoom-ax') { Set-Content -LiteralPath (Join-Path $pd 'marketplaces\kiwoom-ax\.git\refs\heads\main') $env:STUB_NEW }
     exit 0
 }
@@ -1173,7 +1196,8 @@ Check '맞춤을 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -a
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 맞춤을 돌리고 출력과 상태 파일과 설치본을 돌려준다.
     param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
-          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '', [switch]$CloneCurrent)
+          [switch]$NoRanOnce, [string]$InstallFail = '', [string[]]$Drop = @(), [string]$Lock = '', [switch]$CloneCurrent, [string]$RealClone = '',
+          [string[]]$Leftover = @())
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
@@ -1193,7 +1217,27 @@ function Invoke-SyncScenario {
     New-Item -ItemType Directory -Force -Path (Join-Path $g 'refs\heads') | Out-Null
     'ref: refs/heads/main' | Set-Content (Join-Path $g 'HEAD')
     $(if ($CloneCurrent) { $shaNew } else { $shaOld }) | Set-Content (Join-Path $g 'refs\heads\main')
+    if ($RealClone) {
+        # 진짜 git 사본을 둔다. 원본 저장소에 커밋 둘을 만들고 첫 커밋에서 사본을 뜬 뒤 원본만 앞으로 보낸다.
+        # $RealClone 이 'badjson' 이면 둘째 커밋의 배포처 파일이 JSON 이 아니다.
+        $src = Join-Path $h 'src'; $mkDir = Split-Path -Parent $g
+        Remove-Item -LiteralPath $mkDir -Recurse -Force
+        New-Item -ItemType Directory -Force -Path (Join-Path $src '.claude-plugin') | Out-Null
+        $git = @('-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main')
+        & git -C $src init -q 2>&1 | Out-Null
+        '{"name":"kiwoom-ax"}' | Set-Content (Join-Path $src '.claude-plugin\marketplace.json')
+        & git -C $src add -A; & git @git -C $src commit -q -m one 2>&1 | Out-Null
+        & git clone -q "file:///$($src -replace '\\', '/')" $mkDir 2>&1 | Out-Null
+        $(if ($RealClone -eq 'badjson') { '{ broken' } else { '{"name":"kiwoom-ax","v":2}' }) | Set-Content (Join-Path $src '.claude-plugin\marketplace.json')
+        & git -C $src add -A; & git @git -C $src commit -q -m two 2>&1 | Out-Null
+    }
     $(if ($NoRanOnce) { $State } else { "ranOnce=2026-01-01`n$State" }).Trim() | Set-Content (Join-Path $h '.claude\kw-control-tower.state')
+    foreach ($lo in $Leftover) {
+        $n, $age = $lo -split '\|'
+        $dir = New-Item -ItemType Directory -Force -Path (Join-Path $pd "marketplaces\$n")
+        'x' | Set-Content (Join-Path $dir.FullName 'f.txt')
+        if ($age -ne 'fresh') { $dir.LastWriteTime = (Get-Date).AddMinutes(-15) }
+    }
     $lockDir = Join-Path $h '.claude\kw-control-tower.sync.lock'
     if ($Lock) {
         New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
@@ -1202,7 +1246,8 @@ function Invoke-SyncScenario {
     $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
     $env:STUB_SLEEP = if ($Sleep) { "$Sleep" } else { '' }
     $env:STUB_INSTALL_FAIL = $InstallFail
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$(if ($Bin) { $Bin } else { "$sy\bin" });' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" }) $(if ($Budget) { "-BudgetSeconds $Budget" })" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$(if ($Bin) { $Bin } else { "$sy\bin" });' + `$env:PATH; & '$syncCut' $(if ($Brief) { '-Brief' }) $(if ($Steps) { "-Steps '$Steps'" }) $(if ($Budget) { "-BudgetSeconds $Budget" }); exit `$LASTEXITCODE" 2>&1
+    $code = $LASTEXITCODE
     $log = Join-Path $h '.claude\kw-control-tower.sync.log'
     foreach ($v in 'STUB_MK', 'STUB_UP', 'STUB_NEW', 'KWCT_REMOTE_HEAD', 'STUB_LOG', 'STUB_SLEEP', 'STUB_INSTALL_FAIL') { Remove-Item "Env:\$v" -ErrorAction SilentlyContinue }
     $ip = Get-Content (Join-Path $pd 'installed_plugins.json') -Raw | ConvertFrom-Json
@@ -1213,12 +1258,16 @@ function Invoke-SyncScenario {
         Log   = $(if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Raw -Encoding UTF8 } else { '' })
         Calls = $(if (Test-Path -LiteralPath (Join-Path $h 'calls.log')) { Get-Content -LiteralPath (Join-Path $h 'calls.log') -Raw } else { '' })
         LockLeft = (Test-Path -LiteralPath $lockDir)
+        Code  = $code
+        Dirs  = @(Get-ChildItem -LiteralPath (Join-Path $pd 'marketplaces') -Directory -Force | ForEach-Object Name)
+        Clone = $(if ($RealClone) { "$(& git -C (Join-Path $pd 'marketplaces\kiwoom-ax') rev-parse HEAD)".Trim() } else { '' })
+        Src   = $(if ($RealClone) { "$(& git -C (Join-Path $h 'src') rev-parse HEAD)".Trim() } else { '' })
     }
 }
 
 $r = Invoke-SyncScenario -State "stuck-kiwoom-ax=$shaNew"
 Check '갱신에 성공하면 설치본이 원격 커밋으로 옮겨진다' { $r.Sha -eq $shaNew }
-Check '갱신에 성공하면 stuck 을 지운다' { $r.State -notmatch 'stuck-kiwoom-ax' }
+Check '옛 버전이 적은 배포처 실패 기록을 지운다' { $r.State -notmatch 'stuck-kiwoom-ax' }
 Check '갱신에 성공하면 재시작을 옛 커밋 → 새 커밋으로 안내한다' {
     ($r.Out -match '(?m)^kw-control-tower: 다시 켜야 새 버전이 적용됩니다\.') -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e')
 }
@@ -1245,18 +1294,31 @@ $sw.Stop()
 Check '상한을 넘긴 claude 호출을 끊는다' {
     ($sw.Elapsed.TotalSeconds -lt 20) -and ($hangRun.Out -match '시간 상한에 닿아 멈췄습니다')
 }
+$r = Invoke-SyncScenario -Steps '2' -Drop 'document-skills@anthropic-agent-skills' -InstallFail 'document-skills@anthropic-agent-skills'
+Check '단계가 실패하면 그 단계의 지문을 적는다' { $r.State -match '(?m)^stuck-step2=[0-9A-F]{32}\s*$' }
+# 배포처 받아오기는 세션마다 다시 시도한다. 지문을 적으면 그날 단계 1 이 보류된다.
 $r = Invoke-SyncScenario -Mk 'fail' -Steps '1'
-Check '단계가 실패하면 그 단계의 지문을 적는다' { $r.State -match '(?m)^stuck-step1=[0-9A-F]{32}\s*$' }
+Check '배포처를 못 받아와도 단계 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }
+# 다른 프로그램이 사본 폴더를 잡아 클로드 코드가 사본을 교체하지 못하면 사본 안에서 git 으로 옮긴다(2026-10-12).
+$r = Invoke-SyncScenario -Mk 'inuse' -Steps '1' -RealClone 'ok'
+Check '사본 폴더가 잡혀 있으면 사본 안에서 git 으로 받아온다' {
+    ($r.Clone -eq $r.Src) -and ($r.Out -notmatch '배포처를 받아오지 못했습니다') -and ($r.State -match '(?m)^refreshed=')
+}
+$r = Invoke-SyncScenario -Mk 'inuse' -Steps '1' -RealClone 'badjson'
+Check '받은 커밋의 배포처 파일이 안 읽히면 옮기지 않고 실패로 알린다' {
+    ($r.Clone -ne $r.Src) -and ($r.Out -match '배포처를 받아오지 못했습니다')
+}
+$r = Invoke-SyncScenario -Mk 'fail' -Steps '1' -RealClone 'ok'
+Check '폴더가 잡힌 것이 아닌 실패에는 git 으로 받지 않는다' { $r.Clone -ne $r.Src }
+# 사본이 옛 커밋이라 단계 2 가 옮길 것이 없다고 본 실행도 원격 커밋까지 못 옮겼으면 실패로 끝나야 재시도가 멈추지 않는다.
+$r = Invoke-SyncScenario -Steps '2'
+Check '원격 커밋까지 못 옮기면 0 이 아닌 코드로 끝난다' { ($r.Sha -eq $shaOld) -and ($r.Code -ne 0) }
+$r = Invoke-SyncScenario -Mk 'inuse' -Steps '1' -RealClone 'ok' -Budget 20
+Check '남은 시간이 모자라면 git 으로 받지 않는다' { $r.Clone -ne $r.Src }
 $r = Invoke-SyncScenario -Steps '1' -State 'stuck-step1=00000000000000000000000000000000'
 Check '단계가 성공하면 지문을 지운다' { $r.State -notmatch 'stuck-step1' }
 # 매번 상한을 넘기는 단계를 켤 때마다 다시 실행하지 않게, 끊긴 단계도 그날은 다시 호출하지 않는다.
 Check '상한에 끊긴 단계도 지문을 적는다' { $hangRun.State -match '(?m)^stuck-step1=' }
-$r = Invoke-SyncScenario -Mk 'fail' -Steps '2'
-Check '사본을 받아오지 않은 실행은 배포처 실패로 적지 않는다' { $r.State -notmatch 'stuck-kiwoom-ax' }
-# 자동 갱신이 사본만 받아 두고 설치본을 못 옮긴 PC 에서는 알림이 단계 2 만 넘긴다. 그때 update 가
-# 실패해도 원격 커밋을 적어야 다음 세션에 같은 맞춤을 다시 호출하지 않는다.
-$r = Invoke-SyncScenario -Up 'fail' -Steps '2' -CloneCurrent
-Check '사본이 이미 최신이면 단계 2 만 실행해도 배포처 실패를 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
 # 시간이 모자라 시작하지 못한 호출은 실패로 적지 않는다. 원인이 앞 단계에 있다.
 $r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Steps '1'
 Check '시작하지 못해 미룬 단계는 지문을 적지 않는다' { $r.State -notmatch 'stuck-step1' }
@@ -1281,7 +1343,7 @@ Check 'ranOnce 만 있는 PC 에도 새 권장은 한 번 깐다' { $r.Calls -ma
 $r = Invoke-SyncScenario -Steps '1,2'
 Check '맞춤이 끝나면 잠금을 치운다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
 $r = Invoke-SyncScenario -Steps '1,2' -Lock 'fresh'
-Check '다른 맞춤이 실행 중이면 넘긴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 넘깁니다') }
+Check '다른 맞춤이 실행 중이면 넘긴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 넘깁니다') -and ($r.Code -eq 0) }
 $r = Invoke-SyncScenario -Steps '1,2' -Lock 'stale'
 Check '10분 넘은 잠금은 치우고 실행한다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
 # 상한에 끊긴 실행도 잠금을 남기지 않는다. Task 8 의 끊김 시나리오를 다시 실행한다.
@@ -1289,15 +1351,15 @@ $r = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
 Check '상한에 끊긴 실행도 잠금을 치운다' { -not $r.LockLeft }
 
 $r = Invoke-SyncScenario -Up 'fail'
-Check 'plugin update 가 실패하면 stuck 에 원격 커밋을 적는다' { $r.State -match "(?m)^stuck-kiwoom-ax=$shaNew" }
+Check 'plugin update 가 실패해도 배포처 실패 기록을 안 남긴다' { $r.State -notmatch 'stuck-kiwoom-ax' }
 Check 'plugin update 가 실패하면 재시작 대신 버전 알림과 명령을 낸다' {
     ($r.Out -notmatch '다시 켜야 새 버전이 적용됩니다') -and ($r.Out -match '(?m)^kw-control-tower: 플러그인 버전 알림') -and
     ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and ($r.Out -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax')
 }
 
 $r = Invoke-SyncScenario -Mk 'fail'
-Check '배포처를 못 받아와도 stuck 을 적고 원격 커밋으로 알린다' {
-    ($r.State -match "(?m)^stuck-kiwoom-ax=$shaNew") -and ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
+Check '배포처를 못 받아와도 원격 커밋으로 알린다' {
+    ($r.Out -match 'kw-control-tower@kiwoom-ax : c875eb1 → 811b47e') -and
     ($r.Out -match '(?m)^\s+claude plugin marketplace update kiwoom-ax')
 }
 
@@ -1320,6 +1382,33 @@ Check '짧게 불러도 갱신 실패는 명령과 함께 한 번만 알린다' 
     ($r.Out -match '(?m)^kw-control-tower: 플러그인 버전 알림') -and
         ($r.Out -match '(?m)^\s+claude plugin update kw-control-tower@kiwoom-ax') -and
         (([regex]::Matches($r.Out, 'kw-control-tower@kiwoom-ax')).Count -eq 2) -and ($r.Out -notmatch '배포처를 등록하고')
+}
+# 갱신은 세션마다 시도하되 하루 세 번 실패하거나 시간 상한에 막히면 다음날로 넘긴다(2026-10-12 사용자 결정).
+$today = Get-Date -Format 'yyyy-MM-dd'
+$r = Invoke-SyncScenario -Brief -Up 'fail'
+Check '첫 실패는 횟수만 적고 다음 세션에 다시 시도한다고 알린다' {
+    ($r.State -match "(?m)^updateFails=$today;1\s*$") -and ($r.Out -match '다음 세션을 켤 때 다시 시도합니다\. 오늘 1/3')
+}
+$r = Invoke-SyncScenario -Brief -Up 'fail' -State "updateFails=$today;2"
+Check '그날 세 번째 실패면 다음날로 넘긴다고 알린다' {
+    ($r.State -match "(?m)^updateFails=$today;3\s*$") -and ($r.Out -match '오늘은 더 시도하지 않습니다')
+}
+$r = Invoke-SyncScenario -Brief -Up 'fail' -State 'updateFails=2000-01-01;3'
+Check '날짜가 바뀌면 실패 횟수를 1 부터 다시 센다' { $r.State -match "(?m)^updateFails=$today;1\s*$" }
+$r = Invoke-SyncScenario -Budget 3 -Sleep 4 -Brief
+Check '시간 상한에 막히면 바로 다음날로 넘긴다' {
+    ($r.State -match "(?m)^updateFails=$today;3\s*$") -and ($r.Out -match '날짜가 바뀐 뒤 처음 켜는 세션에서')
+}
+$r = Invoke-SyncScenario -Brief -State "updateFails=$today;2"
+Check '갱신에 성공하면 실패 횟수를 지운다' { ($r.Sha -eq $shaNew) -and ($r.State -notmatch 'updateFails') }
+Check '훅과 맞춤의 하루 실패 상한이 같다' {
+    ($syncCode -match '\$script:MaxFails = 3\b') -and ($hookCode -match "\[int\]\`$fN -ge 3\)")
+}
+# 남은 교체 폴더는 배포처를 구분하지 않고 지운다. 등록된 이름과 방금 바뀐 폴더는 남긴다.
+$r = Invoke-SyncScenario -Steps '1' -Leftover 'kiwoom-ax.bak', 'other..clone', 'third.bak|fresh', 'keep'
+Check '남은 배포처 교체 폴더를 지운다' {
+    ($r.Dirs -notcontains 'kiwoom-ax.bak') -and ($r.Dirs -notcontains 'other..clone') -and
+    ($r.Dirs -contains 'third.bak') -and ($r.Dirs -contains 'keep') -and ($r.Dirs -contains 'kiwoom-ax')
 }
 # 옛 단계 8 이 적은 줄을 맞춤이 지운다. 남기면 읽는 곳이 없는 줄이 상태 파일에 영영 남는다.
 $r = Invoke-SyncScenario -State "python3=redirector`npython3Target=C:\x\python3.exe"

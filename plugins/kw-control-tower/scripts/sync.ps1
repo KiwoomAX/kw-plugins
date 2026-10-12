@@ -46,6 +46,7 @@ $script:Deadline = if ($BudgetSeconds -gt 0) { (Get-Date).AddSeconds($BudgetSeco
 # 단계를 새로 시작하려면 남아 있어야 하는 초다. pip 과 CLAUDE.md 잠금 대기는 중간에 끊지 못한다.
 $script:Margin = [Math]::Min(20, [int][Math]::Floor($BudgetSeconds / 3))
 $script:Deferred = New-Object System.Collections.ArrayList        # 상한에 닿아 미룬 단계
+$script:MaxFails = 3                                              # 하루에 허용하는 갱신 실패 횟수(2026-10-12 사용자 결정)
 $script:TimedOutSteps = New-Object System.Collections.ArrayList   # 상한에 끊긴 호출이 있던 단계
 function Get-Remaining {
     if ($null -eq $script:Deadline) { return [int]::MaxValue }
@@ -71,8 +72,8 @@ function Fail {
     # -Covered 는 버전 알림처럼 다른 알림이 이미 말하는 실패다. 짧은 출력에서 한 번만 말한다.
     param([string]$step, [string]$m, [switch]$Covered, [switch]$NoStuck)
     [void]$script:Failed.Add("$step : $m")
-    # 다른 알림이 이미 다루는 실패(갱신 실패는 stuck-<배포처>)와 단계 전체를 보류할 일이 아닌 실패
-    # (권장 플러그인 하나의 설치 실패)는 단계 지문으로 적지 않는다.
+    # 다른 알림이 이미 다루는 실패(갱신 실패는 버전 알림)와 단계 전체를 보류할 일이 아닌 실패
+    # (권장 플러그인 하나의 설치 실패, 배포처 받아오기 실패)는 단계 지문으로 적지 않는다.
     if (-not $Covered -and -not $NoStuck -and $step -match '^\d+$') { [void]$script:FailedSteps.Add([int]$step) }
     if ($Covered) { [void]$script:Covered.Add("$step : $m") }
     Show "  ! $m" 'Yellow'
@@ -210,6 +211,7 @@ function Invoke-Claude {
     # 남은 시간만큼만 기다리고 넘으면 프로세스 트리째 끊는다.
     # -Optional 은 끊겨도 단계 전체를 끊긴 것으로 적지 않는 호출이다(권장 플러그인 설치).
     param([string[]]$ClaudeArgs, [switch]$Optional)
+    $script:LastOut = @()   # 호출이 낸 줄. 실패 원인을 문구로 구분할 때 본다
     if ($WhatIfOnly) { Say "[미리보기] claude $($ClaudeArgs -join ' ')"; return $true }
     if (-not $script:ClaudeExe) { throw '클로드 코드를 못 찾았습니다. claude 가 PATH 에 있어야 합니다.' }
     $left = Get-Remaining
@@ -222,7 +224,8 @@ function Invoke-Claude {
     $file = $script:ClaudeExe
     if ($file -like '*.ps1') {
         # 검사의 스텁이다. 이 프로세스 안에서 실행해 출력과 종료 코드를 그대로 받는다. 한 호출 안에서는 못 끊는다.
-        & $file @ClaudeArgs 2>&1 | ForEach-Object { Say $_ }
+        $script:LastOut = @(& $file @ClaudeArgs 2>&1 | ForEach-Object { "$_" })
+        foreach ($l in $script:LastOut) { Say $l }
         return ($LASTEXITCODE -eq 0)
     }
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -249,8 +252,57 @@ function Invoke-Claude {
         }
         return $false
     }
-    foreach ($l in (($outTask.Result + "`n" + $errTask.Result) -split "`r?`n")) { if ($l) { Say $l } }
+    $script:LastOut = @(($outTask.Result + "`n" + $errTask.Result) -split "`r?`n" | Where-Object { $_ })
+    foreach ($l in $script:LastOut) { Say $l }
     return ($p.ExitCode -eq 0)
+}
+
+function Update-CloneInPlace([string]$Name) {
+    # 클로드 코드는 배포처를 옆 폴더에 새로 받은 뒤 기존 사본의 이름을 .bak 으로 바꿔 교체한다. 다른 프로그램이
+    # 사본 폴더를 잡고 있으면 이름 변경만 실패한다. 2026-10-12 에 이 PC 에서 VS Code 가 사본의 SKILL.md 를
+    # 열어 둔 채 폴더와 .git 의 핸들을 잡아 그렇게 됐다. 폴더 안 파일 쓰기는 막히지 않으므로 사본 안에서 git 으로 옮긴다.
+    #
+    # 백업은 옮기기 전 커밋 번호다. 받은 커밋의 배포처 파일이 안 읽히거나 옮긴 뒤 안 읽히면 그 커밋으로
+    # 되돌린다. 사본에서 손으로 고친 것은 지켜야 할 대상이 아니다(2026-10-12 사용자 결정).
+    $dir = Join-Path (Join-Path $pluginsDir 'marketplaces') $Name
+    if (-not (Test-Path -LiteralPath (Join-Path $dir '.git')) -or -not (Get-Command git -ErrorAction SilentlyContinue)) { return $false }
+    # git 호출은 시간 상한이 못 끊는다. 받아오기가 멈춰도 상한 안에 끝나도록 남은 시간이 넉넉할 때만 한다.
+    if ((Get-Remaining) -lt 30) { return $false }
+    $old = "$(& git -C $dir rev-parse HEAD 2>$null)".Trim()
+    if (-not $old) { return $false }
+    $env:GIT_TERMINAL_PROMPT = '0'
+    # 네트워크가 멈추면 10초 뒤 끊는다. 훅의 시간 상한 안에 끝나야 한다.
+    & git -C $dir -c http.lowSpeedLimit=1 -c http.lowSpeedTime=10 fetch -q --depth 1 origin 2>&1 | ForEach-Object { Say "$_" }
+    if ($LASTEXITCODE -ne 0) { return $false }
+    if (-not (Test-MarketplaceJson ((& git -C $dir show '@{u}:.claude-plugin/marketplace.json' 2>$null) -join "`n"))) { return $false }
+    & git -C $dir reset -q --hard '@{u}' 2>&1 | ForEach-Object { Say "$_" }
+    $ok = ($LASTEXITCODE -eq 0) -and (Test-MarketplaceJson ((Get-Content -LiteralPath (Join-Path $dir '.claude-plugin\marketplace.json') -Raw -ErrorAction SilentlyContinue) + ''))
+    if (-not $ok) { & git -C $dir reset -q --hard $old 2>&1 | ForEach-Object { Say "$_" } }
+    return $ok
+}
+function Remove-MarketplaceLeftovers($Known) {
+    # 클로드 코드는 배포처를 교체할 때 새 사본을 <이름>..clone 에 받고 기존 사본을 <이름>.bak 으로 옮긴 뒤
+    # .bak 을 지운다. 중간에 실패하면 두 폴더가 남고, 남은 .bak 이 있으면 다음 교체가 멈춘다. 사본 안에서
+    # git 으로 옮기는 경로(Update-CloneInPlace)가 생겨 이 폴더들은 쓸 데가 없다. 우리 배포처와 남의 배포처를
+    # 구분하지 않고 지운다(2026-10-12 사용자 결정).
+    #
+    # 등록된 배포처 이름과 같은 폴더는 지우지 않는다. 10분 안에 바뀐 폴더는 다른 창에서 교체 중일 수 있어 남긴다.
+    $root = Join-Path $pluginsDir 'marketplaces'
+    if (-not (Test-Path -LiteralPath $root)) { return }
+    $registered = @(if ($null -ne $Known) { $Known.PSObject.Properties.Name })
+    foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+        if ($d.Name -notmatch '(\.bak|\.\.clone)$' -or $registered -contains $d.Name) { continue }
+        if (((Get-Date) - $d.LastWriteTime).TotalMinutes -lt 10) { continue }
+        if ($WhatIfOnly) { Note "남은 배포처 교체 폴더를 지웁니다: $($d.Name)"; continue }
+        try {
+            Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop
+            Note "남은 배포처 교체 폴더를 지웠습니다: $($d.Name)"
+        } catch { Say "남은 배포처 교체 폴더를 지우지 못했습니다: $($d.Name) ($($_.Exception.Message))" }
+    }
+}
+function Test-MarketplaceJson([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    try { $null = $Text | ConvertFrom-Json -ErrorAction Stop; return $true } catch { return $false }
 }
 
 $userHome = $env:USERPROFILE
@@ -347,8 +399,7 @@ if (-not $WhatIfOnly) {
 try {
 
 # 상태 파일에는 단계가 기억해야 하는 것만 적는다. 라이브러리 목록 해시(requirements), 받아온 시각
-# (refreshed), 권장 기록(suggestedDone), 배포처별 갱신 실패(stuck-<배포처>), 단계별 실패 지문
-# (stuck-step<N>)이다. 옛 버전이 적은 ranOnce 는 권장 기록을 이행할 때만 읽는다.
+# (refreshed), 권장 기록(suggestedDone), 단계별 실패 지문(stuck-step<N>)이다. 옛 버전이 적은 ranOnce 는 권장 기록을 이행할 때만 읽는다.
 $state = @{}
 if (Test-Path -LiteralPath $statePath) {
     foreach ($line in (Get-Content -LiteralPath $statePath -Encoding UTF8)) {
@@ -388,6 +439,7 @@ try {
     $settings = Read-Json $settingsPath
     if ($null -eq $settings) { throw "settings.json 을 못 읽었습니다." }
     $known = Read-Json $knownPath
+    Remove-MarketplaceLeftovers $known
 
     foreach ($mk in @($manifest.marketplaces)) {
         $name = Get-Prop $mk 'name'
@@ -438,7 +490,13 @@ try {
         if (-not $WhatIfOnly) {
             if (Invoke-Claude @('plugin', 'marketplace', 'update', $name)) {
                 $script:Refreshed = $true
-            } else { Fail '1' "배포처를 받아오지 못했습니다: $name" }
+            } elseif ((($script:LastOut -join "`n") -match 'because it is in use') -and (Update-CloneInPlace $name)) {
+                Say "$name : 폴더를 다른 프로그램이 잡고 있어 사본 안에서 git 으로 받아왔습니다."
+                $script:Refreshed = $true
+            } else {
+                # 받아오기는 세션마다 다시 시도한다(2026-10-12 사용자 결정). 단계 지문을 적으면 그날 단계 1 이 보류된다.
+                Fail '1' "배포처를 받아오지 못했습니다: $name" -NoStuck
+            }
         } else { Say "$name : 배포처를 받아옵니다." }
     }
 } catch { Fail '1' $_.Exception.Message }
@@ -545,9 +603,9 @@ try {
         }
     }
 
-    # 알림 훅이 넘긴 원격 커밋까지 옮겼는지 적는다. 못 옮겼으면 훅은 같은 원격 커밋으로
-    # 맞춤을 다시 호출하지 않는다. 배포처를 받아오지 못해 사본이 옛 커밋에 머문 때도
-    # 여기서 잡힌다. 위 반복은 사본과 견주므로 그때는 옮길 것이 없다고 보기 때문이다.
+    # 알림 훅이 넘긴 원격 커밋까지 옮겼는지 본다. 못 옮겼으면 버전 알림에 싣는다.
+    # 배포처를 받아오지 못해 사본이 옛 커밋에 머문 때도 여기서 잡힌다. 위 반복은 사본과 비교하므로
+    # 그때는 옮길 것이 없다고 보기 때문이다.
     $remoteOf = @{}
     foreach ($pair in ("$env:KWCT_REMOTE_HEAD" -split ';')) {
         $i = $pair.IndexOf('=')
@@ -568,21 +626,18 @@ try {
                             # 이미 실패로 적은 것은 원격 커밋으로 목표만 바꾼다.
                             $known = @($script:UpdateFailed | Where-Object { $_.Id -eq $pluginId })
                             if ($known.Count -gt 0) { $known[0].Target = $remoteOf[$mkName] }
-                            else { [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $sha; Target = $remoteOf[$mkName] }) }
+                            else {
+                                [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $sha; Target = $remoteOf[$mkName] })
+                                # 실패로도 적는다. 설치기의 '못 한 것' 에 남고 종료 코드가 1 이 된다.
+                                Fail '2' "설치본을 원격 커밋까지 못 옮겼습니다: $pluginId" -Covered
+                            }
                         }
                     }
                 }
             }
-            # 원격 커밋 탓으로 못 옮겼다고 적는 조건은 두 가지다. 사본이 원격 커밋에 있어야 하고(이번 실행에서
-            # 단계 1 로 받아왔거나 사본이 이미 원격 커밋과 같다), 단계 1·2 가 끊기지도 미뤄지지도 않아야 한다.
-            # 사본이 옛것이면 단계 2 는 옮길 것이 없다고 보므로, 그때 적으면 새 커밋이 생길 때까지 재시도하지 않는다.
-            # 사본이 이미 최신이면 알림은 단계 2 만 넘기므로, 단계 1 을 요구하면 update 실패가 기록되지 않는다.
-            $cloneHead = Get-MarketplaceHead (Join-Path (Join-Path $pluginsDir 'marketplaces') $mkName)
-            $cloneOk = ($script:Ran -contains 1) -or
-                ($cloneHead -and $remoteOf[$mkName] -and ($remoteOf[$mkName].StartsWith($cloneHead) -or $cloneHead.StartsWith($remoteOf[$mkName])))
-            $clean = $cloneOk -and -not (@(1, 2) | Where-Object { ($script:TimedOutSteps -contains $_) -or ($script:Deferred -contains $_) })
-            if ($late -and $clean) { $state["stuck-$mkName"] = $remoteOf[$mkName] }
-            elseif (-not $late) { $state.Remove("stuck-$mkName") }
+            # 옛 버전은 같은 원격 커밋으로 실패하면 이 키를 적고 새 커밋이 생길 때까지 재시도하지 않았다.
+            # 이제 세션마다 다시 시도하므로(2026-10-12 사용자 결정) 남은 기록을 치운다.
+            $state.Remove("stuck-$mkName")
         }
     }
 } catch { Fail '2' $_.Exception.Message }
@@ -948,6 +1003,23 @@ if (-not $WhatIfOnly) {
         else { $state.Remove("stuck-step$n") }
     }
 }
+
+# 갱신은 세션을 켤 때마다 시도하되 하루 세 번까지만 실패를 허용한다. 세 번째 실패나 시간 상한에 막힌
+# 날은 더 시도하지 않고, 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도한다(2026-10-12 사용자 결정).
+# updateFails 에 날짜와 그날 실패 횟수를 적고, 알림 훅이 그 값을 보고 그날 갱신을 넘긴다.
+$script:FailsToday = 0
+$askedUpdate = "$env:KWCT_REMOTE_HEAD" -and ((-not $script:StepsGiven) -or ($script:Want -contains 2))
+if (-not $WhatIfOnly -and $askedUpdate) {
+    $today = Get-Date -Format 'yyyy-MM-dd'
+    $cut = @(@(1, 2) | Where-Object { ($script:TimedOutSteps -contains $_) -or ($script:Deferred -contains $_) })
+    $updated = ($script:Ran -contains 2) -and ($cut.Count -eq 0) -and ($script:UpdateFailed.Count -eq 0)
+    if ($updated) { $state.Remove('updateFails') }
+    elseif ($cut.Count -gt 0 -or $script:UpdateFailed.Count -gt 0) {
+        $day, $n = "$($state['updateFails'])" -split ';'
+        $script:FailsToday = if ($cut.Count -gt 0) { $script:MaxFails } elseif ($day -eq $today) { [int]$n + 1 } else { 1 }
+        $state['updateFails'] = "$today;$script:FailsToday"
+    }
+}
 Save-State
 
 # 짧은 출력은 진행 출력을 로그 파일에 두고 결과만 낸다. 로그는 매번 덮어쓴다. 알고 싶은
@@ -995,6 +1067,9 @@ if ($script:Restart -or ($Brief -and $script:Did.Count -gt 0)) {
 if ($script:Deferred.Count -gt 0) {
     Write-Host "kw-control-tower: 시간 상한에 닿아 단계 $(($script:Deferred | Sort-Object -Unique) -join ', ') 는 다음 세션으로 미뤘습니다." -ForegroundColor Yellow
 }
+if ($script:FailsToday -ge $script:MaxFails -and $script:UpdateFailed.Count -eq 0) {
+    Write-Host 'kw-control-tower: 플러그인 갱신이 시간 상한에 막혔습니다. 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도합니다.' -ForegroundColor Yellow
+}
 # 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
 # 맞췄다. 커밋은 옛 일곱 자리 → 새 일곱 자리로 적고 직접 실행할 명령을 붙인다.
 if ($script:UpdateFailed.Count -gt 0) {
@@ -1005,6 +1080,12 @@ if ($script:UpdateFailed.Count -gt 0) {
     Write-Host '  지금 옮기려면 아래를 실행해 주십시오.'
     foreach ($mk in @($script:UpdateFailed | ForEach-Object { $_.Mk } | Select-Object -Unique)) { Write-Host "      claude plugin marketplace update $mk" }
     foreach ($u in $script:UpdateFailed) { Write-Host "      claude plugin update $($u.Id)" }
+    # 다음 시도가 언제인지 적는다. 하루 실패 횟수는 마무리에서 셌다.
+    if ($script:FailsToday -ge $script:MaxFails) {
+        Write-Host '  오늘은 더 시도하지 않습니다. 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도합니다.'
+    } elseif ($script:FailsToday -gt 0) {
+        Write-Host "  다음 세션을 켤 때 다시 시도합니다. 오늘 $script:FailsToday/$script:MaxFails 번째 실패입니다."
+    }
 }
 
 if ($script:Failed.Count -gt 0) {

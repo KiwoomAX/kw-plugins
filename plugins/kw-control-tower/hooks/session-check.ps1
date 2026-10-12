@@ -202,7 +202,7 @@ function Add-Note([int[]]$Step, [string]$Text) {
     [void]$noteSteps.Add($Step)
 }
 $asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
-$stuckSay = New-Object System.Collections.ArrayList   # 같은 원격 커밋으로 실패해 다시 안 한 것
+$heldSay = New-Object System.Collections.ArrayList   # 오늘 갱신을 보류한 것
 $remoteOf = @{}          # 배포처 이름 → 원격 커밋. 맞춤에 넘긴다
 $script:NetMs = 0        # 몸통에 안 세는 네트워크 시간
 
@@ -412,8 +412,12 @@ try {
     # 배포처가 브랜치나 태그를 지정했으면 원격 기본 브랜치와 견주면 안 된다. 매 세션
     # 다르다고 나와 맞춤이 되풀이된다. 그때는 사본과 견준다.
     #
-    # 맞춤이 지난번에 같은 원격 커밋으로 옮기지 못했으면 다시 호출하지 않는다. 매 세션
-    # 일 분씩 같은 실패를 되풀이하게 된다. 원격에 새 커밋이 생기면 다시 시도한다.
+    # 지난 세션에 같은 원격 커밋으로 옮기지 못했어도 세션마다 맞춤을 다시 호출한다(2026-10-12
+    # 사용자 결정). 전에는 새 커밋이 생길 때까지 기다렸는데, 일시적인 실패에도 갱신이 멈췄다.
+    # 다만 그날 세 번 실패했거나 시간 상한에 막혔으면 맞춤이 updateFails 에 날짜와 횟수를 적고,
+    # 감지는 그날 갱신을 넘긴다. 날짜가 바뀌면 다시 시도한다.
+    $fDay, $fN = "$($kwState['updateFails'])" -split ';'
+    $heldToday = ($fDay -eq (Get-Date -Format 'yyyy-MM-dd')) -and ([int]$fN -ge 3)
     $behind = New-Object System.Collections.ArrayList
     $cloneLate = $false
     foreach ($mk in @($manifest.marketplaces)) {
@@ -451,13 +455,12 @@ try {
                 }
             }
         }
-        if ($late.Count -eq 0) { continue }
-        if ($remote -and $kwState["stuck-$mkName"] -eq $remote) {
-            [void]$stuckSay.Add('  이미 갱신에 실패해 다시 시도하지 않았습니다. 원격에 새 커밋이 생기면 다시 시도합니다.')
-            foreach ($l in $late) { [void]$stuckSay.Add("  - $($l.Id) : $($l.Sha.Substring(0, 7)) → $($remote.Substring(0, 7))") }
-            [void]$stuckSay.Add('  지금 옮기려면 아래를 실행해 주십시오.')
-            [void]$stuckSay.Add("      claude plugin marketplace update $mkName")
-            foreach ($l in $late) { [void]$stuckSay.Add("      claude plugin update $($l.Id)") }
+        if ($heldToday) {
+            $to = $target.Substring(0, 7)
+            foreach ($l in $late) { [void]$heldSay.Add("  - $($l.Id) : $($l.Sha.Substring(0, 7)) → $to") }
+            [void]$heldSay.Add('  지금 옮기려면 아래를 실행해 주십시오.')
+            [void]$heldSay.Add("      claude plugin marketplace update $mkName")
+            foreach ($l in $late) { [void]$heldSay.Add("      claude plugin update $($l.Id)") }
         } else {
             foreach ($l in $late) { [void]$behind.Add($l.Id) }
         }
@@ -501,6 +504,21 @@ try {
     if (-not $loggedIn) {
         # 한 줄로 낸다. 매 세션 뜨는 안내라 길면 그 아래의 다른 알림을 밀어낸다(2026-09-29 사용자 결정).
         [void]$asks.Add('사내 GitHub 로그인이 필요합니다. 직접 실행해 주십시오: gh auth login --web --git-protocol https --skip-ssh-key --clipboard')
+    }
+
+    # --- 질문 14. 배포처 교체에 실패해 남은 폴더가 있나 ---------------------
+    # 클로드 코드가 배포처를 교체하다 실패하면 <이름>.bak 이나 <이름>..clone 폴더가 남고, 남은 .bak 은
+    # 다음 교체를 멈춘다. 배포처를 구분하지 않고 본다(2026-10-12 사용자 결정). 10분 안에 바뀐 폴더는
+    # 다른 창이 교체 중일 수 있어 세지 않는다. 맞춤 단계 1 이 같은 기준으로 지운다.
+    $script:Budget.Files++
+    $mkRoot = Join-Path $plugins 'marketplaces'
+    $mkNames = @(if ($null -ne $known) { $known.PSObject.Properties.Name })
+    $leftover = @(Get-ChildItem -LiteralPath $mkRoot -Directory -Force -ErrorAction SilentlyContinue | Where-Object {
+        ($_.Name -match '(\.bak|\.\.clone)$') -and ($mkNames -notcontains $_.Name) -and
+        (((Get-Date) - $_.LastWriteTime).TotalMinutes -ge 10)
+    })
+    if ($leftover.Count -gt 0) {
+        Add-Note 1 "배포처 교체에 실패해 남은 폴더가 있습니다: $(($leftover | ForEach-Object Name) -join ', ')"
     }
 }
 catch {
@@ -560,11 +578,12 @@ function Send-Hook {
 
 # 다른 곳(클로드 코드의 자동 갱신, disciplined-coder)이 옮긴 설치본은 알리지 않는다. 갱신은
 # 그것을 한 훅이 그 세션에서만 알린다(2026-09-29 사용자 결정). 알리면 disciplined-coder 가
-# 이미 알린 갱신을 다음 세션에 한 번 더 알리게 된다. 맞춤이 같은 원격 커밋으로 실패한 것은
-# 직접 실행할 명령이 있으므로 알린다. 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다.
-if ($stuckSay.Count -gt 0) {
+# 이미 알린 갱신을 다음 세션에 한 번 더 알리게 된다. 오늘 보류한 갱신은 직접 실행할 명령이 있으므로
+# 알린다. 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다.
+if ($heldSay.Count -gt 0) {
     [void]$say.Add('kw-control-tower: 플러그인 버전 알림')
-    foreach ($s in $stuckSay) { [void]$say.Add($s) }
+    [void]$say.Add('  오늘 갱신이 막혀 다시 시도하지 않았습니다. 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도합니다.')
+    foreach ($s in $heldSay) { [void]$say.Add($s) }
     [void]$say.Add('')
 }
 
