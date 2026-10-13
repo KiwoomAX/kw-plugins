@@ -114,7 +114,7 @@ function Read-Json {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) }
-    catch { throw "JSON 으로 안 읽힙니다. 손으로 고친 뒤 다시 실행하십시오: $Path" }
+    catch { throw "JSON 으로 안 읽힙니다. 고친 뒤 다시 실행하십시오: $Path" }
 }
 function Get-Prop {
     param($Object, [string]$Name)
