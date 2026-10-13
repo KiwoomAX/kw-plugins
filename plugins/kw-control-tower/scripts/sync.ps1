@@ -1100,7 +1100,7 @@ if ($script:Failed.Count -gt 0) {
     Write-Host ''
     Write-Host '못 한 것' -ForegroundColor Yellow
     foreach ($f in $script:Failed) { Write-Host "  - $f" }
-    Write-Host '  못 한 단계만 다음 세션에 다시 알립니다. 나머지는 다시 알리지 않습니다.'
+    Write-Host '  완료되지 않은 단계만 다음 세션에 알립니다. 나머지는 다시 알리지 않습니다.'
     exit 1
 }
 exit 0
