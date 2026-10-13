@@ -16,7 +16,7 @@
     "disciplined-coder@chshin-tools"
   ],
 
-  "_suggested_comment": "kw-devops 는 사내 서버 192.7.9.45 에만 접속하므로 외부망 PC 에서는 쓸 수 없다. 필수에 두면 사용자가 꺼도 맞춤이 매 세션 다시 켠다. 권장으로 두어 한 번만 깔고, 끈 것은 그대로 둔다(2026-09-29 사용자 결정). kw-dashboard 는 배포를 kw-devops 에 넘기므로 같은 권장이다. document-skills 는 kw-doc-formats 가 얹히는 기본 스킬이라 필수로 옮겼다(2026-09-30 사용자 결정). 권장은 플러그인마다 한 번 깔고 상태 파일의 suggestedDone 에 적는다. 켜져 있든 꺼져 있든 깔려 있으면 뒤처진 설치본은 맞춤이 옮긴다.",
+  "_suggested_comment": "kw-devops 는 사내 서버 192.7.9.45 에만 접속하므로 외부망 PC 에서는 쓸 수 없다. 필수에 두면 사용자가 꺼도 맞춤이 매 세션 다시 켠다. 권장으로 두어 한 번만 설치하고, 끈 것은 그대로 둔다(2026-09-29 사용자 결정). kw-dashboard 는 배포를 kw-devops 에 넘기므로 같은 권장이다. document-skills 는 kw-doc-formats 가 얹히는 기본 스킬이라 필수로 옮겼다(2026-09-30 사용자 결정). 권장은 플러그인마다 한 번 설치하고 상태 파일의 suggestedDone 에 적는다. 켜져 있든 꺼져 있든 설치되어 있으면 뒤처진 설치본은 맞춤이 옮긴다.",
 
   "suggested": [
     "kw-devops@kiwoom-ax",
@@ -28,13 +28,13 @@
 
   "_retired_comment": "항목마다 언제 넣었는지를 적는다. 두 해가 지나면 뺀다. 그때까지 안 돌아온 PC 는 다시 세우는 편이 빠르고, 목록이 자라기만 하면 새 PC 가 가진 적 없는 것을 매번 확인한다.",
 
-  "_retiredPlugins_comment": "replacedBy 를 적으면 그것이 깔린 것을 확인한 뒤에만 옛것을 걷는다. 먼저 걷고 설치가 실패하면 그 플러그인이 아예 없는 PC 가 된다. 2026-09-06 에 이 PC 에서 실제로 그렇게 됐다.",
+  "_retiredPlugins_comment": "replacedBy 를 적으면 그것이 설치된 것을 확인한 뒤에만 옛것을 제거한다. 먼저 제거하고 설치가 실패하면 그 플러그인이 아예 없는 PC 가 된다. 2026-09-06 에 이 PC 에서 실제로 그렇게 되었다.",
 
   "retiredPlugins": [
     { "id": "kw-doc-formats@kw-doc-formats", "replacedBy": "kw-doc-formats@kiwoom-ax", "since": "2026-09-07" }
   ],
 
-  "_retiredMarketplaces_comment": "kw-doc-formats 배포처는 그 플러그인이 kiwoom-ax 안으로 들어와 쓸모가 없어졌다. 걷는 것은 등록뿐이고 KiwoomAX/KW-doc-formats 레포 자체는 남는다. 아직 맞춤을 안 돌린 PC 가 그 배포처에서 옛 플러그인을 받고 있기 때문이다.",
+  "_retiredMarketplaces_comment": "kw-doc-formats 배포처는 그 플러그인이 kiwoom-ax 안으로 들어와 쓸모가 없어졌다. 제거하는 것은 등록뿐이고 KiwoomAX/KW-doc-formats 레포 자체는 남는다. 아직 맞춤을 실행하지 않은 PC 가 그 배포처에서 옛 플러그인을 받고 있기 때문이다.",
 
   "retiredMarketplaces": [
     { "name": "kw-doc-formats", "since": "2026-09-07" }
@@ -45,7 +45,7 @@
     { "name": "register-corp-certs", "replacedBy": "kw-control-tower@kiwoom-ax", "since": "2026-09-06" }
   ],
 
-  "_retiredHooks_comment": "파일 이름이 아니라 경로로 가른다. 이 플러그인이 거는 훅의 파일 이름이 옛것과 같기 때문이다. 옛것은 설치기가 %LOCALAPPDATA%\\corp-certs\\ 아래에 놓은 사본을 가리킨다.",
+  "_retiredHooks_comment": "파일 이름이 아니라 경로로 구분한다. 이 플러그인이 거는 훅의 파일 이름이 옛것과 같기 때문이다. 옛것은 설치기가 %LOCALAPPDATA%\\corp-certs\\ 아래에 놓은 사본을 가리킨다.",
   "retiredHooks": [
     { "file": "docker-cert-reminder.ps1", "pathContains": "corp-certs", "since": "2026-09-06" }
   ]
