@@ -11,6 +11,12 @@ $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
 $ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기가 7 없이는 아무것도 안 깐다.
 
+# 훅·맞춤·명의 스크립트는 UTF-8 로 출력하고, PowerShell 은 자식 프로세스의 출력을
+# [Console]::OutputEncoding 으로 읽는다. 이 값은 PC 의 코드페이지를 따르므로(한국어 윈도는 949)
+# 맞추지 않으면 한글이 깨져 출력을 대조하는 검사가 모두 실패한다. 결과를 낸 뒤 원래 값으로 되돌린다.
+$consoleEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+
 $script:Pass = 0
 $script:FailList = New-Object System.Collections.ArrayList
 
@@ -239,6 +245,15 @@ foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plug
     }
     Check "한글이 성한 채로 읽힌다: $(Split-Path $f -Leaf)" {
         (Get-Content -LiteralPath $f -Raw -Encoding UTF8) -match '[가-힣]'
+    }
+}
+# 이 검사는 파일 맨 앞에서 콘솔을 UTF-8 로 맞추고, 그 설정은 자식 프로세스에도 이어질 수 있다.
+# 그러면 스크립트가 스스로 UTF-8 출력을 설정하지 않아도 출력 대조 검사가 통과하지만, 클로드 코드가
+# 실행할 때는 코드페이지가 949 인 PC 에서 한글이 깨진다. 그래서 설정이 코드에 있는지를 따로 본다.
+# 스크립트가 늘어도 빠지지 않게 목록을 적지 않고 두 폴더의 스크립트를 모두 본다.
+foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $plugin 'hooks'), (Join-Path $plugin 'scripts') -Filter '*.ps1')) {
+    Check "출력 인코딩을 UTF-8 로 맞춘다: $($f.Name)" {
+        (Get-CodeOnly (Get-Content -LiteralPath $f.FullName -Raw)).Contains('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)')
     }
 }
 
@@ -1107,10 +1122,50 @@ Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
 Check '명의 안내의 요일 판정이 시나리오가 바꿔 끼우는 글자 그대로다' {
     $hookCode -match '-not \$idOk -and \(Get-Date\)\.DayOfWeek -eq \[DayOfWeek\]::Monday'
 }
-Check '월요일이 아니면 승인하지 않은 명의라도 안내하지 않는다' {
+# 명의가 비어 있으면 월요일이 아닌 날에도 이슈 #28 을 막는 규칙이 매 세션 클로드에게 간다.
+# 화면에는 내지 않고, 클로드가 먼저 꺼내지 않게 Send-Hook 이 규칙 앞에 붙이는 머리말로 구분한다.
+$quietLead = '사용자에게 먼저 꺼내지 말고'
+Check '월요일이 아니어도 명의가 비어 있으면 화면에 내지 않고 클로드에게만 보호 규칙을 준다' {
+    $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Day 'Tuesday'
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Day 'Tuesday' -Context
+    ($o -notmatch $idLine) -and ($c -match $quietLead) -and ($c -match 'git-identity\.ps1') -and ($c -match '대화 맥락')
+}
+# 명의가 들어 있으면 커밋이 그대로 성공해 클로드가 명의를 채울 일이 없다. 승인 전이어도 규칙을 싣지 않는다.
+Check '월요일이 아니면 승인 전 명의가 들어 있어도 안내도 보호 규칙도 내지 않는다' {
     $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday'
     $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idSet -Day 'Tuesday' -Context
-    ($o -notmatch $idLine) -and ($c -notmatch 'git-identity\.ps1')
+    ($o -notmatch $idLine) -and ($c -notmatch $quietLead) -and ($c -notmatch 'git-identity\.ps1')
+}
+Check '승인한 명의면 요일과 상관없이 보호 규칙을 주지 않는다' {
+    $c = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -GitConfig $idApproved -Day 'Tuesday' -Context
+    ($c -notmatch $quietLead) -and ($c -notmatch 'git-identity\.ps1')
+}
+# 가짜 홈은 불일치가 늘 있어 화면에 낼 말이 없는 세션을 시나리오로 만들 수 없다. 그래서
+# Send-Hook 을 떼어 화면에 낼 말 없이 규칙만 있는 세션을 본다.
+function Invoke-SendHook([string[]]$Screen, [string[]]$Rules) {
+    $fn = [regex]::Match($hookSrc, '(?s)function Send-Hook \{.*?\n\}').Value
+    & {
+        $say = New-Object System.Collections.ArrayList; foreach ($s in $Screen) { [void]$say.Add($s) }
+        $quietRules = New-Object System.Collections.ArrayList; foreach ($r in $Rules) { [void]$quietRules.Add($r) }
+        $askHints = @(); $syncLog = $null; $restartLine = 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
+        . ([scriptblock]::Create($fn))
+        Send-Hook
+    }
+}
+Check '화면에 낼 말 없이 규칙만 있으면 화면 알림과 먼저 전하라는 지시 없이 규칙만 준다' {
+    $j = Invoke-SendHook -Rules @('규칙 하나.') | ConvertFrom-Json
+    $ctx = $j.hookSpecificOutput.additionalContext
+    ($null -eq $j.PSObject.Properties['systemMessage']) -and ($ctx -match $quietLead) -and
+        ($ctx -match '규칙 하나') -and ($ctx -notmatch '먼저 전하라')
+}
+Check '화면에 낼 말이 있으면 규칙은 머리말을 붙여 따로 준다' {
+    $j = Invoke-SendHook -Screen @('KW 컨트롤 타워: 알림.') -Rules @('규칙 하나.') | ConvertFrom-Json
+    $ctx = $j.hookSpecificOutput.additionalContext
+    ($j.systemMessage -eq 'KW 컨트롤 타워: 알림.') -and ($j.systemMessage -notmatch '규칙 하나') -and
+        ($ctx -match '먼저 전하라') -and ($ctx -match "$quietLead.*규칙 하나")
+}
+Check '화면에 낼 말도 규칙도 없으면 아무것도 내지 않는다' {
+    $null -eq (Invoke-SendHook)
 }
 Check '월요일이 아니어도 로그인 안내는 낸다' {
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh -Day 'Tuesday') -match 'gh auth login'
@@ -1694,6 +1749,7 @@ try { $null = & claude plugin validate ./ 2>&1 | Out-String; $validateCode = $LA
 Check 'claude plugin validate 가 0 으로 끝난다(경고는 허용)' { $validateCode -eq 0 }
 
 # --- 결과 -----------------------------------------------------------------
+[Console]::OutputEncoding = $consoleEncoding
 Write-Host ''
 if ($script:AskList.Count -gt 0) {
     Write-Host "사용자에게 물을 것 $($script:AskList.Count) 건 (실패가 아니다)" -ForegroundColor Yellow
