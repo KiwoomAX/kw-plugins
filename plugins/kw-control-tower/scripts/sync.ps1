@@ -958,8 +958,8 @@ try {
         $removed = 0
         if ($null -ne $hooks) { $removed = Remove-RetiredHookEntries $hooks $retiredHooks }
         if ($removed -gt 0) {
-            if ($WhatIfOnly) { Say "[미리보기] 옛 훅 연결 $removed 개를 제거합니다." }
-            else { Save-Json $settings $settingsPath; Note "옛 훅 연결 $removed 개를 제거했습니다. 같은 일은 이 플러그인의 훅이 이어서 합니다." }
+            if ($WhatIfOnly) { Say "[미리보기] 이전 훅 연결 $removed 개를 제거합니다." }
+            else { Save-Json $settings $settingsPath; Note "이전 훅 연결 $removed 개를 제거했습니다. 동일 작업을 플러그인의 훅이 이어서 합니다." }
         }
     }
 } catch { Fail '7' $_.Exception.Message }
