@@ -400,7 +400,7 @@ Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
     ($syncSrc -notmatch '& claude @ClaudeArgs')
 }
 Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
-Check '다시 켠 것을 따로 적는다'              { $syncSrc -match '다시 켠 것' }
+Check '다시 활성화한 것을 따로 적는다'         { $syncSrc -match '다시 활성화한 것' }
 Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\[A-Za-z0-9\._-\]\+\$" }
 Check '지우기 전에 사본을 남긴다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
