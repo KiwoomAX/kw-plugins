@@ -944,7 +944,7 @@ try {
         if (-not (Test-Path -LiteralPath $backupDir)) { New-Item -ItemType Directory -Force -Path $backupDir | Out-Null }
         Copy-Item -LiteralPath $files[0].FullName -Destination (Join-Path $backupDir "$name.SKILL.md.bak") -Force
         Remove-Item -LiteralPath $dir -Recurse -Force
-        Note "$name : 사본을 남기고 지웠습니다."
+        Note "$name : 백업을 남기고 지웠습니다."
     }
 
     # 훅 연결은 파일 이름이 아니라 경로로 구분한다. 이 플러그인이 거는 훅의 파일 이름이
