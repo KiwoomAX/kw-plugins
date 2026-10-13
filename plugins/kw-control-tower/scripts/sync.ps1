@@ -1,58 +1,58 @@
-# 이 PC 를 manifest.json 에 맞춘다. 세션 시작 알림 훅과 설치기 9단계가 호출한다.
+# 이 PC 를 목록(manifest.json)에 맞게 동기화한다. 세션 점검 훅과 설치기 9단계가 호출한다.
 #
-# 단계는 저마다 독립이고 멱등이다. 한 단계가 실패해도 나머지는 실행된다.
+# 단계는 저마다 독립이고, 여러 번 실행해도 결과가 같다. 한 단계가 실패해도 나머지는 실행된다.
 # 무엇을 했는지 마지막에 요약하고, 사용자가 비활성화한 것을 다시 활성화했으면 그것을 따로 적는다.
 #
-# 이행 첫째 단계라 CLAUDE.md 단계(단계 6)은 아직 없다. 설치기가 그 일을 하고 있어
-# 둘이 같은 블록을 쓰게 되기 때문이다.
+# 전환 1차 단계라 CLAUDE.md 단계(단계 6)은 아직 없다. 설치기가 그 일을 하고 있어
+# 두 곳이 같은 블록을 쓰게 되기 때문이다.
 
 [CmdletBinding()]
 param(
     [switch]$WhatIfOnly,
-    # 세션 시작 훅이 켠다. 진행 출력을 화면 대신 로그 파일에 적고, 화면에는 결과만 낸다.
-    # 근거는 설계 문서 「맞춤이 고친다」의 2026-09-29 사용자 결정이다.
+    # 세션 점검 훅이 지정한다. 진행 출력을 화면 대신 기록 파일에 적고, 화면에는 결과만 낸다.
+    # 근거는 설계 문서 「동기화가 고친다」의 2026-09-29 사용자 결정이다.
     [switch]$Brief,
-    # 세션 시작 훅이 불일치한 단계 번호를 쉼표로 넘긴다. 넘기지 않으면(설치기) 모두 실행한다.
+    # 세션 점검 훅이 목록과 다른 곳이 있는 단계 번호를 쉼표로 구분해 전달한다. 전달하지 않으면(설치기) 모두 실행한다.
     [string]$Steps = '',
-    # 세션 시작 훅이 넘긴다. 0 이면 상한이 없다(설치기).
+    # 세션 점검 훅이 전달하는 제한 시간이다. 0 이면 제한 시간이 없다(설치기).
     [int]$BudgetSeconds = 0
 )
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-# 플러그인이 바뀌면 참이 된다. 클로드 코드는 켤 때 플러그인을 읽으므로 이 실행에서
-# 설치하거나 옮기거나 켜거나 제거한 것은 이 세션에 적용되지 않는다. 마지막에 한 줄로 알린다.
+# 플러그인이 바뀌면 참이 된다. 클로드 코드는 시작할 때 플러그인을 읽으므로 이 실행에서
+# 설치하거나 업데이트하거나 활성화하거나 제거한 것은 이 세션에 적용되지 않는다. 마지막에 한 줄로 알린다.
 #
-# 재시작이 필요한지는 그 일을 하는 이 스크립트가 판정한다. 알림 훅이 출력 문구로 판정하면
+# 재시작이 필요한지는 그 일을 하는 이 스크립트가 판정한다. 세션 점검 훅이 출력 문구로 판정하면
 # 문구가 늘 때마다 훅의 정규식을 함께 고쳐야 한다.
 $script:Restart = $false
 $script:Did      = New-Object System.Collections.ArrayList
 $script:Reenab   = New-Object System.Collections.ArrayList
 $script:Failed   = New-Object System.Collections.ArrayList
-$script:Moved    = New-Object System.Collections.ArrayList   # 새 버전으로 옮긴 설치본과 옛 커밋
-$script:UpdateFailed = New-Object System.Collections.ArrayList   # 못 옮긴 설치본과 옮기려던 커밋
+$script:Moved    = New-Object System.Collections.ArrayList   # 새 버전으로 업데이트한 플러그인과 이전 버전
+$script:UpdateFailed = New-Object System.Collections.ArrayList   # 업데이트에 실패한 플러그인과 업데이트하려던 버전
 $script:Log      = New-Object System.Collections.ArrayList   # -Brief 일 때 화면 대신 모은 진행 출력
 $script:Covered  = New-Object System.Collections.ArrayList   # 실패 가운데 다른 알림이 이미 말한 것
 $script:FailedSteps = New-Object System.Collections.ArrayList
-# 넘겼는데 비어 있으면 실행할 단계가 없다. 넘기지 않은 것과 구분해, 감지가 번호를 빠뜨린 불일치 하나가
+# 전달했는데 비어 있으면 실행할 단계가 없다. 전달하지 않은 것과 구분해, 점검이 찾은 목록과 다른 곳 가운데 단계 번호가 빠진 것 하나가
 # 모든 단계를 실행하게 만들지 않는다.
 $script:StepsGiven = $PSBoundParameters.ContainsKey('Steps')
 $script:Want = @($Steps.Split(',') | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
 $script:Ran = New-Object System.Collections.ArrayList   # 이번 실행에서 실행한 단계
 $script:Current = 0                                      # 지금 실행 중인 단계
 $script:Deadline = if ($BudgetSeconds -gt 0) { (Get-Date).AddSeconds($BudgetSeconds) } else { $null }
-# 단계를 새로 시작하려면 남아 있어야 하는 초다. pip 과 CLAUDE.md 잠금 대기는 중간에 끊지 못한다.
+# 단계를 새로 시작하려면 남아 있어야 하는 초다. pip 과 CLAUDE.md 잠금 대기는 중간에 중단할 수 없다.
 $script:Margin = [Math]::Min(20, [int][Math]::Floor($BudgetSeconds / 3))
-$script:Deferred = New-Object System.Collections.ArrayList        # 상한에 닿아 미룬 단계
-$script:MaxFails = 3                                              # 하루에 허용하는 갱신 실패 횟수(2026-10-12 사용자 결정)
-$script:TimedOutSteps = New-Object System.Collections.ArrayList   # 상한에 끊긴 호출이 있던 단계
+$script:Deferred = New-Object System.Collections.ArrayList        # 제한 시간이 다 되어 미룬 단계
+$script:MaxFails = 3                                              # 하루에 허용하는 업데이트 실패 횟수(2026-10-12 사용자 결정)
+$script:TimedOutSteps = New-Object System.Collections.ArrayList   # 제한 시간을 초과해 중단된 호출이 있던 단계
 function Get-Remaining {
     if ($null -eq $script:Deadline) { return [int]::MaxValue }
     return [int][Math]::Floor(($script:Deadline - (Get-Date)).TotalSeconds)
 }
 
-# 진행 출력은 모두 여기를 거친다. -Brief 면 모았다가 마무리에서 로그 파일에 쓴다.
+# 진행 출력은 모두 여기를 거친다. -Brief 면 모았다가 마무리에서 기록 파일에 쓴다.
 function Show {
     param([string]$m, [string]$Color)
     if ($Brief) { [void]$script:Log.Add($m); return }
@@ -61,9 +61,9 @@ function Show {
 function Say  { param([string]$m) Show "  $m" }
 function Note {
     # 미리보기에서는 한 일이 없으므로 한 일처럼 적지 않는다.
-    # -Moved 는 요약에 안 넣는다. 옮긴 설치본은 재시작 안내가 커밋과 함께 적는다.
+    # -Moved 는 요약에 넣지 않는다. 업데이트한 플러그인은 재시작 안내가 버전 번호와 함께 적는다.
     param([string]$m, [switch]$Moved)
-    if ($WhatIfOnly) { $m = "[안 함 · 미리보기] $m" }
+    if ($WhatIfOnly) { $m = "[실행하지 않음 · 미리보기] $m" }
     if (-not $Moved) { [void]$script:Did.Add($m) }
     Show "  + $m" 'Green'
 }
@@ -71,8 +71,8 @@ function Fail {
     # -Covered 는 버전 알림처럼 다른 알림이 이미 말하는 실패다. 짧은 출력에서 한 번만 말한다.
     param([string]$step, [string]$m, [switch]$Covered, [switch]$NoStuck)
     [void]$script:Failed.Add("$step : $m")
-    # 다른 알림이 이미 다루는 실패(갱신 실패는 버전 알림)와 단계 전체를 보류할 일이 아닌 실패
-    # (권장 플러그인 하나의 설치 실패, 배포처 받아오기 실패)는 단계 지문으로 적지 않는다.
+    # 다른 알림이 이미 다루는 실패(업데이트 실패는 버전 알림)와 단계 전체를 보류할 일이 아닌 실패
+    # (권장 플러그인 하나의 설치 실패, 마켓플레이스 업데이트 실패)는 단계 확인값으로 적지 않는다.
     if (-not $Covered -and -not $NoStuck -and $step -match '^\d+$') { [void]$script:FailedSteps.Add([int]$step) }
     if ($Covered) { [void]$script:Covered.Add("$step : $m") }
     Show "  ! $m" 'Yellow'
@@ -81,7 +81,7 @@ function Fail {
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
 function Get-CheapHash {
-    # 알림 훅과 글자 그대로 같은 계산이어야 한다. 다르면 고쳐도 알림이 안 꺼진다.
+    # 세션 점검 훅과 글자 그대로 같은 계산이어야 한다. 다르면 고쳐도 알림이 멈추지 않는다.
     param([string]$Path)
     $md5 = [System.Security.Cryptography.MD5]::Create()
     try {
@@ -91,8 +91,8 @@ function Get-CheapHash {
 }
 
 function Get-StuckPrint {
-    # 실패한 원인이 같은지를 목록 파일 둘의 내용과 날짜와 단계 번호로 구분한다. 목록이 바뀌거나
-    # 날이 바뀌면 다시 시도한다. 알림 훅에도 같은 함수가 있다. 글자 그대로 같아야 한다.
+    # 실패한 원인이 같은지를 목록과 라이브러리 목록의 내용, 날짜, 단계 번호로 구분한다. 목록이 바뀌거나
+    # 날이 바뀌면 다시 시도한다. 세션 점검 훅과 동기화 스크립트에 같은 함수가 있다. 글자 그대로 같아야 한다.
     param([string]$Root, [int]$Step)
     $md5 = [System.Security.Cryptography.MD5]::Create()
     try {
@@ -107,14 +107,14 @@ function Get-StuckPrint {
 }
 
 function Read-Json {
-    # 없는 것과 못 읽는 것을 구분한다. 없으면 $null 이고 그것은 정상일 수 있다.
-    # 못 읽으면 던진다. 삼키면 망가진 설정을 가진 PC 에서 이 스크립트가 아무것도
-    # 안 하고 "바꾼 것이 없습니다" 라고 말한다. 설치기도 같은 이유로 못 읽는
-    # settings.json 위에 절대 안 쓴다.
+    # 파일이 없는 것과 형식 오류를 구분한다. 없으면 $null 이고 그것은 정상일 수 있다.
+    # 형식 오류면 오류로 멈춘다. 오류를 무시하면 설정이 망가진 PC 에서 이 스크립트가 아무것도
+    # 하지 않고 "바꾼 것이 없습니다" 라고 말한다. 설치기도 같은 이유로 형식 오류가 있는
+    # settings.json 위에는 절대 쓰지 않는다.
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) }
-    catch { throw "JSON 으로 안 읽힙니다. 고친 뒤 다시 실행하십시오: $Path" }
+    catch { throw "JSON 형식 오류: $Path (수정 후 다시 실행)" }
 }
 function Get-Prop {
     param($Object, [string]$Name)
@@ -124,8 +124,8 @@ function Get-Prop {
     return $p.Value
 }
 function Get-SuggestedDone {
-    # 한 번 처리한 권장 플러그인이다. 옛 버전은 ranOnce 하나로 권장 분기를 통째로 닫았으므로, 그 표시만
-    # 있는 PC 는 이행 때(2026-09-30)의 권장 목록을 처리한 것으로 본다. 그 PC 에서 사용자가 지운 것을
+    # 한 번 처리한 권장 플러그인이다. 이전 버전은 ranOnce 하나로 권장 분기를 통째로 닫았으므로, 그 표시만
+    # 있는 PC 는 전환 때(2026-09-30)의 권장 목록을 처리한 것으로 본다. 그 PC 에서 사용자가 제거한 것을
     # 되살리지 않고, 그 뒤에 권장에 올린 것은 한 번 설치하기 위해서다.
     param($State)
     if ($State.ContainsKey('suggestedDone')) { return @($State['suggestedDone'].Split(';') | Where-Object { $_ }) }
@@ -136,15 +136,15 @@ function Get-SuggestedDone {
     return @()
 }
 function Save-Json {
-    # 남이 써 둔 것을 지우지 않으려고 통째로 읽어 고친 뒤 그대로 다시 쓴다.
+    # 외부에서 써 둔 것을 삭제하지 않으려고 통째로 읽어 고친 뒤 그대로 다시 쓴다.
     #
-    # 세 가지를 지킨다. 고치기 전에 사본을 남기고, 다시 읽히지 않을 것은 안 쓰고,
+    # 3가지를 지킨다. 고치기 전에 백업을 남기고, 다시 읽을 수 없는 것은 쓰지 않고,
     # 사람이 읽을 수 있는 글자로 쓴다.
     param($Object, [string]$Path)
 
     $json = ($Object | ConvertTo-Json -Depth 30)
 
-    # 다시 안 읽힐 것은 안 쓴다. 사용자 설정을 잃느니 이 단계를 실패로 두는 편이 낫다.
+    # 다시 읽을 수 없는 것은 쓰지 않는다. 사용자 설정을 잃느니 이 단계를 실패로 두는 편이 낫다.
     $null = $json | ConvertFrom-Json
 
     if (Test-Path -LiteralPath $Path) {
@@ -155,11 +155,11 @@ function Save-Json {
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
 function Remove-RetiredHookEntries {
-    # settings.json 의 hooks 절에서 옛 훅 연결만 제거하고 제거한 개수를 돌려준다.
+    # settings.json 의 hooks 항목에서 폐기한 훅 연결만 제거하고 제거한 개수를 돌려준다.
     #
-    # 옛 훅이 없는 그룹은 모양이 어떻든 손대지 않는다. hooks 키가 없는 그룹이나 배열 안의
+    # 폐기한 훅이 없는 그룹은 모양이 어떻든 수정하지 않는다. hooks 항목이 없는 그룹이나 배열 안의
     # null 에서 이 단계가 멈추면 매 세션 같은 실패가 되풀이된다(2026-09-28 다른 직원 PC).
-    # 옛 훅만 들어 있던 그룹은 빈 껍데기가 되므로 통째로 제거한다.
+    # 폐기한 훅만 포함하던 그룹은 비게 되므로 통째로 제거한다.
     param($Hooks, $Retired)
     $removed = 0
     foreach ($evt in @($Hooks.PSObject.Properties.Name)) {
@@ -191,7 +191,7 @@ function Remove-RetiredHookEntries {
     return $removed
 }
 function Want([int]$n) {
-    # 넘겨받은 단계만 실행한다. 넘겨받지 않았으면 모두 실행한다. 남은 시간이 여유보다 적으면
+    # 전달받은 단계만 실행한다. 전달받은 것이 없으면 모두 실행한다. 남은 시간이 여유보다 적으면
     # 다음 세션으로 미룬다.
     if ($script:StepsGiven -and $script:Want -notcontains $n) { return $false }
     if ((Get-Remaining) -lt [Math]::Max(1, $script:Margin)) { [void]$script:Deferred.Add($n); return $false }
@@ -200,29 +200,29 @@ function Want([int]$n) {
     return $true
 }
 function Resolve-Utf8Action([string]$Current) {
-    # 비어 있으면 넣는다. 1 이면 할 일이 없고, 0 은 사용자가 끈 것이라 그대로 둔다.
+    # 비어 있으면 넣는다. 1 이면 할 일이 없고, 0 은 사용자가 비활성화한 것이라 그대로 둔다.
     if ([string]::IsNullOrEmpty($Current)) { return 'set' }
     if ($Current -eq '1' -or $Current -eq '0') { return 'keep' }
     return 'fail'
 }
 function Invoke-Claude {
     # 클로드를 이름으로 호출하지 않고 시작할 때 한 번 찾아 둔 절대 경로로 호출한다.
-    # 남은 시간만큼만 기다리고 넘으면 프로세스 트리째 끊는다.
-    # -Optional 은 끊겨도 단계 전체를 끊긴 것으로 적지 않는 호출이다(권장 플러그인 설치).
+    # 남은 시간만큼만 기다리고 넘으면 그 프로그램을 하위 프로그램까지 함께 중단한다.
+    # -Optional 은 중단되어도 단계 전체를 중단된 것으로 적지 않는 호출이다(권장 플러그인 설치).
     param([string[]]$ClaudeArgs, [switch]$Optional)
     $script:LastOut = @()   # 호출이 낸 줄. 실패 원인을 문구로 구분할 때 본다
     if ($WhatIfOnly) { Say "[미리보기] claude $($ClaudeArgs -join ' ')"; return $true }
-    if (-not $script:ClaudeExe) { throw '클로드 코드를 못 찾았습니다. claude 가 PATH 에 있어야 합니다.' }
+    if (-not $script:ClaudeExe) { throw '클로드 코드 찾기 실패: PATH 에 claude 없음' }
     $left = Get-Remaining
     if ($left -le 0) {
-        # 시작하지 않은 호출은 미룬 것이다. 끊긴 것으로 적으면 앞 단계 탓에 이 단계가 그날 보류된다.
-        Say "시간 상한에 닿아 실행하지 않았습니다: claude $($ClaudeArgs -join ' ')"
+        # 시작하지 않은 호출은 미룬 것이다. 중단된 것으로 적으면 앞 단계 탓에 이 단계가 그날 보류된다.
+        Say "제한 시간이 다 되어 실행하지 않았습니다: claude $($ClaudeArgs -join ' ')"
         [void]$script:Deferred.Add($script:Current)
         return $false
     }
     $file = $script:ClaudeExe
     if ($file -like '*.ps1') {
-        # 검사의 스텁이다. 이 프로세스 안에서 실행해 출력과 종료 코드를 그대로 받는다. 한 호출 안에서는 못 끊는다.
+        # 테스트용 가짜 프로그램이다. 이 프로그램 안에서 실행해 출력과 종료 코드를 그대로 받는다. 한 호출 안에서는 중단할 수 없다.
         $script:LastOut = @(& $file @ClaudeArgs 2>&1 | ForEach-Object { "$_" })
         foreach ($l in $script:LastOut) { Say $l }
         return ($LASTEXITCODE -eq 0)
@@ -243,11 +243,11 @@ function Invoke-Claude {
     $ms = if ($left -ge 2000000) { -1 } else { $left * 1000 }
     if (-not $p.WaitForExit($ms)) {
         try { $p.Kill($true) } catch { }
-        Say "시간 상한에 닿아 멈췄습니다: claude $($ClaudeArgs -join ' ')"
+        Say "제한 시간이 다 되어 멈췄습니다: claude $($ClaudeArgs -join ' ')"
         if (-not $Optional) { [void]$script:TimedOutSteps.Add($script:Current) }
-        # 쓰기 도중에 끊었으면 설정 파일이 반쯤 쓰였을 수 있다. 읽히는지 보고 못 읽으면 알린다.
+        # 쓰기 도중에 중단했으면 설정 파일이 반쯤 쓰였을 수 있다. 읽을 수 있는지 확인하고 형식 오류면 알린다.
         foreach ($cf in @((Join-Path $pluginsDir 'installed_plugins.json'), $knownPath)) {
-            try { $null = Read-Json $cf } catch { Fail "$script:Current" "끊은 뒤 설정 파일을 읽지 못합니다. 클로드 코드를 다시 켜 확인해 주십시오: $cf" }
+            try { $null = Read-Json $cf } catch { Fail "$script:Current" "claude 명령을 중단한 뒤 설정 파일에 형식 오류가 생겼습니다. 클로드 코드를 재시작해 확인해 주십시오: $cf" }
         }
         return $false
     }
@@ -257,20 +257,20 @@ function Invoke-Claude {
 }
 
 function Update-CloneInPlace([string]$Name) {
-    # 클로드 코드는 배포처를 옆 폴더에 새로 받은 뒤 기존 사본의 이름을 .bak 으로 바꿔 교체한다. 다른 프로그램이
-    # 사본 폴더를 잡고 있으면 이름 변경만 실패한다. 2026-10-12 에 이 PC 에서 VS Code 가 사본의 SKILL.md 를
-    # 열어 둔 채 폴더와 .git 의 핸들을 잡아 그렇게 됐다. 폴더 안 파일 쓰기는 막히지 않으므로 사본 안에서 git 으로 옮긴다.
+    # 클로드 코드는 마켓플레이스를 옆 폴더에 새로 내려받은 뒤 기존 폴더의 이름을 .bak 으로 바꿔 교체한다. 다른 프로그램이
+    # 그 폴더를 사용 중이면 이름 변경만 실패한다. 2026-10-12 에 이 PC 에서 VS Code 가 내려받은 마켓플레이스의 SKILL.md 를
+    # 열어 둔 채 폴더와 .git 을 사용 중이어서 그렇게 됐다. 폴더 안 파일 쓰기는 막히지 않으므로 내려받은 마켓플레이스 안에서 git 으로 업데이트한다.
     #
-    # 백업은 옮기기 전 커밋 번호다. 받은 커밋의 배포처 파일이 안 읽히거나 옮긴 뒤 안 읽히면 그 커밋으로
-    # 되돌린다. 사본에서 손으로 고친 것은 지켜야 할 대상이 아니다(2026-10-12 사용자 결정).
+    # 백업은 업데이트하기 전의 체크포인트 번호다. 받아 둔 버전의 마켓플레이스 파일에 형식 오류가 있거나 업데이트한 뒤 형식 오류가 생기면 그 체크포인트로
+    # 되돌린다. 내려받은 마켓플레이스에서 직접 수정한 것은 지켜야 할 대상이 아니다(2026-10-12 사용자 결정).
     $dir = Join-Path (Join-Path $pluginsDir 'marketplaces') $Name
     if (-not (Test-Path -LiteralPath (Join-Path $dir '.git')) -or -not (Get-Command git -ErrorAction SilentlyContinue)) { return $false }
-    # git 호출은 시간 상한이 못 끊는다. 받아오기가 멈춰도 상한 안에 끝나도록 남은 시간이 넉넉할 때만 한다.
+    # git 호출은 제한 시간으로 중단할 수 없다. 받아 두기가 멈춰도 제한 시간 안에 끝나도록 남은 시간이 넉넉할 때만 한다.
     if ((Get-Remaining) -lt 30) { return $false }
     $old = "$(& git -C $dir rev-parse HEAD 2>$null)".Trim()
     if (-not $old) { return $false }
     $env:GIT_TERMINAL_PROMPT = '0'
-    # 네트워크가 멈추면 10초 뒤 끊는다. 훅의 시간 상한 안에 끝나야 한다.
+    # 네트워크가 멈추면 10초 뒤 중단한다. 훅의 제한 시간 안에 끝나야 한다.
     & git -C $dir -c http.lowSpeedLimit=1 -c http.lowSpeedTime=10 fetch -q --depth 1 origin 2>&1 | ForEach-Object { Say "$_" }
     if ($LASTEXITCODE -ne 0) { return $false }
     if (-not (Test-MarketplaceJson ((& git -C $dir show '@{u}:.claude-plugin/marketplace.json' 2>$null) -join "`n"))) { return $false }
@@ -280,23 +280,23 @@ function Update-CloneInPlace([string]$Name) {
     return $ok
 }
 function Remove-MarketplaceLeftovers($Known) {
-    # 클로드 코드는 배포처를 교체할 때 새 사본을 <이름>..clone 에 받고 기존 사본을 <이름>.bak 으로 옮긴 뒤
-    # .bak 을 지운다. 중간에 실패하면 두 폴더가 남고, 남은 .bak 이 있으면 다음 교체가 멈춘다. 사본 안에서
-    # git 으로 옮기는 경로(Update-CloneInPlace)가 생겨 이 폴더들은 쓸 데가 없다. 우리 배포처와 남의 배포처를
-    # 구분하지 않고 지운다(2026-10-12 사용자 결정).
+    # 클로드 코드는 마켓플레이스를 교체할 때 새 버전을 <이름>..clone 에 내려받고 기존 폴더의 이름을 <이름>.bak 으로 바꾼 뒤
+    # .bak 을 삭제한다. 중간에 실패하면 두 폴더가 남고, 남은 .bak 이 있으면 다음 교체가 멈춘다. 내려받은 마켓플레이스 안에서
+    # git 으로 업데이트하는 경로(Update-CloneInPlace)가 생겨 이 폴더들은 쓸 데가 없다. 우리 마켓플레이스와 외부 마켓플레이스를
+    # 구분하지 않고 삭제한다(2026-10-12 사용자 결정).
     #
-    # 등록된 배포처 이름과 같은 폴더는 지우지 않는다. 10분 안에 바뀐 폴더는 다른 창에서 교체 중일 수 있어 남긴다.
+    # 등록된 마켓플레이스 이름과 같은 폴더는 삭제하지 않는다. 10분 안에 바뀐 폴더는 다른 창에서 교체 중일 수 있어 남긴다.
     $root = Join-Path $pluginsDir 'marketplaces'
     if (-not (Test-Path -LiteralPath $root)) { return }
     $registered = @(if ($null -ne $Known) { $Known.PSObject.Properties.Name })
     foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
         if ($d.Name -notmatch '(\.bak|\.\.clone)$' -or $registered -contains $d.Name) { continue }
         if (((Get-Date) - $d.LastWriteTime).TotalMinutes -lt 10) { continue }
-        if ($WhatIfOnly) { Note "남은 배포처 교체 폴더를 지웁니다: $($d.Name)"; continue }
+        if ($WhatIfOnly) { Note "남은 마켓플레이스 교체 폴더를 삭제합니다: $($d.Name)"; continue }
         try {
             Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop
-            Note "남은 배포처 교체 폴더를 지웠습니다: $($d.Name)"
-        } catch { Say "남은 배포처 교체 폴더를 지우지 못했습니다: $($d.Name) ($($_.Exception.Message))" }
+            Note "남은 마켓플레이스 교체 폴더를 삭제했습니다: $($d.Name)"
+        } catch { Say "남은 마켓플레이스 교체 폴더를 삭제하지 못했습니다: $($d.Name) ($($_.Exception.Message))" }
     }
 }
 function Test-MarketplaceJson([string]$Text) {
@@ -305,22 +305,22 @@ function Test-MarketplaceJson([string]$Text) {
 }
 
 $userHome = $env:USERPROFILE
-if ([string]::IsNullOrEmpty($userHome)) { Write-Error '윈도가 아닙니다. 이 스크립트는 윈도 전용입니다.'; exit 1 }
+if ([string]::IsNullOrEmpty($userHome)) { Write-Error '윈도우 아님: 이 스크립트는 윈도우 전용'; exit 1 }
 
-# 사내 문안 블록을 조립한다. 블록은 문안을 직접 싣지 않고 ~/.claude/kw-ax/ 에 복사한
-# 템플릿을 @import 로 싣는다. 템플릿이 바뀌어도 블록은 그대로라 CLAUDE.md 를 다시 쓰지 않는다.
-# 원칙과 금지어 목록은 필수 플러그인인 disciplined-coder 가 싣는다(2026-10-05 사용자 결정).
-# 점검 훅에도 같은 함수가 있다. 둘이 다르게 조립하면 맞춤이 쓴 블록을 훅이 다르다고 알린다.
+# AX 블록을 조립한다. 블록은 사내 지침을 직접 포함하지 않고 ~/.claude/kw-ax/ 에 복사한
+# 템플릿을 @import 로 불러온다. 템플릿이 바뀌어도 블록은 그대로라 CLAUDE.md 를 다시 쓰지 않는다.
+# 원칙과 금지어 목록은 필수 플러그인인 disciplined-coder 가 불러온다(2026-10-05 사용자 결정).
+# 세션 점검 훅에도 같은 함수가 있다. 둘이 다르게 조립하면 동기화가 쓴 블록을 훅이 다르다고 알린다.
 function Get-AxBlock {
     return "# BEGIN AX 설치 (자동 생성 블록이므로 직접 고치지 마십시오)`n@kw-ax/claude-md-ko.md`n# END AX 설치"
 }
 
-# kw-ax 로 복사하고 대조할 템플릿이다. 알림 훅에도 같은 함수가 있다.
+# kw-ax 로 복사하고 대조할 템플릿이다. 세션 점검 훅에도 같은 함수가 있다.
 function Get-AxCopies { return @('claude-md-ko.md') }
 
 function Get-MarketplaceHead {
-    # 배포처 사본이 받아 둔 버전을 읽는다. 알림 훅의 같은 이름 함수와 같은 것을 본다.
-    # 둘이 다른 값을 보면 알림이 말한 것을 맞춤이 못 고치는 PC 가 생긴다.
+    # 내려받은 마켓플레이스의 버전을 읽는다. 세션 점검 훅의 같은 이름 함수와 같은 것을 본다.
+    # 둘이 다른 값을 보면 알림이 말한 것을 동기화가 고칠 수 없는 PC 가 생긴다.
     param([string]$Dir)
     $g = Join-Path $Dir '.git'
     $h = Join-Path $g 'HEAD'
@@ -351,40 +351,40 @@ $statePath    = Join-Path $cfg 'kw-control-tower.state'
 $backupDir    = Join-Path $cfg 'kw-control-tower-backups'
 
 $manifest = Read-Json (Join-Path $root 'manifest.json')
-if ($null -eq $manifest) { Write-Error "목록 파일을 못 읽었습니다: $root\manifest.json"; exit 1 }
+if ($null -eq $manifest) { Write-Error "목록 없음: $root\manifest.json"; exit 1 }
 
-# 읽히는 것과 형식이 맞는 것은 다르다. 키 이름을 하나 잘못 적으면 JSON 으로는
-# 읽히고 그 목록만 조용히 비어, 아무것도 안 하고 성공으로 끝난다. 있어야 할 칸이
-# 다 있는지 보고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 안 본다.
+# JSON 으로 읽을 수 있는 것과 항목이 다 있는 것은 다르다. 항목 이름을 하나 잘못 적으면 JSON 으로는
+# 읽을 수 있고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다. 있어야 할 항목이
+# 다 있는지 확인하고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 확인하지 않는다.
 $required = @('marketplaces', 'required', 'suggested', 'retiredPlugins',
               'retiredMarketplaces', 'retiredSkills', 'retiredHooks')
 $missing = @($required | Where-Object { $null -eq $manifest.PSObject.Properties[$_] })
 if ($missing.Count -gt 0) {
-    Write-Error "목록 파일에 칸이 빠졌습니다: $($missing -join ', ') ($root\manifest.json)"
+    Write-Error "목록에 항목 없음: $($missing -join ', ') ($root\manifest.json)"
     exit 1
 }
 
-# 맞춤은 한 번에 하나만 실행한다. 창을 둘 이상 동시에 열면 훅이 저마다 맞춤을 호출해 pip 과
-# claude plugin 과 상태 파일 쓰기가 겹친다. 잠금 폴더를 먼저 만든 쪽만 실행하고 못 만든 쪽은
-# 이번 세션을 넘긴다. 상태 파일을 읽기 전에 잡아야 직전 맞춤이 적은 값을 덮지 않는다.
-# 훅이 제한에 걸려 끊기면 잠금이 남으므로 10분 넘은 것은 치운다.
+# 동기화는 한 번에 하나만 실행한다. 창을 둘 이상 동시에 열면 훅이 저마다 동기화를 호출해 pip 과
+# claude plugin 과 상태 파일 쓰기가 겹친다. 잠금 폴더를 먼저 만든 쪽만 실행하고 만들지 못한 쪽은
+# 이번 세션을 건너뛴다. 상태 파일을 읽기 전에 잠가야 직전 동기화가 적은 값을 덮지 않는다.
+# 훅이 제한 시간을 초과해 중단되면 잠금 폴더가 남으므로 10분 넘은 것은 삭제한다.
 $syncLock = Join-Path $cfg 'kw-control-tower.sync.lock'
 if (-not $WhatIfOnly) {
     if (Test-Path -LiteralPath $syncLock) {
-        # 확인 직후 다른 창이 잠금을 치웠으면 Get-Item 이 오류를 내고 훅이 그 오류를 옮긴다. 조용히 넘긴다.
+        # 확인 직후 다른 창이 잠금 폴더를 삭제했으면 Get-Item 이 오류를 내고 훅이 그 오류를 전달한다. 오류를 무시한다.
         $lockItem = Get-Item -LiteralPath $syncLock -ErrorAction SilentlyContinue
         if ($null -ne $lockItem -and ((Get-Date) - $lockItem.CreationTime).TotalMinutes -ge 10) {
             Remove-Item -LiteralPath $syncLock -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     try { New-Item -ItemType Directory -Path $syncLock -ErrorAction Stop | Out-Null }
-    catch { Write-Host 'kw-control-tower: 다른 창에서 맞춤이 실행 중이라 이번에는 넘깁니다.'; exit 0 }
+    catch { Write-Host 'kw-control-tower: 다른 창에서 동기화가 실행 중이라 이번에는 건너뜁니다.'; exit 0 }
 }
-# 여기서부터 끝까지를 감싼다. exit 와 예외와 중단 모두에서 finally 가 잠금을 치운다.
+# 여기서부터 끝까지를 감싼다. exit 와 예외와 중단 모두에서 finally 가 잠금 폴더를 삭제한다.
 try {
 
-# 상태 파일에는 단계가 기억해야 하는 것만 적는다. 라이브러리 목록 해시(requirements), 받아온 시각
-# (refreshed), 권장 기록(suggestedDone), 단계별 실패 지문(stuck-step<N>)이다. 옛 버전이 적은 ranOnce 는 권장 기록을 이행할 때만 읽는다.
+# 상태 파일에는 단계가 기억해야 하는 것만 적는다. 라이브러리 목록 확인값(requirements), 마켓플레이스를 업데이트한 시각
+# (refreshed), 권장 기록(suggestedDone), 단계별 실패 확인값(stuck-step<N>)이다. 이전 버전이 적은 ranOnce 는 권장 기록으로 전환할 때만 읽는다.
 $state = @{}
 if (Test-Path -LiteralPath $statePath) {
     foreach ($line in (Get-Content -LiteralPath $statePath -Encoding UTF8)) {
@@ -392,14 +392,14 @@ if (Test-Path -LiteralPath $statePath) {
         if ($i -gt 0) { $state[$line.Substring(0, $i)] = $line.Substring($i + 1) }
     }
 }
-# 옛 버전의 단계 8 이 적던 python3 판정이다. 가드가 호출할 때 직접 판정하므로 남은 줄을 지운다.
+# 이전 버전의 단계 8 이 적던 python3 판정이다. 가드가 호출될 때 직접 판정하므로 남은 줄을 삭제한다.
 $state.Remove('python3'); $state.Remove('python3Target')
 $script:Refreshed = $false
 
-# 단계가 끝날 때마다 호출한다. 훅의 예산에 막혀 도중에 끊기더라도 거기까지의 진행이
+# 단계가 끝날 때마다 호출한다. 훅의 제한 시간에 막혀 도중에 중단되더라도 거기까지의 진행이
 # 디스크에 남아, 다음 세션이 같은 단계를 처음부터 되풀이하지 않고 이어받는다.
 #
-# 세션 시작 훅은 불일치한 단계만 넘기고 설치기는 모두 실행한다. 단계는 멱등이라 다시 실행해도 해가 없다.
+# 세션 점검 훅은 목록과 다른 곳이 있는 단계만 전달하고 설치기는 모두 실행한다. 단계는 여러 번 실행해도 결과가 같아 다시 실행해도 해가 없다.
 function Save-State {
     if ($WhatIfOnly) { return }
     $lines = foreach ($k in $state.Keys) { "$k=$($state[$k])" }
@@ -409,19 +409,19 @@ function Save-State {
 $script:ClaudeExe = (Get-Command claude -ErrorAction SilentlyContinue).Source
 
 Show ''
-Show 'KW 컨트롤 타워 맞춤' 'Cyan'
+Show 'KW 컨트롤 타워 동기화' 'Cyan'
 Show ''
 if (-not $script:ClaudeExe -and -not $WhatIfOnly) {
-    Show '  클로드 코드를 못 찾았습니다. 플러그인을 다루는 세 단계는 건너뜁니다.' 'Yellow'
+    Show '  클로드 코드를 찾을 수 없습니다. 플러그인을 다루는 단계 3개는 건너뜁니다.' 'Yellow'
     Show '  나머지 단계는 그대로 실행합니다.'
 }
 
 # ---------------------------------------------------------------- 단계 1
-Show '1. 배포처를 등록하고 최신으로 받아옵니다.'
+Show '1. 마켓플레이스를 등록하고 최신 버전으로 업데이트합니다.'
 if (Want 1) {
 try {
     $settings = Read-Json $settingsPath
-    if ($null -eq $settings) { throw "settings.json 을 못 읽었습니다." }
+    if ($null -eq $settings) { throw "settings.json 읽기 실패" }
     $known = Read-Json $knownPath
     Remove-MarketplaceLeftovers $known
 
@@ -436,12 +436,12 @@ try {
         $inKnown    = ($null -ne (Get-Prop $knownRoot $name))
 
         if (-not $inSettings -and -not $inKnown) {
-            if (Invoke-Claude @('plugin', 'marketplace', 'add', $repo)) { Note "배포처를 등록했습니다: $name" }
-            else { Fail '1' "배포처 등록에 실패했습니다: $name" }
+            if (Invoke-Claude @('plugin', 'marketplace', 'add', $repo)) { Note "마켓플레이스를 등록했습니다: $name" }
+            else { Fail '1' "마켓플레이스 등록에 실패했습니다: $name" }
             continue
         }
 
-        # 자동 갱신은 우리 배포처만 켠다. 남의 배포처의 그 값은 언제나 사용자의 것이다.
+        # 자동 업데이트는 우리 마켓플레이스만 활성화한다. 외부 마켓플레이스의 그 값은 언제나 사용자의 것이다.
         if (-not $ours) { continue }
 
         $settings = Read-Json $settingsPath
@@ -465,32 +465,32 @@ try {
             }
             $wrote = $true
         }
-        if ($wrote) { Note "자동 갱신을 켰습니다: $name" }
+        if ($wrote) { Note "자동 업데이트를 활성화했습니다: $name" }
 
-        # 자동 갱신을 켜 두어도 사본이 최신이 된다는 보장이 없어 여기서 직접 받아온다.
-        # 근거는 설계 문서 「질문과 파일과 명령」의 뒤처짐 검사 문단에 있다.
+        # 자동 업데이트를 활성화해 두어도 내려받은 마켓플레이스가 최신 버전이 된다는 보장이 없어 여기서 직접 업데이트한다.
+        # 근거는 설계 문서 「질문과 파일과 명령」에서 "설치된 플러그인이 최신 버전인지 보는 검사" 문단에 있다.
         if (-not $WhatIfOnly) {
             if (Invoke-Claude @('plugin', 'marketplace', 'update', $name)) {
                 $script:Refreshed = $true
             } elseif ((($script:LastOut -join "`n") -match 'because it is in use') -and (Update-CloneInPlace $name)) {
-                Say "$name : 폴더를 다른 프로그램이 잡고 있어 사본 안에서 git 으로 받아왔습니다."
+                Say "$name : 다른 프로그램이 폴더를 사용 중이어서 내려받은 마켓플레이스 안에서 git 으로 업데이트했습니다."
                 $script:Refreshed = $true
             } else {
-                # 받아오기는 세션마다 다시 시도한다(2026-10-12 사용자 결정). 단계 지문을 적으면 그날 단계 1 이 보류된다.
-                Fail '1' "배포처를 받아오지 못했습니다: $name" -NoStuck
+                # 마켓플레이스 업데이트는 세션마다 다시 시도한다(2026-10-12 사용자 결정). 단계 확인값을 적으면 그날 단계 1 이 보류된다.
+                Fail '1' "마켓플레이스를 업데이트하지 못했습니다: $name" -NoStuck
             }
-        } else { Say "$name : 배포처를 받아옵니다." }
+        } else { Say "$name : 마켓플레이스를 업데이트합니다." }
     }
 } catch { Fail '1' $_.Exception.Message }
 
-# 받아온 시각을 적는다. 알림이 이 값을 보고 오래 안 받아왔는지 판정한다. 저장소에
-# 새 커밋이 없어 사본이 안 움직이는 때에도 이 값은 움직이므로 알림이 되풀이되지 않는다.
+# 업데이트한 시각을 적는다. 세션 점검 훅이 이 값을 보고 오랫동안 업데이트하지 않았는지 판정한다. GitHub 에
+# 새 버전이 없어 내려받은 마켓플레이스가 바뀌지 않을 때에도 이 값은 바뀌므로 알림이 되풀이되지 않는다.
 if ($script:Refreshed) { $state['refreshed'] = (Get-Date -Format o) }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 2
-Show '2. 필수 플러그인을 맞춥니다.'
+Show '2. 필수 플러그인을 동기화합니다.'
 if (Want 2) {
 try {
     $installed = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
@@ -509,11 +509,11 @@ try {
         }
 
         if (-not $onDisk) {
-            # 설치되지 않은 것에만 install 을 쓴다. install 은 사용자가 꺼 둔 값을 true 로 덮는다.
+            # 설치되지 않은 것에만 install 을 쓴다. install 은 사용자가 비활성화해 둔 값을 true 로 덮는다.
             #
-            # id 가 바뀐 플러그인이 이 분기로 온다. 새 id 에는 켜짐 키가 없어 "설치 안 됨" 으로
-            # 판정되기 때문이다. 그때 사용자가 옛 id 를 꺼 두었다면 install 이 그 뜻을 조용히
-            # 뒤집는다. 켜는 것 자체는 회사가 필수로 정했으니 맞지만, 말 없이 넘어가면 아래
+            # 플러그인 ID 가 바뀐 플러그인이 이 분기로 온다. 새 플러그인 ID 에는 활성화 항목이 없어 "설치되지 않음" 으로
+            # 판정되기 때문이다. 그때 사용자가 이전 플러그인 ID 를 비활성화해 두었다면 install 이 그 뜻을 조용히
+            # 뒤집는다. 활성화 자체는 회사가 필수로 정했으니 맞지만, 알리지 않고 지나가면 아래
             # '다시 활성화한 것' 이 비어 사용자가 자기 결정이 뒤집힌 줄 모른다.
             $wasOff = $false
             foreach ($rp in @($manifest.retiredPlugins)) {
@@ -524,7 +524,7 @@ try {
             if (Invoke-Claude @('plugin', 'install', $id)) {
                 Note "플러그인을 설치했습니다: $id"
                 $script:Restart = $true
-                if ($wasOff) { [void]$script:Reenab.Add("$id (옛 이름으로 꺼 두셨던 것입니다)") }
+                if ($wasOff) { [void]$script:Reenab.Add("$id (이전 이름일 때 비활성화해 두셨던 것입니다)") }
             }
             else { Fail '2' "설치에 실패했습니다: $id" }
             continue
@@ -535,13 +535,13 @@ try {
                 Note "비활성화되어 있던 필수 플러그인을 다시 활성화했습니다: $id"
                 $script:Restart = $true
                 [void]$script:Reenab.Add($id)
-            } else { Fail '2' "다시 켜지 못했습니다: $id" }
+            } else { Fail '2' "다시 활성화하지 못했습니다: $id" }
         }
     }
 
     # 권장은 플러그인마다 한 번만 설치한다. 설치했거나 이미 있던 것은 suggestedDone 에 적고, 사용자가
-    # 나중에 지워도 다시 설치하지 않는다. uninstall 은 흔적을 모두 지워 지운 것과 처음 보는 것이
-    # 구별되지 않으므로 이 기록이 유일한 근거다. 설치에 실패한 것만 다음에 다시 해 본다.
+    # 나중에 제거해도 다시 설치하지 않는다. uninstall 은 흔적을 모두 삭제해 제거한 것과 처음 보는 것이
+    # 구별되지 않으므로 이 기록이 유일한 근거다. 설치에 실패한 것만 다음에 다시 시도한다.
     $done = @(Get-SuggestedDone $state)
     foreach ($id in @($manifest.suggested)) {
         if ($done -contains $id) { continue }
@@ -555,9 +555,9 @@ try {
     }
     if (-not $WhatIfOnly) { $state['suggestedDone'] = ($done -join ';') }
 
-    # 우리 배포처에서 온 것이 사본보다 뒤처졌으면 옮긴다. 자동 갱신이 해 주기로 되어
-    # 있는 일인데 실제로는 멈추는 것을 확인했다. install 은 이미 설치된 것에 안 쓴다.
-    # 사용자가 꺼 둔 값을 true 로 덮기 때문이고, 버전만 옮기는 것은 update 다.
+    # 우리 마켓플레이스에서 온 플러그인이 내려받은 마켓플레이스보다 오래되었으면 업데이트한다. 자동 업데이트가 해 주기로 되어
+    # 있는 일인데 실제로는 멈추는 것을 확인했다. install 은 이미 설치된 것에 쓰지 않는다.
+    # 사용자가 비활성화해 둔 값을 true 로 덮기 때문이고, 버전만 바꾸는 것은 update 다.
     $ipNow = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
     $ipOf  = Get-Prop $ipNow 'plugins'
     foreach ($mk in @($manifest.marketplaces)) {
@@ -574,20 +574,20 @@ try {
             }
             if (-not $behind) { continue }
             if (Invoke-Claude @('plugin', 'update', $pluginId)) {
-                Note "설치본을 새 버전으로 옮겼습니다: $pluginId" -Moved
+                Note "플러그인을 새 버전으로 업데이트했습니다: $pluginId" -Moved
                 $script:Restart = $true
                 [void]$script:Moved.Add(@{ Id = $pluginId; Old = $behind })
             }
             else {
-                Fail '2' "설치본을 못 옮겼습니다: $pluginId" -Covered
+                Fail '2' "플러그인을 업데이트하지 못했습니다: $pluginId" -Covered
                 [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $behind; Target = $head })
             }
         }
     }
 
-    # 알림 훅이 넘긴 원격 커밋까지 옮겼는지 본다. 못 옮겼으면 버전 알림에 싣는다.
-    # 배포처를 받아오지 못해 사본이 옛 커밋에 머문 때도 여기서 잡힌다. 위 반복은 사본과 비교하므로
-    # 그때는 옮길 것이 없다고 보기 때문이다.
+    # 세션 점검 훅이 전달한 GitHub 의 최신 버전까지 업데이트했는지 확인한다. 업데이트하지 못했으면 버전 알림에 포함한다.
+    # 마켓플레이스 업데이트에 실패해 내려받은 마켓플레이스가 이전 버전에 머문 때도 여기서 잡힌다. 위 반복은 내려받은 마켓플레이스와 비교하므로
+    # 그때는 업데이트할 것이 없다고 보기 때문이다.
     $remoteOf = @{}
     foreach ($pair in ("$env:KWCT_REMOTE_HEAD" -split ';')) {
         $i = $pair.IndexOf('=')
@@ -604,34 +604,34 @@ try {
                         $sha = Get-Prop $scope 'gitCommitSha'
                         if ($sha -and -not $remoteOf[$mkName].StartsWith($sha)) {
                             $late = $true
-                            # 배포처를 못 받아와 위 반복이 옮길 것이 없다고 본 설치본도 알린다.
-                            # 이미 실패로 적은 것은 원격 커밋으로 목표만 바꾼다.
+                            # 마켓플레이스 업데이트에 실패해 위 반복이 업데이트할 것이 없다고 본 플러그인도 알린다.
+                            # 이미 실패로 적은 것은 목표만 GitHub 의 최신 버전으로 바꾼다.
                             $known = @($script:UpdateFailed | Where-Object { $_.Id -eq $pluginId })
                             if ($known.Count -gt 0) { $known[0].Target = $remoteOf[$mkName] }
                             else {
                                 [void]$script:UpdateFailed.Add(@{ Id = $pluginId; Mk = $mkName; Old = $sha; Target = $remoteOf[$mkName] })
-                                # 실패로도 적는다. 설치기의 '못 한 것' 에 남고 종료 코드가 1 이 된다.
-                                Fail '2' "설치본을 원격 커밋까지 못 옮겼습니다: $pluginId" -Covered
+                                # 실패로도 적는다. 설치기의 '완료하지 못한 것' 에 남고 종료 코드가 1 이 된다.
+                                Fail '2' "플러그인을 GitHub 의 최신 버전으로 업데이트하지 못했습니다: $pluginId" -Covered
                             }
                         }
                     }
                 }
             }
-            # 옛 버전은 같은 원격 커밋으로 실패하면 이 키를 적고 새 커밋이 생길 때까지 재시도하지 않았다.
-            # 이제 세션마다 다시 시도하므로(2026-10-12 사용자 결정) 남은 기록을 치운다.
+            # 이 스크립트의 이전 버전은 GitHub 의 같은 최신 버전으로 실패하면 이 항목을 적고 새 버전이 생길 때까지 재시도하지 않았다.
+            # 이제 세션마다 다시 시도하므로(2026-10-12 사용자 결정) 남은 기록을 삭제한다.
             $state.Remove("stuck-$mkName")
         }
     }
 } catch { Fail '2' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 3
-Show '3. 더 이상 쓰지 않는 플러그인과 배포처를 정리합니다.'
+Show '3. 더 이상 쓰지 않는 플러그인과 마켓플레이스를 정리합니다.'
 if (Want 3) {
 try {
-    # 플러그인을 먼저 제거하고 배포처를 나중에 제거한다. 배포처를 먼저 지우면 그 플러그인을
-    # 이름으로 못 호출한다.
+    # 플러그인을 먼저 제거하고 마켓플레이스를 나중에 제거한다. 마켓플레이스를 먼저 제거하면 그 플러그인을
+    # 이름으로 호출할 수 없다.
     $installed = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
     $settings  = Read-Json $settingsPath
     $installedOf = Get-Prop $installed 'plugins'
@@ -671,63 +671,63 @@ try {
         $kr = Get-Prop $known 'marketplaces'; if ($null -eq $kr) { $kr = $known }
         $present = ($null -ne (Get-Prop (Get-Prop $settings 'extraKnownMarketplaces') $name)) -or ($null -ne (Get-Prop $kr $name))
 
-        # 그 배포처에서 온 플러그인이 아직 설치되어 있으면 등록을 제거하지 않는다. 위의 플러그인
-        # 분기가 대체를 못 찾아 건너뛰었을 때 여기서만 제거하면, 옛 플러그인은 설치된 채
-        # 배포처만 사라진 PC 가 된다. 플러그인과 같은 대체 가드를 배포처에도 적용한다.
+        # 그 마켓플레이스에서 온 플러그인이 아직 설치되어 있으면 등록을 제거하지 않는다. 위의 플러그인
+        # 분기가 대체할 플러그인을 찾지 못해 건너뛰었을 때 여기서만 제거하면, 이전 플러그인은 설치된 채
+        # 마켓플레이스만 사라진 PC 가 된다. 플러그인과 같은 대체 확인을 마켓플레이스에도 적용한다.
         $ipNow = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
         $ipOf  = Get-Prop $ipNow 'plugins'
         $left  = @()
         if ($null -ne $ipOf) { $left = @($ipOf.PSObject.Properties.Name | Where-Object { $_ -like "*@$name" }) }
         if ($left.Count -gt 0) {
-            Say "$name : 이 배포처에서 온 $($left -join ', ') 가 아직 설치되어 있어 그대로 둡니다."
+            Say "$name : 이 마켓플레이스에서 온 $($left -join ', ') 가 아직 설치되어 있어 그대로 둡니다."
             continue
         }
 
         if ($present) {
-            if (Invoke-Claude @('plugin', 'marketplace', 'remove', $name)) { Note "배포처를 제거했습니다: $name" }
-            else { Fail '3' "배포처를 제거하지 못했습니다: $name" }
+            if (Invoke-Claude @('plugin', 'marketplace', 'remove', $name)) { Note "마켓플레이스를 제거했습니다: $name" }
+            else { Fail '3' "마켓플레이스를 제거하지 못했습니다: $name" }
         }
     }
 } catch { Fail '3' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 4
-Show '4. 파이썬 라이브러리를 맞춥니다.'
+Show '4. 파이썬 라이브러리를 동기화합니다.'
 if (Want 4) {
 try {
     $req = Join-Path $root 'requirements.txt'
-    if (-not (Test-Path -LiteralPath $req)) { throw "라이브러리 목록이 없습니다: $req" }
+    if (-not (Test-Path -LiteralPath $req)) { throw "라이브러리 목록 없음: $req" }
     $newHash = Get-CheapHash $req
     if ($state['requirements'] -eq $newHash) {
-        # 지난번에 이 목록으로 설치했다. 감지도 같은 해시로 판정한다.
-        Say '이미 목록과 같습니다.'
+        # 지난번에 이 라이브러리 목록으로 설치했다. 점검도 같은 확인값으로 판정한다.
+        Say '라이브러리 목록대로 이미 설치되어 있습니다.'
     } else {
         $py = (Get-Command python -ErrorAction SilentlyContinue)
-        if ($null -eq $py) { throw '파이썬을 못 찾았습니다. python 이 PATH 에 있어야 합니다.' }
+        if ($null -eq $py) { throw '파이썬 찾기 실패: PATH 에 python 없음' }
         if ($WhatIfOnly) {
             Say "[미리보기] $($py.Source) -m pip install -r $req"
         } else {
-            # pip 은 이미 설치된 것마다 한 줄씩 출력해 요약을 파묻는다. 조용히 실행하고 실패했을 때만 보여 준다.
-            # 연결이 안 될 때 재시도로 수십 초를 쓰지 않게 대기와 재시도를 줄인다. 세션 시작 상한이 pip 은 끊지 못한다.
+            # pip 은 이미 설치된 것마다 한 줄씩 출력해 요약을 가린다. 출력 없이 실행하고 실패했을 때만 보여 준다.
+            # 연결되지 않을 때 재시도로 수십 초를 쓰지 않게 대기와 재시도를 줄인다. 세션 점검 훅의 제한 시간으로는 pip 을 중단할 수 없다.
             $pipOut = & $py.Source -m pip install --quiet --disable-pip-version-check --timeout 10 --retries 1 -r $req 2>&1
             if ($LASTEXITCODE -ne 0) {
                 foreach ($l in $pipOut) { Say $l }
-                throw "pip 이 코드 $LASTEXITCODE 로 끝났습니다."
+                throw "pip 실패: 종료 코드 $LASTEXITCODE"
             }
-            Note '파이썬 라이브러리를 목록에 맞췄습니다.'
+            Note '파이썬 라이브러리를 라이브러리 목록에 맞게 설치했습니다.'
             $state['requirements'] = $newHash
         }
     }
 } catch { Fail '4' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 5
 Show '5. PYTHONUTF8 을 확인합니다.'
 if (Want 5) {
 try {
-    # 감지가 "비어 있다" 로 불일치를 내므로 같은 규칙이어야 알림이 멈춘다.
+    # 점검이 "비어 있다" 를 목록과 다른 곳으로 보므로 같은 규칙이어야 알림이 멈춘다.
     $now = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'User')
     switch (Resolve-Utf8Action $now) {
         'set'  {
@@ -735,29 +735,29 @@ try {
             Note 'PYTHONUTF8 을 1 로 설정했습니다.'
         }
         'keep' { Say "이미 $now 입니다. 그대로 둡니다." }
-        'fail' { Fail '5' "값이 '$now' 입니다. 손으로 1 이나 0 으로 고쳐 주십시오." }
+        'fail' { Fail '5' "값이 '$now' 입니다. 직접 1 이나 0 으로 수정해 주십시오." }
     }
 } catch { Fail '5' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 6
-Show '6. CLAUDE.md 의 사내 문안 블록을 맞춥니다.'
+Show '6. CLAUDE.md 의 AX 블록을 동기화합니다.'
 if (Want 6) {
 
 try {
     $tplDir = Join-Path $root 'templates'
     $tpl    = Join-Path $tplDir 'claude-md-ko.md'
-    if (-not (Test-Path -LiteralPath $tpl)) { throw "문안 템플릿이 없습니다: $tpl" }
+    if (-not (Test-Path -LiteralPath $tpl)) { throw "사내 지침 템플릿 없음: $tpl" }
 
     $utf8 = New-Object System.Text.UTF8Encoding($false)
 
-    # 블록이 @import 로 싣는 파일을 먼저 복사하고 그다음에 블록을 쓴다. 순서가 반대면
+    # 블록이 @import 로 불러오는 파일을 먼저 복사하고 그다음에 블록을 쓴다. 순서가 반대면
     # 블록이 아직 없는 파일을 가리키는 세션이 생기고, @import 는 없는 파일을 알리지 않는다.
     $target = Join-Path $userHome '.claude\CLAUDE.md'
     $axDir = Join-Path $cfg 'kw-ax'
     if (-not $WhatIfOnly -and -not (Test-Path -LiteralPath $axDir)) { New-Item -ItemType Directory -Path $axDir | Out-Null }
-    # 훅도 Get-AxCopies 로 같은 목록을 대조한다.
+    # 세션 점검 훅도 Get-AxCopies 로 같은 복사본 목록을 대조한다.
     foreach ($name in @(Get-AxCopies)) {
         $src  = Join-Path $tplDir $name
         if (-not (Test-Path -LiteralPath $src)) { continue }
@@ -772,9 +772,9 @@ try {
 
     $lock   = "$target.lock"
 
-    # 잠금 규약을 disciplined-coder 와 맞춘다. 같은 파일을 둘이 고치므로 서로
-    # 배제되어야 한다. 규약은 폴더를 만드는 것이 곧 잠그는 것이고, 문지기 폴더를
-    # 따로 두어 잠금의 경과 시간을 확인하는 시점과 빼앗는 시점 사이에 다른 쪽이 끼어들지 않게 한다.
+    # 잠금 방식을 disciplined-coder 와 맞춘다. 같은 파일을 두 플러그인이 고치므로 동시에
+    # 고치지 않아야 한다. 방식은 폴더를 만드는 것이 곧 잠그는 것이고, .gate 폴더를
+    # 따로 두어 잠금의 경과 시간을 확인하는 시점과 강제로 가져오는 시점 사이에 다른 쪽이 끼어들지 않게 한다.
     $token = [guid]::NewGuid().ToString('n')
     $held  = $false
     if (-not $WhatIfOnly) {
@@ -790,7 +790,7 @@ try {
                     [System.IO.File]::WriteAllText((Join-Path $lock 'owner'), $token)
                     $held = $true
                 } catch {
-                    # 이미 누가 잡고 있다. 10초를 넘게 잡고 있으면 빼앗는다.
+                    # 다른 쪽이 이미 잠금을 사용 중이다. 10초를 넘게 사용 중이면 강제로 가져온다.
                     $born = 0
                     try { $born = [int](Get-Content -LiteralPath (Join-Path $lock 'heldsince') -ErrorAction Stop) } catch { }
                     $now = [int][double]::Parse((Get-Date -UFormat %s))
@@ -798,8 +798,8 @@ try {
                 }
                 Remove-Item -LiteralPath $gate -Recurse -Force -ErrorAction SilentlyContinue
             } catch {
-                # 상대가 문지기를 만든 채 종료되면 문지기가 남는다. 문지기는 잠금을 잡는 순간에만 쥐므로
-                # 연속으로 200번(약 10초) 못 만들면 남은 것으로 보고 치운다.
+                # 다른 쪽이 .gate 폴더를 만든 채 종료되면 .gate 폴더가 남는다. .gate 폴더는 잠금을 가져오는 순간에만 사용하므로
+                # 연속으로 200번(약 10초) 만들지 못하면 남은 것으로 보고 삭제한다.
                 $gateMiss++
                 if ($gateMiss -ge 200) { Remove-Item -LiteralPath $gate -Recurse -Force -ErrorAction SilentlyContinue; $gateMiss = 0 }
                 Start-Sleep -Milliseconds 50; continue
@@ -807,47 +807,47 @@ try {
             if ($held) { break }
             Start-Sleep -Milliseconds 50
         }
-        if (-not $held) { throw "CLAUDE.md 의 잠금을 못 잡았습니다: $lock" }
+        if (-not $held) { throw "CLAUDE.md 잠금 실패: $lock" }
     }
 
     try {
-        # 파일에 실제로 들어 있는 것($fileNow)과 고쳐 나가는 것($original)을 구분한다.
+        # 파일에 실제로 있는 것($fileNow)과 고쳐 나가는 것($original)을 구분한다.
         # 둘을 한 변수로 두면, 메모리에서 고친 뒤 그 고친 것과 결과를 비교하게 되어
-        # "이미 같다" 로 끝나고 파일은 안 고쳐진다.
+        # "이미 같다" 로 끝나고 파일은 고쳐지지 않는다.
         $fileNow = ''
         if (Test-Path -LiteralPath $target) { $fileNow = [System.IO.File]::ReadAllText($target, $utf8) }
         $original = $fileNow
         $block = Get-AxBlock
 
-        # 옛 버전은 금지어 목록을 AX 블록 바깥의 공용 블록으로 실었다. 목록은 이제
-        # disciplined-coder 가 실으므로, kw-ax 사본을 가리키는 공용 블록이 남아 있으면 지운다.
+        # 이전 버전은 금지어 목록을 AX 블록 바깥의 공용 블록으로 불러왔다. 금지어 목록은 이제
+        # disciplined-coder 가 불러오므로, kw-ax 복사본을 가리키는 공용 블록이 남아 있으면 삭제한다.
         $reShared = '(?ms)^#\s*BEGIN korean-banned-words\b[^\r\n]*\r?\n@kw-ax/korean-banned-words\.md\r?\n#\s*END korean-banned-words[^\r\n]*(\r?\n)?'
         if ($original -match $reShared) {
             $original = [regex]::Replace($original, $reShared, '') -replace '(\r?\n){3,}', '$1$1'
-            Note 'CLAUDE.md 에서 옛 금지어 공용 블록을 지웁니다. 목록은 이제 disciplined-coder 가 싣습니다.'
+            Note 'CLAUDE.md 에서 이전 금지어 공용 블록을 삭제합니다. 금지어 목록은 이제 disciplined-coder 가 불러옵니다.'
         }
 
-        # 템플릿의 줄바꿈은 깃이 어떻게 체크아웃했는지에 따라 달라진다. 그대로 쓰면 PC 마다
-        # 한 번씩 줄바꿈만 바꾸는 헛수고를 하고, 파일의 줄바꿈이 섞이게 된다.
-        # 대상 파일이 쓰는 줄바꿈에 맞춘다. 파일이 없으면 윈도 기본인 CRLF 다.
+        # 템플릿의 줄바꿈은 git 이 파일을 어떻게 내려받았는지에 따라 달라진다. 그대로 쓰면 PC 마다
+        # 한 번씩 줄바꿈만 바꾸는 불필요한 쓰기를 하고, 파일의 줄바꿈이 섞이게 된다.
+        # 대상 파일이 쓰는 줄바꿈에 맞춘다. 파일이 없으면 윈도우 기본인 CRLF 다.
         $nl = "`r`n"
         if ($fileNow -and ([regex]::Matches($fileNow, "`r`n").Count -eq 0)) { $nl = "`n" }
         $block = ($block -replace "`r`n", "`n")
         if ($nl -eq "`r`n") { $block = ($block -replace "`n", "`r`n") }
 
-        # 마커는 아스키 접두로만 찾는다. 뒤는 한국어라 괄호 안 문구가 바뀌어도 살아남는다.
+        # 시작 표시 줄과 끝 표시 줄은 영문으로 된 앞부분으로만 찾는다. 뒤는 한국어라 괄호 안 문구가 바뀌어도 찾을 수 있다.
         $reBlock = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
 
-        # 블록이 둘 이상이면 먼저 하나로 줄인다. 안 그러면 이 아래 정규식이 첫 블록만
-        # 보고 "이미 같다" 로 끝나, 중복이 조용히 남는다. 지우는 것은 우리 마커 사이뿐이라
-        # 사용자가 쓴 것은 안 건드린다. 첫 것을 남기고 뒤엣것을 제거한다.
-        # 짝 없는 BEGIN 이 있으면 손대지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이
-        # 새 블록의 END 와 짝지어져, 둘 사이의 사용자 글이 통째로 지워진다. 블록 수는
-        # 하나로 맞으므로 블록을 세는 검사로는 이것을 잡지 못한다.
+        # 블록이 둘 이상이면 먼저 하나로 줄인다. 그렇지 않으면 이 아래 정규식이 첫 블록만
+        # 보고 "이미 같다" 로 끝나, 중복이 조용히 남는다. 삭제하는 것은 우리 시작 표시 줄과 끝 표시 줄 사이뿐이라
+        # 사용자가 쓴 것은 수정하지 않는다. 첫 블록을 남기고 뒤의 블록을 제거한다.
+        # 짝 없는 BEGIN 이 있으면 수정하지 않는다. 그대로 두면 다음 실행에서 그 BEGIN 이
+        # 새 블록의 END 와 짝지어져, 둘 사이의 사용자 글이 통째로 삭제된다. 블록 수는
+        # 하나로 맞으므로 블록을 세는 검사로는 이것을 잡을 수 없다.
         $opens = @([regex]::Matches($original, '(?m)^#\s*BEGIN AX\b')).Count
         $pairs = @([regex]::Matches($original, $reBlock)).Count
         if ($opens -gt $pairs) {
-            throw "CLAUDE.md 에 END 가 없는 '# BEGIN AX' 가 있습니다. 손대지 않았습니다. 그 줄을 지우거나 '# END AX 설치' 를 짝지어 주십시오."
+            throw "CLAUDE.md 에 END 가 없는 '# BEGIN AX' 있음: 파일 수정하지 않음 (그 줄을 삭제하거나 '# END AX 설치' 를 짝지어 다시 실행)"
         }
 
         $blocks = @([regex]::Matches($original, $reBlock))
@@ -856,7 +856,7 @@ try {
                 $original = $original.Remove($blocks[$i].Index, $blocks[$i].Length)
             }
             $original = ($original -replace '(\r?\n){3,}', ($nl + $nl))
-            Note "CLAUDE.md 에 사내 문안 블록이 $($blocks.Count) 개 있어 하나로 줄였습니다."
+            Note "CLAUDE.md 에 AX 블록이 $($blocks.Count) 개 있어 하나로 줄였습니다."
         }
 
         if ($original -match $reBlock) {
@@ -871,38 +871,38 @@ try {
         }
 
         if ($merged -eq $fileNow) { Say '이미 템플릿과 같습니다.' }
-        elseif ($WhatIfOnly) { Say "[미리보기] CLAUDE.md 의 사내 문안 블록을 $mode" }
+        elseif ($WhatIfOnly) { Say "[미리보기] CLAUDE.md 의 AX 블록을 $mode" }
         else {
-            # 쓰기 전에 결과를 본다. 블록이 하나가 아니면 다음 실행이 자기 블록을 못
-            # 찾아 사본을 하나 더 붙인다. 사용자 파일이라 그렇게 두느니 안 쓴다.
+            # 쓰기 전에 결과를 확인한다. 블록이 하나가 아니면 다음 실행이 자기 블록을 찾지
+            # 못해 블록을 하나 더 붙인다. 사용자 파일이라 그렇게 두느니 쓰지 않는다.
             $count = @([regex]::Matches($merged, $reBlock)).Count
-            if ($count -ne 1) { throw "블록이 하나여야 하는데 $count 개가 됩니다. CLAUDE.md 를 안 고쳤습니다." }
+            if ($count -ne 1) { throw "AX 블록 수 오류: 1개여야 하나 $count 개 (CLAUDE.md 수정하지 않음)" }
 
             if ($fileNow) { [System.IO.File]::WriteAllText("$target.bak", $fileNow, $utf8) }
             [System.IO.File]::WriteAllText($target, $merged, $utf8)
 
-            # 쓴 뒤에도 본다. 사본이 있으니 되돌릴 수 있고, 조용히 망가뜨리는 것보다
+            # 쓴 뒤에도 확인한다. 백업이 있으니 되돌릴 수 있고, 조용히 망가뜨리는 것보다
             # 무엇이 잘못됐는지 말하는 편이 낫다.
             $after = [System.IO.File]::ReadAllText($target, $utf8)
             if (@([regex]::Matches($after, $reBlock)).Count -ne 1) {
-                throw "쓴 뒤에 블록이 하나가 아닙니다. 사본이 $target.bak 에 있습니다."
+                throw "쓴 뒤 AX 블록 수 오류: 1개 아님 (백업: $target.bak)"
             }
-            Note "CLAUDE.md 의 사내 문안 블록을 $mode. 마커 바깥은 안 건드렸습니다."
+            Note "CLAUDE.md 의 AX 블록을 $mode. 시작 표시 줄과 끝 표시 줄 바깥은 수정하지 않았습니다."
         }
     } finally {
         if ($held) {
             $owner = ''
             try { $owner = (Get-Content -LiteralPath (Join-Path $lock 'owner') -Raw -ErrorAction Stop).Trim() } catch { }
-            # 빼앗긴 잠금을 남의 것인 줄 모르고 지우지 않는다.
+            # 다른 쪽이 강제로 가져간 잠금을 내 것으로 알고 삭제하지 않는다.
             if ($owner -eq $token) { Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
 } catch { Fail '6' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 7
-Show '7. 더 이상 쓰지 않는 스킬 사본과 훅 연결을 정리합니다.'
+Show '7. 이전에 복사해 둔 스킬과 더 이상 쓰지 않는 훅 연결을 정리합니다.'
 if (Want 7) {
 try {
     $skillsRoot = Join-Path $cfg 'skills'
@@ -912,12 +912,12 @@ try {
         if ([string]::IsNullOrEmpty($name)) { continue }
         # 이름은 허용 목록으로 검사한다. 거부 목록과 달리 예상하지 못한 이름이 통과하지 않는다.
         if ($name -notmatch '^[A-Za-z0-9._-]+$' -or $name -eq '.' -or $name -eq '..') {
-            throw "스킬 이름이 폴더 이름 하나가 아닙니다: '$name'"
+            throw "스킬 이름 오류: '$name' (폴더 이름 하나가 아님)"
         }
         $dir = Join-Path $skillsRoot $name
         if (-not (Test-Path -LiteralPath $dir)) { continue }
 
-        # 대체가 확인된 뒤에만 지운다. 먼저 지우고 설치가 실패하면 그 스킬이 없는 PC 가 된다.
+        # 대체가 확인된 뒤에만 삭제한다. 먼저 삭제하고 설치가 실패하면 그 스킬이 없는 PC 가 된다.
         if ($by) {
             $ip = Read-Json (Join-Path $pluginsDir 'installed_plugins.json')
             if ($null -eq (Get-Prop (Get-Prop $ip 'plugins') $by)) {
@@ -931,25 +931,25 @@ try {
 
         if ($subdirs.Count -eq 0 -and $files.Count -eq 0) {
             if (-not $WhatIfOnly) { Remove-Item -LiteralPath $dir -Recurse -Force }
-            Note "$name : 빈 폴더라 지웠습니다. 남길 사본이 없습니다."
+            Note "$name : 빈 폴더라 삭제했습니다. 남길 백업이 없습니다."
             continue
         }
-        # 판정은 세 조건을 함께 본다. 하위 폴더 없음과 파일 하나와 그 이름이 SKILL.md 인 것이다.
+        # 판정은 3가지 조건을 함께 확인한다. 하위 폴더가 없고, 파일이 하나이고, 그 이름이 SKILL.md 인 것이다.
         $onlySkill = ($subdirs.Count -eq 0) -and ($files.Count -eq 1) -and ($files[0].Name -eq 'SKILL.md')
         if (-not $onlySkill) {
-            Say "$name : SKILL.md 말고 다른 것이 있어 그대로 둡니다."
+            Say "$name : SKILL.md 외에 다른 것이 있어 그대로 둡니다."
             continue
         }
-        if ($WhatIfOnly) { Say "[미리보기] $dir 의 백업을 남긴 뒤 지웁니다."; continue }
+        if ($WhatIfOnly) { Say "[미리보기] $dir 의 백업을 남긴 뒤 삭제합니다."; continue }
         if (-not (Test-Path -LiteralPath $backupDir)) { New-Item -ItemType Directory -Force -Path $backupDir | Out-Null }
         Copy-Item -LiteralPath $files[0].FullName -Destination (Join-Path $backupDir "$name.SKILL.md.bak") -Force
         Remove-Item -LiteralPath $dir -Recurse -Force
-        Note "$name : 백업을 남기고 지웠습니다."
+        Note "$name : 백업을 남기고 삭제했습니다."
     }
 
-    # 훅 연결은 파일 이름이 아니라 경로로 구분한다. 이 플러그인이 거는 훅의 파일 이름이
-    # 옛것과 같아서, 이름으로 제거하면 맞춤이 매번 자기 연결을 지운다. 옛것은 설치기가
-    # %LOCALAPPDATA%\corp-certs\ 아래에 놓은 사본을 가리키고 새것은 플러그인 캐시를
+    # 훅 연결은 파일 이름이 아니라 경로로 구분한다. 이 플러그인이 등록하는 훅의 파일 이름이
+    # 이전 훅과 같아서, 이름으로 제거하면 동기화가 매번 자기 연결을 제거한다. 이전 훅은 설치기가
+    # %LOCALAPPDATA%\corp-certs\ 아래에 놓은 복사본을 가리키고 새 훅은 플러그인 설치 폴더를
     # 가리키므로 경로가 구분된다.
     $retiredHooks = @($manifest.retiredHooks)
     if ($retiredHooks.Count -gt 0) {
@@ -963,17 +963,17 @@ try {
         }
     }
 } catch { Fail '7' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 단계 8
-Show '8. 전역 설정의 출력 스타일을 봅니다.'
+Show '8. 전역 설정의 출력 스타일을 확인합니다.'
 if (Want 8) {
 try {
-    # 키가 없을 때만 Concise 를 넣는다. 키가 있으면 값이 무엇이든 사용자가 정한 것이라 그대로 둔다
+    # 항목이 없을 때만 Concise 를 넣는다. 항목이 있으면 값이 무엇이든 사용자가 정한 것이라 그대로 둔다
     # (2026-10-12 사용자 결정). 10턴 대화 시험에서 내장 Concise 가 비용 16%, 출력 토큰 21% 를 줄였다.
-    # 값은 대소문자를 가린다. 소문자로 쓰면 Default 가 적용된다.
-    # 파일이 없거나 못 읽으면 쓰지 않는다. Read-Json 이 못 읽으면 던져 실패로 남는다.
+    # 값은 대소문자를 구분한다. 소문자로 쓰면 Default 가 적용된다.
+    # 파일이 없거나 형식 오류가 있으면 쓰지 않는다. 형식 오류면 Read-Json 이 오류로 멈춰 실패로 남는다.
     $settings = Read-Json $settingsPath
     if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 둡니다.' }
     elseif ($null -ne $settings.PSObject.Properties['outputStyle']) { Say "이미 '$($settings.outputStyle)' 입니다. 그대로 둡니다." }
@@ -982,17 +982,17 @@ try {
             $settings | Add-Member -NotePropertyName 'outputStyle' -NotePropertyValue 'Concise'
             Save-Json $settings $settingsPath
         }
-        Note "전역 설정에 `"outputStyle`": `"Concise`" 를 적용했습니다(사본: $settingsPath.kw.bak). 끄려면 값을 `"default`" 로 바꾸십시오."
+        Note "전역 설정에 `"outputStyle`": `"Concise`" 를 적용했습니다(백업: $settingsPath.kw.bak). 되돌리려면 값을 `"default`" 로 바꾸십시오."
     }
 } catch { Fail '8' $_.Exception.Message }
-} else { Say '넘겨받은 불일치가 없어 넘어갑니다.' }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
 # ---------------------------------------------------------------- 마무리
-# 실행한 단계마다 실패했거나 상한에 끊겼으면 지문을 적고, 끝까지 성공했으면 지운다. 시간이 모자라
-# 중간에 미룬 단계는 원인이 앞 단계에 있을 수 있어 기록을 건드리지 않는다. 끊긴 단계는 끊긴 뒤의
-# 호출이 미뤄지므로 미룬 단계에도 들지만, 원인이 그 단계에 있으므로 미룬 것보다 먼저 본다.
-# 미뤄진 호출도 호출한 곳이 Fail 을 부르므로 실패는 미룬 것 뒤에 본다.
+# 실행한 단계마다 실패했거나 제한 시간을 초과해 중단되었으면 확인값을 적고, 끝까지 성공했으면 삭제한다. 시간이 모자라
+# 중간에 미룬 단계는 원인이 앞 단계에 있을 수 있어 기록을 수정하지 않는다. 중단된 단계는 중단된 뒤의
+# 호출이 미뤄지므로 미룬 단계에도 포함되지만, 원인이 그 단계에 있으므로 미룬 것보다 먼저 확인한다.
+# 미뤄진 호출도 호출한 곳이 Fail 을 부르므로 실패는 미룬 것 뒤에 확인한다.
 if (-not $WhatIfOnly) {
     foreach ($n in ($script:Ran | Sort-Object -Unique)) {
         if ($script:TimedOutSteps -contains $n) { $state["stuck-step$n"] = Get-StuckPrint $root $n; continue }
@@ -1002,9 +1002,9 @@ if (-not $WhatIfOnly) {
     }
 }
 
-# 갱신은 세션을 켤 때마다 시도하되 하루 세 번까지만 실패를 허용한다. 세 번째 실패나 시간 상한에 막힌
-# 날은 더 시도하지 않고, 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도한다(2026-10-12 사용자 결정).
-# updateFails 에 날짜와 그날 실패 횟수를 적고, 알림 훅이 그 값을 보고 그날 갱신을 넘긴다.
+# 업데이트는 세션을 시작할 때마다 시도하되 하루 3번까지만 실패를 허용한다. 3번째 실패나 제한 시간에 막힌
+# 날은 더 시도하지 않고, 날짜가 바뀐 뒤 처음 시작하는 세션에서 다시 시도한다(2026-10-12 사용자 결정).
+# updateFails 에 날짜와 그날 실패 횟수를 적고, 세션 점검 훅이 그 값을 보고 그날 업데이트를 건너뛴다.
 $script:FailsToday = 0
 $askedUpdate = "$env:KWCT_REMOTE_HEAD" -and ((-not $script:StepsGiven) -or ($script:Want -contains 2))
 if (-not $WhatIfOnly -and $askedUpdate) {
@@ -1020,8 +1020,8 @@ if (-not $WhatIfOnly -and $askedUpdate) {
 }
 Save-State
 
-# 짧은 출력은 진행 출력을 로그 파일에 두고 결과만 낸다. 로그는 매번 덮어쓴다. 알고 싶은
-# 것은 마지막 맞춤이 무엇을 했는가이다.
+# 짧은 출력은 진행 출력을 기록 파일에 두고 결과만 낸다. 기록은 매번 덮어쓴다. 알고 싶은
+# 것은 마지막 동기화가 무엇을 했는가이다.
 $logPath = Join-Path $cfg 'kw-control-tower.sync.log'
 if ($Brief) {
     try { [System.IO.File]::WriteAllLines($logPath, [string[]]@($script:Log), (New-Object System.Text.UTF8Encoding($false))) } catch { }
@@ -1042,15 +1042,15 @@ if ($script:Reenab.Count -gt 0 -and -not $Brief) {
 }
 
 # 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다. 두 플러그인이 한 세션에서 함께
-# 재시작을 안내할 때 사용자가 같은 종류의 안내로 알아보게 하려는 것이다. 옮긴 설치본은
-# 옛 커밋과 새 커밋을 7자리로 적는다.
+# 재시작을 안내할 때 사용자가 같은 종류의 안내로 알아보게 하려는 것이다. 업데이트한 플러그인은
+# 이전 버전과 새 버전의 버전 번호를 적는다.
 #
-# 짧은 출력에서는 요약이 따로 없으므로 옮긴 설치본 밖에 한 일도 여기에 한 줄씩 적는다.
+# 짧은 출력에서는 요약이 따로 없으므로 업데이트한 플러그인 외에 한 일도 여기에 한 줄씩 적는다.
 # 재시작이 필요 없는 일만 했으면 첫 줄을 바꾼다.
 if ($script:Restart -or ($Brief -and $script:Did.Count -gt 0)) {
     if (-not $Brief) { Write-Host '' }
     if ($script:Restart) { Write-Host 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.' -ForegroundColor Cyan }
-    else { Write-Host 'kw-control-tower: 사내 설정을 맞췄습니다.' -ForegroundColor Cyan }
+    else { Write-Host 'kw-control-tower: 사내 설정을 동기화했습니다.' -ForegroundColor Cyan }
     $ipAfter = Get-Prop (Read-Json (Join-Path $pluginsDir 'installed_plugins.json')) 'plugins'
     foreach ($mv in $script:Moved) {
         $new = $null
@@ -1059,30 +1059,30 @@ if ($script:Restart -or ($Brief -and $script:Did.Count -gt 0)) {
         Write-Host "  - $($mv.Id) : $($mv.Old.Substring(0, 7)) → $newShort"
     }
     if ($Brief) { foreach ($d in $script:Did) { Write-Host "  - $d" } }
-    else { Write-Host '  클로드 코드는 켤 때 플러그인을 읽으므로 방금 바뀐 것은 이 세션에 적용되지 않습니다.' }
+    else { Write-Host '  클로드 코드는 시작할 때 플러그인을 읽으므로 방금 바뀐 것은 이 세션에 적용되지 않습니다.' }
 }
 
 if ($script:Deferred.Count -gt 0) {
-    Write-Host "kw-control-tower: 시간 상한에 닿아 단계 $(($script:Deferred | Sort-Object -Unique) -join ', ') 는 다음 세션으로 미뤘습니다." -ForegroundColor Yellow
+    Write-Host "kw-control-tower: 제한 시간이 다 되어 단계 $(($script:Deferred | Sort-Object -Unique) -join ', ') 는 다음 세션으로 미뤘습니다." -ForegroundColor Yellow
 }
 if ($script:FailsToday -ge $script:MaxFails -and $script:UpdateFailed.Count -eq 0) {
-    Write-Host 'kw-control-tower: 플러그인 갱신이 시간 상한에 막혔습니다. 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도합니다.' -ForegroundColor Yellow
+    Write-Host 'kw-control-tower: 플러그인 업데이트가 제한 시간에 막혔습니다. 날짜가 바뀐 뒤 처음 시작하는 세션에서 다시 시도합니다.' -ForegroundColor Yellow
 }
-# 갱신에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
-# 맞췄다. 커밋은 옛 7자리 → 새 7자리로 적고 직접 실행할 명령을 붙인다.
+# 업데이트에 실패한 것은 재시작을 안내하지 않고 버전 알림으로 낸다. 형식은 disciplined-coder 와
+# 맞췄다. 버전 번호는 이전 → 새 순서로 적고 직접 실행할 명령을 붙인다.
 if ($script:UpdateFailed.Count -gt 0) {
     Write-Host ''
     Write-Host 'kw-control-tower: 플러그인 버전 알림' -ForegroundColor Yellow
-    Write-Host '  갱신에 실패했습니다.'
+    Write-Host '  업데이트에 실패했습니다.'
     foreach ($u in $script:UpdateFailed) { Write-Host "  - $($u.Id) : $($u.Old.Substring(0, 7)) → $($u.Target.Substring(0, 7))" }
-    Write-Host '  지금 옮기려면 아래를 실행해 주십시오.'
+    Write-Host '  지금 업데이트하려면 아래를 실행해 주십시오.'
     foreach ($mk in @($script:UpdateFailed | ForEach-Object { $_.Mk } | Select-Object -Unique)) { Write-Host "      claude plugin marketplace update $mk" }
     foreach ($u in $script:UpdateFailed) { Write-Host "      claude plugin update $($u.Id)" }
     # 다음 시도가 언제인지 적는다. 하루 실패 횟수는 마무리에서 셌다.
     if ($script:FailsToday -ge $script:MaxFails) {
-        Write-Host '  오늘은 더 시도하지 않습니다. 날짜가 바뀐 뒤 처음 켜는 세션에서 다시 시도합니다.'
+        Write-Host '  오늘은 더 시도하지 않습니다. 날짜가 바뀐 뒤 처음 시작하는 세션에서 다시 시도합니다.'
     } elseif ($script:FailsToday -gt 0) {
-        Write-Host "  다음 세션을 켤 때 다시 시도합니다. 오늘 $script:FailsToday/$script:MaxFails 번째 실패입니다."
+        Write-Host "  다음 세션을 시작할 때 다시 시도합니다. 오늘 $script:FailsToday/$script:MaxFails 번째 실패입니다."
     }
 }
 
@@ -1092,13 +1092,13 @@ if ($script:Failed.Count -gt 0) {
         $rest = @($script:Failed | Where-Object { $script:Covered -notcontains $_ })
         if ($rest.Count -gt 0) {
             Write-Host ''
-            Write-Host "kw-control-tower: 맞추지 못한 것이 있습니다. 기록: $logPath" -ForegroundColor Yellow
+            Write-Host "kw-control-tower: 동기화하지 못한 것이 있습니다. 기록: $logPath" -ForegroundColor Yellow
             foreach ($f in $rest) { Write-Host "  - $f" }
         }
         exit 1
     }
     Write-Host ''
-    Write-Host '못 한 것' -ForegroundColor Yellow
+    Write-Host '완료하지 못한 것' -ForegroundColor Yellow
     foreach ($f in $script:Failed) { Write-Host "  - $f" }
     Write-Host '  완료되지 않은 단계만 다음 세션에 알립니다. 나머지는 다시 알리지 않습니다.'
     exit 1
