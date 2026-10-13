@@ -102,6 +102,17 @@ Check 'plugin.json 에 version 이 없다' {
     $j = Get-Content (Join-Path $plugin '.claude-plugin\plugin.json') -Raw | ConvertFrom-Json
     $null -eq $j.PSObject.Properties['version']
 }
+# 따옴표 하나가 빠져도 스크립트 전체가 실행되지 않고, 맞춤은 모든 PC 에서 한꺼번에 멈춘다.
+# 리뷰 화면에서 제안을 반영하면 이 검사를 거치지 않고 병합될 수 있으므로 문법부터 따로 본다.
+# 스크립트가 늘어도 빠지지 않게 목록을 적지 않고 두 폴더의 스크립트를 모두 본다.
+foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $plugin 'hooks'), (Join-Path $plugin 'scripts') -Filter '*.ps1')) {
+    Check "문법 오류 없이 읽힌다: $($f.Name)" {
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+        foreach ($e in $errors) { Write-Host "       $($e.Extent.StartLineNumber)행: $($e.Message)" }
+        $errors.Count -eq 0
+    }
+}
 
 # --- 훅의 예산 -------------------------------------------------------------
 Write-Host ''

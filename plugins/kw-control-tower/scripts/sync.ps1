@@ -1036,9 +1036,9 @@ if (-not $Brief) {
 
 if ($script:Reenab.Count -gt 0 -and -not $Brief) {
     Write-Host ''
-    Write-Host '다시 실행한 것' -ForegroundColor Yellow
+    Write-Host '다시 켠 것' -ForegroundColor Yellow
     Write-Host "  꺼져 있던 필수 플러그인을 다시 켰습니다: $($script:Reenab -join ', ')"
-    Write-Host '  회사가 필수로 정한 것이라 다시 실행했습니다.
+    Write-Host '  회사가 필수로 정한 것이라 다시 켰습니다.'
 }
 
 # 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다. 두 플러그인이 한 세션에서 함께
