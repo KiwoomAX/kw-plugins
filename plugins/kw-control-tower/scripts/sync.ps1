@@ -1,7 +1,7 @@
 # 이 PC 를 manifest.json 에 맞춘다. 세션 시작 알림 훅과 설치기 9단계가 호출한다.
 #
 # 단계는 저마다 독립이고 멱등이다. 한 단계가 실패해도 나머지는 실행된다.
-# 무엇을 했는지 마지막에 요약하고, 사용자가 끈 것을 다시 켰으면 그것을 따로 적는다.
+# 무엇을 했는지 마지막에 요약하고, 사용자가 비활성화한 것을 다시 활성화했으면 그것을 따로 적는다.
 #
 # 이행 첫째 단계라 CLAUDE.md 단계(단계 6)은 아직 없다. 설치기가 그 일을 하고 있어
 # 둘이 같은 블록을 쓰게 되기 때문이다.
@@ -514,7 +514,7 @@ try {
             # id 가 바뀐 플러그인이 이 분기로 온다. 새 id 에는 켜짐 키가 없어 "설치 안 됨" 으로
             # 판정되기 때문이다. 그때 사용자가 옛 id 를 꺼 두었다면 install 이 그 뜻을 조용히
             # 뒤집는다. 켜는 것 자체는 회사가 필수로 정했으니 맞지만, 말 없이 넘어가면 아래
-            # '다시 켠 것' 이 비어 사용자가 자기 결정이 뒤집힌 줄 모른다.
+            # '다시 활성화한 것' 이 비어 사용자가 자기 결정이 뒤집힌 줄 모른다.
             $wasOff = $false
             foreach ($rp in @($manifest.retiredPlugins)) {
                 if ((Get-Prop $rp 'replacedBy') -ne $id) { continue }
@@ -532,7 +532,7 @@ try {
 
         if ((Get-Prop $enabled $id) -ne $true) {
             if (Invoke-Claude @('plugin', 'enable', $id)) {
-                Note "꺼져 있던 필수 플러그인을 다시 켰습니다: $id"
+                Note "비활성화되어 있던 필수 플러그인을 다시 활성화했습니다: $id"
                 $script:Restart = $true
                 [void]$script:Reenab.Add($id)
             } else { Fail '2' "다시 켜지 못했습니다: $id" }
@@ -1036,9 +1036,9 @@ if (-not $Brief) {
 
 if ($script:Reenab.Count -gt 0 -and -not $Brief) {
     Write-Host ''
-    Write-Host '다시 실행한 것' -ForegroundColor Yellow
-    Write-Host "  꺼져 있던 필수 플러그인을 다시 켰습니다: $($script:Reenab -join ', ')"
-    Write-Host '  회사가 필수로 정한 것이라 다시 실행했습니다.
+    Write-Host '다시 활성화한 것' -ForegroundColor Yellow
+    Write-Host "  비활성화되어 있던 필수 플러그인을 다시 활성화했습니다: $($script:Reenab -join ', ')"
+    Write-Host '  회사가 필수로 정한 것이라 다시 활성화했습니다.'
 }
 
 # 첫 줄 형식은 disciplined-coder 와 2026-09-25 에 맞췄다. 두 플러그인이 한 세션에서 함께

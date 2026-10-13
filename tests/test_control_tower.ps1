@@ -102,6 +102,17 @@ Check 'plugin.json 에 version 이 없다' {
     $j = Get-Content (Join-Path $plugin '.claude-plugin\plugin.json') -Raw | ConvertFrom-Json
     $null -eq $j.PSObject.Properties['version']
 }
+# 따옴표 하나가 빠져도 스크립트 전체가 실행되지 않고, 맞춤은 모든 PC 에서 한꺼번에 멈춘다.
+# 리뷰 화면에서 제안을 반영하면 이 검사를 거치지 않고 병합될 수 있으므로 문법부터 따로 본다.
+# 스크립트가 늘어도 빠지지 않게 목록을 적지 않고 두 폴더의 스크립트를 모두 본다.
+foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $plugin 'hooks'), (Join-Path $plugin 'scripts') -Filter '*.ps1')) {
+    Check "문법 오류 없이 읽힌다: $($f.Name)" {
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+        foreach ($e in $errors) { Write-Host "       $($e.Extent.StartLineNumber)행: $($e.Message)" }
+        $errors.Count -eq 0
+    }
+}
 
 # --- 훅의 예산 -------------------------------------------------------------
 Write-Host ''
@@ -389,7 +400,7 @@ Check '클로드를 이름이 아니라 찾아 둔 경로로 부른다' {
     ($syncSrc -notmatch '& claude @ClaudeArgs')
 }
 Check '클로드가 없으면 무엇이 없는지 말한다' { $syncSrc -match '클로드 코드를 못 찾았습니다' }
-Check '다시 켠 것을 따로 적는다'              { $syncSrc -match '다시 켠 것' }
+Check '다시 활성화한 것을 따로 적는다'         { $syncSrc -match '다시 활성화한 것' }
 Check '스킬 이름을 허용 목록으로 막는다'    { $syncSrc -match "\^\[A-Za-z0-9\._-\]\+\$" }
 Check '지우기 전에 사본을 남긴다'            { $syncSrc -match 'Copy-Item' -and $syncSrc -match 'kw-control-tower-backups' }
 Check '삭제 판정이 세 조건을 함께 본다'     { $syncSrc -match "\`$subdirs\.Count -eq 0\) -and \(\`$files\.Count -eq 1\) -and \(\`$files\[0\]\.Name -eq 'SKILL\.md'\)" }
