@@ -940,7 +940,7 @@ try {
             Say "$name : SKILL.md 말고 다른 것이 있어 그대로 둡니다."
             continue
         }
-        if ($WhatIfOnly) { Say "[미리보기] $dir 의 사본을 남긴 뒤 지웁니다."; continue }
+        if ($WhatIfOnly) { Say "[미리보기] $dir 의 백업을 남긴 뒤 지웁니다."; continue }
         if (-not (Test-Path -LiteralPath $backupDir)) { New-Item -ItemType Directory -Force -Path $backupDir | Out-Null }
         Copy-Item -LiteralPath $files[0].FullName -Destination (Join-Path $backupDir "$name.SKILL.md.bak") -Force
         Remove-Item -LiteralPath $dir -Recurse -Force
