@@ -17,7 +17,7 @@
 
 받은 것은 ~/.claude/cache/searching-winus/query_index.json 에 남긴다. 한 시간이 지나지 않은 사본이
 있으면 MongoDB 를 부르지 않고 그것을 쓴다. MongoDB 를 못 읽었는데 사본이 낡았으면 낡은 것을
-쓰되 첫 줄에 그렇게 적는다. 사본이 아예 없으면 멈춘다. MongoDB 를 읽었는데 새 형식 문서가 없으면
+쓰되 첫 줄에 그렇게 적는다. 사본이 아예 없으면 멈춘다. MongoDB 를 읽었는데 query_index 문서가 없으면
 사본으로 넘어가지 않고 멈춘다.
 
 사용: uv run scripts/fetch_manifest.py [--query id ...]
@@ -41,7 +41,7 @@ BIND = re.compile(r":([A-Za-z_가-힣][A-Za-z0-9_가-힣]*)")
 
 
 class NotPublished(Exception):
-    """MongoDB 는 읽었는데 새 형식 문서가 없다. 낡은 사본으로 넘어가면 옛 내용을 최신처럼 보이게 된다."""
+    """MongoDB 는 읽었는데 query_index 문서가 없다. 낡은 사본으로 넘어가면 지난 목차를 최신처럼 보이게 된다."""
 
 
 def cache_age() -> float | None:
@@ -53,10 +53,10 @@ def cache_age() -> float | None:
 
 
 def from_doc(doc: dict | None) -> dict:
-    """받은 문서에서 목차와 쿼리만 남긴다. 둘 중 하나라도 없으면 새 형식이 아니다."""
+    """받은 문서에서 목차와 쿼리만 남긴다. 둘 중 하나라도 없으면 발행본이 아니다."""
     if not doc or not doc.get("index") or not doc.get("queries"):
         raise NotPublished(f"{DB}.{COLLECTION}/{DOC_ID} 가 없거나 목차·쿼리가 비어 있다 —"
-                           " 새 형식 매니페스트가 아직 발행되지 않았다. 사용자는 AX팀에 발행을 요청해야 한다")
+                           " 매니페스트가 발행되지 않았다. 사용자는 AX팀에 발행을 요청해야 한다")
     return {"index": doc["index"], "queries": doc["queries"]}
 
 
@@ -96,13 +96,6 @@ def manifest(fetch_doc=fetch) -> tuple[dict, str | None]:
         os.replace(tmp, CACHE)
     except OSError:
         tmp.unlink(missing_ok=True)
-    # 화면 단위 매니페스트의 옛 사본들이다. 더 쓰지 않으므로, 남아서 직접 읽히지 않게 지운다.
-    # 다른 프로세스가 열고 있어 못 지우면(Windows) 다음 실행에 다시 지우면 되므로 넘긴다.
-    for name in ("manifest.json", "manifest.md"):
-        try:
-            CACHE.with_name(name).unlink(missing_ok=True)
-        except OSError:
-            pass
     return doc, None
 
 
@@ -130,7 +123,7 @@ def render(doc: dict, ids: list[str]) -> str:
 def _selfcheck() -> None:
     import shutil
     global CACHE
-    # 옛 사본 지우기를 시험하므로, 다른 파일과 섞이지 않게 빈 임시 폴더를 쓴다.
+    # 사용자의 실제 사본과 섞이지 않게 빈 임시 폴더를 쓴다.
     saved, CACHE = CACHE, Path(tempfile.mkdtemp()) / "query_index.json"
     boom = lambda: (_ for _ in ()).throw(RuntimeError("끊김"))
     sql = "SELECT a FROM T_X WHERE d = :d0 AND t = TO_CHAR(s, 'HH24:MI') /* :c */ AND k IN (:codes) AND e = :d0"
@@ -139,30 +132,20 @@ def _selfcheck() -> None:
                                           "2": {"name": "나", "description": "둘", "sql": "SELECT 2 FROM T_B"}}}
     try:
         CACHE.unlink(missing_ok=True)
-        old = CACHE.with_name("manifest.json")
-        old.write_text("{}", encoding="utf-8")
         assert manifest(lambda: new) == (new, None), "사본이 없으면 받아서 낸다"
-        assert not old.exists(), "새 사본을 저장하면 옛 화면 단위 사본을 지운다"
-        # 옛 사본을 지우지 못해도(Windows 에서 다른 프로세스가 열고 있을 때) 받은 문서를 그대로 낸다
-        CACHE.unlink()
-        old.mkdir()
-        try:
-            assert manifest(lambda: new) == (new, None), "옛 사본을 못 지워도 받은 문서를 낸다"
-        finally:
-            old.rmdir()
         assert manifest(lambda: other) == (new, None), "사본이 싱싱하면 받지 않는다"
         os.utime(CACHE, (0, 0))
         assert manifest(lambda: other) == (other, None), "사본이 낡으면 다시 받는다"
         os.utime(CACHE, (0, 0))
         doc, warning = manifest(boom)
         assert (doc, bool(warning)) == (other, True), "못 받으면 낡은 사본을 내고 알린다"
-        # 새 형식 문서가 없으면 낡은 사본이 있어도 넘어가지 않고 멈춘다
+        # query_index 문서가 없으면 낡은 사본이 있어도 넘어가지 않고 멈춘다
         try:
-            manifest(lambda: from_doc({"doc_id": DOC_ID, "index": "옛 목차"}))
+            manifest(lambda: from_doc({"doc_id": DOC_ID, "index": "목차뿐"}))
         except SystemExit as e:
-            assert "새 형식 매니페스트가 아직 발행되지 않았다" in str(e), e
+            assert "매니페스트가 발행되지 않았다" in str(e), e
         else:
-            raise AssertionError("새 문서가 없으면 멈춘다")
+            raise AssertionError("발행본이 없으면 멈춘다")
         CACHE.unlink()
         try:
             manifest(boom)
@@ -176,7 +159,7 @@ def _selfcheck() -> None:
             except NotPublished:
                 pass
             else:
-                raise AssertionError(f"새 형식이 아니면 거절한다: {bad}")
+                raise AssertionError(f"발행본이 아니면 거절한다: {bad}")
         assert from_doc({"doc_id": DOC_ID, "index": "i", "queries": {"1": {}}, "query_ids": [1]}) \
             == {"index": "i", "queries": {"1": {}}}, "목차와 쿼리만 남긴다"
         # DBGateway 처럼 문자열·주석 안의 콜론도 세고, 처음 나온 순서로 중복 없이 낸다

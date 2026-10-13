@@ -333,9 +333,6 @@ Assert 'the skill does not describe the cache or its source' (-not ($dbText -mat
 Assert 'the skill asks for no write' (-not ($dbText -match '\bPOST\b|\bPUT\b|\bPATCH\b|\bDELETE\b|execute_dml|insert_one'))
 # Screen numbers and report names are internal detail; the manifest lists queries, not screens.
 Assert 'the skill names no WINUS screen numbers' (-not ($dbText -match '\b0\d{5}\b'))
-# The per-screen detail (--screen, the 값을 얻는 곳 column) left the manifest. A skill that still
-# leans on it sends the reader to something the script no longer prints.
-Assert 'the skill does not lean on the per-screen manifest' (-not ($dbText -match '값을 얻는 곳|--screen'))
 # The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
 $fetCalls = [regex]::Matches($dbText, '(?m)^uv run\b.*fetch_manifest\.py.*$')
 Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
