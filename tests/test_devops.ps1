@@ -331,11 +331,11 @@ Assert 'the skill says nothing about publishing the manifest' (-not ($dbAll -mat
 Assert 'the skill does not describe the cache or its source' (-not ($dbText -match 'MongoDB|\.claude|캐시|TTL'))
 # The skill is read-only: every registered query is a SELECT and the Gateway takes GET alone.
 Assert 'the skill asks for no write' (-not ($dbText -match '\bPOST\b|\bPUT\b|\bPATCH\b|\bDELETE\b|execute_dml|insert_one'))
-# Screen numbers and report names are internal detail, and which query feeds which argument is
-# the manifest's 값을 얻는 곳 column — the skill must not carry a second copy that can go stale.
+# Screen numbers and report names are internal detail; the manifest lists queries, not screens.
 Assert 'the skill names no WINUS screen numbers' (-not ($dbText -match '\b0\d{5}\b'))
-# The manifest names its tables 인자 키 and 결과 항목; 출력 was the wording before normalisation.
-Assert 'the skill points at the manifest sections by their current names' (-not ($dbText -match '`출력`'))
+# The per-screen detail (--screen, the 값을 얻는 곳 column) left the manifest. A skill that still
+# leans on it sends the reader to something the script no longer prints.
+Assert 'the skill does not lean on the per-screen manifest' (-not ($dbText -match '값을 얻는 곳|--screen'))
 # The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
 $fetCalls = [regex]::Matches($dbText, '(?m)^uv run\b.*fetch_manifest\.py.*$')
 Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
