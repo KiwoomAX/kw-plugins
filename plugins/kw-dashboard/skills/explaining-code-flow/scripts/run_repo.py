@@ -2,6 +2,9 @@
 
     python run_repo.py exec <레포> -- <명령…>        # 사내 인증서 묶음을 SSL_CERT_FILE 로 주고 명령을 실행
     python run_repo.py plan <레포>                   # 설치 · 실행 계획만 출력
+    python run_repo.py doctor <레포>                 # 도구와 토큰 발급이 되는지 확인(토큰은 출력하지 않음)
+    python run_repo.py start <레포> --state <파일>   # 설치하고 서버를 실행한 뒤 주소를 출력
+    python run_repo.py stop --state <파일>           # 서버를 끄고 레포의 추적 파일이 바뀌었는지 알림
     python run_repo.py --check                       # 붙박이 예제로 자체 검사
 
 토큰은 화면 · 파일 · 명령줄에 남기지 않고 하위 프로세스 환경변수로만 넘긴다.
@@ -18,6 +21,9 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 APP_ID = "2826312"            # Kiwoom-ESG gen_token.sh · backend/Dockerfile 에 적힌 공개 식별자
@@ -144,6 +150,133 @@ def plan(repo: Path) -> dict:
     return {"services": services, "private": private, "notes": notes}
 
 
+def github_token(repo: Path, bundle: Path | None) -> str:
+    import jwt  # uv run --with "pyjwt[crypto]" 로 들어온다
+    pem = repo / "certs" / "kiwoom.pem"
+    if not pem.exists():
+        raise RepoError("certs/kiwoom.pem 이 없어 사내 패키지를 설치할 수 없습니다")
+    now = int(time.time())
+    tok = jwt.encode({"iat": now - 60, "exp": now + 600, "iss": APP_ID}, pem.read_text(encoding="utf-8"), algorithm="RS256")
+    req = urllib.request.Request(f"https://api.github.com/app/installations/{INSTALLATION_ID}/access_tokens", method="POST",
+                                 headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"})
+    ctx = ssl.create_default_context(cafile=str(bundle)) if bundle else ssl.create_default_context()
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+        return json.load(r)["token"]
+
+
+def _needs_token(p: dict) -> bool:
+    if p["private"]:
+        return True
+    for s in p["services"]:
+        for name in ("requirements.txt", "pyproject.toml"):
+            f = Path(s["cwd"]) / name
+            if f.exists() and "git+https" in f.read_text(encoding="utf-8", errors="ignore"):
+                return True
+    return False
+
+
+def _run_logged(cmd: list[str], cwd: str, env: dict, log: Path, secret: str) -> None:
+    r = subprocess.run([shutil.which(cmd[0]) or cmd[0], *cmd[1:]], cwd=cwd, env=env,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    with log.open("a", encoding="utf-8") as f:
+        f.write(mask(f"$ {' '.join(cmd)}\n{r.stdout}{r.stderr}\n", secret))
+    if r.returncode != 0:
+        raise RepoError(f"설치 명령 {' '.join(cmd)} 가 실패했습니다. 기록: {log}")
+
+
+def _git_status(repo: Path) -> list[str]:
+    r = subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True)
+    return sorted(r.stdout.splitlines())
+
+
+def _wait_http(port: int, proc: subprocess.Popen, seconds: int = 180) -> bool:
+    end = time.time() + seconds
+    while time.time() < end:
+        if proc.poll() is not None:
+            return False
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=3)
+            return True
+        except urllib.error.HTTPError:
+            return True  # 오류 응답이라도 오면 서버는 떠 있다
+        except Exception:
+            time.sleep(1)
+    return False
+
+
+def _kill_tree(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        import signal
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def start(repo: Path, state_path: Path) -> dict:
+    p = plan(repo)
+    tmp = state_path.parent
+    tmp.mkdir(parents=True, exist_ok=True)
+    log = tmp / "run_repo.log"
+    env = dict(os.environ)
+    bundle = ca_bundle(repo, tmp)
+    if bundle:
+        env["SSL_CERT_FILE"] = str(bundle)
+    token = github_token(repo, bundle) if _needs_token(p) else ""
+    inst_env = {**env, **(git_token_env(token) if token else {})}
+    state = {"repo": str(repo), "git_before": _git_status(repo), "pids": [], "notes": p["notes"]}
+    try:
+        for svc in p["services"]:
+            for cmd in svc["install"]:
+                _run_logged(cmd, svc["cwd"], inst_env, log, token)
+            if svc["name"] == "backend" and p["private"]:
+                _run_logged(["uv", "pip", "install", *p["private"]], svc["cwd"], inst_env, log, token)
+            out = (tmp / f"{svc['name']}.log").open("w", encoding="utf-8")
+            kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+            proc = subprocess.Popen([shutil.which(svc["run"][0]) or svc["run"][0], *svc["run"][1:]], cwd=svc["cwd"], env=env,
+                                    stdout=out, stderr=subprocess.STDOUT, **kw)
+            state["pids"].append(proc.pid)
+            state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            if not _wait_http(svc["port"], proc):
+                raise RepoError(f"{svc['name']} 서버가 응답하지 않습니다. 기록: {tmp / (svc['name'] + '.log')}")
+            state["url"] = f"http://127.0.0.1:{svc['port']}"
+    except Exception:
+        stop(state_path)
+        raise
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    return {"url": state["url"], "notes": state["notes"]}
+
+
+def stop(state_path: Path) -> list[str]:
+    if not state_path.exists():
+        return []
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    for pid in reversed(state.get("pids", [])):
+        _kill_tree(pid)
+    after = _git_status(Path(state["repo"]))
+    return [line for line in after if line not in state.get("git_before", [])]
+
+
+def doctor(repo: Path) -> int:
+    ok = True
+    for tool in ("git", "uv", "node", "npm"):
+        found = shutil.which(tool) is not None
+        print(("있음  " if found else "없음  ") + tool)
+        ok = ok and (found or tool in ("node", "npm"))  # Node 는 Node 레포에만 필요하다
+    chrome = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Google/Chrome/Application/chrome.exe"
+    print(("있음  " if chrome.exists() or shutil.which("google-chrome") else "없음  ") + "Chrome")
+    if (repo / "certs" / "kiwoom.pem").exists():
+        try:
+            github_token(repo, ca_bundle(repo, Path(tempfile.mkdtemp(prefix="code-flow-"))))
+            print("있음  사내 패키지 토큰 발급")
+        except Exception as e:
+            ok = False
+            print(f"없음  사내 패키지 토큰 발급 ({type(e).__name__})")
+    return 0 if ok else 1
+
+
 def _exec(repo: Path, cmd: list[str]) -> int:
     env = dict(os.environ)
     bundle = ca_bundle(repo, Path(tempfile.mkdtemp(prefix="code-flow-")))
@@ -205,6 +338,15 @@ def _check() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0)); s.listen(); busy = s.getsockname()[1]
         expect("선호 포트가 쓰이고 있으면 다른 포트를 고른다", free_port(busy) != busy)
+
+    with tempfile.TemporaryDirectory() as t:
+        st = Path(t) / "state.json"
+        st.write_text(json.dumps({"repo": t, "pids": [999999], "git_before": []}), encoding="utf-8")
+        try:
+            stop(st); stop(st)
+            expect("이미 꺼진 프로세스를 두 번 꺼도 오류가 없다", True)
+        except Exception as e:
+            expect(f"이미 꺼진 프로세스를 두 번 꺼도 오류가 없다 ({e})", False)
     return 0 if ok else 1
 
 
@@ -220,6 +362,13 @@ def main() -> int:
     p_exec.add_argument("rest", nargs=argparse.REMAINDER)
     p_plan = sub.add_parser("plan")
     p_plan.add_argument("repo")
+    p_doc = sub.add_parser("doctor")
+    p_doc.add_argument("repo")
+    p_start = sub.add_parser("start")
+    p_start.add_argument("repo")
+    p_start.add_argument("--state", required=True)
+    p_stop = sub.add_parser("stop")
+    p_stop.add_argument("--state", required=True)
     a = ap.parse_args()
     if a.check:
         return _check()
@@ -229,6 +378,18 @@ def main() -> int:
             return _exec(Path(a.repo).resolve(), rest)
         if a.cmd == "plan":
             print(json.dumps(plan(Path(a.repo).resolve()), ensure_ascii=False, indent=2))
+            return 0
+        if a.cmd == "doctor":
+            return doctor(Path(a.repo).resolve())
+        if a.cmd == "start":
+            print(json.dumps(start(Path(a.repo).resolve(), Path(a.state).resolve()), ensure_ascii=False))
+            return 0
+        if a.cmd == "stop":
+            changed = stop(Path(a.state).resolve())
+            if changed:
+                print("레포의 추적 파일이 바뀌었습니다:\n" + "\n".join(changed))
+                return 3
+            print("서버를 껐습니다. 레포의 추적 파일은 그대로입니다.")
             return 0
     except RepoError as e:
         print(str(e))

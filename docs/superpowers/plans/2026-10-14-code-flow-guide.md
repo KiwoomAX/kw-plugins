@@ -6,7 +6,7 @@
 
 **Architecture:** 주 세션이 `SKILL.md` 절차를 따라 분석 서브에이전트로 기능별 흐름 JSON 을 받는다. 파이썬 스크립트 세 개가 레포 실행(`run_repo.py`), 화면 캡처(`capture.py`), HTML 렌더(`render.py`)를 나눠 맡는다. 템플릿은 시제품 `movie_template.html` 에서 레포별 표를 지운 사본이다.
 
-**Tech Stack:** Python 3.12 표준 라이브러리, PyJWT[crypto](토큰), Playwright(`channel="chrome"`), `uv run --with`, PowerShell 7 계약 테스트, 헤드리스 Chrome.
+**Tech Stack:** Python 3.12 표준 라이브러리, PyJWT[crypto](토큰), Playwright(`channel="chrome"`), `uv run --no-project --with`, PowerShell 7 계약 테스트, 헤드리스 Chrome.
 
 **Spec:** `docs/superpowers/specs/2026-10-14-code-flow-guide-design.md`
 
@@ -14,7 +14,7 @@
 
 - 실행 환경은 윈도우 PowerShell 5 · 7 이다. 스크립트는 하위 명령을 `subprocess` 인자 목록으로 실행한다.
 - 스킬 파일에서 파이썬은 `python "${CLAUDE_SKILL_DIR}/scripts/<이름>.py"` 로 호출하고 `python3` 를 쓰지 않는다(기존 `tests/test_devops.ps1` 계약과 같다).
-- 스크립트 의존성은 `uv run --with` 로만 설치하고 PC 전역 파이썬에 설치하지 않는다.
+- 스크립트 의존성은 `uv run --no-project --with` 로만 설치하고 PC 전역 파이썬에 설치하지 않는다. `--no-project` 가 없으면 분석 대상 레포의 `pyproject.toml` 을 프로젝트로 잡아 설치를 시도한다.
 - Docker 를 쓰지 않고, 사용자에게 보이는 문장에 Docker 라는 말을 쓰지 않는다.
 - 서버는 레포 종류와 상관없이 `127.0.0.1` 에만 연결한다.
 - 레포의 추적 파일을 고치지 않는다. 설치는 `npm ci` · `npm install --no-save` · `uv sync --frozen` · `uv pip install` 만 쓴다.
@@ -618,7 +618,7 @@ import urllib.request
 
 
 def github_token(repo: Path, bundle: Path | None) -> str:
-    import jwt  # uv run --with "pyjwt[crypto]" 로 들어온다
+    import jwt  # uv run --no-project --with "pyjwt[crypto]" 로 들어온다
     pem = repo / "certs" / "kiwoom.pem"
     if not pem.exists():
         raise RepoError("certs/kiwoom.pem 이 없어 사내 패키지를 설치할 수 없습니다")
@@ -786,7 +786,7 @@ Expected: 출력 주소가 `http://127.0.0.1:<포트>`, `ss` 가 `127.0.0.1` 만
 
 - [ ] **Step 4: 토큰 발급을 확인한다**
 
-Run: `python3 S/scripts/run_repo.py exec ~/02.github/Kiwoom-ESG -- uv run --with "pyjwt[crypto]" python S/scripts/run_repo.py doctor ~/02.github/Kiwoom-ESG`
+Run: `python3 S/scripts/run_repo.py exec ~/02.github/Kiwoom-ESG -- uv run --no-project --with "pyjwt[crypto]" python S/scripts/run_repo.py doctor ~/02.github/Kiwoom-ESG`
 Expected: 「있음  사내 패키지 토큰 발급」 줄이 나오고 토큰 문자열은 어디에도 출력되지 않는다.
 
 - [ ] **Step 5: 커밋한다**
@@ -846,7 +846,7 @@ Expected: `NameError` 로 종료
     python capture.py <capture_plan.json> --out <capture_result.json>
     python capture.py <capture_plan.json> --out <결과> --fail run|noscreen   # 브라우저 없이 모든 장면에 문구만 적는다
     python capture.py --check
-캡처는 uv run --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
+캡처는 uv run --no-project --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
 """
 from __future__ import annotations
 
@@ -1189,9 +1189,9 @@ description: Use when someone wants to see how their repo works feature by featu
 본문은 spec 「절차」 표의 단계를 순서대로 적고, 단계마다 실행할 명령을 아래 형태로 적는다. 사용자에게 보이는 안내 문장에는 Docker 를 쓰지 않는다.
 
 ```text
-python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --with "pyjwt[crypto]" python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" doctor <레포>
-python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --with "pyjwt[crypto]" python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" start <레포> --state <임시 폴더>/state.json
-python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --with playwright python "${CLAUDE_SKILL_DIR}/scripts/capture.py" <임시 폴더>/capture_plan.json --out <임시 폴더>/capture_result.json
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --no-project --with "pyjwt[crypto]" python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" doctor <레포>
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --no-project --with "pyjwt[crypto]" python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" start <레포> --state <임시 폴더>/state.json
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --no-project --with playwright python "${CLAUDE_SKILL_DIR}/scripts/capture.py" <임시 폴더>/capture_plan.json --out <임시 폴더>/capture_result.json
 python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" stop --state <임시 폴더>/state.json
 python "${CLAUDE_SKILL_DIR}/scripts/render.py" <레포>/docs/code-flow/flow.json --out <레포>/docs/code-flow/index.html
 ```
