@@ -315,7 +315,7 @@ AI 가 기본값으로 만드는 장식이다. 정보를 더하지 않고 화면
 
 ## 이미 만든 대시보드를 옮길 때
 
-[moving-existing-dashboard.md](moving-existing-dashboard.md) 를 끝까지 읽고 옮긴다. 옛 값을 템플릿의 어디로
+[migrating-existing-dashboard.md](migrating-existing-dashboard.md) 를 끝까지 읽고 옮긴다. 옛 값을 템플릿의 어디로
 옮기는지와, 옮기다 끊기는 연결을 어떻게 잇는지가 그 파일에 있다.
 
 옮길 때는 옛 대시보드가 이 스킬의 권장 규칙보다 앞선다. 기능 이름과 카테고리와 화면 안 모양은 옛 것 그대로

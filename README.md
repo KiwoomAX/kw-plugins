@@ -102,7 +102,7 @@ PC가 다시 설치해야 한다. 그래서 두 이름을 그대로 둔다.
 | `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워의 계약 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬의 계약 검사 |
-| `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `moving-existing-dashboard.md` |
+| `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `migrating-existing-dashboard.md` |
 | `tests/test_devops.ps1` | 배포 스킬과 DBGateway 스킬과 리포트 검색 스킬의 계약 검사 |
 | `tests/test_dashboard.ps1` | 대시보드 스킬의 계약 검사 |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지가 여기 있다 |
