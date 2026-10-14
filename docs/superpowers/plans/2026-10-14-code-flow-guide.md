@@ -126,6 +126,7 @@ def _check() -> int:
     f["nodes"][0]["kind"] = "browser"
     f["scenes"][0]["actions"][0]["to"] = "nowhere"
     del f["scenes"][1]["screen"]["unavailable"]
+    del f["screenImg"]  # 기능 캡처가 있으면 장면은 그 캡처를 쓰므로, 캡처 없음을 시험하려면 함께 지운다
     errs = validate(bad)
     expect("명칭표에 없는 kind 를 잡는다", any("kind" in e and "browser" in e for e in errs))
     expect("없는 노드로 가는 동작을 잡는다", any("nowhere" in e for e in errs))
