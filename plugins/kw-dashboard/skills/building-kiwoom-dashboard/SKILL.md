@@ -1,4 +1,4 @@
-앙---
+---
 name: building-kiwoom-dashboard
 description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from KiwoomAX/dashboard-template — starting a new 본부 dashboard, adding a feature page or sidebar menu entry, filling the alert drawer, adding a backend API, or choosing colors, type sizes, icons, or layout in the content area. Also use when moving an existing dashboard (such as an old dash-kit HTML one) into the template, and when reviewing such a change before it ships. Triggers on 본부 대시보드·대시보드 기능 추가·사이드바 메뉴·알림 서랍·dashboard-template·dash-kit 이전·대시보드 규칙.
 ---
