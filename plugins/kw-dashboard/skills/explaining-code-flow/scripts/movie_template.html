@@ -94,6 +94,8 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .shot{margin-bottom:16px;border:1px solid var(--border-medium);border-radius:var(--radius-md);overflow:hidden;background:#fff}
 .shot .cap{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:12px;font-weight:700;border-bottom:1px solid var(--border-light)}
 .shot .cap i{width:8px;height:8px;border-radius:50%}
+/* 캡처는 백엔드 없이 가짜 데이터로 띄운 화면이라, 실제 값으로 오해하지 않도록 화면 아래에 늘 밝힌다 */
+.shot .ex{padding:5px 10px;font-size:12px;color:var(--text-tertiary);border-top:1px solid var(--border-light)}
 .shot .view{position:relative;width:100%;height:220px;overflow:hidden;background:#F4F4F5}
 .shot .view img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0}
 .shot .mark{position:absolute;border:3px solid;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.18)}
@@ -275,7 +277,7 @@ function setupShot(sc) {
   if (!sc.screen || !(sc.screen.startImg || F.screenImg)) { box.hidden = true; return false; }
   box.hidden = false;
   // 장면마다 화면 상태가 다르면 startImg · endImg 로 그 상태의 캡처를 쓴다(예: 기관을 고른 뒤의 화면)
-  box.innerHTML = `<div class="cap"><i></i><span></span></div><div class="view"><img src="${esc(sc.screen.startImg || F.screenImg)}" alt=""><div class="mark"></div></div>`;
+  box.innerHTML = `<div class="cap"><i></i><span></span></div><div class="view"><img src="${esc(sc.screen.startImg || F.screenImg)}" alt=""><div class="mark"></div></div><div class="ex">예시 데이터로 그린 화면</div>`;
   camera(null, '대시보드 전체 화면', '#5B6C8C', true);
   return true;
 }
