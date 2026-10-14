@@ -130,6 +130,9 @@ def _check() -> int:
 
 
 def main() -> int:
+    # PYTHONUTF8=1 을 준 것과 같은 결과다. 그 값이 없는 윈도우 PC 에서도 한국어 출력이 깨지지 않는다
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("flow", nargs="?")
     ap.add_argument("--out")
