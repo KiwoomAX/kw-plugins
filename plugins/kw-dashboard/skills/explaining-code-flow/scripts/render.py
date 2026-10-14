@@ -25,15 +25,16 @@ SAMPLE = {
         "nodes": [
             {"id": "pc", "name": "내 PC", "kind": "screen", "zone": "office", "x": 110, "y": 170},
             {"id": "data", "name": "샘플 데이터", "kind": "code", "zone": "app", "x": 360, "y": 80},
+            {"id": "mail", "name": "아웃룩", "kind": "server", "zone": "office", "x": 110, "y": 400, "launch": True},
         ],
         "scenes": [
             {"title": "홈을 열면 카드가 그려집니다", "tips": ["금액 단위는 억원입니다."],
-             "screen": {"startName": "「홈」 메뉴 클릭", "endName": "카드 표시", "start": [12, 77, 185, 40]},
+             "screen": {"startName": "검색창에 「견적」 입력", "endName": "카드 표시", "start": [12, 77, 185, 40], "typed": "견적"},
              "actions": [{"from": "pc", "to": "data", "icon": "ask", "text": "카드 요청", "say": "화면이 샘플 데이터를 읽습니다."}]},
             {"title": "공고 목록", "tips": [],
              "screen": {"startName": "「공고」 탭 클릭", "endName": "목록 표시",
                         "unavailable": "실행에 필요한 데이터가 없어 화면을 만들 수 없습니다."},
-             "actions": [{"from": "data", "to": "pc", "icon": "list", "text": "목록", "say": "목록이 화면으로 갑니다."}]},
+             "actions": [{"from": "mail", "to": "pc", "icon": "list", "text": "목록", "say": "아웃룩에서 읽은 목록이 화면으로 갑니다."}]},
         ],
     }],
 }
@@ -62,6 +63,8 @@ def validate(data: dict) -> list[str]:
             ids.add(n.get("id"))
             if n.get("kind") not in KINDS:
                 errs.append(f"{nw}.kind 값 {n.get('kind')!r} 는 명칭표에 없습니다")
+            if "launch" in n and not isinstance(n["launch"], bool):
+                errs.append(f"{nw}.launch 는 true · false 여야 합니다")
             if "zone" in n and n["zone"] not in ZONES:
                 errs.append(f"{nw}.zone 값 {n['zone']!r} 는 구역 목록에 없습니다")
             x, y = n.get("x"), n.get("y")
@@ -79,6 +82,8 @@ def validate(data: dict) -> list[str]:
                 errs.append(f"{sw}.screen 에 캡처와 실패 문구가 함께 있습니다")
             if not shot and not scr.get("unavailable"):
                 errs.append(f"{sw}.screen 에 캡처도 실패 문구도 없습니다")
+            if "typed" in scr and (not isinstance(scr["typed"], str) or not scr.get("start")):
+                errs.append(f"{sw}.screen.typed 는 글자이고, 글자를 칠 칸의 screen.start 가 함께 있어야 합니다")
             for key in ("start", "end"):
                 if key in scr and not rect_ok(scr[key]):
                     errs.append(f"{sw}.screen.{key} 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
@@ -125,8 +130,16 @@ def _check() -> int:
     expect("없는 노드로 가는 동작을 잡는다", any("nowhere" in e for e in errs))
     expect("캡처도 실패 문구도 없는 장면을 잡는다", any("features[0].scenes[1]" in e and "캡처" in e for e in errs))
 
+    typo = copy.deepcopy(SAMPLE)
+    typo["features"][0]["nodes"][2]["launch"] = "yes"
+    del typo["features"][0]["scenes"][0]["screen"]["start"]
+    errs = validate(typo)
+    expect("launch 가 참 · 거짓이 아니면 잡는다", any("launch" in e for e in errs))
+    expect("글자를 칠 칸 없이 typed 만 있으면 잡는다", any("typed" in e for e in errs))
+
     norect = copy.deepcopy(SAMPLE)
     del norect["features"][0]["scenes"][0]["screen"]["start"]
+    del norect["features"][0]["scenes"][0]["screen"]["typed"]
     expect("버튼 사각형이 없는 장면도 통과한다", validate(norect) == [])
     return 0 if ok else 1
 

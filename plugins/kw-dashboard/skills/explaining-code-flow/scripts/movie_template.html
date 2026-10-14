@@ -89,7 +89,18 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .log .tips li{margin-bottom:8px;color:#0F1E3D;cursor:default;font-weight:500;border:0;padding:0}
 .tips li:last-child{margin-bottom:0}
 .log .tips li:hover{background:none}
-.log{font-size:13px}
+/* 오른쪽 칸(화면 캡처 · 알아 둘 점)은 아래 진행 목록을 읽으며 내려가도 상단 막대 아래에 붙어 따라온다 */
+.log{font-size:13px;position:sticky;top:72px;align-self:start;max-height:calc(100vh - 160px);overflow:auto}
+/* 외부 프로그램 · 시스템이 처음 쓰일 때 창이 열리는 동작 */
+.node.opened{border-color:#27457D;border-style:solid}
+.launchwin{position:absolute;z-index:4;width:64px;height:46px;border:2px solid #27457D;border-radius:6px;background:#fff;
+  transform:translate(-50%,-50%);box-shadow:0 6px 18px rgba(0,0,0,.18);pointer-events:none}
+.launchwin::before{content:"";position:absolute;left:0;right:0;top:0;height:10px;background:#27457D}
+.launchwin::after{content:"";position:absolute;left:8px;right:8px;top:18px;height:4px;border-radius:2px;background:#C9D3E3;box-shadow:0 9px 0 #C9D3E3,0 18px 0 #E3E8F0}
+/* 검색창에 글자를 치는 연출 */
+.shot .mark .typed{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-weight:700;color:#1A1A1A;background:#fff;padding:0 2px;white-space:nowrap}
+.shot .mark .typed::after{content:"";display:inline-block;width:2px;height:1em;margin-left:2px;vertical-align:-.15em;background:#27457D;animation:caret .8s step-end infinite}
+@keyframes caret{50%{opacity:0}}
 /* 실제 대시보드 화면 창: 장면 시작에는 누르는 곳, 결과가 돌아오면 결과가 나타나는 곳을 확대해 보인다 */
 .shot{margin-bottom:16px;border:1px solid var(--border-medium);border-radius:var(--radius-md);overflow:hidden;background:#fff}
 .shot .cap{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:12px;font-weight:700;border-bottom:1px solid var(--border-light)}
@@ -286,6 +297,7 @@ function camera(rect, label, color, instant, src) {
   if (box.hidden) return;
   const view = box.querySelector('.view'), img = box.querySelector('img'), mark = box.querySelector('.mark');
   if (src && !img.src.endsWith(src)) img.src = src;
+  mark.innerHTML = '';  // 앞 연출에서 친 글자는 줌이 옮겨 가면 지운다
   const W = view.clientWidth, H = view.clientHeight, pad = 30;
   const [x, y, w, h] = rect || [0, 0, SHOT_W, SHOT_H];
   const k = rect ? Math.min(W / (w + pad * 2), H / (h + pad * 2), 1.6) : Math.min(W / SHOT_W, H / SHOT_H);
@@ -302,6 +314,40 @@ function camera(rect, label, color, instant, src) {
 // play(i, keepAuto, k0, single): 장면 i 를 동작 k0 부터 재생한다. single 이면 그 동작 하나만 재생하고 멈춘다.
 // curK 는 마지막으로 재생한(또는 재생 중인) 동작 번호다. 이전 · 다음 버튼과 목록 번호가 이 값을 기준으로 움직인다
 let curK = 0;
+// 외부 프로그램 · 시스템이 처음 쓰일 때: 노드에서 작은 창이 열리고 노드 테두리가 켜진다. 실제 탐색 시간은 생략한다
+async function launchNode(n, my) {
+  const st = document.getElementById('stage'), el = document.getElementById('n-' + n.id);
+  document.getElementById('sub').textContent = `${n.name} 을(를) 엽니다`;
+  const win = document.createElement('div');
+  win.className = 'launchwin';
+  win.style.left = n.x + 'px'; win.style.top = (n.y - 62) + 'px';
+  st.appendChild(win);
+  el.classList.add('hot');
+  await win.animate([{transform: 'translate(-50%,-50%) translateY(50px) scale(.2)', opacity: 0},
+                     {transform: 'translate(-50%,-50%) scale(1.08)', opacity: 1, offset: .7},
+                     {transform: 'translate(-50%,-50%) scale(1)', opacity: 1}], {duration: T(900), fill: 'forwards'}).finished;
+  if (my !== run) { win.remove(); return; }
+  await wait(600);
+  await win.animate([{opacity: 1}, {opacity: 0}], {duration: T(300), fill: 'forwards'}).finished;
+  win.remove();
+  el.classList.add('opened');
+  document.getElementById('sub').textContent = '';
+}
+// 검색창 같은 입력 칸으로 줌한 뒤 글자를 한 글자씩 쳐 보인다
+async function typeInto(text, my) {
+  const mark = document.querySelector('#shot .mark');
+  if (!mark) return;
+  const span = document.createElement('span');
+  span.className = 'typed';
+  span.style.fontSize = Math.max(12, Math.min(22, mark.clientHeight * .5)) + 'px';
+  mark.appendChild(span);
+  for (const ch of text) {
+    if (my !== run) return;
+    span.textContent += ch;
+    await wait(220);
+  }
+  await wait(900);
+}
 async function play(i, keepAuto, k0 = 0, single = false) {
   if (!keepAuto) setAuto(false);
   const my = ++run, sc = F.scenes[i];
@@ -332,12 +378,17 @@ async function play(i, keepAuto, k0 = 0, single = false) {
     else camera(null, '사람이 누르지 않고 이어서 처리됩니다', '#5B6C8C');
     await wait(2200);
     if (my !== run) return;
+    if (sc.screen.start && sc.screen.typed) await typeInto(sc.screen.typed, my);
+    if (my !== run) return;
   }
+  // 글자를 친 장면은 그 뒤로 친 뒤의 화면(endImg)을 보여 준다
+  const midImg = sc.screen && sc.screen.typed ? sc.screen.endImg : undefined;
+  const opened = new Set();
   for (let k = k0; k < sc.actions.length; k++) {
     if (single && k > k0) break;
     curK = k; navState();
-    if (shot && k0 > 0 && k === k0 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C');
-    if (shot && k === 1 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C');
+    if (shot && k0 > 0 && k === k0 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
+    if (shot && k === 1 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
     if (shot && k === last) {
       if (sc.screen.end) camera(sc.screen.end, sc.screen.endName || '결과가 나타나는 곳', '#B5446E', false, sc.screen.endImg || sc.screen.startImg || F.screenImg);
       else camera(null, '이 장면은 화면을 바꾸지 않습니다', '#5B6C8C');
@@ -348,6 +399,10 @@ async function play(i, keepAuto, k0 = 0, single = false) {
     sub.textContent = '';
     document.querySelectorAll('.node').forEach(n => n.classList.remove('hot'));
     document.getElementById('n-' + a.from).classList.add('hot');
+    for (const id of [a.from, a.to]) {
+      const n = NODE.get(id);
+      if (n.launch && !opened.has(id)) { opened.add(id); await launchNode(n, my); if (my !== run) return; }
+    }
     wires.innerHTML = a.from === a.to ? '' : `<line x1="${f.x}" y1="${f.y}" x2="${t.x}" y2="${t.y}" stroke="${color}" stroke-width="2" stroke-dasharray="5 6" opacity=".55"/>`;
     const tok = document.createElement('div');
     tok.className = 'token';
