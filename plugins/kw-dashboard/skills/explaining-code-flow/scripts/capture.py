@@ -1,7 +1,7 @@
 """레포 화면을 기능마다 캡처하고, 캡처하지 못한 장면에 이유 문구를 정한다.
 
     python capture.py <capture_plan.json> --out <capture_result.json>
-    python capture.py <capture_plan.json> --out <결과> --fail run|noscreen   # 브라우저 없이 모든 장면에 문구만 적는다
+    python capture.py <capture_plan.json> --out <결과> --fail run|noscreen|skipped   # 브라우저 없이 모든 장면에 문구만 적는다
     python capture.py --check
 
 캡처는 uv run --no-project --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
@@ -21,6 +21,8 @@ MSG_NOSCREEN = "이 레포에는 화면 코드가 없어 화면을 만들 수 �
 MSG_AUTH = "접근 권한이 없어 화면을 만들 수 없습니다."
 MSG_CONFIG = "실행에 필요한 설정이 없어 화면을 만들 수 없습니다."
 MSG_DATA = "실행에 필요한 데이터가 없어 화면을 만들 수 없습니다."
+MSG_SKIPPED = "캡처 없이 진행하기로 해 화면을 만들지 않았습니다."
+FAIL_MSG = {"run": MSG_RUN, "noscreen": MSG_NOSCREEN, "skipped": MSG_SKIPPED}
 LOGIN = re.compile(r"(login|signin|sso)", re.I)
 
 
@@ -151,6 +153,7 @@ def _check() -> int:
     res = fail_result(plan_doc, MSG_RUN)
     expect("실행 실패는 모든 장면에 같은 문구를 적는다",
            res == {"features": {"a": {"scenes": {"a-0": {"unavailable": MSG_RUN}, "a-1": {"unavailable": MSG_RUN}}}}})
+    expect("캡처 없이 진행은 실행 실패와 다른 문구를 쓴다", FAIL_MSG["skipped"] == MSG_SKIPPED and MSG_SKIPPED != MSG_RUN)
     return 0 if ok else 1
 
 
@@ -161,7 +164,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("plan", nargs="?")
     ap.add_argument("--out")
-    ap.add_argument("--fail", choices=["run", "noscreen"])
+    ap.add_argument("--fail", choices=sorted(FAIL_MSG))
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     if a.check:
@@ -170,7 +173,7 @@ def main() -> int:
         ap.error("캡처 계획 경로와 --out 이 필요합니다")
     plan_doc = json.loads(Path(a.plan).read_text(encoding="utf-8"))
     if a.fail:
-        res = fail_result(plan_doc, MSG_RUN if a.fail == "run" else MSG_NOSCREEN)
+        res = fail_result(plan_doc, FAIL_MSG[a.fail])
     else:
         res = capture(plan_doc)
     Path(a.out).write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")

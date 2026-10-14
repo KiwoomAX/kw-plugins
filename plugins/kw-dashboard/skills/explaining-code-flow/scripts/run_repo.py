@@ -4,6 +4,7 @@
     python run_repo.py plan <레포>                   # 설치 · 실행 계획만 출력
     python run_repo.py doctor <레포>                 # 도구와 토큰 발급이 되는지 확인(토큰은 출력하지 않음)
     python run_repo.py start <레포> --state <파일>   # 설치하고 서버를 실행한 뒤 주소를 출력
+    python run_repo.py start <레포> --state <파일> --cmd "<시작 명령>" --port <포트>   # 판별하지 못하는 레포
     python run_repo.py stop --state <파일>           # 서버를 끄고 레포의 추적 파일이 바뀌었는지 알림
     python run_repo.py --check                       # 붙박이 예제로 자체 검사
 
@@ -15,6 +16,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import ssl
@@ -52,6 +54,40 @@ def ca_bundle(repo: Path, out_dir: Path) -> Path | None:
     out = out_dir / "ca-bundle.pem"
     out.write_text("".join(pems) + "\n" + crt.read_text(encoding="utf-8"), encoding="utf-8")
     return out
+
+
+def ssl_file(repo: Path, out_dir: Path) -> Path | None:
+    # 컨트롤 타워 설치기가 윈도우 PC 에 사내 인증서 묶음을 SSL_CERT_FILE 로 설정해 둔다. 그 값이 없을 때(WSL)만 레포의 인증서로 만든다
+    given = os.environ.get("SSL_CERT_FILE")
+    if given and Path(given).is_file():
+        return Path(given)
+    return ca_bundle(repo, out_dir)
+
+
+def listen_hosts(text: str, port: int) -> list[str]:
+    """netstat -ano 나 ss -ltn 출력에서 그 포트로 듣고 있는 연결 주소를 모은다."""
+    hosts = []
+    for line in text.splitlines():
+        if "LISTEN" not in line:
+            continue
+        for tok in line.split():
+            host, sep, p = tok.rpartition(":")
+            if sep and p == str(port):
+                hosts.append(host.strip("[]"))
+                break
+    return hosts
+
+
+def only_loopback(hosts: list[str]) -> bool:
+    return bool(hosts) and all(h in ("127.0.0.1", "::1") for h in hosts)
+
+
+def _listening(port: int) -> list[str]:
+    cmd = ["netstat", "-ano", "-p", "TCP"] if os.name == "nt" else ["ss", "-ltnH"]
+    out = subprocess.run(cmd, capture_output=True, text=True, errors="replace").stdout
+    if os.name == "nt":
+        out += subprocess.run(["netstat", "-ano", "-p", "TCPv6"], capture_output=True, text=True, errors="replace").stdout
+    return listen_hosts(out, port)
 
 
 def mask(text: str, secret: str) -> str:
@@ -132,7 +168,32 @@ def _py_service(d: Path, private: list[str]) -> dict | None:
     return {"name": "backend", "cwd": str(d), "install": install, "run": run, "preferred": preferred}
 
 
-def plan(repo: Path) -> dict:
+def _cmd_service(repo: Path, cmd: str, port: int) -> dict:
+    """판별하지 못하는 레포를 주 세션이 찾은 시작 명령과 포트로 실행한다."""
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            raise RepoError(f"포트 {port} 이 이미 쓰이고 있어 실행하지 않았습니다. 그 포트를 쓰는 프로그램을 닫은 뒤 다시 시도해 주십시오")
+    run = shlex.split(cmd, posix=os.name != "nt")
+    install = []
+    if (repo / "requirements.txt").exists() or (repo / "pyproject.toml").exists():
+        if (repo / "pyproject.toml").exists() and (repo / "uv.lock").exists():
+            install = [["uv", "sync", "--frozen"]]
+        else:
+            install = [["uv", "venv"], ["uv", "pip", "install", "-r", "requirements.txt" if (repo / "requirements.txt").exists() else "pyproject.toml"]]
+        if run and run[0] in ("python", "python3", "py"):
+            run[0] = str(repo / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
+    elif (repo / "package.json").exists() and not (repo / "node_modules").exists():
+        install = [["npm", "ci"] if (repo / "package-lock.json").exists() else ["npm", "install", "--no-save"]]
+    return {"name": "app", "cwd": str(repo), "install": install, "run": run, "preferred": port, "port": port, "fixed_port": True}
+
+
+def plan(repo: Path, cmd: str | None = None, port: int | None = None) -> dict:
+    if cmd:
+        if not port:
+            raise RepoError("--cmd 를 쓸 때는 --port 도 함께 지정해야 합니다")
+        return {"services": [_cmd_service(repo, cmd, port)], "private": [], "notes": []}
     services, private, notes = [], [], []
     back = front = None
     for d in _dirs(repo):
@@ -215,13 +276,13 @@ def _kill_tree(pid: int) -> None:
             pass
 
 
-def start(repo: Path, state_path: Path) -> dict:
-    p = plan(repo)
+def start(repo: Path, state_path: Path, cmd: str | None = None, port: int | None = None) -> dict:
+    p = plan(repo, cmd, port)
     tmp = state_path.parent
     tmp.mkdir(parents=True, exist_ok=True)
     log = tmp / "run_repo.log"
     env = dict(os.environ)
-    bundle = ca_bundle(repo, tmp)
+    bundle = ssl_file(repo, tmp)
     if bundle:
         env["SSL_CERT_FILE"] = str(bundle)
     token = github_token(repo, bundle) if _needs_token(p) else ""
@@ -241,6 +302,9 @@ def start(repo: Path, state_path: Path) -> dict:
             state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
             if not _wait_http(svc["port"], proc):
                 raise RepoError(f"{svc['name']} 서버가 응답하지 않습니다. 기록: {tmp / (svc['name'] + '.log')}")
+            hosts = _listening(svc["port"])
+            if not only_loopback(hosts):
+                raise RepoError(f"{svc['name']} 서버가 이 PC 밖에서도 접속되는 주소({', '.join(hosts) or '알 수 없음'})에 열려 바로 껐습니다")
             state["url"] = f"http://127.0.0.1:{svc['port']}"
     except Exception:
         stop(state_path)
@@ -269,7 +333,7 @@ def doctor(repo: Path) -> int:
     print(("있음  " if chrome.exists() or shutil.which("google-chrome") else "없음  ") + "Chrome")
     if (repo / "certs" / "kiwoom.pem").exists():
         try:
-            github_token(repo, ca_bundle(repo, Path(tempfile.mkdtemp(prefix="code-flow-"))))
+            github_token(repo, ssl_file(repo, Path(tempfile.mkdtemp(prefix="code-flow-"))))
             print("있음  사내 패키지 토큰 발급")
         except Exception as e:
             ok = False
@@ -279,7 +343,7 @@ def doctor(repo: Path) -> int:
 
 def _exec(repo: Path, cmd: list[str]) -> int:
     env = dict(os.environ)
-    bundle = ca_bundle(repo, Path(tempfile.mkdtemp(prefix="code-flow-")))
+    bundle = ssl_file(repo, Path(tempfile.mkdtemp(prefix="code-flow-")))
     if bundle:
         env["SSL_CERT_FILE"] = str(bundle)
     return subprocess.call([shutil.which(cmd[0]) or cmd[0], *cmd[1:]], env=env)
@@ -340,6 +404,42 @@ def _check() -> int:
         expect("선호 포트가 쓰이고 있으면 다른 포트를 고른다", free_port(busy) != busy)
 
     with tempfile.TemporaryDirectory() as t:
+        app = Path(t) / "stdlibapp"; app.mkdir()
+        (app / "requirements.txt").write_text("pywin32==312\n", encoding="utf-8")
+        p = plan(app, cmd="python -m src.app", port=free_port())
+        svc = p["services"][0]
+        py = str(app / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
+        expect("--cmd 레포는 uv venv 뒤 requirements 로 설치한다", svc["install"] == [["uv", "venv"], ["uv", "pip", "install", "-r", "requirements.txt"]])
+        expect("--cmd 의 python 은 레포 가상환경의 python 으로 바꾼다", svc["run"] == [py, "-m", "src.app"] and svc["fixed_port"])
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0)); s.listen(); busy = s.getsockname()[1]
+            try:
+                plan(app, cmd="python -m src.app", port=busy)
+                expect("고정 포트가 쓰이고 있으면 다른 프로그램을 건드리지 않고 멈춘다", False)
+            except RepoError as e:
+                expect("고정 포트가 쓰이고 있으면 다른 프로그램을 건드리지 않고 멈춘다", str(busy) in str(e))
+
+    win = ("  TCP    127.0.0.1:8765         0.0.0.0:0              LISTENING       1234\n"
+           "  TCP    0.0.0.0:3012           0.0.0.0:0              LISTENING       99\n"
+           "  TCP    [::1]:8765             [::]:0                 LISTENING       1234\n")
+    posix = ("LISTEN 0 511 127.0.0.1:46991 0.0.0.0:*\nLISTEN 0 511 0.0.0.0:3012 0.0.0.0:*\nLISTEN 0 511 [::]:3012 [::]:*\n")
+    expect("netstat 출력에서 포트의 연결 주소를 읽는다", sorted(listen_hosts(win, 8765)) == ["127.0.0.1", "::1"])
+    expect("ss 출력에서 바깥 연결 주소를 읽는다", sorted(listen_hosts(posix, 3012)) == ["0.0.0.0", "::"])
+    expect("루프백만이면 안전하다", only_loopback(["127.0.0.1", "::1"]) and not only_loopback(["0.0.0.0"]) and not only_loopback([]))
+
+    with tempfile.TemporaryDirectory() as t:
+        given = Path(t) / "corp.pem"; given.write_text("x", encoding="utf-8")
+        old = os.environ.get("SSL_CERT_FILE")
+        os.environ["SSL_CERT_FILE"] = str(given)
+        try:
+            expect("PC 에 설정된 SSL_CERT_FILE 을 먼저 쓴다", ssl_file(Path(t), Path(t)) == given)
+        finally:
+            if old is None:
+                os.environ.pop("SSL_CERT_FILE", None)
+            else:
+                os.environ["SSL_CERT_FILE"] = old
+
+    with tempfile.TemporaryDirectory() as t:
         st = Path(t) / "state.json"
         st.write_text(json.dumps({"repo": t, "pids": [999999], "git_before": []}), encoding="utf-8")
         try:
@@ -367,6 +467,8 @@ def main() -> int:
     p_start = sub.add_parser("start")
     p_start.add_argument("repo")
     p_start.add_argument("--state", required=True)
+    p_start.add_argument("--cmd", help="판별하지 못하는 레포의 시작 명령(예: \"python -m src.app\")")
+    p_start.add_argument("--port", type=int, help="--cmd 로 실행한 서버의 포트")
     p_stop = sub.add_parser("stop")
     p_stop.add_argument("--state", required=True)
     a = ap.parse_args()
@@ -382,7 +484,7 @@ def main() -> int:
         if a.cmd == "doctor":
             return doctor(Path(a.repo).resolve())
         if a.cmd == "start":
-            print(json.dumps(start(Path(a.repo).resolve(), Path(a.state).resolve()), ensure_ascii=False))
+            print(json.dumps(start(Path(a.repo).resolve(), Path(a.state).resolve(), a.cmd, a.port), ensure_ascii=False))
             return 0
         if a.cmd == "stop":
             changed = stop(Path(a.state).resolve())

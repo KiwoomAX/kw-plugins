@@ -9,7 +9,7 @@ description: Use when someone wants to see how their repo works feature by featu
 
 ## 절차
 
-아래 순서로 진행한다. 사용자에게 묻는 곳은 기능 목록 승인, 클릭 승인, 결과 확인 세 곳이다.
+아래 순서로 진행한다. 사용자에게 묻는 곳은 기능 목록 승인, 빠진 실행 조건, 실행 · 클릭 승인, 결과 확인이다.
 
 | 단계 | 하는 일 |
 |---|---|
@@ -18,7 +18,8 @@ description: Use when someone wants to see how their repo works feature by featu
 | 기능 목록 승인 | 메뉴 · 탭 · 라우트를 코드에서 읽어 사용자에게 보이는 기능 이름으로 나열하고 승인을 받는다 |
 | 기능별 분석 | 기능마다 분석 서브에이전트를 동시에 실행한다. 프롬프트에 [analysis-prompt.md](analysis-prompt.md) 와 [tips-prompt.md](tips-prompt.md) 의 경로, 레포 경로, 맡을 기능 이름, `appZone` 이름을 넣는다 |
 | 근거 대조 | 돌아온 `evidence` 와 `tipsEvidence` 의 줄을 열어 문장과 맞는지 대조하고, 맞지 않는 문장은 고치거나 지운다 |
-| 클릭 승인 | 아래 「클릭 승인」을 따른다 |
+| 실행 준비 | 아래 「실행 준비」를 따른다 |
+| 실행 · 클릭 승인 | 아래 「실행 · 클릭 승인」을 따른다 |
 | 화면 캡처 | 캡처 이미지가 git 에 잡히지 않도록 `docs/code-flow/.gitignore` 를 먼저 만들고(「JSON 합치기」 끝 문단), 「스크립트」의 `start` · `capture.py` · `stop` 을 차례로 실행한다 |
 | JSON 합치기 | 아래 「JSON 합치기」를 따라 `docs/code-flow/flow.json` 을 만든다 |
 | 렌더 | `render.py` 로 `docs/code-flow/index.html` 을 만들고 브라우저로 연다 |
@@ -38,16 +39,27 @@ python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" stop --state <작업 폴더>/st
 python "${CLAUDE_SKILL_DIR}/scripts/render.py" <레포>/docs/code-flow/flow.json --out <레포>/docs/code-flow/index.html
 ```
 
-- `exec` 는 레포의 `certs/ePrism.crt` 로 사내 인증서 묶음을 만들어 `SSL_CERT_FILE` 로 넘긴다. `uv` 가 스크립트 의존성을 내려받을 때 사내 프록시를 통과하려면 `uv run` 을 반드시 `exec` 로 감싼다.
-- `start` 는 의존성을 설치하고 서버를 `127.0.0.1` 의 빈 포트로 실행한 뒤 `{"url": ..., "notes": [...]}` 를 출력한다. `notes` 가 있으면 사용자에게 알린다.
+- `exec` 는 사내 인증서 묶음을 `SSL_CERT_FILE` 로 넘긴 채 명령을 실행한다. 윈도우 PC 에는 컨트롤 타워 설치기가 설정한 `SSL_CERT_FILE` 이 있어 그 값을 쓰고, 없을 때만 레포의 `certs/ePrism.crt` 로 묶음을 만든다. `uv run` 은 반드시 `exec` 로 감싼다.
+- `start` 는 의존성을 설치하고 서버를 `127.0.0.1` 의 빈 포트로 실행한 뒤 `{"url": ..., "notes": [...]}` 를 출력한다. `notes` 가 있으면 사용자에게 알린다. 서버가 `127.0.0.1` 밖의 주소에 열리면 바로 끄고 실패로 끝난다.
 - `stop` 은 캡처가 실패해도 반드시 실행한다. 종료 코드가 3 이면 레포의 추적 파일이 바뀐 것이므로 출력된 파일 목록을 사용자에게 알린다.
 - `start` 가 실패하면 서버 없이 `capture.py <계획> --out <결과> --fail run` 으로 모든 장면에 「실행하지 못함」 문구를 적는다. 레포에 화면 코드가 없으면 `--fail noscreen` 을 쓴다.
 
-## 클릭 승인
+## 실행 준비
+
+`run_repo.py plan <레포>` 가 실행 방법을 찾으면 그 계획을 쓴다. 「실행 방법을 찾지 못했습니다」나 「백엔드 시작 명령을 찾지 못했습니다」가 나오면 README · 설치 문서 · 시작 파일을 읽어 시작 명령과 포트를 찾고, `start` 에 `--cmd "<시작 명령>" --port <포트>` 를 붙인다. 포트가 레포 설정 파일에 고정되어 있으면 그 포트를 쓴다.
+
+같은 문서와 코드에서 아래 두 가지도 찾는다.
+
+- 실행 조건: 운영체제, 켜져 있어야 하는 프로그램(예: 아웃룩), 필요한 설정값
+- 시작할 때의 부수 효과: 브라우저 열기, 레지스트리 변경, 외부 데이터 읽기와 저장
+
+실행 조건은 하나씩 확인한다(예: 윈도우 `Get-Process OUTLOOK`). 빠진 조건이 있으면 「아웃룩이 꺼져 있어 화면을 캡처할 수 없습니다. 켜고 진행할까요, 캡처 없이 진행할까요?」처럼 하나씩 묻는다. 사용자가 캡처 없이 진행하기로 하면 서버를 실행하지 않고 `capture.py <계획> --out <결과> --fail skipped` 로 결과를 만든다.
+
+## 실행 · 클릭 승인
 
 캡처는 기본으로 화면을 열기만 하고 버튼을 누르지 않는다. 사용자 PC 의 설정으로 실행한 레포에서 버튼을 누르면 외부 API 과금, 저장소 쓰기, 메일 발송이 실제로 일어나기 때문이다.
 
-분석 서브에이전트가 돌려준 `clickEffects` 를 모두 모아 버튼 이름과 일어나는 동작을 한 목록으로 보여 주고, 비용을 감수하고 모두 누를지 한 번만 묻는다. `clickEffects` 가 비어 있으면 묻지 않는다. 사용자가 승인하면 캡처 계획의 `allowClick` 을 `true` 로 두고, 승인하지 않으면 `false` 로 둔다.
+시작할 때의 부수 효과와, 분석 서브에이전트가 돌려준 `clickEffects` 를 한 목록으로 모아 보여 주고 한 번만 묻는다. 두 목록이 모두 비어 있으면 묻지 않는다. 사용자가 실행을 승인하지 않으면 `--fail skipped` 로 결과를 만든다. 클릭을 승인하면 캡처 계획의 `allowClick` 을 `true` 로 두고, 승인하지 않으면 `false` 로 둔다.
 
 ## 캡처 계획
 
