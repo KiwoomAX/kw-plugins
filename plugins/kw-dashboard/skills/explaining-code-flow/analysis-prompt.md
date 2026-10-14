@@ -62,14 +62,21 @@ MDB · RDB · 파일 서버는 노드 하나로 묶어 「AX팀 DB」로 부른�
 
 ## 캡처 계획
 
-`capture` 는 주 세션이 캡처 계획을 만드는 데 쓴다. `capture.scenes` 는 `feature.scenes` 와 같은 순서다.
+캡처는 백엔드를 실행하지 않고 화면 코드만 띄워, 화면이 보내는 요청에 가짜 데이터로 응답한 상태를 찍는다. `capture` 는 주 세션이 캡처 계획을 만드는 데 쓴다. `capture.scenes` 는 `feature.scenes` 와 같은 순서다.
 
 - `path`: 이 기능 화면을 여는 주소의 경로(예: `/#notices`)
 - `start` · `end`: 버튼과 결과 요소를 찾는 방법. 화면에 보이는 글자는 `{"text": "새로고침"}`, 글자가 없으면 `{"selector": "CSS 선택자"}` 로 적는다. 사람이 누르지 않는 장면은 `start` 를 생략한다.
-- `click`: 결과 화면을 보려면 버튼을 눌러야 하는 장면만 `true` 로 둔다. 탭 이동만으로 결과가 보이면 `false` 다.
-- `dataApi`: 이 장면의 화면이 데이터를 받는 API 의 경로(`path`)와 응답 본문에서 목록이 들어 있는 필드 경로(`listField`, 점으로 이음). 샘플 데이터만 쓰는 장면은 `dataApi` 를 생략하고 노드를 `code` 로 그린다.
+- `click`: 결과 화면을 보려면 버튼을 눌러야 하는 장면만 `true` 로 둔다. 응답이 가짜라 눌러도 바깥에 아무 일도 일어나지 않는다. 탭 이동만으로 결과가 보이면 `false` 다.
 
-`click` 이 `true` 인 장면은 `clickEffects` 에 그 클릭이 일으키는 동작을 근거와 함께 적는다. 동작은 외부 API 호출과 과금, 저장소 쓰기, 메일 발송, 파일 쓰기처럼 되돌릴 수 없거나 비용이 드는 일이다. 주 세션은 이 목록을 사용자에게 보여 주고 한 번만 승인을 받는다.
+## 가짜 데이터
+
+`mocks` 에는 이 기능 화면이 보내는 요청마다 가짜 응답을 하나씩 적는다. 화면 코드에서 요청(`fetch` 등)을 찾고, 그 요청을 받는 백엔드 코드에서 응답 형태를 읽어 같은 형태로 만든다.
+
+- `method` · `path`: 요청 방식과 경로. 쿼리는 적지 않는다. `/body/<id>` 처럼 뒤가 바뀌는 경로는 `"path": "/body/", "prefix": true` 로 적는다.
+- `json`: JSON 응답의 본문. JSON 이 아닌 응답은 `body` 와 `contentType` 으로 적는다.
+- 값: 실제 사람 이름 · 회사 메일 주소 · 고객 정보를 쓰지 않고 「홍길동」 · `user@example.com` · 「예시 회사」 같은 예시 값을 쓴다. 레포의 테스트나 샘플 파일에 실제처럼 보이는 값이 있어도 옮기지 않는다.
+- 분량: 목록은 화면이 그럴듯해 보이도록 5개 안팎을 넣고, 화면이 쓰는 필드는 빠짐없이 채운다.
+- 근거: `mockEvidence` 에 `"<method> <path>"` 마다 응답 형태를 읽은 `파일:줄` 을 적는다.
 
 ## 근거와 불일치
 
@@ -110,21 +117,24 @@ JSON 하나만 돌려준다. 아래는 wholesale-dashboard 의 공고 기능을 
     "path": "/#notices",
     "scenes": [
       {"end": {"text": "공고 현황"}, "click": false},
-      {"start": {"text": "공고"}, "end": {"text": "공고 현황"}, "click": false,
-       "dataApi": {"path": "/api/notices", "listField": "notices"}}
+      {"start": {"text": "공고"}, "end": {"text": "공고 현황"}, "click": false}
     ]
   },
-  "clickEffects": [],
+  "mocks": [
+    {"method": "GET", "path": "/api/notices",
+     "json": {"notices": [{"id": "kofia-notice:1001", "sourceId": "kofia-notice", "url": "https://example.com/notice/1001",
+                           "title": "예시 공제회 위탁운용사 선정 공고", "institution": "예시 공제회", "institutionKey": "예시공제회",
+                           "postedAt": "<YYYY-MM-DD 날짜>", "category": "운용사선정", "applyPeriod": {"end": "<YYYY-MM-DD 날짜>"},
+                           "needsReview": false, "requirementSummary": "수탁 200억 이상"}],
+              "meta": {"fetchedAt": null, "lastSeqBySource": {}, "backfillPageBySource": {}, "failures": []}}}
+  ],
+  "mockEvidence": {"GET /api/notices": ["app/api/notices/route.ts:9-12", "lib/notice/types.ts:123-142", "lib/notice/types.ts:145-151"]},
   "evidence": {"0.0": ["vercel.json:2-5"], "0.1": ["app/api/cron/notices/route.ts:29-32"],
                "1.0": ["components/tabs/NoticeTab.tsx:21"], "1.1": ["app/api/notices/route.ts:9-10"]},
   "mismatches": []
 }
 ```
 
-「새로고침」 버튼처럼 눌러야 결과가 보이는 장면이 있으면 `click` 을 `true` 로 두고 아래처럼 적는다.
+「새로고침」 버튼처럼 눌러야 결과가 보이는 장면은 `click` 을 `true` 로 두고, 버튼이 보내는 요청(예: `POST /api/notices`)의 가짜 응답도 `mocks` 에 넣는다.
 
-```json
-"clickEffects": [{"scene": 2, "button": "새로고침",
-                  "effects": ["금융투자협회 게시판 접속", "Claude API 호출(과금)", "Redis 저장소에 공고 저장"],
-                  "evidence": ["components/tabs/NoticeTab.tsx:41", "app/api/notices/route.ts:30", "lib/notice/llm.ts:86-88"]}]
-```
+출력은 JSON 하나로 읽혀야 한다. 객체를 닫은 뒤에 다른 필드나 설명 문장을 붙이지 않는다.

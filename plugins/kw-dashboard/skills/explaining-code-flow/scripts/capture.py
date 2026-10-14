@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-MSG_FRONT = "화면 코드를 띄우지 못해 화면을 만들 수 없습니다."
+MSG_FRONT = "화면 코드를 실행하지 못해 화면을 만들 수 없습니다."
 MSG_NOSCREEN = "이 레포에는 화면 코드가 없어 화면을 만들 수 없습니다."
 FAIL_MSG = {"front": MSG_FRONT, "noscreen": MSG_NOSCREEN}
 STATIC_ORIGIN = "http://code-flow.local"  # 정적 화면은 서버 없이 이 가짜 주소로 연다
