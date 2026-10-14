@@ -1,0 +1,201 @@
+{
+  "lens": "lens-consistency",
+  "target": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+  "read": [
+    "/home/rladustn1227/.claude/plugins/cache/chshin-tools/disciplined-coder/7a2d26d846c0/skills/lens-consistency/SKILL.md",
+    "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+    "/home/rladustn1227/02.github/flow_guide/movie_template.html (55-95, 140-300, 329-370행)",
+    "/home/rladustn1227/02.github/flow_guide/render.py",
+    "/home/rladustn1227/02.github/flow_guide/wholesale_movie.json (키 집합과 첫 기능)",
+    "/home/rladustn1227/02.github/flow_guide/esg_movie.json (키 집합)",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/plugins/kw-dashboard/.claude-plugin/plugin.json (description 줄)",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/.claude-plugin/marketplace.json (description 줄)"
+  ],
+  "issues": [
+    {
+      "where": "「하지 않는 것」 첫 항목 ↔ 「화면 캡처」 실행 방법 표 ↔ 「결과물 위치」",
+      "type": "contradiction",
+      "claim": "spec 은 레포 코드를 고치지 않고 git 변경도 만들지 않는다고 적는다. 그런데 실행 방법 표는 레포 폴더 안에 uv 가상환경을 만들고 npm run dev 로 실행하게 한다. pyproject.toml 레포에서 uv sync·uv run 을 실행하면 uv 가 uv.lock 을 만들거나 고친다. Node 레포는 의존성을 설치해야 실행되는데 npm install 은 node_modules 를 만들고 package-lock.json 을 고칠 수 있다. 확인 단계는 git status --short docs/code-flow 만 보므로 이런 변경을 잡지 못한다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "132행 \"레포 코드를 고치지 않는다.\" / 128행 \"레포의 기존 파일을 고치지 않고 git 변경도 만들지 않는다 ... `git status --short docs/code-flow` 가 빈 출력인지 확인한다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "102-103행 \"`npm run dev`\" / \"`uv` 로 레포 폴더 안에 가상환경을 만들어 실행한다\"",
+      "principle": "모순: 문서가 스스로 정한 원칙을 설계가 어긴다",
+      "consequence": "spec 에는 '고치지 않음'의 범위(코드, 잠금 파일, 설치 폴더)가 정의되어 있지 않다. 레포 전체의 git 변경을 확인하는 단계도 없다."
+    },
+    {
+      "where": "「화면 캡처」 실행 방법 표",
+      "type": "gap",
+      "claim": "산출물 공백이다. Node 레포의 의존성 설치 단계(npm install 또는 npm ci)가 표에 없다. 표는 npm run dev 만 적는다. 파이썬 레포와 프런트가 함께 있는 레포에서 무엇을 어떤 순서로 띄우는지도 정해져 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "100-104행 실행 방법 표 세 줄",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "29행 `scripts/capture.py` \"레포를 실행하고 기능마다 캡처하며\"",
+      "principle": "산출물 공백: 내놓는 것의 형태가 정해져 있어야 한다",
+      "consequence": "capture.py 가 맡을 설치 명령과 두 서버의 기동 순서가 spec 어디에도 적혀 있지 않다."
+    },
+    {
+      "where": "「위치」 파일 구성 표 ↔ 「화면 캡처」 토큰 발급 문단",
+      "type": "gap",
+      "claim": "산출물 공백이다. 다음 세 가지를 맡을 파일이 파일 구성 표에 없다. 첫째는 certs/kiwoom.pem 으로 GitHub App 토큰을 발급하는 코드이다. 둘째는 사설 패키지를 uv --native-tls 로 설치하는 단계이다. 셋째는 헤드리스 Chrome 을 구동할 수단(라이브러리 또는 CDP)과 그 의존성을 설치할 곳이다. 표에서 capture.py 의 설명은 실행과 캡처와 실패 판정만 다룬다. 사용자 PC 에 Chrome 이 있다는 가정도 Node·uv 가정(122행)처럼 밝혀져 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "104행 \"레포의 `certs/kiwoom.pem` 으로 GitHub App 토큰을 발급해 `uv` 로 설치한다\" / 106행 \"`scripts/generate_github_token.py` 방식 ... 을 따른다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "22-29행 파일 구성 표(SKILL.md, analysis-prompt.md, tips-prompt.md, render.py, movie_template.html, capture.py)",
+      "principle": "산출물 공백",
+      "consequence": "토큰 발급 코드와 브라우저 구동 의존성을 어느 파일이 갖는지 spec 이 정하지 않는다. 98행은 PC 전역 파이썬 설치를 금지하는데, capture.py 자신의 의존성을 어디에 설치할지는 적혀 있지 않다."
+    },
+    {
+      "where": "「템플릿에서 지울 값」 ↔ movie_template.html useFeature·zoneOf·kindOf·dockOf",
+      "type": "gap",
+      "claim": "커버리지 공백이다. spec 은 SPOT·ZONE_BY_ID·KIND_BY_ID·DOCK_BY_ID 표를 지운다고만 적는다. 이 표를 쓰는 대체 경로를 어떻게 바꿀지는 적지 않는다. 시제품에서 useFeature 는 x 가 없으면 SPOT 으로 메우고, kindOf 는 'server' 로, zoneOf 는 ZONE_BY_ID 로 대체한다. kind·zone·x·y 를 필수로 바꿀 때 값이 빠지면 템플릿이 어떻게 동작할지(오류를 내는지, 기본값을 쓰는지)도 정해져 있지 않다. zone 이 모든 노드에 필수인지도 불명확하다. 시제품에서는 zone 이 없는 노드가 구역 밖에 아이콘을 달고 그려진다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "84행 \"스킬 템플릿은 이 표를 지우고, 분석 에이전트가 노드마다 `kind` · `zone` · `x` · `y` 를 JSON 에 적게 한다.\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "167-168행 `F.nodes.map(n => n.x !== undefined ? n : {...n, x: (SPOT[n.id] || [480, 260])[0] ...` / 231행 `const kindOf = n => n.kind || KIND_BY_ID[n.id] || 'server';` / 164행 `const zoneOf = n => n.zone || ZONE_BY_ID[n.id];`",
+      "principle": "커버리지 공백: 정한 것이 이어지는 단계를 지목할 수 있어야 한다",
+      "consequence": "표만 지우면 useFeature 가 정의되지 않은 SPOT 을 참조한다. 필수 필드가 빠졌을 때의 동작은 spec 에 없다."
+    },
+    {
+      "where": "「템플릿에서 지울 값」의 x·y 필수화 ↔ movie_template.html 좌표 기준",
+      "type": "gap",
+      "claim": "산출물 공백이다. 분석 에이전트가 적을 x·y 의 좌표계(무대 크기, 원점, 노드 중심 기준)가 spec 에 없다. 템플릿은 좌표가 높이 520 기준이라고 가정하고 세로 좌표를 0.86 배로 줄인다. 구역 상자는 폭 954, 높이 454 에서 잘린다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "88행 \"`SPOT` | wholesale 노드 id 별 좌표 | 지운다. JSON 이 좌표를 적는다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "165행 \"좌표는 높이 520 기준으로 적혀 있다 ... 세로 좌표를 줄인다\" / 168행 `y: Math.round(30 + (n.y - 30) * 0.86)`",
+      "principle": "산출물 공백: 출력 JSON 의 형태가 정해져 있어야 한다",
+      "consequence": "analysis-prompt.md 에 넣을 좌표 범위의 근거가 spec 에 없다."
+    },
+    {
+      "where": "「화면 캡처」 screen.unavailable ↔ movie_template.html setupShot",
+      "type": "gap",
+      "claim": "커버리지 공백이다. spec 은 템플릿이 screen.unavailable 이 있으면 문구를 표시한다고 적는다. 그러나 시제품의 setupShot 은 기능에 screenImg 가 없으면 화면 칸 전체를 숨긴다. 레포 실행 자체가 실패하면 screenImg 가 없으므로, 분기 순서를 바꾸지 않으면 문구가 표시되지 않는다. 이 템플릿 변경은 파일 구성 표의 movie_template.html 설명('레포별 값을 뺀 사본')과 「템플릿에서 지울 값」 표에 빠져 있다. 회색 면의 크기와 카메라·줌 동작을 건너뛰는 처리도 정해져 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "110행 \"템플릿은 이 값이 있으면 캡처 대신 문구를 회색 면에 표시한다.\" / 28행 \"시제품 템플릿에서 레포별 값을 뺀 사본\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "293행 `if (!F.screenImg || !sc.screen) { box.hidden = true; return false; }`",
+      "principle": "커버리지 공백",
+      "consequence": "spec 에 적힌 템플릿 변경 목록은 삭제 네 건뿐이다. unavailable 표시를 추가하는 일은 「화면 캡처」 절의 문장 하나에만 있다."
+    },
+    {
+      "where": "JSON 입력 계약 전반 (「위치」 analysis-prompt.md 출력 JSON 형식, 「템플릿에서 지울 값」)",
+      "type": "gap",
+      "claim": "산출물 공백이다. 템플릿이 읽는 JSON 필드 가운데 spec 이 남길지 정하지 않은 것이 있다. features[].screenImg, scene.screen.start/end/startName/endName/startImg/endImg, scene.tips, scene.nodeOverride, F.zoneNames, node.dock, node.sub 가 그것이다. 시제품 JSON 에 있는 tipsEvidence·evidence·notes 와 ESG 의 node.group 도 마찬가지다. spec 은 appZone·dock·kind·zone·x·y·screen.unavailable 만 언급한다. 특히 zoneNames 는 기능마다 구역 이름을 덮어쓰는 필드인데, 51행의 '구역은 템플릿에 고정' 규칙과 맞는지 판단되어 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "51행 \"노드 종류(`kind`)와 구역(`zone`)은 템플릿에 고정하고, 레포별로는 노드 이름과 설명만 바꾼다.\" / 25행 \"출력 JSON 형식\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "260행 `${esc((F.zoneNames || {})[g.z] || ZONE[g.z].name)}` / 336행 `Object.entries(sc.nodeOverride || {})` / 296행 `sc.screen.startImg || F.screenImg`",
+      "principle": "산출물 공백",
+      "consequence": "analysis-prompt.md 와 capture.py 가 함께 채울 JSON 스키마는 spec 에 필드 목록으로 정의되어 있지 않다."
+    },
+    {
+      "where": "「절차」 기능별 분석 → 화면 캡처 → 렌더",
+      "type": "gap",
+      "claim": "커버리지 공백이다. 분석 에이전트 출력과 capture.py 출력이 어떻게 합쳐지는지 절차에 없다. 화면 표기 규칙(74행)이 정한 startName·endName 을 누가 쓰는지 정해져 있지 않다. 캡처가 어느 버튼을 누를지 무엇에서 받는지, 장면 상태별 startImg·endImg 캡처를 할지도 정해져 있지 않다. 알아 둘 점 단계를 서브에이전트가 맡는지 주 세션이 맡는지도 적혀 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "41행 \"각 에이전트는 `analysis-prompt.md` 에 따라 장면과 동작을 근거 줄과 함께 낸다\" / 98행 \"버튼과 결과의 좌표를 구해 줌 상자에 쓴다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "44-45행 화면 캡처, 렌더 단계",
+      "principle": "커버리지 공백",
+      "consequence": "절차 표에는 JSON 을 합치는 단계가 없다. screen 필드를 채우는 주체는 spec 에 지정되어 있지 않다."
+    },
+    {
+      "where": "「화면 캡처」 ↔ movie_template.html SHOT_W·SHOT_H",
+      "type": "gap",
+      "claim": "산출물 공백이다. 캡처 해상도가 spec 에 없다. 템플릿은 캡처를 1440×1000 으로 가정하고 rect 좌표를 그 기준으로 해석한다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "98행 \"헤드리스 Chrome 으로 기능마다 화면을 캡처한다 ... 버튼과 결과의 좌표를 구해 줌 상자에 쓴다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "290행 `const SHOT_W = 1440, SHOT_H = 1000;`",
+      "principle": "산출물 공백",
+      "consequence": "capture.py 가 맞춰야 할 뷰포트 크기를 spec 이 정하지 않는다."
+    },
+    {
+      "where": "「결과물 위치」 ↔ 「화면 캡처」 이미지 폴더",
+      "type": "gap",
+      "claim": "산출물 공백이다. docs/code-flow/ 안의 HTML 파일 이름과 이미지 폴더 이름이 정해져 있지 않다. 다시 실행할 때 덮어쓸지도 정해져 있지 않다. 분석 중간 JSON(시제품의 wholesale/a.json~d.json 에 해당)과 최종 흐름 JSON 을 남길지, 남긴다면 어디에 둘지도 적혀 있지 않다. 시제품의 screenImg 는 `wholesale_screens/market.png` 형식의 상대 경로이다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "118행 \"캡처 이미지는 HTML 옆 폴더에 PNG 로 두고\" / 126행 \"결과물은 분석 대상 레포의 `docs/code-flow/` 폴더에 만들고\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "47행 \"분석 결과의 근거와 메모는 `flow_guide/wholesale/a.json` 부터 `d.json` 에 남아 있다.\"",
+      "principle": "산출물 공백: 놓일 곳까지 정해져 있어야 한다",
+      "consequence": "결과물의 폴더만 정해져 있다. 그 안의 파일 구성은 spec 에 없다."
+    },
+    {
+      "where": "「위치」 플러그인 description 수정",
+      "type": "gap",
+      "claim": "산출물 공백이다. spec 은 플러그인 description 을 함께 고친다고만 적고 바뀐 문장을 정하지 않는다. 같은 문장이 plugin.json 과 marketplace.json 두 곳에 있는데, spec 은 대상 파일도 지목하지 않는다. 파일 구성 표에도 이 수정이 없다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "20행 \"플러그인 `description` 은 대시보드 스킬만 설명하므로 이 스킬을 넣을 때 함께 고친다.\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/.claude-plugin/marketplace.json",
+      "counterpart": "26행 \"description\": \"본부 · 팀 대시보드 스킬. building-kiwoom-dashboard는 ...\" (plugin.json 5행과 같은 문장)",
+      "principle": "산출물 공백",
+      "consequence": "두 파일의 description 이 같은 문장으로 있다. spec 은 둘 중 하나만 '플러그인 description' 이라고 부른다."
+    },
+    {
+      "where": "「고정 명칭표」 화면 표기 열 ↔ movie_template.html KIND.label",
+      "type": "drift",
+      "claim": "spec 표의 '화면 표기' 열은 노드 이름(예: 내 PC (브라우저), Redis 저장소 · AX팀 DB · WINUS)을 적는다. 그런데 템플릿은 종류마다 고정 라벨(사람이 보는 화면, 서버 · 프로그램, 저장소 · DB, 정해진 시각 자동 실행 등)을 노드 이름 위에 표시한다. 같은 '화면 표기'라는 이름이 템플릿 고정 라벨과 레포별 노드 이름(n.name)을 섞어 가리킨다. 51행은 종류를 고정하고 노드 이름만 바꾼다고 적는데, 표의 server 줄은 '레포가 실행하는 서버 이름'이라는 레포별 값이다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "53-56행 \"| 종류 | 화면 표기 | 쓰는 대상 |\" / \"`server` | 대시보드 서버 · ESG 서버처럼 레포가 실행하는 서버 이름\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "218-219행 `screen: {label: '사람이 보는 화면' ...`, `server: {label: '서버 · 프로그램' ...`",
+      "principle": "드리프트: 같은 대상을 두 이름으로 가리킨다",
+      "consequence": "명칭표가 KIND.label 을 고치라는 뜻인지, 노드 name 작명 규칙인지 spec 만으로 정할 수 없다."
+    },
+    {
+      "where": "「고정 명칭표」 구역 목록 ↔ movie_template.html ZONE.name",
+      "type": "drift",
+      "claim": "spec 은 winus 구역의 화면 이름을 적지 않는다. 템플릿은 'WINUS (회사 DW)' 를 쓴다. app 구역은 spec 에서 'JSON 의 appZone' 이지만, 템플릿은 appZone 이 없으면 '서비스' 로 표시한다. 템플릿 주석은 같은 개념을 '영역'이라고 부르고 spec 은 '구역'이라고 부른다. 템플릿을 사본으로 옮길 때 이 용어가 그대로 남는다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "65행 \"구역은 `office`(내 PC · 사무실), `app`(레포의 서비스, 이름은 JSON 의 `appZone`), `ax`(AX팀 서버), `winus`, `fund`(우리펀드서비스), `external`(외부 서비스)이다.\"",
+      "counterpart_file": "/home/rladustn1227/02.github/flow_guide/movie_template.html",
+      "counterpart": "153행 \"// 영역: 누가 운영하는 곳인가.\" / 156행 `app: {name: D.appZone || '서비스'` / 158행 `winus: {name: 'WINUS (회사 DW)'`",
+      "principle": "드리프트",
+      "consequence": "spec 은 구역 여섯 개 가운데 하나의 표시 이름을 비워 둔다. 템플릿은 그 개념을 다른 용어로 부른다."
+    },
+    {
+      "where": "「절차」 렌더 확인 방법 ↔ 「하지 않는 것」 애니메이션 항목",
+      "type": "contradiction",
+      "claim": "렌더 단계의 확인 방법은 기능마다 장면이 재생되는 것이다. 그러나 「하지 않는 것」은 애니메이션을 헤드리스로 검증하지 않고 정지 상태만 캡처해 확인한다고 적는다. 재생을 누가 어떤 수단으로 확인하는지(사용자 확인인지, 주 세션 확인인지)가 빠져 있어 두 문장이 서로 다른 확인 기준을 말한다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "45행 \"기능 메뉴에서 기능마다 장면이 재생된다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "133행 \"애니메이션 동작은 헤드리스로 검증하지 않는다 ... 정지 상태만 캡처해 확인한다.\"",
+      "principle": "모순",
+      "consequence": "렌더 단계의 확인 방법을 실행할 주체와 수단이 spec 에 없다."
+    },
+    {
+      "where": "「화면과 문장 규칙」 적용 대상 ↔ 파일 구성 표 tips-prompt.md",
+      "type": "gap",
+      "claim": "커버리지 공백이다. 문장 규칙(예시 값은 「샘플 데이터」라고 밝힌다, 함수 이름 대신 서술형)은 분석 에이전트 지침과 SKILL.md 에만 적도록 되어 있다. 알아 둘 점 문장을 만드는 tips-prompt.md 는 적용 대상에서 빠져 있다. 시제품의 tips 에도 \"미리 넣어 둔 예시 데이터입니다\"처럼 같은 규칙을 적용한 문장이 있다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "69행 \"아래 규칙은 분석 에이전트 지침과 SKILL.md 에 모두 적는다.\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "26행 \"`tips-prompt.md` | 「알아 둘 점」을 코드에서 찾아 근거와 함께 적는 지침\"",
+      "principle": "커버리지 공백",
+      "consequence": "tips 문장에 적용할 규칙이 tips-prompt.md 의 내용으로 지정되어 있지 않다."
+    },
+    {
+      "where": "「절차」 레포 찾기",
+      "type": "gap",
+      "claim": "산출물 공백이다. 이름으로 로컬 클론을 찾는다고만 적고, 어디를 검색하는지와 후보가 여럿이거나 없을 때 무엇을 하는지는 정하지 않는다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "39행 \"이름으로 로컬 클론을 찾고 브랜치와 커밋을 기록한다\"",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "3행 \"레포 이름을 받으면\"",
+      "principle": "산출물 공백",
+      "consequence": "입력(레포 이름)을 경로로 바꾸는 규칙이 spec 에 없다."
+    }
+  ],
+  "principles_applied": [
+    "NO-ASSUME",
+    "STATE-ASSUME",
+    "TERM-ONE",
+    "SPECIFIC-NAME",
+    "CHECKABLE"
+  ],
+  "notes": "검토 관점은 다음과 같다. 모순은 「절차」·파일 구성 표·「화면 캡처」·「결과물 위치」·「하지 않는 것」 사이를 서로 대조했다. 커버리지 공백은 spec 이 정한 템플릿 변경과 movie_template.html 의 실제 대체 코드를 대조했다. 산출물 공백은 파일 구성 표에 없는 작업, 결과물 파일 구성, JSON 계약을 보았다. 드리프트는 명칭표와 KIND·ZONE 라벨, 구역·영역 용어를 보았다. 스코프 관점에서 spec 은 스킬 문서, 프롬프트 둘, 렌더 이식, 템플릿 수정, 캡처·실행·토큰 발급 스크립트를 한 계획에 담는다. capture.py(레포 실행, 사설 패키지 설치, 실패 판정)는 나머지와 독립적으로 검증할 수 있는 큰 덩어리이므로 plan 에서 분할을 검토할 만하다. 다만 분할이 필요하다는 근거가 spec 안에 있지 않아 이슈로 올리지 않았다. 용어 '장면/동작'(scenes/actions)과 '알아 둘 점/tips'는 spec 과 템플릿에서 일관되어 드리프트가 없다. 확인하지 못한 것도 있다. uv 가 .venv 안에 '*' 를 담은 .gitignore 를 만든다는 128행의 주장은 uv 문서나 실측으로 확인하지 않았다. 사내 generate_github_token.py 가 요구하는 입력(App ID, 설치 ID)도 범위 밖이라 열지 않았다. 사용자 PC 에서 next dev 가 next-env.d.ts·.next 를 만들어 git 변경이 생기는지는 대상 레포별로 확인해야 한다."
+}
