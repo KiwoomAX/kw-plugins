@@ -111,6 +111,8 @@ def _check() -> int:
     page = render(SAMPLE)
     expect("렌더 결과에 자리표시 문자열이 남지 않는다", "__DATA__" not in page and "__TITLE__" not in page)
     expect("렌더 결과에 제목이 들어간다", "<title>예제 대시보드, 움직이며 보기</title>" in page)
+    tpl = (HERE / "movie_template.html").read_text(encoding="utf-8")
+    expect("템플릿에 자리표시 문자열이 한 번씩만 있다", tpl.count("__TITLE__") == 1 and tpl.count("__DATA__") == 1)
 
     bad = copy.deepcopy(SAMPLE)
     f = bad["features"][0]
