@@ -61,8 +61,6 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .node .kk{display:block;font-size:10px;font-weight:700;color:var(--text-tertiary);line-height:1.2}
 .node .ki{background:#5B6C8C}
 .node.hot{box-shadow:0 0 0 4px var(--kr)}
-.node.host{border-bottom-left-radius:4px;border-bottom-right-radius:4px}
-.node.docked{width:156px;border-top-left-radius:4px;border-top-right-radius:4px;border-style:solid;padding-top:7px;padding-bottom:7px}
 .kinds{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:12px;color:var(--text-secondary)}
 .kinds i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
 .node.ping{animation:ping .6s ease}
@@ -74,7 +72,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .token .items{flex-basis:100%;display:flex;flex-wrap:wrap;gap:3px;padding-left:26px}
 .token .items em{font-style:normal;font-size:11px;font-weight:600;color:#1A1A1A;background:#F1F3F7;border-radius:999px;padding:0 7px}
 .sub{margin-top:6px;min-height:20px;font-size:13px;color:var(--text-tertiary)}
-/* 무대 아래 진행 목록: 지금 동작을 굵게 · 강조색 막대로 표시한다 */
+/* 무대 아래 진행 목록: 지금 동작을 굵게 · 회색 면으로 표시한다 */
 .steps-now{margin-top:10px}
 .steps-now h4{margin:0 0 8px;font-size:13px;color:var(--text-tertiary);font-weight:700}
 .steps-now ol{margin:0;padding:0;list-style:none;counter-reset:st;font-size:16px;line-height:1.55}
@@ -99,7 +97,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .shot .view{position:relative;width:100%;height:220px;overflow:hidden;background:#F4F4F5}
 .shot .view img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0}
 .shot .mark{position:absolute;border:3px solid;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.18)}
-.shot .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-tertiary);font-size:13px;text-align:center;padding:0 16px}
+.shot .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;text-align:center;padding:0 16px}
 .log h4{margin:0 0 6px;font-size:12px;color:var(--text-tertiary);font-weight:600}
 .log ol{margin:0;padding-left:20px}
 .log li{margin-bottom:8px;color:var(--text-tertiary)}
@@ -145,12 +143,9 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
-// 기능이 여럿이면 D.features, 하나면 D 자체가 기능 하나다. 노드 좌표가 없으면 id 별 기본 위치에 놓는다.
-// 기본 위치는 같은 영역의 노드가 모이도록 왼쪽(사내) · 가운데(서비스) · 오른쪽(외부)으로 나눴다.
+// 기능이 여럿이면 D.features, 하나면 D 자체가 기능 하나다. 노드의 종류 · 구역 · 좌표는 JSON 이 적는다.
 const FEATURES = D.features || [D];
-const SPOT = {pc: [110, 170], officepc: [110, 290], share: [110, 410], local: [110, 400], server: [360, 260], data: [360, 80], cron: [600, 260],
-              store: [590, 440], web: [830, 80], web2: [830, 240], llm: [830, 420]};
-// 영역: 누가 운영하는 곳인가. 노드에 zone 이 없으면 id 로 정하고, 영역 상자는 속한 노드를 감싸도록 계산한다.
+// 구역: 누가 운영하는 곳인가. 구역 상자는 속한 노드를 감싸도록 계산한다.
 const ZONE = {
   office:   {name: '내 PC · 사무실', c: '#27457D', b: 'rgba(39,69,125,.035)', i: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'},
   app:      {name: D.appZone || '서비스', c: '#1E8284', b: 'rgba(30,130,132,.04)', i: '<path d="M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.5A3.3 3.3 0 0 1 17 18z"/>'},
@@ -159,16 +154,13 @@ const ZONE = {
   fund:     {name: '우리펀드서비스', c: '#5C77A6', b: 'rgba(92,119,166,.05)', i: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/>'},
   external: {name: '외부 서비스', c: '#B5446E', b: 'rgba(181,68,110,.035)', i: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>'}
 };
-const ZONE_BY_ID = {pc: 'office', local: 'office', share: 'office', officepc: 'office', server: 'app', store: 'app', data: 'app', cron: 'app',
-                    web: 'external', web2: 'external', llm: 'external'};
-const zoneOf = n => n.zone || ZONE_BY_ID[n.id];
+const zoneOf = n => n.zone;
 let F, NODE, fi = 0;
 function useFeature(k) {
   fi = k; F = FEATURES[k];
   // 좌표는 높이 520 기준으로 적혀 있다. 아래 진행 목록이 한 화면에 들어오도록 무대를 460 으로 줄이고 세로 좌표를 줄인다
   if (!F.scaled) { F.scaled = true;
-    F.nodes = F.nodes.map(n => n.x !== undefined ? n : {...n, x: (SPOT[n.id] || [480, 260])[0], y: (SPOT[n.id] || [480, 260])[1]})
-                     .map(n => ({...n, y: Math.round(30 + (n.y - 30) * 0.86)})); }
+    F.nodes = F.nodes.map(n => ({...n, y: Math.round(30 + (n.y - 30) * 0.86)})); }
   NODE = new Map(F.nodes.map(n => [n.id, n]));
 }
 function zoneBoxes() {
@@ -215,7 +207,6 @@ document.addEventListener('click', e => { if (!e.target.closest('#railHead')) do
 document.getElementById('repo').textContent = D.repo || '';
 
 // 노드 종류: 종류마다 색과 아이콘이 있다. 색은 리스크 관리 발표 덱의 남색 · 청록 · 핑크 계열이다.
-// 노드에 kind 가 없으면 id 로 정한다(ESG 의 llm 은 연결 서버라 JSON 에 kind 를 적는다).
 const KIND = {
   screen: {label: '사람이 보는 화면', c: '#27457D', b: '#EEF2F9', i: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'},
   server: {label: '서버 · 프로그램', c: '#1E8284', b: '#EAF4F4', i: '<rect x="4" y="3" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="16" height="7" rx="1.5"/><path d="M8 6.5h.01M8 17.5h.01"/>'},
@@ -227,36 +218,21 @@ const KIND = {
   code:   {label: '샘플 데이터', c: '#5B6C8C', b: '#F1F3F7', i: '<path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>'},
   clock:  {label: '정해진 시각 자동 실행', c: '#5B6C8C', b: '#F1F3F7', keepIcon: true, i: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'}
 };
-const KIND_BY_ID = {pc: 'screen', share: 'local', officepc: 'officepc', server: 'server', esg: 'server', store: 'db', db: 'db', winus: 'db', file: 'db',
-                    llm: 'ai', gemini: 'ai', web: 'web', web2: 'web', local: 'local', data: 'code', cron: 'clock'};
-const kindOf = n => n.kind || KIND_BY_ID[n.id] || 'server';
+const kindOf = n => n.kind;
 function nodeHtml(n) {
   const k = KIND[kindOf(n)];
-  // 영역 상자 안의 노드는 영역 이름에 아이콘이 있으므로 아이콘을 빼고 종류 이름과 색만 둔다
-  // 정해진 시각 자동 실행은 사람이 시작하지 않는다는 점이 중요해서 영역 안에서도 시계 아이콘을 둔다
+  // 구역 상자 안의 노드는 구역 이름에 아이콘이 있으므로 아이콘을 빼고 종류 이름과 색만 둔다
+  // 정해진 시각 자동 실행은 사람이 시작하지 않는다는 점이 중요해서 구역 안에서도 시계 아이콘을 둔다
   const icon = zoneOf(n) && !k.keepIcon ? '' : `<div class="ki"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${k.i}</svg></div>`;
-  // 상자는 회색 테두리 하나로 두고, 색은 영역 상자만 쓴다. 지금 움직이는 상자는 영역 색으로 강조한다
+  // 상자는 회색 테두리 하나로 두고, 색은 구역 상자만 쓴다. 지금 움직이는 상자는 구역 색으로 강조한다
   const z = ZONE[zoneOf(n)], hot = z ? z.c : '#27457D';
   return `<div class="node" id="n-${n.id}" style="left:${n.x}px;top:${n.y}px;--kc:#B8BEC6;--kb:#fff;--kr:${hot}2B">` + icon +
     `<div class="kt"><span class="kk">${k.label}</span><b>${esc(n.name)}</b><span>${esc(n.sub || '')}</span></div></div>`;
 }
 
-// 붙여 그리는 노드: dock 이 있으면 그 노드 바로 아래에 맞닿게 놓는다. 저장소(Redis)는 대시보드 서버가 쓰는
-// 클라우드 저장소라 기본으로 서버 아래에 붙인다. 높이를 재야 하므로 노드를 먼저 그린 뒤 위치를 맞춘다.
-const DOCK_BY_ID = {};
-const dockOf = n => n.dock !== undefined ? n.dock : DOCK_BY_ID[n.id];
 function drawStage() {
   const st = document.getElementById('stage');
   st.innerHTML = '<svg class="wires" id="wires" width="960" height="460"></svg>' + F.nodes.map(n => nodeHtml(n)).join('');
-  F.nodes.forEach(n => {
-    const host = NODE.get(dockOf(n)), el = document.getElementById('n-' + n.id);
-    if (!host || !el) return;
-    const he = document.getElementById('n-' + host.id);
-    n.x = host.x;
-    n.y = host.y + he.offsetHeight / 2 + el.offsetHeight / 2 - 2;
-    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
-    el.classList.add('docked'); he.classList.add('host');
-  });
   st.insertAdjacentHTML('afterbegin', zoneBoxes().map(g => `<div class="group" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;--zc:${ZONE[g.z].c};--zb:${ZONE[g.z].b}"><span class="gname"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ZONE[g.z].i}</svg>${esc((F.zoneNames || {})[g.z] || ZONE[g.z].name)}</span></div>`).join(''));
   document.getElementById('kinds').innerHTML = '';
 }
@@ -290,7 +266,13 @@ function setAuto(on) {
 const SHOT_W = 1440, SHOT_H = 1000;
 function setupShot(sc) {
   const box = document.getElementById('shot');
-  if (!F.screenImg || !sc.screen) { box.hidden = true; return false; }
+  // 캡처하지 못한 장면은 빈 화면 대신 이유 문구를 회색 면에 표시하고 줌하지 않는다
+  if (sc.screen && sc.screen.unavailable) {
+    box.hidden = false;
+    box.innerHTML = `<div class="view"><div class="wait">${esc(sc.screen.unavailable)}</div></div>`;
+    return false;
+  }
+  if (!sc.screen || !(sc.screen.startImg || F.screenImg)) { box.hidden = true; return false; }
   box.hidden = false;
   // 장면마다 화면 상태가 다르면 startImg · endImg 로 그 상태의 캡처를 쓴다(예: 기관을 고른 뒤의 화면)
   box.innerHTML = `<div class="cap"><i></i><span></span></div><div class="view"><img src="${esc(sc.screen.startImg || F.screenImg)}" alt=""><div class="mark"></div></div>`;
