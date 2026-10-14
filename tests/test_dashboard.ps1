@@ -74,6 +74,37 @@ Assert 'the deploy skill it hands off to ships in this marketplace' (
     ($allText -match 'deploying-kiwoom-service') -and
     (Test-Path (Join-Path $Repo 'plugins/kw-devops/skills/deploying-kiwoom-service/SKILL.md')))
 
+Write-Host '--- explaining-code-flow ---'
+# The flow skill runs a repo on this PC, captures its screens and renders a guide
+# page. Its three scripts each carry a --check self test.
+$FlowDir  = Join-Path $PluginDir 'skills/explaining-code-flow'
+$flowMd   = Join-Path $FlowDir 'SKILL.md'
+$flowText = Read-TextOrEmpty $flowMd
+Assert 'explaining-code-flow SKILL.md ships' (Test-Path $flowMd)
+Assert 'its frontmatter name matches the folder' (([regex]::Match($flowText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'explaining-code-flow')
+$flowDesc = ([regex]::Match($flowText, '(?m)^description:\s*(.+)$')).Groups[1].Value
+Assert 'its description says when to open the skill' ($flowDesc -match '^Use when ')
+Assert 'its description is a safe plain scalar' (-not ($flowDesc -match ': | #'))
+foreach ($ref in @('analysis-prompt.md', 'tips-prompt.md')) {
+    Assert "$ref ships" (Test-Path (Join-Path $FlowDir $ref))
+    Assert "SKILL.md links $ref" ($flowText -match [regex]::Escape("]($ref)"))
+}
+foreach ($s in @('render.py', 'run_repo.py', 'capture.py')) {
+    $py = Join-Path $FlowDir "scripts/$s"
+    Assert "$s ships" (Test-Path $py)
+    Assert "SKILL.md calls $s through CLAUDE_SKILL_DIR" ($flowText -match [regex]::Escape('${CLAUDE_SKILL_DIR}/scripts/' + $s))
+    $null = & python $py --check 2>&1 | Out-String
+    Assert "$s --check passes" ($LASTEXITCODE -eq 0)
+}
+Assert 'movie_template.html ships' (Test-Path (Join-Path $FlowDir 'scripts/movie_template.html'))
+$flowAll = (Get-ChildItem $FlowDir -Filter *.md | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
+Assert 'no flow skill file calls python3' (-not ($flowAll -match '\bpython3\b'))
+Assert 'no flow skill file points at a personal skills folder' (-not ($flowAll -match '~/\.claude'))
+Assert 'flow skill documents carry no build-history dates' (-not ($flowAll -match '\b20\d\d-\d\d-\d\d\b'))
+$flowPy = (Get-ChildItem (Join-Path $FlowDir 'scripts') -Filter *.py | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
+Assert 'no user-facing script message says Docker' (-not ($flowPy -match '(RepoError|print)\(f?"[^"]*[Dd]ocker'))
+Assert 'the plugin description names the flow skill' ($pluginJson.description -match 'explaining-code-flow')
+
 # 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''
