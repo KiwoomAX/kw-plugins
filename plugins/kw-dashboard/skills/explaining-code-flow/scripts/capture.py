@@ -5,7 +5,7 @@
     python capture.py --check
 
 캡처는 uv run --no-project --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
-장면의 steps(입력 · 클릭 · 고르기 동작 목록)를 차례로 실행하고 결과 화면을 찍는다. 예전 형식의 click 은 클릭 동작 하나로 본다.
+장면의 steps(입력 · 클릭 · 고르기 · 기다리기 동작 목록)를 차례로 실행하고 결과 화면을 찍는다. 예전 형식의 click 은 클릭 동작 하나로 본다.
 화면이 보내는 요청은 모두 가로챈다. 화면 파일은 레포에서 읽고, API 는 계획의 가짜 데이터로 응답하며,
 Node 개발 서버를 띄운 때만 나머지 같은 주소 요청을 그 서버로 넘긴다. 그 밖의 요청은 끊는다.
 """
@@ -144,7 +144,7 @@ def capture(plan_doc: dict) -> dict:
             fr = {"screenImg": f"screens/{img}", "scenes": {}}
             for s in f["scenes"]:
                 steps = scene_steps(s)
-                first = steps[0]["target"] if steps else s.get("start")
+                first = next((st["target"] for st in steps if "target" in st), s.get("start"))
                 sr = {k: v for k, v in (("start", _locate(page, first)), ("end", _locate(page, s.get("end")))) if v}
                 if steps:
                     # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
@@ -155,6 +155,9 @@ def capture(plan_doc: dict) -> dict:
                                 _target(cp, st["target"]).fill(st["text"], timeout=5000)
                             elif st["action"] == "select":  # 목록에서 고르는 칸(select)은 입력으로 채울 수 없다
                                 _target(cp, st["target"]).select_option(st["value"], timeout=5000)
+                            elif st["action"] == "wait":  # 화면이 정해 둔 지연 뒤에 바뀌는 장면(예: 완료 1.5초 뒤 창 열기)
+                                cp.wait_for_timeout(st["ms"])
+                                continue
                             else:
                                 _target(cp, st["target"]).click(timeout=5000)
                             cp.wait_for_timeout(1500)
