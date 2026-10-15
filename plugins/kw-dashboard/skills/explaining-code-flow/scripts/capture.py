@@ -5,6 +5,7 @@
     python capture.py --check
 
 캡처는 uv run --no-project --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
+장면의 steps(입력 · 클릭 동작 목록)를 차례로 실행하고 결과 화면을 찍는다. 예전 형식의 click 은 클릭 동작 하나로 본다.
 화면이 보내는 요청은 모두 가로챈다. 화면 파일은 레포에서 읽고, API 는 계획의 가짜 데이터로 응답하며,
 Node 개발 서버를 띄운 때만 나머지 같은 주소 요청을 그 서버로 넘긴다. 그 밖의 요청은 끊는다.
 """
@@ -15,7 +16,7 @@ import json
 import mimetypes
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 MSG_FRONT = "화면 코드를 실행하지 못해 화면을 만들 수 없습니다."
 MSG_NOSCREEN = "이 레포에는 화면 코드가 없어 화면을 만들 수 없습니다."
@@ -23,10 +24,13 @@ FAIL_MSG = {"front": MSG_FRONT, "noscreen": MSG_NOSCREEN}
 STATIC_ORIGIN = "http://code-flow.local"  # 정적 화면은 서버 없이 이 가짜 주소로 연다
 
 
-def _mock_match(mock: dict, method: str, path: str) -> bool:
+def _mock_match(mock: dict, method: str, path: str, query: dict) -> bool:
     if mock.get("method", "GET").upper() not in ("*", method.upper()):
         return False
-    return path.startswith(mock["path"]) if mock.get("prefix") else path == mock["path"]
+    if not (path.startswith(mock["path"]) if mock.get("prefix") else path == mock["path"]):
+        return False
+    # query 가 있는 가짜 응답은 그 값이 모두 요청에 있을 때만 맞는다(예: 검색어 「견적」)
+    return all(str(v) in query.get(k, []) for k, v in (mock.get("query") or {}).items())
 
 
 def _mock_response(mock: dict) -> dict:
@@ -59,8 +63,10 @@ def respond(url: str, method: str, plan_doc: dict, mocks: list[dict]) -> tuple:
     base = urlparse(plan_doc.get("baseUrl") or STATIC_ORIGIN)
     if (u.scheme, u.netloc) != (base.scheme, base.netloc):
         return ("abort",)  # 외부 서비스로 나가는 요청은 끊는다
-    for m in mocks:
-        if _mock_match(m, method, u.path):
+    query = parse_qs(u.query)
+    # 조건이 있는 가짜 응답을 먼저 맞춘다. 그래야 검색어가 든 요청과 처음 목록 요청이 서로 다른 응답을 받는다
+    for m in sorted(mocks, key=lambda m: not m.get("query")):
+        if _mock_match(m, method, u.path, query):
             return ("fulfill", _mock_response(m))
     if plan_doc.get("static"):
         f = _static_file(plan_doc["static"], u.path)
@@ -71,6 +77,19 @@ def respond(url: str, method: str, plan_doc: dict, mocks: list[dict]) -> tuple:
             return ("fulfill", {"status": 200, "body": f.read_bytes(), "contentType": ctype})
         return ("fulfill", {"status": 404, "body": b"", "contentType": "text/plain"})
     return ("continue",)  # Node 개발 서버가 화면 파일을 내준다
+
+
+def scene_steps(scene: dict) -> list[dict]:
+    """장면의 사용자 동작 목록. 예전 형식(click 과 start)은 클릭 동작 하나로 바꾼다."""
+    if scene.get("steps"):
+        return scene["steps"]
+    if scene.get("click") and scene.get("start"):
+        return [{"action": "click", "target": scene["start"]}]
+    return []
+
+
+def typed_text(steps: list[dict]) -> str | None:
+    return next((s["text"] for s in steps if s.get("action") == "type"), None)
 
 
 def _target(page, target):
@@ -127,21 +146,29 @@ def capture(plan_doc: dict) -> dict:
             page.screenshot(path=str(out_dir / img))
             fr = {"screenImg": f"screens/{img}", "scenes": {}}
             for s in f["scenes"]:
-                sr = {k: v for k, v in (("start", _locate(page, s.get("start"))), ("end", _locate(page, s.get("end")))) if v}
-                if s.get("click") and s.get("start"):
-                    # 앞 장면의 클릭이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
+                steps = scene_steps(s)
+                first = steps[0]["target"] if steps else s.get("start")
+                sr = {k: v for k, v in (("start", _locate(page, first)), ("end", _locate(page, s.get("end")))) if v}
+                if steps:
+                    # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
                     cp, _ = fresh()
                     try:
-                        _target(cp, s["start"]).click(timeout=5000)
-                        cp.wait_for_timeout(1500)
+                        for st in steps:
+                            if st["action"] == "type":
+                                _target(cp, st["target"]).fill(st["text"], timeout=5000)
+                            else:
+                                _target(cp, st["target"]).click(timeout=5000)
+                            cp.wait_for_timeout(1500)
                         end_img = f"{s['id']}_end.png"
                         cp.screenshot(path=str(out_dir / end_img))
                         sr["endImg"] = f"screens/{end_img}"
                         end = _locate(cp, s.get("end"))
                         if end:
                             sr["end"] = end
+                        if typed_text(steps) and "start" in sr:
+                            sr["typed"] = typed_text(steps)
                     except Exception:
-                        pass  # 버튼을 찾지 못하면 시작 화면 안의 결과 위치로 줌한다
+                        pass  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌한다
                     cp.close()
                 fr["scenes"][s["id"]] = sr
             result["features"][f["key"]] = fr
@@ -191,6 +218,17 @@ def _check() -> int:
         expect("Node 화면의 나머지 같은 주소 요청은 개발 서버로 넘긴다", respond("http://127.0.0.1:5173/src/main.tsx", "GET", node_plan, mocks) == ("continue",))
         r = respond("http://127.0.0.1:5173/api/search", "GET", node_plan, mocks)
         expect("Node 화면의 API 도 가짜 데이터로 응답한다", r[0] == "fulfill" and r[1]["status"] == 200)
+
+    qmocks = [{"path": "/api/search", "json": {"rows": ["전체"]}},
+              {"path": "/api/search", "query": {"q": "견적"}, "json": {"rows": ["견적 메일"]}}]
+    pick = lambda url: json.loads(respond(url, "GET", {"baseUrl": "http://127.0.0.1:5173"}, qmocks)[1]["body"])["rows"]
+    expect("검색어 조건이 맞으면 그 가짜 응답을 쓴다", pick("http://127.0.0.1:5173/api/search?q=%EA%B2%AC%EC%A0%81&page=1") == ["견적 메일"])
+    expect("검색어가 없거나 다르면 조건 없는 가짜 응답을 쓴다",
+           pick("http://127.0.0.1:5173/api/search?page=1") == ["전체"] and pick("http://127.0.0.1:5173/api/search?q=회의") == ["전체"])
+    expect("click 만 있는 옛 장면은 클릭 동작 하나로 바꾼다",
+           scene_steps({"start": {"text": "통계"}, "click": True}) == [{"action": "click", "target": {"text": "통계"}}])
+    expect("동작 목록에서 친 글자를 꺼낸다",
+           typed_text([{"action": "type", "target": {"selector": "#q"}, "text": "견적"}, {"action": "click", "target": {"text": "검색"}}]) == "견적")
 
     plan_doc = {"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}]}
     expect("띄우지 못한 화면은 모든 장면에 같은 문구를 적는다",
