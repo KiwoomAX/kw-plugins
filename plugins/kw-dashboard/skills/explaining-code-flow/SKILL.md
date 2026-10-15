@@ -65,7 +65,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/render.py" <레포>/docs/code-flow/flow.json
  "static": {"root": "<레포>", "routes": [{"path": "/", "file": "src/web/index.html"}, {"prefix": "/static/", "dir": "src/web"}]},
  "features": [{"key": "search", "path": "/",
    "mocks": [{"method": "GET", "path": "/api/search", "json": {"rows": []}}],
-   "scenes": [{"id": "search-0", "start": {"selector": "#q"}, "end": {"selector": "#rows"}, "click": false}]}]}
+   "scenes": [{"id": "search-0", "steps": [{"action": "type", "target": {"selector": "#q"}, "text": "견적"}], "end": {"selector": "#rows"}}]}]}
 ```
 
 Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣는다. `capture.py` 는 가짜 데이터와 화면 파일에 없는 요청을 모두 끊으므로, 화면이 비어 보이면 빠진 가짜 응답을 분석 결과에서 찾아 넣는다.
@@ -80,6 +80,7 @@ Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣�
 | `scenes.<id>.start` · `end` | 장면의 `screen.start` · `screen.end` |
 | `scenes.<id>.endImg` | 장면의 `screen.endImg` |
 | `scenes.<id>.unavailable` | 장면의 `screen.unavailable` |
+| `scenes.<id>.typed` | 장면의 `screen.typed` |
 
 `render.py` 가 고칠 곳을 출력하면 그 목록대로 `flow.json` 을 고친 뒤 다시 실행한다.
 
@@ -106,6 +107,8 @@ Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣�
 | 동시 처리 건수 제한 같은 내부 수치는 넣지 않는다 | 사용자가 알 필요가 없다 |
 | 코드가 하지 않는 동작은 그리지 않고, 값을 하나씩 따로 가져오면 따로 그린다 | 한 묶음으로 모아 보내는 그림은 코드와 달라 거짓이 된다 |
 | 예시 값은 「샘플 데이터」라고 밝힌다 | 실제 집계로 오해한다 |
+| 버튼만이 아니라 검색어 입력 · 목록에서 고르기 같은 사용자 동작을 차례로 따라가고, 자료 이름에는 「"견적" 검색」처럼 예시 값을 쓴다 | 시연 영상처럼 실제 사용 순서가 보여야 이해된다 |
+| 외부 프로그램 · 외부 시스템(아웃룩, 엑셀, WINUS, FAS, 외부 사이트)은 처음 쓰일 때 열리는 동작을 보여 준다(`launch`) | 바깥 프로그램에서 가져온다는 점이 보여야 한다 |
 | 알아 둘 점은 장면마다 5개 안팎으로, 화면에서 직접 확인할 수 있는 규칙만 적는다 | 많으면 중요한 규칙이 묻힌다 |
 | 노드 상자는 회색 테두리로 두고, 색은 구역 상자에만 쓴다 | 구역 색과 상자 색이 겹쳐 어지럽다 |
 | 왼쪽 세로 띠를 쓰지 않고, 현재 줄은 회색 면으로 표시한다 | 대시보드 스킬의 강제 규칙과 같다 |
