@@ -88,9 +88,6 @@ def scene_steps(scene: dict) -> list[dict]:
     return []
 
 
-def typed_text(steps: list[dict]) -> str | None:
-    return next((s["text"] for s in steps if s.get("action") == "type"), None)
-
 
 def _target(page, target):
     if target.get("selector"):
@@ -167,8 +164,9 @@ def capture(plan_doc: dict) -> dict:
                         end = _locate(cp, s.get("end"))
                         if end:
                             sr["end"] = end
-                        if typed_text(steps) and "start" in sr:
-                            sr["typed"] = typed_text(steps)
+                        # 입력 연출은 시작 화면에 보이는 칸에 치는 장면만 한다. 앞 동작이 화면을 바꾼 뒤에 치는 칸은 시작 화면에 없다
+                        if steps[0].get("action") == "type" and "start" in sr:
+                            sr["typed"] = steps[0]["text"]
                     except Exception:
                         pass  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌한다
                     cp.close()
@@ -229,8 +227,6 @@ def _check() -> int:
            pick("http://127.0.0.1:5173/api/search?page=1") == ["전체"] and pick("http://127.0.0.1:5173/api/search?q=회의") == ["전체"])
     expect("click 만 있는 옛 장면은 클릭 동작 하나로 바꾼다",
            scene_steps({"start": {"text": "통계"}, "click": True}) == [{"action": "click", "target": {"text": "통계"}}])
-    expect("동작 목록에서 친 글자를 꺼낸다",
-           typed_text([{"action": "type", "target": {"selector": "#q"}, "text": "견적"}, {"action": "click", "target": {"text": "검색"}}]) == "견적")
 
     plan_doc = {"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}]}
     expect("띄우지 못한 화면은 모든 장면에 같은 문구를 적는다",
