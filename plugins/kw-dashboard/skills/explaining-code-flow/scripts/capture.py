@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 MSG_FRONT = "화면 코드를 실행하지 못해 화면을 만들 수 없습니다."
 MSG_NOSCREEN = "이 레포에는 화면 코드가 없어 화면을 만들 수 없습니다."
+MSG_STEP = "이 장면의 동작을 화면에서 따라 하지 못해 화면을 만들 수 없습니다."
 FAIL_MSG = {"front": MSG_FRONT, "noscreen": MSG_NOSCREEN}
 STATIC_ORIGIN = "http://code-flow.local"  # 정적 화면은 서버 없이 이 가짜 주소로 연다
 
@@ -210,6 +211,9 @@ def capture(plan_doc: dict) -> dict:
                     except Exception:
                         pass  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌한다
                     cp.close()
+                if steps and not (sr.get("startImg") or sr.get("endImg")):
+                    # 동작을 하나도 따라 하지 못한 장면이 기능의 첫 화면을 자기 화면처럼 보이지 않게 이유를 적는다
+                    sr = {"unavailable": MSG_STEP}
                 fr["scenes"][s["id"]] = sr
             result["features"][f["key"]] = fr
             page.close()

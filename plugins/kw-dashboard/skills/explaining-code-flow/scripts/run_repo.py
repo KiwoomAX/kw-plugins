@@ -193,7 +193,15 @@ def start(repo: Path, state_path: Path) -> dict:
     state = {"repo": str(repo), "git_before": _git_status(repo), "pids": []}
     try:
         for cmd in svc["install"]:
-            _run_logged(cmd, svc["cwd"], env, tmp / "install.log")
+            try:
+                _run_logged(cmd, svc["cwd"], env, tmp / "install.log")
+            except RepoError:
+                if cmd != ["npm", "ci"]:
+                    raise
+                # 잠금 파일이 package.json 과 맞지 않으면 npm ci 가 거절한다. 잠금 파일을 쓰지 않는 설치로 한 번 더 시도해
+                # 레포의 추적 파일은 그대로 둔다
+                _run_logged(["npm", "install", "--no-save", "--package-lock=false"], svc["cwd"], env, tmp / "install.log")
+                state["lock_mismatch"] = True
         env.update(svc["env"])
         out = (tmp / "frontend.log").open("w", encoding="utf-8")
         kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
@@ -211,7 +219,10 @@ def start(repo: Path, state_path: Path) -> dict:
         raise
     state["url"] = f"http://127.0.0.1:{svc['port']}"
     state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    return {"url": state["url"]}
+    out = {"url": state["url"]}
+    if state.get("lock_mismatch"):
+        out["note"] = "package-lock.json 이 package.json 과 맞지 않아 잠금 파일 없이 설치했습니다. 사용자에게 알립니다"
+    return out
 
 
 def stop(state_path: Path) -> list[str]:
