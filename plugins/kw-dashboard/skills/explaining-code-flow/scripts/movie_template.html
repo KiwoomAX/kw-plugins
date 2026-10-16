@@ -17,8 +17,8 @@
 }
 *{box-sizing:border-box}
 body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary);font:14px/1.7 'Pretendard',-apple-system,'Segoe UI','Malgun Gothic',sans-serif;-webkit-font-smoothing:antialiased}
-.app{display:grid;grid-template-columns:264px 1fr;min-height:100vh}
-.rail{background:var(--bg-rail);background-image:var(--rail-tint);border-right:1px solid var(--border-light);position:sticky;top:0;align-self:start;height:100vh;display:flex;flex-direction:column}
+.app{display:grid;grid-template-columns:264px 1fr;min-height:calc(100vh / var(--z, 1))}
+.rail{background:var(--bg-rail);background-image:var(--rail-tint);border-right:1px solid var(--border-light);position:sticky;top:0;align-self:start;height:calc(100vh / var(--z, 1));display:flex;flex-direction:column}
 .rail-head{height:68px;display:flex;flex-direction:column;justify-content:center;padding:0 16px}
 .rail-head .co{font-size:11px;font-weight:600;color:var(--text-tertiary);line-height:1.35}
 .rail-head .dv{font-size:14px;font-weight:600;color:var(--text-secondary);line-height:1.25}
@@ -45,7 +45,7 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .content{padding:20px 32px 96px}
 .kicker{font-size:12px;color:var(--text-tertiary);font-weight:600}
 .content h2{margin:2px 0 12px;font-size:22px;letter-spacing:-.02em}
-.body{display:grid;grid-template-columns:minmax(0,960px) minmax(300px,1fr);gap:24px;align-items:start}
+.body{display:grid;grid-template-columns:minmax(0,960px) minmax(300px,600px);gap:24px;align-items:start}
 .body[hidden]{display:none}
 /* 무대: 노드는 고정 위치, 자료 아이콘이 그 사이를 움직인다. 창이 좁으면 무대 전체를 비율로 줄여 오른쪽 칸을 남긴다 */
 .stagewrap{width:100%;overflow:hidden}
@@ -104,7 +104,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .prereq b{color:#C2410C;margin-right:8px}
 .autob{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:4px;background:#EEF0F3;color:#5B6C8C;font-size:12px;font-weight:700;vertical-align:2px}
 /* 오른쪽 칸(화면 캡처 · 알아 둘 점)은 아래 진행 목록을 읽으며 내려가도 상단 막대 아래에 붙어 따라온다 */
-.log{font-size:13px;position:sticky;top:72px;align-self:start;max-height:calc(100vh - 160px);overflow:auto}
+.log{font-size:13px;position:sticky;top:72px;align-self:start;max-height:calc(100vh / var(--z, 1) - 160px);overflow:auto}
 /* 외부 프로그램 · 시스템이 처음 쓰일 때 창이 열리는 동작 */
 .node.opened{border-color:#27457D;border-style:solid}
 .launchwin{position:absolute;z-index:4;width:64px;height:46px;border:2px solid #27457D;border-radius:6px;background:#fff;
@@ -121,7 +121,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .shot .cap i{width:8px;height:8px;border-radius:50%}
 /* 캡처는 백엔드 없이 가짜 데이터로 띄운 화면이라, 실제 값으로 오해하지 않도록 화면 아래에 늘 밝힌다 */
 .shot .ex{padding:5px 10px;font-size:12px;color:var(--text-tertiary);border-top:1px solid var(--border-light)}
-.shot .view{position:relative;width:100%;height:220px;overflow:hidden;background:#F4F4F5}
+.shot .view{position:relative;width:100%;aspect-ratio:1440/1000;max-height:400px;overflow:hidden;background:#F4F4F5}
 .shot .view img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0}
 .shot .mark{position:absolute;border:3px solid;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.18)}
 .shot .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;text-align:center;padding:0 16px}
@@ -265,7 +265,15 @@ function fitStage() {
   document.getElementById('stage').style.transform = `scale(${s})`;
   wrap.style.height = Math.ceil(462 * s) + 'px';
 }
-window.addEventListener('resize', fitStage);
+// 화면 전체 배율: 창 폭 1920 에서 0.67 배(브라우저 배율 67% 와 같은 크기)가 되도록 창 폭에 맞춘다.
+// 좁은 노트북에서 글자가 너무 작아지지 않게 0.6 배 아래로는 줄이지 않고, 아주 넓은 화면에서는 1 배를 넘기지 않는다
+function fitPage() {
+  const z = Math.max(0.6, Math.min(1, window.innerWidth / 2860));
+  document.documentElement.style.zoom = z;
+  document.documentElement.style.setProperty('--z', z);
+}
+fitPage();
+window.addEventListener('resize', () => { fitPage(); fitStage(); });
 function drawStage() {
   const st = document.getElementById('stage');
   st.innerHTML = '<svg class="wires" id="wires" width="960" height="460"></svg>' + F.nodes.map(n => nodeHtml(n)).join('');
