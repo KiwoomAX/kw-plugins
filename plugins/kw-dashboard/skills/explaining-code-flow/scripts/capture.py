@@ -107,10 +107,31 @@ def _run(page, steps):
         page.wait_for_timeout(1500)
 
 
-def _target(page, target):
+# 요소의 가운데 점에서 실제로 보이는 맨 위 요소가 그 요소이거나 그 안의 요소일 때만 보이는 요소로 친다.
+# 크기만 있고 투명하거나 다른 창에 가려진 요소(자동 높이용 숨은 textarea, 사라진 알림)를 고르지 않으려는 검사다
+_SEEN = """el => { const r = el.getBoundingClientRect(); if (!r.width || !r.height) return false;
+  if (getComputedStyle(el).opacity === '0') return false;
+  const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+  return !!t && (t === el || el.contains(t) || t.contains(el)); }"""
+
+
+def _candidates(page, target):
     if target.get("selector"):
-        return page.locator(target["selector"]).first
-    return page.get_by_text(target["text"]).first
+        return [page.locator(target["selector"])]
+    # 글자는 정확히 같은 요소를 먼저 찾고, 없으면 그 글자가 든 요소를 찾는다
+    return [page.get_by_text(target["text"], exact=True), page.get_by_text(target["text"])]
+
+
+def _target(page, target):
+    groups = _candidates(page, target)
+    for loc in groups:
+        for el in loc.all()[:20]:
+            try:
+                if el.evaluate(_SEEN):
+                    return el
+            except Exception:
+                continue
+    return groups[-1].first  # 보이는 후보가 없으면 예전처럼 첫 요소를 쓴다(누르기는 Playwright 가 기다렸다 실패를 알린다)
 
 
 def _locate(page, target):

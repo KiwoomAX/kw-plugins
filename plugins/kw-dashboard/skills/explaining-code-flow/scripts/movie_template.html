@@ -309,6 +309,8 @@ function setupShot(sc) {
   }
   if (!sc.screen || !(sc.screen.startImg || F.screenImg)) { box.hidden = true; return false; }
   box.hidden = false;
+  // 결과 화면을 미리 받아 두어, 줌할 때 내려받기를 기다리느라 화면이 늦게 바뀌지 않게 한다
+  if (sc.screen.endImg) new Image().src = sc.screen.endImg;
   // 장면마다 화면 상태가 다르면 startImg · endImg 로 그 상태의 캡처를 쓴다(예: 기관을 고른 뒤의 화면)
   box.innerHTML = `<div class="cap"><i></i><span></span></div><div class="view"><img src="${esc(sc.screen.startImg || F.screenImg)}" alt=""><div class="mark"></div></div><div class="ex">예시 데이터로 그린 화면</div>`;
   camera(null, '대시보드 전체 화면', '#5B6C8C', true);
@@ -318,15 +320,25 @@ function camera(rect, label, color, instant, src) {
   const box = document.getElementById('shot');
   if (box.hidden) return;
   const view = box.querySelector('.view'), img = box.querySelector('img'), mark = box.querySelector('.mark');
-  if (src && !img.src.endsWith(src)) img.src = src;
   mark.innerHTML = '';  // 앞 연출에서 친 글자는 줌이 옮겨 가면 지운다
   const W = view.clientWidth, H = view.clientHeight, pad = 30;
   const [x, y, w, h] = rect || [0, 0, SHOT_W, SHOT_H];
   const k = rect ? Math.min(W / (w + pad * 2), H / (h + pad * 2), 1.6) : Math.min(W / SHOT_W, H / SHOT_H);
   const ox = (W - w * k) / 2 - x * k, oy = (H - h * k) / 2 - y * k;
   const dur = instant ? '0s' : (T(1800) / 1000) + 's';  // 줌은 천천히 보이도록 1.8초
-  img.style.transition = mark.style.transition = `all ${dur} cubic-bezier(.4,0,.2,1)`;
-  img.style.transform = `translate(${ox}px, ${oy}px) scale(${k})`;
+  const ease = `all ${dur} cubic-bezier(.4,0,.2,1)`, to = `translate(${ox}px, ${oy}px) scale(${k})`;
+  // 화면이 바뀌는 줌은 앞 화면을 위에 겹쳐 두고 줌하는 동안 서서히 지워, 줌과 화면 전환이 함께 일어나게 한다
+  if (src && !img.src.endsWith(src)) {
+    view.querySelectorAll('img.old').forEach(o => o.remove());
+    const old = img.cloneNode();
+    old.classList.add('old');
+    img.after(old);
+    img.src = src;
+    requestAnimationFrame(() => { old.style.transition = ease; old.style.transform = to; old.style.opacity = 0; });
+    setTimeout(() => old.remove(), instant ? 0 : T(1900));
+  }
+  img.style.transition = mark.style.transition = ease;
+  img.style.transform = to;
   Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px',
                              opacity: rect ? 1 : 0, borderColor: color});
   box.querySelector('.cap i').style.background = color;
@@ -437,6 +449,8 @@ async function play(i, keepAuto, k0 = 0, single = false) {
     if (shot && k === 1 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
     if (shot && k === last) {
       if (sc.screen.end) camera(sc.screen.end, sc.screen.endName || '결과가 나타나는 곳', '#B5446E', false, sc.screen.endImg || sc.screen.startImg || F.screenImg);
+      // 결과 위치를 찾지 못했어도 결과 화면을 찍었으면 전체 화면으로 결과 화면을 보인다
+      else if (sc.screen.endImg) camera(null, sc.screen.endName || '결과 화면', '#B5446E', false, sc.screen.endImg);
       else camera(null, '이 장면은 화면을 바꾸지 않습니다', '#5B6C8C');
     }
     if (my !== run) return;
