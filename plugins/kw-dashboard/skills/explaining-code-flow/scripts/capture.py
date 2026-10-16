@@ -121,6 +121,13 @@ def plan_errors(plan_doc: dict) -> list[str]:
                     errs.append(f"{where}: drag 에 to 나 by 가 없습니다")
                 if st["action"] == "upload" and not (isinstance(st.get("file"), dict) and st["file"].get("name")):
                     errs.append(f"{where}: upload 의 file 은 {{\"name\": …, \"text\": …}} 형태여야 합니다")
+    ids = {s.get("id") for f in plan_doc.get("features", []) for s in f.get("scenes", [])}
+    for t in plan_doc.get("tour", []):
+        if t.get("scene") not in ids:
+            errs.append(f"둘러보기 {t.get('key')}: 장면 {t.get('scene')!r} 가 계획에 없습니다")
+        for i, a in enumerate(t.get("areas", [])):
+            if not isinstance(a.get("target"), dict):
+                errs.append(f"둘러보기 {t.get('key')} 항목 {i}: target 이 없습니다")
     return errs
 
 
@@ -215,6 +222,49 @@ def _locate(page, target):
     return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
 
 
+MSG_TOUR = "둘러보기 화면을 캡처하지 못했습니다."
+
+
+def pick_unique(seen: list[bool], first: bool = False) -> int | None:
+    """보이는 후보 중 하나를 고른다. 둘러보기 번호가 엉뚱한 칸에 찍히지 않도록 후보가 둘 이상이면 고르지 않는다."""
+    idx = [i for i, v in enumerate(seen) if v]
+    if not idx:
+        return None
+    if first:
+        return idx[0]
+    return idx[0] if len(idx) == 1 else None
+
+
+def _locate_area(page, area):
+    """둘러보기 항목의 위치. 정확히 같은 글자(또는 선택자) 후보만 보고, 하나로 정해질 때만 사각형을 돌려준다."""
+    try:
+        els = _candidates(page, area["target"])[0].all()[:20]
+        seen = []
+        for el in els:
+            try:
+                seen.append(bool(el.evaluate(_SEEN)))
+            except Exception:
+                seen.append(False)
+        i = pick_unique(seen, area.get("first", False))
+        box = els[i].bounding_box() if i is not None else None
+    except Exception:
+        return None
+    return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
+
+
+def capture_tour_result(tour_plan: list[dict], scene_results: dict, rects: dict) -> list[dict]:
+    """둘러보기 화면마다 그 장면의 결과 화면과 찾은 항목 위치를 모은다. 장면 캡처가 실패했으면 실패 문구를 적는다."""
+    out = []
+    for t in tour_plan:
+        sr = scene_results.get(t["scene"], {})
+        if not sr.get("endImg"):
+            out.append({"key": t["key"], "unavailable": MSG_TOUR})
+            continue
+        out.append({"key": t["key"], "img": sr["endImg"],
+                    "rects": {str(i): r for i, r in (rects.get(t["scene"]) or {}).items() if r}})
+    return out
+
+
 def start_targets(own: list[dict], fallback=None) -> list[dict]:
     """시작 줌에 넣을 대상. 앞쪽에 이어진 입력 · 고르기 동작(예: 연도 고르기 → 월 고르기)의 대상을 모두 넣고,
     그런 동작이 없으면 첫 대상 하나를 넣는다. 사이의 기다리기는 건너뛴다."""
@@ -246,6 +296,9 @@ def capture(plan_doc: dict) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     base = plan_doc.get("baseUrl") or STATIC_ORIGIN
     result = {"features": {}}
+    tour_rects, tours_by_scene = {}, {}
+    for t in plan_doc.get("tour", []):
+        tours_by_scene.setdefault(t["scene"], []).append(t)
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)  # PC 에 설치된 Chrome 을 쓰고 내려받지 않는다
         for f in plan_doc["features"]:
@@ -297,6 +350,9 @@ def capture(plan_doc: dict) -> dict:
                         end_img = f"{s['id']}_end.png"
                         cp.screenshot(path=str(out_dir / end_img))
                         sr["endImg"] = f"screens/{end_img}"
+                        # 둘러보기 화면으로 고른 장면이면 결과 화면에서 항목 위치를 측정한다
+                        for t in tours_by_scene.get(s["id"], []):
+                            tour_rects[s["id"]] = {i: _locate_area(cp, a) for i, a in enumerate(t["areas"])}
                         end = _locate(cp, s.get("end"))
                         if end:
                             sr["end"] = end
@@ -314,12 +370,15 @@ def capture(plan_doc: dict) -> dict:
             result["features"][f["key"]] = fr
             page.close()
         browser.close()
+    scene_results = {sid: r for fr in result["features"].values() for sid, r in fr["scenes"].items()}
+    result["tour"] = capture_tour_result(plan_doc.get("tour", []), scene_results, tour_rects)
     return result
 
 
 def fail_result(plan_doc: dict, msg: str) -> dict:
     return {"features": {f["key"]: {"scenes": {s["id"]: {"unavailable": msg} for s in f["scenes"]}}
-                         for f in plan_doc["features"]}}
+                         for f in plan_doc["features"]},
+            "tour": [{"key": t["key"], "unavailable": msg} for t in plan_doc.get("tour", [])]}
 
 
 def _check() -> int:
@@ -388,9 +447,24 @@ def _check() -> int:
            any("swipe" in e for e in errs) and any("to 나 by" in e for e in errs)
            and any("upload 의 file" in e for e in errs) and any("paste 에 text" in e for e in errs))
 
+    expect("보이는 후보가 하나면 그 후보를 고른다", pick_unique([False, True, False]) == 1)
+    expect("보이는 후보가 둘 이상이면 찾지 못함이다", pick_unique([True, True]) is None)
+    expect("보이는 후보가 없으면 찾지 못함이다", pick_unique([False]) is None)
+    expect("first 항목은 보이는 첫 후보를 고른다", pick_unique([False, True, True], first=True) == 1)
+    tp = [{"key": "result", "scene": "result-1", "areas": [{"name": "a"}, {"name": "b"}]},
+          {"key": "input", "scene": "input-4", "areas": [{"name": "c"}]}]
+    sr = {"result-1": {"endImg": "screens/result-1_end.png"}, "input-4": {"unavailable": MSG_STEP}}
+    got = capture_tour_result(tp, sr, {"result-1": {0: [1, 2, 3, 4], 1: None}})
+    expect("둘러보기 화면은 그 장면의 결과 화면과 찾은 위치를 쓴다",
+           got[0] == {"key": "result", "img": "screens/result-1_end.png", "rects": {"0": [1, 2, 3, 4]}})
+    expect("장면 캡처가 실패한 둘러보기 화면은 실패 문구를 적는다",
+           got[1] == {"key": "input", "unavailable": MSG_TOUR})
+    terr = plan_errors({"features": [{"scenes": [{"id": "a-0"}]}], "tour": [{"key": "x", "scene": "a-9", "areas": [{"name": "n"}]}]})
+    expect("둘러보기가 없는 장면을 가리키거나 target 이 없으면 잡는다", any("a-9" in e for e in terr) and any("target" in e for e in terr))
+
     plan_doc = {"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}]}
     expect("띄우지 못한 화면은 모든 장면에 같은 문구를 적는다",
-           fail_result(plan_doc, MSG_FRONT) == {"features": {"a": {"scenes": {"a-0": {"unavailable": MSG_FRONT}, "a-1": {"unavailable": MSG_FRONT}}}}})
+           fail_result(plan_doc, MSG_FRONT) == {"features": {"a": {"scenes": {"a-0": {"unavailable": MSG_FRONT}, "a-1": {"unavailable": MSG_FRONT}}}}, "tour": []})
     return 0 if ok else 1
 
 
