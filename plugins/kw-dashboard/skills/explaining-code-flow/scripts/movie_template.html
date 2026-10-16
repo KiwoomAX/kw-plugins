@@ -45,7 +45,11 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .content{padding:20px 32px 96px}
 .kicker{font-size:14px;color:var(--text-tertiary);font-weight:600}
 .content h2{margin:2px 0 12px;font-size:26px;letter-spacing:-.02em}
-.body{display:grid;grid-template-columns:minmax(0,3fr) minmax(300px,2fr);gap:24px;align-items:start}
+.body{display:grid;grid-template-columns:minmax(0,var(--lf,3fr)) 12px minmax(300px,var(--rf,2fr));gap:12px;align-items:start}
+/* 흐름 칸과 화면 칸 사이 구분선. 끌면 두 칸의 폭 비율이 바뀐다 */
+.split{align-self:stretch;cursor:col-resize;position:relative;min-height:200px}
+.split::before{content:"";position:absolute;left:5px;top:0;bottom:0;width:2px;border-radius:2px;background:var(--border-light)}
+.split:hover::before,.split.drag::before{background:#27457D}
 .body[hidden]{display:none}
 /* 무대: 노드는 고정 위치, 자료 아이콘이 그 사이를 움직인다. 창이 좁으면 무대 전체를 비율로 줄여 오른쪽 칸을 남긴다 */
 .stagewrap{width:100%;overflow:hidden}
@@ -155,6 +159,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
       <div class="body">
         <div><div class="stagewrap" id="stagewrap"><div class="stage" id="stage"></div></div><div class="kinds" id="kinds"></div>
           <div class="steps-now"><h4>이 장면에서 일어나는 일 · 번호를 누르면 그 동작만 봅니다</h4><ol id="log"></ol><div class="sub" id="sub"></div></div></div>
+        <div class="split" id="split" title="끌어서 왼쪽 · 오른쪽 폭을 조절합니다"></div>
         <div class="log"><div class="shot" id="shot" hidden></div><div class="tips" id="tips" hidden></div></div>
       </div>
     </main>
@@ -274,6 +279,29 @@ function fitPage() {
 }
 fitPage();
 window.addEventListener('resize', () => { fitPage(); fitStage(); });
+// 구분선을 끌면 흐름 칸의 폭 비율(30 ~ 80%)이 바뀌고, 고른 비율은 이 브라우저에 기억해 둔다
+(() => {
+  const sp = document.getElementById('split'), body = document.querySelector('.body');
+  const set = f => {
+    f = Math.min(0.8, Math.max(0.3, f));
+    body.style.setProperty('--lf', f + 'fr'); body.style.setProperty('--rf', (1 - f) + 'fr');
+    fitStage();
+    return f;
+  };
+  try { const f = +localStorage.getItem('flow-split'); if (f) set(f); } catch (e) {}
+  sp.onmousedown = e => {
+    e.preventDefault();
+    sp.classList.add('drag');
+    let f;
+    const move = ev => { const r = body.getBoundingClientRect(); f = set((ev.clientX - r.left) / r.width); };
+    const up = () => {
+      sp.classList.remove('drag');
+      removeEventListener('mousemove', move); removeEventListener('mouseup', up);
+      try { if (f) localStorage.setItem('flow-split', f); } catch (e) {}
+    };
+    addEventListener('mousemove', move); addEventListener('mouseup', up);
+  };
+})();
 function drawStage() {
   const st = document.getElementById('stage');
   st.innerHTML = '<svg class="wires" id="wires" width="960" height="460"></svg>' + F.nodes.map(n => nodeHtml(n)).join('');

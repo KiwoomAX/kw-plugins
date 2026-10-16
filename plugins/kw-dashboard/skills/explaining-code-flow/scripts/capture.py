@@ -215,6 +215,31 @@ def _locate(page, target):
     return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
 
 
+def start_targets(own: list[dict], fallback=None) -> list[dict]:
+    """시작 줌에 넣을 대상. 앞쪽에 이어진 입력 · 고르기 동작(예: 연도 고르기 → 월 고르기)의 대상을 모두 넣고,
+    그런 동작이 없으면 첫 대상 하나를 넣는다. 사이의 기다리기는 건너뛴다."""
+    lead = []
+    for st in own:
+        if st["action"] == "wait":
+            continue
+        if st["action"] not in ("type", "select", "paste", "upload") or "target" not in st:
+            break
+        lead.append(st["target"])
+    if lead:
+        return lead
+    first = next((st["target"] for st in own if "target" in st), fallback)
+    return [first] if first else []
+
+
+def union(rects: list) -> list | None:
+    rects = [r for r in rects if r]
+    if not rects:
+        return None
+    x1, y1 = min(r[0] for r in rects), min(r[1] for r in rects)
+    x2, y2 = max(r[0] + r[2] for r in rects), max(r[1] + r[3] for r in rects)
+    return [x1, y1, x2 - x1, y2 - y1]
+
+
 def capture(plan_doc: dict) -> dict:
     from playwright.sync_api import sync_playwright  # uv run --no-project --with playwright 로 들어온다
     out_dir = Path(plan_doc["outDir"])
@@ -255,8 +280,8 @@ def capture(plan_doc: dict) -> dict:
             for s in f["scenes"]:
                 steps = scene_steps(s)
                 setup, own = split_steps(steps)
-                first = next((st["target"] for st in own if "target" in st), s.get("start"))
-                sr = {} if setup else {k: v for k, v in (("start", _locate(page, first)), ("end", _locate(page, s.get("end")))) if v}
+                firsts = start_targets(own, s.get("start"))
+                sr = {} if setup else {k: v for k, v in (("start", union([_locate(page, t) for t in firsts])), ("end", _locate(page, s.get("end")))) if v}
                 if steps:
                     # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
                     cp, _ = fresh()
@@ -267,7 +292,7 @@ def capture(plan_doc: dict) -> dict:
                             start_img = f"{s['id']}_start.png"
                             cp.screenshot(path=str(out_dir / start_img))
                             sr["startImg"] = f"screens/{start_img}"
-                            sr.update({k: v for k, v in (("start", _locate(cp, first)), ("end", _locate(cp, s.get("end")))) if v})
+                            sr.update({k: v for k, v in (("start", union([_locate(cp, t) for t in firsts])), ("end", _locate(cp, s.get("end")))) if v})
                         _run(cp, own, "장면")
                         end_img = f"{s['id']}_end.png"
                         cp.screenshot(path=str(out_dir / end_img))
@@ -276,7 +301,8 @@ def capture(plan_doc: dict) -> dict:
                         if end:
                             sr["end"] = end
                         # 입력 연출은 시작 화면에 보이는 칸에 치는 장면만 한다. 앞 동작이 화면을 바꾼 뒤에 치는 칸은 시작 화면에 없다
-                        if own and own[0].get("action") == "type" and "start" in sr:
+                        # 시작 줌이 칸 여럿을 합친 사각형이면 어느 칸에 친 글자인지 흐려지므로 칸 하나일 때만 친다
+                        if own and own[0].get("action") == "type" and "start" in sr and len(firsts) == 1:
                             sr["typed"] = own[0]["text"]
                     except Exception as e:
                         sr["failed"] = str(e)  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌하고, 멈춘 동작을 보고에 남긴다
@@ -345,6 +371,12 @@ def _check() -> int:
     y = {"action": "select", "target": {"selector": "#year"}, "value": "2026", "setup": True}
     q = {"action": "type", "target": {"selector": "#q"}, "text": "견적"}
     expect("준비 동작과 장면 자신의 동작을 나눈다", split_steps([y, q]) == ([y], [q]))
+    m = {"action": "select", "target": {"selector": "#month"}, "value": "9"}
+    c = {"action": "click", "target": {"text": "실행"}}
+    expect("시작 줌에 앞쪽의 입력 · 고르기 대상을 모두 넣는다(기다리기는 건너뜀)",
+           start_targets([y, {"action": "wait", "ms": 500}, m, c]) == [y["target"], m["target"]])
+    expect("입력 · 고르기로 시작하지 않으면 첫 대상 하나만 넣는다", start_targets([c, q]) == [c["target"]])
+    expect("사각형 여럿을 감싸는 사각형을 만든다", union([[10, 20, 30, 40], [50, 10, 20, 20], None]) == [10, 10, 60, 50])
     good = [{"action": "rightclick", "target": {"text": "소계"}}, {"action": "press", "key": "Escape"},
             {"action": "paste", "target": {"selector": "table"}, "text": "a\tb"}, {"action": "drag", "target": {"selector": ".bar"}, "by": [80, 0]},
             {"action": "upload", "target": {"selector": "input[type=file]"}, "file": {"name": "보고서.pdf", "text": "%PDF-1.4"}}]
