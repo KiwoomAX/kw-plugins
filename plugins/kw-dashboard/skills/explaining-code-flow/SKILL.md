@@ -1,0 +1,173 @@
+---
+name: explaining-code-flow
+description: Use when someone wants to see how their repo works feature by feature (which button reads which DB, which server and AI it passes through, and what comes back), especially vibe coders who cannot read the code. Builds a moving developer guide page and a user manual (사용자 설명서) from the same analysis, with screen captures (front end only, fed with example data), in the repo's docs/code-flow folder. Triggers on 코드 흐름·동작 흐름·어떻게 동작하는지·기능별 흐름·흐름 시각화·사용자 설명서·사용 설명서·code flow.
+---
+
+# explaining-code-flow
+
+이 스킬은 HTML 두 개를 같은 분석 결과로 함께 만든다. 개발자용 안내 화면(`index.html`)은 레포의 기능마다 「버튼을 누르면 자료가 어디로 오가는지」를 움직이는 그림과 화면 캡처로 보여 준다. 이 화면을 읽는 사람은 바이브 코더이고 함수 이름과 API 개념을 모른다고 가정한다. 사용자 설명서(`manual.html`)는 흐름 그림 없이 큰 캡처와 함께 화면의 항목과 버튼의 뜻을 보여 주며, 화면을 쓰는 사람이 읽는다. 결과물은 레포의 `docs/code-flow/` 에 생기고 git 에서 제외된다.
+
+화면 캡처는 백엔드를 실행하지 않는다. 화면 코드만 실행하고, 화면이 보내는 요청에는 분석이 만든 가짜 데이터로 응답한다. 그래서 실제 데이터가 찍히지 않고, 아웃룩 · 사내 DB · 키 같은 실행 조건이 필요 없으며, 버튼을 눌러도 바깥에 아무 일도 일어나지 않는다. 서버 쪽 흐름은 코드 분석으로 그린 흐름 그림과 설명이 보여 준다.
+
+## 절차
+
+아래 순서로 진행한다. 사용자에게 묻는 곳은 결과 확인뿐이다.
+
+| 단계 | 하는 일 |
+|---|---|
+| 레포 찾기 | 현재 폴더와 그 상위 폴더에서 이름이 같은 git 레포를 찾는다. 후보가 여럿이거나 없으면 경로를 묻는다. `git -C <레포> rev-parse --abbrev-ref HEAD` 와 `git -C <레포> rev-parse --short HEAD` 로 브랜치와 커밋을 기록한다. 화면 코드가 다른 레포에 있으면 지원하지 않는다고 알리고 멈춘다 |
+| 도구 확인 | 아래 「스크립트」의 `doctor` 를 실행한다. 「없음」 줄이 있으면 무엇이 없는지 알린다 |
+| 기능 목록 | 메뉴 · 탭 · 라우트를 코드에서 읽어 사용자에게 보이는 기능 이름으로 나열해 알리고, 묻지 않고 모든 기능을 분석한다. 사용자가 빼라고 하면 뺀다. 실제로 렌더되고 화면에서 도달할 수 있는 화면만 기능으로 삼는다(import 사용처와 상태 전이 호출처로 확인). 대화 입력과 도구 호출로 진행되는 챗봇 기능은 「챗봇 기능」으로 표시한다 |
+| 순서 정하기 | 레포 전체의 큰 흐름을 먼저 읽고 아래 「기능 순서」를 따라 순서표를 만든다 |
+| 순서 검토 | 순서표를 「사람이 화면을 보는 순서 · 실제로 움직이는 순서」와 대조해 고친 뒤, 순서표를 알리고 확인을 기다리지 않고 진행한다 |
+| 기능별 분석 | 챗봇 기능이 아닌 기능마다 분석 서브에이전트를 동시에 실행한다. 프롬프트에 [analysis-prompt.md](analysis-prompt.md) 와 [tips-prompt.md](tips-prompt.md) 의 경로, 레포 경로, 맡을 기능 이름, `appZone` 이름, 순서표, 공통 입력 동작(있으면)을 넣는다. 같은 때에 화면마다 항목 서브에이전트를 실행한다. 프롬프트에 [areas-prompt.md](areas-prompt.md) 경로, 레포 경로, 맡을 화면(둘러보기에 넣을 장면 id 와 화면 이름)을 넣는다. 둘러보기 화면은 순서표의 장면 중 서로 다른 결과 화면에서 고른다 |
+| 형식 검사 | 돌아온 결과가 JSON 하나로 읽히는지 확인한다. 읽히지 않으면 그 서브에이전트에 형식만 고쳐 다시 달라고 한다 |
+| 근거 대조 | `evidence` · `tipsEvidence` · `mockEvidence` 의 `파일:줄` 이 실제로 있는지 모두 확인하고, 기능마다 문장 몇 개를 골라 근거 줄과 내용을 대조한다. 맞지 않는 문장은 고치거나 지운다. 항목 서브에이전트의 `evidence` 와 항목 뜻도 같은 방법으로 대조한다 |
+| 알아 둘 점 검토 | 아래 「알아 둘 점 검토」를 따른다 |
+| 설명 대조 검토 | 항목마다 장면 · 알아 둘 점 중 어디에서 설명되는지 대조한다. 장면이 없는 버튼이 있으면 그 기능의 분석 서브에이전트를 빠진 버튼 목록과 함께 다시 실행해 장면을 받고, 근거 대조 · 알아 둘 점 검토를 다시 거친다. 모르면 결과를 잘못 읽는 표시 규칙이 알아 둘 점에 없으면 그 화면이 처음 나오는 장면의 알아 둘 점에 핵심으로 싣는다. 빠진 항목 수와 채운 방법, `unresolved` 항목을 답에 적는다 |
+| 화면 실행 | 아래 「화면 실행」을 따른다 |
+| 화면 캡처 | 캡처 이미지가 git 에 잡히지 않도록 `docs/code-flow/.gitignore` 를 먼저 만들고(「결과물」 절), 캡처 계획을 만들어 `capture.py` 를 실행한다. Node 화면이면 끝난 뒤 `stop` 을 반드시 실행한다 |
+| JSON 합치기 | 아래 「JSON 합치기」를 따라 `docs/code-flow/flow.json` 을 만든다 |
+| 렌더 | `render.py` 로 `docs/code-flow/index.html` 과 `manual.html` 을 함께 만들고 두 파일을 브라우저로 연다 |
+| 보고 | 아래 「결과 알리기」를 따른다 |
+
+`appZone` 은 레포 서비스가 실행되는 곳의 이름이다(예: 「홀세일 대시보드 (클라우드)」, 「메일 보관함 (내 PC)」).
+
+## 기능 순서
+
+기능은 사람이 화면을 보고 실제로 움직이는 순서로 놓는다. 아래 기준을 차례로 적용하고, 앞 기준으로 정해지지 않을 때만 다음 기준을 쓴다. 코드 파일 순서, 라우터 등록 순서, JSX 렌더 순서는 근거로 쓰지 않는다.
+
+| 기준 | 내용 | 예 |
+|---|---|---|
+| 데이터 의존 | 데이터를 쓰는 기능이 그 데이터를 읽는 기능보다 먼저 온다. 저장 코드와 조회 코드가 같은 테이블 · 키 · 파일을 가리키는지 확인한다. 한 사람이 올린 자료를 다른 사람이 보는 순서도 포함한다 | 코멘트 저장이 쓰는 테이블을 등급 산정이 읽으면 코멘트가 먼저다 |
+| 화면이 정한 순서 | 단계 번호, 비활성 조건, 선행 입력 필수 여부를 따른다. 번호 목록이 사용자 동작과 연결될 때만 쓴다 | STEP 1 업로드 → STEP 2 모듈 선택 |
+| 시선 순서 | 동작에 차이가 없고, 화면에 순서도 없고, 기능이 서로 독립일 때만 화면의 좌상단에서 오른쪽, 그다음 아래 순서로 놓는다 | 사이드바 · 알림 · 계정 |
+
+순서표의 맨 앞에는 아래 두 가지를 이 순서로 둔다.
+
+- 수집 과정: 크롤링 · 스케줄러처럼 미리 돌아 자료를 모으는 과정이 있으면 「수집 과정」 기능으로 맨 앞에 둔다. 다른 기능은 수집이 끝난 상태를 전제한다.
+- 공통 입력: 여러 기능이 같이 쓰는 입력(기준 보고월, 대상 선택 방식)이 있으면 「공통 입력」 기능으로 둔다. 다른 기능의 분석 프롬프트에는 이 입력의 캡처 동작을 준비 동작(`"setup": true`)으로 넣으라고 알린다.
+
+순서표는 아래 형태로 알린다.
+
+| 순서 | 기능 | 판정 기준 | 근거 |
+|---|---|---|---|
+| 1 | 기준 보고월 · 펀드 선택 입력 | 공통 입력 | 모든 기능이 보고월을 씀 (`InputForm.tsx:18-19`) |
+| 2 | 월간 코멘트 생성 · 저장 | 데이터 의존 | OPERATING 테이블에 씀 (`comment_repo.py:357`) |
+| 3 | 월간 위험등급 산정 | 데이터 의존 | 같은 테이블을 읽음 (`loader.py:37-45`) |
+
+데이터 의존으로 순서를 정한 기능은 `flow.json` 에서 뒤 기능의 `prereq` 에 그 조건을 한 문장으로 적는다(예: 「앞 기능에서 코멘트를 위너스 저장해야 등급 산정이 그 코멘트를 읽습니다.」). 템플릿이 뒤 기능의 첫 장면 위에 띠로 보인다.
+
+## 알아 둘 점 검토
+
+주 세션은 모든 기능의 결과를 받은 뒤 [tips-prompt.md](tips-prompt.md) 의 판정 기준으로 알아 둘 점을 한 번 더 확인하고 고친다. 개수는 정하지 않는다.
+
+- 화면에 이미 글자로 보이는 안내를 다시 말하는 항목은 지운다. 판정 단위는 사실이다.
+- 몰라도 틀리지 않는 항목이 `core` 이면 `ref` 로 내린다.
+- 근거 코드에 있는데 빠진 핵심(특히 백엔드의 저장 대상, 알림 없는 실패)이 있으면 넣는다.
+- 같은 규칙이 여러 장면에 있으면 그 기능에서 처음 나오는 장면에만 남긴다.
+- `defect` 항목이 `mismatches` 에도 있는지 확인한다.
+
+검토에서 지우거나 등급을 바꾸거나 넣은 항목 수를 보고에 적는다.
+
+## 스크립트
+
+`<작업 폴더>` 는 레포 밖 임시 폴더다(예: 윈도우 `%TEMP%` 아래 `code-flow-<레포 이름>`). 상태 파일 · 로그 · 캡처 계획을 여기에 둔다.
+
+```text
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" doctor
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" start <레포> --state <작업 폴더>/state.json
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --no-project --with playwright python "${CLAUDE_SKILL_DIR}/scripts/capture.py" <작업 폴더>/capture_plan.json --out <작업 폴더>/capture_result.json
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" stop --state <작업 폴더>/state.json
+python "${CLAUDE_SKILL_DIR}/scripts/render.py" <레포>/docs/code-flow/flow.json --out-dir <레포>/docs/code-flow
+```
+
+- `exec` 는 사내 인증서 묶음을 `SSL_CERT_FILE` 로 준 채 명령을 실행한다. 윈도우 PC 에는 컨트롤 타워 설치기가 설정한 `SSL_CERT_FILE` 이 있어 그 값을 쓰고, 없을 때만 레포의 `certs/ePrism.crt` 로 묶음을 만든다. `uv` 가 Playwright 를 내려받을 때 사내 프록시를 통과하려면 `uv run` 을 반드시 `exec` 로 감싼다.
+- `start` · `stop` 은 Node 화면에만 쓴다. `start` 는 의존성을 설치하고 개발 서버를 `127.0.0.1` 의 빈 포트로 실행한 뒤 `{"url": ...}` 를 출력한다. 서버가 `127.0.0.1` 밖의 주소에 열리면 바로 끄고 실패로 끝난다.
+- `stop` 은 캡처가 실패해도 반드시 실행한다. 종료 코드가 3 이면 레포의 추적 파일이 바뀐 것이므로 출력된 파일 목록을 사용자에게 알린다.
+
+## 화면 실행
+
+화면 코드의 종류에 따라 실행 방법이 다르다.
+
+| 화면 코드 | 실행 방법 | 캡처 계획 |
+|---|---|---|
+| Node(`package.json` 의 `dev`, Next.js · Vite) | `start` 로 개발 서버를 실행한다 | `baseUrl` 에 `start` 가 출력한 주소를 넣는다 |
+| 정적 HTML · JS | 서버를 실행하지 않는다 | `static` 에 레포 경로와 주소 · 파일 대응을 넣는다. 대응은 레포의 서버 코드가 주소마다 어떤 파일을 내주는지 읽어 정한다 |
+
+`start` 가 실패하거나 화면 파일을 찾지 못하면 `capture.py <계획> --out <결과> --fail front` 로 모든 장면에 「화면 코드를 실행하지 못함」 문구를 적는다. 레포에 화면 코드가 없으면 `--fail noscreen` 을 쓴다. 흐름 그림과 설명은 그대로 만든다.
+
+## 캡처 계획
+
+`<작업 폴더>/capture_plan.json` 은 분석 결과의 `capture` 와 `mocks` 를 모아 만든다. 장면 `id` 는 `<기능 key>-<장면 번호>` 로 짓고, 기능의 `mocks` 는 그 기능 아래에 둔다.
+
+```json
+{"outDir": "<레포>/docs/code-flow/screens",
+ "static": {"root": "<레포>", "routes": [{"path": "/", "file": "src/web/index.html"}, {"prefix": "/static/", "dir": "src/web"}]},
+ "features": [{"key": "search", "path": "/",
+   "mocks": [{"method": "GET", "path": "/api/search", "json": {"rows": []}}],
+   "scenes": [{"id": "search-0", "steps": [{"action": "type", "target": {"selector": "#q"}, "text": "견적"}], "end": {"selector": "#rows"}}]}],
+ "tour": [{"key": "search", "scene": "search-0", "areas": [{"name": "검색창", "target": {"selector": "#q"}}]}]}
+```
+
+`tour` 는 항목 서브에이전트 결과에서 만든다. 화면마다 `key`, 그 화면을 결과 화면으로 찍는 장면 `scene`, 항목의 `name` · `target`(필요하면 `first`)을 옮긴다. `capture.py` 는 그 장면의 결과 화면에서 항목 위치를 측정하고, 보이는 후보가 하나로 정해지지 않은 항목은 위치 없이 남긴다.
+
+준비 동작(`"setup": true`)이 있는 장면은 `capture.py` 가 준비 동작을 마친 화면을 그 장면의 시작 화면(`startImg`)으로 찍는다. 앞 장면에서 연 창 안에서 일어나는 장면도 앞 장면의 동작을 준비 동작으로 붙인다.
+
+Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣는다. `capture.py` 는 가짜 데이터와 화면 파일에 없는 요청을 모두 끊으므로, 화면이 비어 보이면 빠진 가짜 응답을 분석 결과에서 찾아 넣는다.
+
+## JSON 합치기
+
+`flow.json` 의 최상위는 `title`(「<레포 이름>, 움직이며 보기」) · `repo`(`<레포> (<브랜치> <커밋>)`) · `appZone` · `features` · `tour` 다. `tour` 는 둘러보기 화면 목록이고, 둘러보기 화면이 없으면 빈 목록 `[]` 을 둔다. `features` 는 순서표의 순서로 놓는다. 기능마다 분석 결과의 `feature` 를 넣고, 데이터 의존으로 뒤에 온 기능에는 `prereq` 를 적는다. 챗봇 기능은 `{"key", "name", "summary", "chatbot": true, "nodes": [], "scenes": []}` 로 넣는다. `capture_result.json` 의 값은 아래처럼 옮긴다.
+
+| capture_result.json | flow.json |
+|---|---|
+| `features.<key>.screenImg` | 기능의 `screenImg` |
+| `scenes.<id>.start` · `end` | 장면의 `screen.start` · `screen.end` |
+| `scenes.<id>.startImg` | 장면의 `screen.startImg` |
+| `scenes.<id>.endImg` | 장면의 `screen.endImg` |
+| `scenes.<id>.unavailable` | 장면의 `screen.unavailable` |
+| `scenes.<id>.typed` | 장면의 `screen.typed` |
+| `tour[].img` · `unavailable` | `tour[]` 화면의 `img` · `unavailable`(이름은 항목 서브에이전트 결과의 `screen.name`, `areas` 는 그 결과에서 `name` · `meaning` 만 옮긴다) |
+| `tour[].rects.<순번>` | 그 순번 항목의 `rect`(번호 `no` 는 `render.py` 가 매긴다) |
+
+`render.py` 가 고칠 곳을 출력하면 그 목록대로 `flow.json` 을 고친 뒤 다시 실행한다.
+
+## 결과물
+
+결과물은 레포의 `docs/code-flow/` 에 `index.html` · `manual.html` · `screens/` · `flow.json` 으로 둔다. 같은 폴더에 내용이 `*` 한 줄인 `.gitignore` 를 만든다. 이 파일은 자기 자신을 포함한 폴더 전체를 git 에서 제외하므로, 레포 루트의 `.gitignore` 는 고치지 않는다. 렌더한 뒤 `git -C <레포> status --short docs/code-flow` 가 빈 출력인지 확인한다.
+
+## 결과 알리기
+
+결과를 알릴 때 아래를 함께 적는다.
+
+- 결과물 경로(`docs/code-flow/index.html`, `docs/code-flow/manual.html`)
+- 캡처하지 못한 둘러보기 화면과, 뜻을 정하지 못한 항목(`unresolved`)
+- 순서표
+- 캡처하지 못한 기능과 그 문구. `capture_result.json` 의 `failed` 에 멈춘 동작이 적혀 있으면 대상을 고쳐 그 장면만 다시 캡처하고, 그래도 안 되면 그 문장을 함께 적는다
+- 챗봇 기능 목록과 「챗봇 기능 안내는 개발 중입니다」
+- 결함 목록: `defect` 로 실은 항목과 `mismatches` 의 결함을 `파일:줄` 과 함께 적는다. 고치지 않고 보고만 한다.
+- 분석 서브에이전트가 돌려준 나머지 `mismatches`(주석과 동작이 다른 곳, 쓰이지 않는 경로)
+- 알아 둘 점 검토에서 지우거나 등급을 바꾸거나 넣은 항목 수
+- 화면 캡처는 예시 데이터로 그린 화면이라는 점
+- 다른 사람에게 줄 때는 `index.html` · `manual.html` 과 `screens/` 폴더를 함께 줘야 한다는 점
+
+## 화면과 문장 규칙
+
+| 규칙 | 이유 |
+|---|---|
+| 함수 이름 대신 「누가 무엇을 어디에 보낸다」는 서술형으로 쓴다 | 바이브 코더는 함수 이름을 모른다 |
+| 버튼 하나를 누른 뒤 일어나는 일을 장면으로 나누고, 화면 표기는 「홈」 메뉴 클릭처럼 버튼 이름으로 쓴다 | 「누를 곳으로 확대」 같은 표기는 어색하다 |
+| 동시 처리 건수 제한 같은 내부 수치는 넣지 않는다 | 사용자가 알 필요가 없다 |
+| 기능 `summary` 는 서버 · 함수 이름 없이 화면을 쓰는 사람의 시각으로 쓴다 | 사용자 설명서의 「이 기능으로 하는 일」에 그대로 보인다 |
+| 코드가 하지 않는 동작은 그리지 않고, 값을 하나씩 따로 가져오면 따로 그린다 | 한 묶음으로 모아 보내는 그림은 코드와 달라 거짓이 된다 |
+| 예시 값은 「샘플 데이터」라고 밝힌다 | 실제 집계로 오해한다 |
+| 버튼만이 아니라 검색어 입력 · 목록에서 고르기 같은 사용자 동작을 차례로 따라가고, 자료 이름에는 「"견적" 검색」처럼 예시 값을 쓴다 | 시연 영상처럼 실제 사용 순서가 보여야 이해된다 |
+| 외부 프로그램 · 외부 시스템(아웃룩, 엑셀, WINUS, FAS, 외부 사이트)은 처음 쓰일 때 열리는 동작을 보여 준다(`launch`) | 바깥 프로그램에서 가져온다는 점이 보여야 한다 |
+| 알아 둘 점은 화면만 봐서는 알 수 없는데 모르면 입력이 실패하거나 결과를 잘못 읽는 규칙을 핵심으로 싣고, 화면 안내를 다시 설명하는 항목은 싣지 않는다. 개수는 정하지 않는다 | 화면 안내를 다시 설명하는 항목은 이미 안내인 문구를 또 안내한다 |
+| 핵심은 크게 모두 보이고 참고는 접는다. 되돌릴 수 없는 핵심에는 「실행 후 되돌아가기 불가」, 결함에는 「결함」 상자를 붙인다 | 핵심이 참고에 묻히지 않아야 한다 |
+| 노드 상자는 회색 테두리로 두고, 색은 구역 상자에만 쓴다 | 구역 색과 상자 색이 겹쳐 어지럽다 |
+| 왼쪽 세로 띠를 쓰지 않고, 현재 줄은 회색 면으로 표시한다 | 대시보드 스킬의 강제 규칙과 같다 |
+| 「알아 둘 점」은 남색 테두리로 두고, 분홍 같은 튀는 색은 쓰지 않는다 | 중요한 정보지만 화려할 필요는 없다 |
+
+노드 종류와 구역의 고정 명칭표는 [analysis-prompt.md](analysis-prompt.md) 의 「고정 명칭표」에 있다. 템플릿(`scripts/movie_template.html`)이 같은 명칭을 고정해 그리므로, 분석 결과의 `kind` · `zone` 은 그 표의 값만 쓴다.

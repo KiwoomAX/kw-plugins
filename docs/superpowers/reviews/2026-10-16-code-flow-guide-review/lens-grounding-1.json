@@ -1,0 +1,60 @@
+{
+  "lens": "lens-grounding",
+  "read": [
+    "/home/rladustn1227/.claude/plugins/cache/chshin-tools/disciplined-coder/7a2d26d846c0/skills/lens-grounding/SKILL.md",
+    "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+    "/tmp/claude-1000/-home-rladustn1227-02-github/9b68cb64-d401-4f9d-baa7-0667aba5c202/scratchpad/spec-diff.patch",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md (196줄 기능 순서 절, 312-313줄 예시 표)",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/components/RiskGradeResult/GradeSummary.tsx:20-50",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/components/RiskGradeResult/ReasoningSection.tsx:70-90",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/components/RiskGradeResult/RiskGradeResultView.tsx:340-356, 455-470, 492",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/components/RiskGradeResult/FactorCardList.tsx:40-135",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/components/RiskGradeResult/riskGradeResult.styles.ts:393-418, 499-505, 680-690",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/components/RiskGradeResult/ResultFooter.tsx:62",
+    "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/hooks/useRiskGrade.ts:59-81, 553-554 (브랜치 feat/basket-phase2-excel, 109d6b3b)",
+    "/home/rladustn1227/02.github/Kiwoom-RM/src/routers/grades.py:340-380 (main, 306a76f2)",
+    "/home/rladustn1227/02.github/Kiwoom-RM/src/repositories/risk/loader.py:30-48, 245-276",
+    "/home/rladustn1227/02.github/Kiwoom-RM/src/repositories/risk/table_config.py",
+    "/home/rladustn1227/02.github/Kiwoom-RM/src/services/risk_grade/evaluator.py:850-858",
+    "/home/rladustn1227/02.github/Kiwoom-RM/src/services/risk_grade/qualitative.py:436-444",
+    "/mnt/c/Users/Public/claude-etax/tracecheck/cf-rm2/flow.json (전체 문자열 검색, 기능·장면 제목, summary, 노드 zone)",
+    "/mnt/c/Users/Public/claude-etax/tracecheck/cf-manual-mock/manual-play.src.html (배율 식, 구분선, 6000ms 대기, 재생 속도)",
+    "/mnt/c/Users/Public/claude-etax/tracecheck/cf-manual-mock/manual-play.html, manual_data.json (areas 항목 문구)",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/plugins/kw-dashboard/skills/explaining-code-flow/scripts/movie_template.html:20, 48-52, 150-175, 183-187, 270-302",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/plugins/kw-dashboard/skills/explaining-code-flow/scripts/capture.py:84-88, 219-234, 264, 283-305",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/plugins/kw-dashboard/skills/explaining-code-flow/scripts/render.py:17, 41, 77-152",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/plugins/kw-dashboard/skills/explaining-code-flow/SKILL.md:77-81",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/plugins/kw-dashboard/skills/explaining-code-flow/analysis-prompt.md:22, 62-64",
+    "/home/rladustn1227/02.github/Kiwoom-Plugins/plugins/developer-tools/skills/writing-todo/SKILL.md:29-39"
+  ],
+  "issues": [
+    {
+      "where": "「사용자 설명서」 절 둘째 문단",
+      "type": "contradiction",
+      "claim": "spec 은 내부 분석을 건너뛴 설명서가 「RM 시험 결과물처럼」 순서가 틀리고 핵심이 빠진다고 적어, RM 시험 결과물의 순서 오류를 내부 분석 생략 탓으로 돌린다. 그런데 같은 spec 의 「기능 순서와 장면 구성」 절은 RM 시험 결과물의 순서 오류 원인을 「분석을 맡긴 순서대로」 놓인 것으로 적는다. RM 시험의 flow.json 도 백엔드 노드와 백엔드 근거를 쓴 알아 둘 점을 담고 있어, 그 시험이 내부 분석을 건너뛰었다는 근거가 출처에 없다. 「핵심이 빠진다」를 받치는 RM 시험 관찰도 출처에서 찾지 못했다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "그래서 내부 분석을 건너뛴 설명서는 RM 시험 결과물처럼 순서가 틀리고 핵심이 빠진다.",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "counterpart": "RM 시험 결과물은 분석을 맡긴 순서대로 「위험등급 산정 → 결과 → 코멘트」로 놓였다.",
+      "principle": "EVIDENCE-FIRST",
+      "consequence": "현재 spec 은 설명서와 개발자용을 늘 함께 만드는 결정의 근거로 RM 시험을 들지만, 같은 문서의 다른 절은 그 시험의 순서 오류를 분석 순서 문제로 설명하고 있어 두 절이 같은 사건에 서로 다른 원인을 적고 있다."
+    },
+    {
+      "where": "「설명서의 0번 화면 둘러보기」 절 예시 표, 펀드 종합등급의 「이전」 줄",
+      "type": "mismatch",
+      "claim": "spec 은 알아 둘 점 후보로 「기록이 없거나 조회에 실패해도 G 로 보입니다」를 적는다. 코드에서 기록이 없을 때 G 가 되는 것은 맞다(grades.py:365). 그러나 조회에 실패하면 useRiskGrade.ts:80 이 블라인드 펀드에는 null 을 넣고, RiskGradeResultView.tsx:351 이 null 을 이번 종합등급으로 대신한다. 그래서 블라인드 펀드는 조회에 실패하면 「이전」이 G 가 아니라 현재 등급과 같은 값으로 보인다. spec 이 인용한 경로가 바로 이 분기를 담고 있다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "(알아 둘 점 후보: 기록이 없거나 조회에 실패해도 G 로 보입니다)",
+      "counterpart_file": "/home/rladustn1227/02.github/Kiwoom-Rag/src/frontend/src/components/Agent/RiskManagement/hooks/useRiskGrade.ts",
+      "counterpart": "setPreviousGrade(isBlind ? null : 'G');  (80줄) / RiskGradeResultView.tsx:351 const prevGrade = previousGrade || (result.overall_grade || 'G');",
+      "principle": "NO-ASSUME",
+      "consequence": "현재 spec 은 근거 없는 뜻을 싣지 않는다는 규칙의 예시로 이 줄을 들지만, 이 줄의 알아 둘 점 후보는 일반 펀드에서만 맞고 블라인드 펀드의 조회 실패 경우와 다르다."
+    }
+  ],
+  "principles_applied": [
+    "EVIDENCE-FIRST",
+    "NO-ASSUME",
+    "STATE-ASSUME"
+  ],
+  "notes": "검토한 관점은 누락 · 모순 · 환각 · 불일치이며, 타깃 체크리스트를 항목마다 대조했다.\n\n인용한 파일:줄은 모두 그 내용이었다. GradeSummary.tsx:36-39 는 「이전」 배지(prevGrade)이고 40줄이 「이전」 라벨이다. ReasoningSection.tsx:79-85 는 「Operating Info 원본」 칸과 「Operating Info가 없습니다.」이다. RiskGradeResultView.tsx:351 은 prevGrade 계산이고 465 는 operatingContent 전달이다. useRiskGrade.ts:68-80 은 등급 이력 조회와 실패 시 처리다. grades.py:365 는 \"previous_grade\": previous or \"G\" 이다. loader.py:252-272 는 get_previous_grade 의 「보고월 <= 직전 월, 최신 1건」 질의이고, loader.py:37-45 는 operating_table 조회다. evaluator.py:855 와 qualitative.py:441 도 맞다. 프런트 파일의 실제 위치는 RiskManagement/components/RiskGradeResult/ 아래다. spec 은 파일명만 적으므로 불일치로 보지 않았다. FactorCardList.tsx:56-67 은 spec 에 인용되어 있지 않다. 다만 그 줄이 factor 마다 gradeChanged 를 계산하는 것은 확인했다.\n\n화면 요소의 존재도 코드에서 확인했다. 보라 테두리는 riskGradeResult.styles.ts:686 의 border 2px solid #8B5CF6 이다. 「변경」 배지는 FactorCardList.tsx:119-133 이고, 「변경 factor」 단추는 RiskGradeResultView.tsx:492 이며, 「변동 펀드」 단추는 ResultFooter.tsx:62 이다.\n\nRM 시험 flow.json 에는 「보라」 · 「테두리」 · 「변경」이 한 번도 나오지 않는다. 「변동 펀드」는 result 기능의 PDF 추출 장면 알아 둘 점(scenes[3].tips[1])과 모든 펀드 저장 장면 알아 둘 점(scenes[5].tips[1])에만 이름으로 나온다. 따라서 spec 의 두 관찰은 flow.json 과 맞다.\n\n배율 식 Math.max(0.6, Math.min(1, innerWidth / 2400))은 movie_template.html:276 과 시안 manual-play.src.html:159 에 같이 있다. 구분선 범위 0.3~0.8 은 movie_template.html:286 에 있고, 기본 3fr:2fr 은 48줄에 있으며, localStorage 기억은 291 · 300줄에 있다. 재생 속도 0.5~2배는 템플릿과 같다. 둘러보기 6초 표시는 시안 245줄의 wait(6000)과 맞다. 데이터 출처 구역 이름 winus · fund · external 은 render.py:17 의 ZONES 와 맞다. 시작 줌의 사각형 합치기는 capture.py:219-234 의 start_targets · union 과 맞고, 1440×1000 기준은 capture.py:264 의 viewport 와 맞다.\n\nCLAUDE_PLUGIN_ROOT 주장은 이렇게 확인했다. writing-todo SKILL.md:29-39 는 ${CLAUDE_PLUGIN_ROOT}/skills/writing-todo/scripts/... 로 자기 스킬의 스크립트만 가리킨다. 이 사례는 다른 스킬을 가리키는 경우를 직접 보이지는 않는다. 그렇지만 spec 의 괄호도 「자기 스크립트」라고 정확히 적었다. 또 플러그인 캐시(~/.claude/plugins/cache/<마켓>/<플러그인>/<해시>/skills/…)에 여러 스킬이 함께 들어 있어, 같은 플러그인 안 스킬이 함께 설치된다는 전제에도 받침이 있다. 그래서 이 주장은 발견으로 올리지 않았다. 참고로 현재 explaining-code-flow SKILL.md 는 ${CLAUDE_SKILL_DIR} 를 쓴다.\n\n확인하지 못한 것은 다음과 같다. 첫째, 시안 URL https://claude.ai/artifact/XMKjr2vfuNaCMw5CRkx3kb 는 열지 않았다. 로컬 시안 파일로만 대조했다. 둘째, 「시안에는 처음에 「이전」 배지를 「지난달 WINUS 에 저장된 등급」으로 추정해 적었다」와 「시안에서 칸 이름만 골랐을 때 이 표시가 빠졌다」는 과거 판(版)에 관한 주장이다. 현재 시안 파일은 이미 고친 문구와 보라 테두리 항목을 담고 있어 출처로 확인할 수 없다. 이 두 주장은 사용자 대화 기록으로 확인해야 한다.\n\n예시 표에 적은 Kiwoom-RM 코드는 커밋이 고정되어 있지 않다. 이번 대조는 main 306a76f2 에서 했다. `RISKCHECK_TEST` 는 실제 테이블 WRDSS.DW_T_월간RISKCHECK_TEST 를 줄인 이름이다. 같은 표의 `DW_T_월간OPERATING_TEST` 는 줄이지 않았다.\n\n근거 충실성 밖의 관찰도 있어 일관성 렌즈에 넘긴다. 0번 화면 둘러보기 절은 항목마다 「찾는 방법(`target`)」을 적으라고 한다. 그런데 JSON 형식 표의 항목 줄에는 no · name · meaning · evidence · rect 만 있고 target 이 없다."
+}
