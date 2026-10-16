@@ -1,6 +1,6 @@
-"""흐름 JSON 을 검사하고 템플릿에 넣어 안내 화면 HTML 한 장을 만든다.
+"""흐름 JSON 을 검사하고 템플릿에 넣어 개발자용 안내 화면과 사용자 설명서 HTML 을 함께 만든다.
 
-    python render.py <flow.json> --out <index.html>
+    python render.py <flow.json> --out-dir <docs/code-flow 폴더>
     python render.py --check     # 붙박이 예제로 자체 검사
 """
 from __future__ import annotations
@@ -42,6 +42,10 @@ SAMPLE = {
              "actions": [{"from": "mail", "to": "pc", "icon": "list", "text": "목록", "say": "아웃룩에서 읽은 목록이 화면으로 갑니다."}]},
         ],
     }],
+    "tour": [{"key": "home", "name": "홈 화면", "img": "screens/home.png",
+              "areas": [{"name": "검색창", "meaning": "제목과 본문에서 찾습니다.", "rect": [12, 77, 185, 40]},
+                        {"name": "결과 표", "meaning": "검색 결과입니다.", "rect": [12, 140, 800, 300]},
+                        {"name": "보라 테두리", "meaning": "지난달과 등급이 다른 행입니다."}]}],
 }
 
 
@@ -87,6 +91,29 @@ def validate(data: dict) -> list[str]:
                 and 0 <= r[0] <= SHOT_W and 0 <= r[1] <= SHOT_H)
 
     need(data, ["title", "repo", "appZone", "features"], "flow")
+    if not isinstance(data.get("tour"), list):
+        errs.append("flow.tour 목록이 없습니다(둘러보기 화면이 없으면 빈 목록 [] 을 둡니다)")
+    for ti, sc in enumerate(data.get("tour") or []):
+        tw = f"tour[{ti}]"
+        need(sc, ["key", "name"], tw)
+        if not isinstance(sc.get("areas"), list):
+            errs.append(f"{tw}.areas 목록이 없습니다")
+        if sc.get("img") and sc.get("unavailable"):
+            errs.append(f"{tw} 에 캡처와 실패 문구가 함께 있습니다")
+        if not sc.get("img") and not sc.get("unavailable"):
+            errs.append(f"{tw} 에 캡처도 실패 문구도 없습니다")
+        seen = set()
+        for ai, a in enumerate(sc.get("areas") or []):
+            aw = f"{tw}.areas[{ai}]"
+            need(a, ["name", "meaning"], aw)
+            if "rect" in a and not rect_ok(a["rect"]):
+                errs.append(f"{aw}.rect 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
+            if "no" in a and "rect" not in a:
+                errs.append(f"{aw} 는 위치(rect) 없이 번호(no)만 있습니다")
+            if "no" in a:
+                if a["no"] in seen:
+                    errs.append(f"{tw} 의 번호 {a['no']} 가 중복입니다")
+                seen.add(a["no"])
     for fi, f in enumerate(data.get("features") or []):
         fw = f"features[{fi}]"
         need(f, ["key", "name", "summary", "nodes", "scenes"], fw)
@@ -155,6 +182,30 @@ def render(data: dict, template: str = "movie_template.html") -> str:
     return page.replace("__TITLE__", html.escape(data["title"])).replace("__DATA__", payload)
 
 
+def number_tour(data: dict) -> dict:
+    """위치를 찾은 항목에만 위에서 아래, 왼쪽에서 오른쪽 순서로 번호를 매긴 사본을 돌려준다."""
+    out = copy.deepcopy(data)
+    for sc in out.get("tour") or []:
+        areas = sc.get("areas") or []
+        for a in areas:
+            a.pop("no", None)
+        located = sorted((a for a in areas if a.get("rect")), key=lambda a: (a["rect"][1], a["rect"][0]))
+        for i, a in enumerate(located, 1):
+            a["no"] = i
+    return out
+
+
+def render_all(data: dict, out_dir: Path) -> list[Path]:
+    """같은 흐름 JSON 으로 개발자용 안내 화면(index.html)과 사용자 설명서(manual.html)를 함께 쓴다."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    outs = []
+    for name, tpl in (("index.html", "movie_template.html"), ("manual.html", "manual_template.html")):
+        p = out_dir / name
+        p.write_text(render(data, tpl), encoding="utf-8")
+        outs.append(p)
+    return outs
+
+
 def _check() -> int:
     ok = True
 
@@ -220,6 +271,35 @@ def _check() -> int:
     del norect["features"][0]["scenes"][0]["screen"]["start"]
     del norect["features"][0]["scenes"][0]["screen"]["typed"]
     expect("버튼 사각형이 없는 장면도 통과한다", validate(norect) == [])
+
+    numbered = number_tour(SAMPLE)["tour"][0]["areas"]
+    expect("위치를 찾은 항목에만 위에서 아래 순서로 번호를 매긴다",
+           [a.get("no") for a in numbered] == [1, 2, None])
+    expect("tour 가 있는 예제도 검사를 통과한다", validate(number_tour(SAMPLE)) == [])
+    nr = copy.deepcopy(number_tour(SAMPLE)); del nr["tour"][0]["areas"][0]["rect"]
+    expect("위치 없이 번호만 있는 항목을 잡는다", any("areas[0]" in e and "번호" in e for e in validate(nr)))
+    tb = copy.deepcopy(number_tour(SAMPLE))
+    tb["tour"][0]["unavailable"] = "화면을 만들 수 없습니다."
+    tb["tour"][0]["areas"][0]["rect"] = [99999, 0, 1, 1]
+    del tb["tour"][0]["areas"][1]["meaning"]
+    errs = validate(tb)
+    expect("둘러보기 화면에 캡처와 실패 문구가 함께 있으면 잡는다", any("tour[0]" in e and "실패 문구" in e for e in errs))
+    expect("1440×1000 밖의 항목 위치를 잡는다", any("areas[0].rect" in e for e in errs))
+    expect("뜻 없는 항목을 잡는다", any("areas[1].meaning" in e for e in errs))
+    dup = copy.deepcopy(number_tour(SAMPLE)); dup["tour"][0]["areas"][1]["no"] = 1
+    expect("같은 화면의 번호 중복을 잡는다", any("번호" in e and "중복" in e for e in validate(dup)))
+    empty = copy.deepcopy(SAMPLE); empty["tour"] = []
+    expect("tour 가 빈 목록이어도 통과한다", validate(number_tour(empty)) == [])
+    notour = copy.deepcopy(SAMPLE); del notour["tour"]
+    expect("tour 가 없으면 잡는다", any("flow.tour" in e for e in validate(notour)))
+    import tempfile
+    with tempfile.TemporaryDirectory() as t:
+        outs = render_all(number_tour(SAMPLE), Path(t))
+        expect("index.html 과 manual.html 을 함께 쓴다", sorted(p.name for p in outs) == ["index.html", "manual.html"])
+        man = (Path(t) / "manual.html").read_text(encoding="utf-8")
+        expect("설명서에 자리표시 문자열이 남지 않는다", "__DATA__" not in man and "__TITLE__" not in man)
+    mtpl = (HERE / "manual_template.html").read_text(encoding="utf-8")
+    expect("설명서 템플릿에 자리표시 문자열이 한 번씩만 있다", mtpl.count("__TITLE__") == 1 and mtpl.count("__DATA__") == 1)
     return 0 if ok else 1
 
 
@@ -229,22 +309,22 @@ def main() -> int:
     sys.stderr.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("flow", nargs="?")
-    ap.add_argument("--out")
+    ap.add_argument("--out-dir")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     if a.check:
         return _check()
-    if not a.flow or not a.out:
-        ap.error("흐름 JSON 경로와 --out 이 필요합니다")
-    data = json.loads(Path(a.flow).read_text(encoding="utf-8"))
+    if not a.flow or not a.out_dir:
+        ap.error("흐름 JSON 경로와 --out-dir 이 필요합니다")
+    data = number_tour(json.loads(Path(a.flow).read_text(encoding="utf-8")))
     errs = validate(data)
     if errs:
         print("흐름 JSON 을 고쳐야 합니다:")
         for e in errs:
             print("  - " + e)
         return 1
-    Path(a.out).write_text(render(data), encoding="utf-8")
-    print(a.out)
+    for p in render_all(data, Path(a.out_dir)):
+        print(p)
     return 0
 
 
