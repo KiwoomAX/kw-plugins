@@ -104,6 +104,13 @@ Assert 'flow skill documents carry no build-history dates' (-not ($flowAll -matc
 $flowPy = (Get-ChildItem (Join-Path $FlowDir 'scripts') -Filter *.py | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
 Assert 'no user-facing script message says Docker' (-not ($flowPy -match '(RepoError|print)\(f?"[^"]*[Dd]ocker'))
 Assert 'the plugin description names the flow skill' ($pluginJson.description -match 'explaining-code-flow')
+$tipsText = Read-TextOrEmpty (Join-Path $FlowDir 'tips-prompt.md')
+Assert 'tips are graded core or ref' ($tipsText -match '`core`' -and $tipsText -match '`ref`')
+Assert 'tips carry no fixed count per scene' (-not ($tipsText -match '\d개 (안팎|이하)'))
+Assert 'the flow skill reviews the feature order' ($flowText -match '\| 순서 검토 \|')
+Assert 'the flow skill reviews the tips' ($flowText -match '\| 알아 둘 점 검토 \|')
+$tpl = Read-TextOrEmpty (Join-Path $FlowDir 'scripts/movie_template.html')
+Assert 'the template shows chatbot features as in development' ($tpl -match '챗봇 기능 안내는 개발 중입니다')
 
 # 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
