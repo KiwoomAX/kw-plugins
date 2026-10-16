@@ -32,7 +32,7 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .menu .it:hover{background:var(--bg-hover)}
 .menu .it.on{background:var(--sel-weak)}
 .menu .it b{display:block;font-size:15px} .menu .it span{display:block;font-size:13px;color:var(--text-tertiary);line-height:1.45}
-.summary{color:var(--text-secondary);margin:-6px 0 12px}
+.summary{color:var(--text-secondary);margin:-6px 0 12px;font-size:16px}
 .rail-sec{font-size:12px;font-weight:600;color:var(--text-tertiary);padding:10px 18px 6px}
 .steps{padding:0 10px 16px;overflow:auto}
 .step{display:flex;gap:8px;padding:7px 10px;border-radius:var(--radius-sm);color:var(--text-secondary);cursor:pointer;font-size:15px;line-height:1.45}
@@ -43,9 +43,9 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .top h1{margin:0;font-size:17px;font-weight:700}
 .top .repo{margin-left:auto;font-size:12px;color:var(--text-tertiary)}
 .content{padding:20px 32px 96px}
-.kicker{font-size:12px;color:var(--text-tertiary);font-weight:600}
-.content h2{margin:2px 0 12px;font-size:22px;letter-spacing:-.02em}
-.body{display:grid;grid-template-columns:minmax(0,960px) minmax(300px,600px);gap:24px;align-items:start}
+.kicker{font-size:14px;color:var(--text-tertiary);font-weight:600}
+.content h2{margin:2px 0 12px;font-size:26px;letter-spacing:-.02em}
+.body{display:grid;grid-template-columns:minmax(0,3fr) minmax(300px,2fr);gap:24px;align-items:start}
 .body[hidden]{display:none}
 /* 무대: 노드는 고정 위치, 자료 아이콘이 그 사이를 움직인다. 창이 좁으면 무대 전체를 비율로 줄여 오른쪽 칸을 남긴다 */
 .stagewrap{width:100%;overflow:hidden}
@@ -73,11 +73,11 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .token.pack{flex-wrap:wrap;max-width:260px;border-radius:12px;padding:6px 10px 7px 6px}
 .token .items{flex-basis:100%;display:flex;flex-wrap:wrap;gap:3px;padding-left:26px}
 .token .items em{font-style:normal;font-size:11px;font-weight:600;color:#1A1A1A;background:#F1F3F7;border-radius:999px;padding:0 7px}
-.sub{margin-top:6px;min-height:20px;font-size:13px;color:var(--text-tertiary)}
+.sub{margin-top:6px;min-height:20px;font-size:14px;color:var(--text-tertiary)}
 /* 무대 아래 진행 목록: 지금 동작을 굵게 · 회색 면으로 표시한다 */
 .steps-now{margin-top:10px}
-.steps-now h4{margin:0 0 8px;font-size:13px;color:var(--text-tertiary);font-weight:700}
-.steps-now ol{margin:0;padding:0;list-style:none;counter-reset:st;font-size:16px;line-height:1.55}
+.steps-now h4{margin:0 0 8px;font-size:14px;color:var(--text-tertiary);font-weight:700}
+.steps-now ol{margin:0;padding:0;list-style:none;counter-reset:st;font-size:17px;line-height:1.55}
 .steps-now li{counter-increment:st;display:flex;gap:8px;margin-bottom:3px;padding:3px 10px;color:var(--text-tertiary);cursor:pointer;border-radius:8px}
 .steps-now li::before{content:counter(st) ".";flex:none;min-width:22px;text-align:right}
 .steps-now li:hover{background:var(--bg-hover)}
@@ -121,7 +121,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .shot .cap i{width:8px;height:8px;border-radius:50%}
 /* 캡처는 백엔드 없이 가짜 데이터로 띄운 화면이라, 실제 값으로 오해하지 않도록 화면 아래에 늘 밝힌다 */
 .shot .ex{padding:5px 10px;font-size:12px;color:var(--text-tertiary);border-top:1px solid var(--border-light)}
-.shot .view{position:relative;width:100%;aspect-ratio:1440/1000;max-height:400px;overflow:hidden;background:#F4F4F5}
+.shot .view{position:relative;width:100%;aspect-ratio:1440/1000;max-height:560px;overflow:hidden;background:#F4F4F5}
 .shot .view img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0}
 .shot .mark{position:absolute;border:3px solid;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.18)}
 .shot .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;text-align:center;padding:0 16px}
@@ -259,9 +259,9 @@ function nodeHtml(n) {
     `<div class="kt"><span class="kk">${k.label}</span><b>${esc(n.name)}</b><span>${esc(n.sub || '')}</span></div></div>`;
 }
 
-// 무대 칸 폭이 960 보다 좁으면 무대를 그 비율로 줄인다. 무대 안 좌표는 그대로 두므로 움직임 계산은 바뀌지 않는다
+// 무대를 무대 칸 폭에 맞춰 줄이거나 키운다. 무대 안 좌표는 그대로 두므로 움직임 계산은 바뀌지 않는다
 function fitStage() {
-  const wrap = document.getElementById('stagewrap'), s = Math.min(1, wrap.clientWidth / 960);
+  const wrap = document.getElementById('stagewrap'), s = wrap.clientWidth / 960;
   document.getElementById('stage').style.transform = `scale(${s})`;
   wrap.style.height = Math.ceil(462 * s) + 'px';
 }
