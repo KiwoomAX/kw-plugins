@@ -106,21 +106,28 @@ def _node_service(d: Path) -> dict | None:
     if not pj.exists():
         return None
     pkg = json.loads(pj.read_text(encoding="utf-8"))
-    if "dev" not in (pkg.get("scripts") or {}):
-        return None
+    scripts = pkg.get("scripts") or {}
     deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})}
-    # dev 스크립트가 박아 둔 호스트 · 포트를 피하려고 스크립트를 거치지 않고 실행 파일을 직접 부른다
+    cra = "react-scripts" in deps and "start" in scripts  # Create React App 은 dev 대신 start 로 띄운다
+    if "dev" not in scripts and not cra:
+        return None
+    env = {}
+    # 스크립트가 박아 둔 호스트 · 포트를 피하려고 스크립트를 거치지 않고 실행 파일을 직접 부른다
     if "next" in deps:
         run = ["npm", "exec", "--", "next", "dev", "-H", "127.0.0.1", "-p", "{port}"]
     elif "vite" in deps:
         run = ["npm", "exec", "--", "vite", "--host", "127.0.0.1", "--port", "{port}", "--strictPort"]
+    elif cra:
+        # react-scripts 는 호스트 · 포트를 환경변수로 받는다. BROWSER=none 은 브라우저 창을 저절로 열지 않게 한다
+        run = ["npm", "exec", "--", "react-scripts", "start"]
+        env = {"HOST": "127.0.0.1", "PORT": "{port}", "BROWSER": "none"}
     else:
-        raise RepoError(f"{d.name}: Next.js · Vite 가 아닌 dev 스크립트는 아직 띄우는 방법을 모릅니다")
+        raise RepoError(f"{d.name}: Next.js · Vite · Create React App 이 아닌 화면은 아직 띄우는 방법을 모릅니다")
     if (d / "node_modules").exists():
         install = []
     else:
         install = [["npm", "ci"] if (d / "package-lock.json").exists() else ["npm", "install", "--no-save"]]
-    return {"cwd": str(d), "install": install, "run": run}
+    return {"cwd": str(d), "install": install, "run": run, "env": env}
 
 
 def plan(repo: Path) -> dict:
@@ -130,8 +137,9 @@ def plan(repo: Path) -> dict:
             port = free_port()
             svc["port"] = port
             svc["run"] = [str(port) if t == "{port}" else t for t in svc["run"]]
+            svc["env"] = {k: str(port) if v == "{port}" else v for k, v in svc["env"].items()}
             return svc
-    raise RepoError("이 레포에서 Node 화면(package.json 의 dev 스크립트)을 찾지 못했습니다")
+    raise RepoError("이 레포에서 Node 화면(package.json 의 dev 스크립트, 또는 Create React App 의 start 스크립트)을 찾지 못했습니다")
 
 
 def _run_logged(cmd: list[str], cwd: str, env: dict, log: Path) -> None:
@@ -186,6 +194,7 @@ def start(repo: Path, state_path: Path) -> dict:
     try:
         for cmd in svc["install"]:
             _run_logged(cmd, svc["cwd"], env, tmp / "install.log")
+        env.update(svc["env"])
         out = (tmp / "frontend.log").open("w", encoding="utf-8")
         kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
         proc = subprocess.Popen([shutil.which(svc["run"][0]) or svc["run"][0], *svc["run"][1:]], cwd=svc["cwd"], env=env,
@@ -259,6 +268,12 @@ def _check() -> int:
         expect("src/frontend 처럼 2단계 아래의 화면도 찾는다", p["cwd"].replace("\\", "/").endswith("src/frontend"))
         expect("Vite 화면은 루프백 · 고정 포트로 띄운다", p["run"][3] == "vite" and "127.0.0.1" in p["run"] and "--strictPort" in p["run"])
         expect("node_modules 가 있으면 설치하지 않는다", p["install"] == [])
+
+        cra = root / "crarepo"; (cra / "frontend").mkdir(parents=True)
+        (cra / "frontend" / "package.json").write_text(json.dumps({"scripts": {"start": "DANGEROUSLY_DISABLE_HOST_CHECK=true react-scripts start"}, "dependencies": {"react-scripts": "5"}}), encoding="utf-8")
+        p = plan(cra)
+        expect("Create React App 화면은 start 스크립트로 찾고 react-scripts 를 직접 부른다", p["run"][3:] == ["react-scripts", "start"])
+        expect("Create React App 은 루프백 · 빈 포트를 환경변수로 준다", p["env"].get("HOST") == "127.0.0.1" and p["env"].get("PORT") == str(p["port"]) and p["env"].get("BROWSER") == "none")
 
         empty = root / "static"; (empty / "src" / "web").mkdir(parents=True)
         try:
