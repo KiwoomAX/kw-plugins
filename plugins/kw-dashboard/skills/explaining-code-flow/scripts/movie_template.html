@@ -45,9 +45,10 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .content{padding:20px 32px 96px}
 .kicker{font-size:12px;color:var(--text-tertiary);font-weight:600}
 .content h2{margin:2px 0 12px;font-size:22px;letter-spacing:-.02em}
-.body{display:grid;grid-template-columns:960px minmax(260px,1fr);gap:24px;align-items:start}
-/* 무대: 노드는 고정 위치, 자료 아이콘이 그 사이를 움직인다 */
-.stage{position:relative;width:960px;height:460px;border:1px solid var(--border-light);border-radius:var(--radius-md);background:var(--bg-surface);overflow:hidden}
+.body{display:grid;grid-template-columns:minmax(0,960px) minmax(300px,1fr);gap:24px;align-items:start}
+/* 무대: 노드는 고정 위치, 자료 아이콘이 그 사이를 움직인다. 창이 좁으면 무대 전체를 비율로 줄여 오른쪽 칸을 남긴다 */
+.stagewrap{width:100%;overflow:hidden}
+.stage{transform-origin:0 0;position:relative;width:960px;height:460px;border:1px solid var(--border-light);border-radius:var(--radius-md);background:var(--bg-surface);overflow:hidden}
 .group{position:absolute;border:1.5px dashed var(--zc);border-radius:14px;background:var(--zb)}
 .group .gname{position:absolute;left:10px;top:-13px;display:flex;align-items:center;gap:5px;padding:2px 8px 2px 4px;font-size:12px;font-weight:700;color:var(--zc);background:#fff;border:1.5px solid var(--zc);border-radius:999px}
 .group .gname svg{width:16px;height:16px;padding:2px;border-radius:50%;background:var(--zc)}
@@ -89,6 +90,18 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .log .tips li{margin-bottom:8px;color:#0F1E3D;cursor:default;font-weight:500;border:0;padding:0}
 .tips li:last-child{margin-bottom:0}
 .log .tips li:hover{background:none}
+/* 핵심은 크게 모두 보이고, 참고는 접어 둔다. 되돌릴 수 없는 핵심은 아래에 작은 주황 글씨를 붙인다 */
+.log .tips ul.core li{font-size:17px;line-height:1.5}
+.tips .irr{display:block;margin-top:2px;font-size:13px;font-weight:600;color:#C2410C}
+.log .tips li.defect{list-style:none;margin-left:-20px;border:1.5px solid #B42318;background:#FCE9E7;border-radius:6px;padding:8px 10px}
+.tips li.defect em{font-style:normal;font-weight:700;color:#B42318;margin-right:6px}
+.tips details.ref{margin-top:10px}
+.tips details.ref summary{cursor:pointer;font-size:13px;font-weight:600;color:#27457D}
+.tips details.ref ul{margin-top:6px}
+.log .tips details.ref li{font-size:14px;color:#4A5565;font-weight:400}
+.prereq{margin:-4px 0 14px;border:1px solid #C2410C;background:#FDEEE4;border-radius:var(--radius-md);padding:10px 14px;font-size:15px;color:#3A2410}
+.prereq b{color:#C2410C;margin-right:8px}
+.autob{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:4px;background:#EEF0F3;color:#5B6C8C;font-size:12px;font-weight:700;vertical-align:2px}
 /* 오른쪽 칸(화면 캡처 · 알아 둘 점)은 아래 진행 목록을 읽으며 내려가도 상단 막대 아래에 붙어 따라온다 */
 .log{font-size:13px;position:sticky;top:72px;align-self:start;max-height:calc(100vh - 160px);overflow:auto}
 /* 외부 프로그램 · 시스템이 처음 쓰일 때 창이 열리는 동작 */
@@ -137,9 +150,9 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
   <div>
     <header class="top"><h1 id="title"></h1><span class="repo" id="repo"></span></header>
     <main class="content">
-      <div class="kicker" id="kicker"></div><h2 id="sceneTitle"></h2><p class="summary" id="summary"></p>
+      <div class="kicker" id="kicker"></div><h2 id="sceneTitle"></h2><p class="summary" id="summary"></p><div class="prereq" id="prereq" hidden></div>
       <div class="body">
-        <div><div class="stage" id="stage"></div><div class="kinds" id="kinds"></div>
+        <div><div class="stagewrap" id="stagewrap"><div class="stage" id="stage"></div></div><div class="kinds" id="kinds"></div>
           <div class="steps-now"><h4>이 장면에서 일어나는 일 · 번호를 누르면 그 동작만 봅니다</h4><ol id="log"></ol><div class="sub" id="sub"></div></div></div>
         <div class="log"><div class="shot" id="shot" hidden></div><div class="tips" id="tips" hidden></div></div>
       </div>
@@ -213,7 +226,7 @@ function drawRail() {
     head.onclick = () => menu.classList.toggle('open');
   }
   document.getElementById('steps').innerHTML = F.scenes.map((s, i) =>
-    `<div class="step" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(s.title)}</span></div>`).join('');
+    `<div class="step" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(s.title)}${s.auto ? '<span class="autob">자동</span>' : ''}</span></div>`).join('');
   document.querySelectorAll('.step').forEach(el => el.onclick = () => play(+el.dataset.i, auto));
 }
 document.addEventListener('click', e => { if (!e.target.closest('#railHead')) document.getElementById('menu').classList.remove('open'); });
@@ -243,11 +256,19 @@ function nodeHtml(n) {
     `<div class="kt"><span class="kk">${k.label}</span><b>${esc(n.name)}</b><span>${esc(n.sub || '')}</span></div></div>`;
 }
 
+// 무대 칸 폭이 960 보다 좁으면 무대를 그 비율로 줄인다. 무대 안 좌표는 그대로 두므로 움직임 계산은 바뀌지 않는다
+function fitStage() {
+  const wrap = document.getElementById('stagewrap'), s = Math.min(1, wrap.clientWidth / 960);
+  document.getElementById('stage').style.transform = `scale(${s})`;
+  wrap.style.height = Math.ceil(462 * s) + 'px';
+}
+window.addEventListener('resize', fitStage);
 function drawStage() {
   const st = document.getElementById('stage');
   st.innerHTML = '<svg class="wires" id="wires" width="960" height="460"></svg>' + F.nodes.map(n => nodeHtml(n)).join('');
   st.insertAdjacentHTML('afterbegin', zoneBoxes().map(g => `<div class="group" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;--zc:${ZONE[g.z].c};--zb:${ZONE[g.z].b}"><span class="gname"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ZONE[g.z].i}</svg>${esc((F.zoneNames || {})[g.z] || ZONE[g.z].name)}</span></div>`).join(''));
   document.getElementById('kinds').innerHTML = '';
+  fitStage();
 }
 
 // 재생 속도: 모든 이동 · 멈춤 시간을 이 배수로 나눈다. 바꾸면 진행 중인 움직임에도 바로 적용된다
@@ -355,10 +376,18 @@ async function play(i, keepAuto, k0 = 0, single = false) {
   cur = i;
   document.querySelectorAll('.step').forEach((el, k) => el.classList.toggle('on', k === i));
   document.getElementById('kicker').textContent = (D.features ? F.name + ' · ' : '') + `장면 ${i + 1} / ${F.scenes.length}`;
-  document.getElementById('sceneTitle').textContent = sc.title;
+  document.getElementById('sceneTitle').innerHTML = esc(sc.title) + (sc.auto ? '<span class="autob">자동</span>' : '');
+  // 앞 기능을 먼저 해야 하는 조건은 기능의 첫 장면 위에 띠로 보인다
+  const pre = document.getElementById('prereq');
+  pre.hidden = !(i === 0 && F.prereq);
+  pre.innerHTML = pre.hidden ? '' : `<b>먼저 할 일</b>${esc(F.prereq)}`;
   const tipsBox = document.getElementById('tips'), tips = sc.tips || [];
+  const core = tips.filter(t => t.level === 'core'), ref = tips.filter(t => t.level !== 'core');
+  const tipLi = t => `<li class="${t.defect ? 'defect' : ''}">${t.defect ? '<em>결함</em>' : ''}${esc(t.text)}` +
+    `${t.irreversible ? '<span class="irr">실행 후 되돌아가기 불가</span>' : ''}</li>`;
   tipsBox.hidden = !tips.length;
-  tipsBox.innerHTML = `<b>알아 둘 점</b><ul>${tips.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  tipsBox.innerHTML = '<b>알아 둘 점</b>' + (core.length ? `<ul class="core">${core.map(tipLi).join('')}</ul>` : '') +
+    (ref.length ? `<details class="ref"><summary>참고 ${ref.length}개 더 보기</summary><ul>${ref.map(tipLi).join('')}</ul></details>` : '');
   const log = document.getElementById('log');
   log.innerHTML = sc.actions.map((a, j) => `<li data-k="${j}" title="눌러서 이 동작만 보기">${esc(a.say)}</li>`).join('');
   log.querySelectorAll('li').forEach(li => li.onclick = () => play(cur, auto, +li.dataset.k, !auto));

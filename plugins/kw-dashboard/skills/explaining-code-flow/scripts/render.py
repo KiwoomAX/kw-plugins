@@ -22,16 +22,21 @@ SAMPLE = {
     "title": "예제 대시보드, 움직이며 보기", "repo": "example (main abc1234)", "appZone": "예제 서비스",
     "features": [{
         "key": "home", "name": "홈", "summary": "고정 카드", "screenImg": "screens/home.png",
+        "prereq": "공고 현황에서 먼저 새로고침해야 카드가 채워집니다.",
         "nodes": [
             {"id": "pc", "name": "내 PC", "kind": "screen", "zone": "office", "x": 110, "y": 170},
             {"id": "data", "name": "샘플 데이터", "kind": "code", "zone": "app", "x": 360, "y": 80},
             {"id": "mail", "name": "아웃룩", "kind": "server", "zone": "office", "x": 110, "y": 400, "launch": True},
         ],
         "scenes": [
-            {"title": "홈을 열면 카드가 그려집니다", "tips": ["금액 단위는 억원입니다."],
+            {"title": "홈을 열면 카드가 그려집니다",
+             "tips": [{"text": "금액 단위는 억원입니다.", "level": "core"},
+                      {"text": "저장하면 이전 값이 남지 않습니다.", "level": "core", "irreversible": True},
+                      {"text": "조회가 실패해도 예시 값이 경고 없이 남습니다.", "level": "core", "defect": True},
+                      {"text": "30초마다 자동 갱신됩니다.", "level": "ref"}],
              "screen": {"startName": "검색창에 「견적」 입력", "endName": "카드 표시", "start": [12, 77, 185, 40], "typed": "견적"},
              "actions": [{"from": "pc", "to": "data", "icon": "ask", "text": "카드 요청", "say": "화면이 샘플 데이터를 읽습니다."}]},
-            {"title": "공고 목록", "tips": [],
+            {"title": "공고 목록", "tips": [], "auto": True,
              "screen": {"startName": "「공고」 탭 클릭", "endName": "목록 표시",
                         "unavailable": "실행에 필요한 데이터가 없어 화면을 만들 수 없습니다."},
              "actions": [{"from": "mail", "to": "pc", "icon": "list", "text": "목록", "say": "아웃룩에서 읽은 목록이 화면으로 갑니다."}]},
@@ -56,6 +61,8 @@ def validate(data: dict) -> list[str]:
     for fi, f in enumerate(data.get("features") or []):
         fw = f"features[{fi}]"
         need(f, ["key", "name", "summary", "nodes", "scenes"], fw)
+        if "prereq" in f and not (isinstance(f["prereq"], str) and f["prereq"]):
+            errs.append(f"{fw}.prereq 는 비어 있지 않은 글자여야 합니다")
         ids = set()
         for ni, n in enumerate(f.get("nodes") or []):
             nw = f"{fw}.nodes[{ni}]"
@@ -75,6 +82,16 @@ def validate(data: dict) -> list[str]:
             need(s, ["title", "actions"], sw)
             if not isinstance(s.get("tips"), list):
                 errs.append(f"{sw}.tips 목록이 없습니다")
+            for ti, t in enumerate(s.get("tips") or []):
+                tw = f"{sw}.tips[{ti}]"
+                need(t, ["text", "level"], tw)
+                if isinstance(t, dict) and t.get("level") not in (None, "", "core", "ref"):
+                    errs.append(f"{tw}.level 은 core 또는 ref 여야 합니다")
+                for flag in ("irreversible", "defect"):
+                    if isinstance(t, dict) and flag in t and not isinstance(t[flag], bool):
+                        errs.append(f"{tw}.{flag} 는 true · false 여야 합니다")
+            if "auto" in s and not isinstance(s["auto"], bool):
+                errs.append(f"{sw}.auto 는 true · false 여야 합니다")
             scr = s.get("screen") or {}
             need(scr, ["startName", "endName"], f"{sw}.screen")
             shot = bool(scr.get("startImg") or f.get("screenImg"))
@@ -136,6 +153,20 @@ def _check() -> int:
     errs = validate(typo)
     expect("launch 가 참 · 거짓이 아니면 잡는다", any("launch" in e for e in errs))
     expect("글자를 칠 칸 없이 typed 만 있으면 잡는다", any("typed" in e for e in errs))
+
+    tipbad = copy.deepcopy(SAMPLE)
+    tips = tipbad["features"][0]["scenes"][0]["tips"]
+    tips[0] = "글자만 적은 옛 형식"
+    tips[1]["level"] = "info"
+    tips[2]["defect"] = "yes"
+    tipbad["features"][0]["scenes"][1]["auto"] = 1
+    tipbad["features"][0]["prereq"] = ""
+    errs = validate(tipbad)
+    expect("알아 둘 점이 글자만 있으면 잡는다", any("tips[0].text" in e for e in errs))
+    expect("level 이 core · ref 가 아니면 잡는다", any("tips[1].level" in e for e in errs))
+    expect("defect 가 참 · 거짓이 아니면 잡는다", any("tips[2].defect" in e for e in errs))
+    expect("auto 가 참 · 거짓이 아니면 잡는다", any("scenes[1].auto" in e for e in errs))
+    expect("빈 prereq 를 잡는다", any("prereq" in e for e in errs))
 
     norect = copy.deepcopy(SAMPLE)
     del norect["features"][0]["scenes"][0]["screen"]["start"]
