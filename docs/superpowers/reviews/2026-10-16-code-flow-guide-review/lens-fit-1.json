@@ -1,0 +1,211 @@
+{
+  "lens": "lens-fit",
+  "doc_type": "설계 (spec·plan) 행. 이 문서는 docs/superpowers/specs 아래 놓인 spec이고, 각 결정 옆에 사용자 결정 날짜와 RM 시험 사례 같은 설계 근거를 담는다. 진행 상태와 다음 단계는 이번 차수 변경분에 들어 있지 않다. 「챗봇 기능 (개발 중)」 절은 변경되지 않은 기존 문장이라 보지 않았다.",
+  "read": [
+    "/home/rladustn1227/.claude/plugins/cache/chshin-tools/disciplined-coder/7a2d26d846c0/skills/lens-fit/SKILL.md",
+    "/tmp/claude-1000/-home-rladustn1227-02-github/9b68cb64-d401-4f9d-baa7-0667aba5c202/scratchpad/spec-diff.patch",
+    "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+    "/home/rladustn1227/.claude/plugins/cache/chshin-tools/disciplined-coder/7a2d26d846c0/docs/domain-korean.md",
+    "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md"
+  ],
+  "issues": [
+    {
+      "where": "「화면 항목 목록과 설명 대조」 절 첫 문단(250줄)",
+      "type": "style",
+      "claim": "절의 결론은 「스킬은 화면의 요소를 기능 분석과 따로 나열하고 대조한다」이다. 이 결론이 첫 문장에 오지 않고 문단의 넷째 문장(그래서…)에 놓였다. 첫 문장은 원인만 말한다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "기능 분석은 사람이 하는 동작과 자료 이동에서 출발하므로, 동작 없이 표시로만 뜻을 전하는 요소를 놓친다(사용자 지적 2026-10-16). … 그래서 스킬은 화면의 요소를 기능 분석과 따로 나열하고, 모든 요소가 어딘가에서 설명되었는지 대조한다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "TITLE-LAYERS: 문서에서는 `#`·`##` 절 제목이 목차이고, 절의 첫 문장이 본문 제목이다. / BOTTOM-LINE: 결론을 먼저 말하고 근거는 뒤에 둬라.",
+      "principle": "TITLE-LAYERS, BOTTOM-LINE",
+      "consequence": "현재 이 절의 첫 문장은 기존 기능 분석의 결함을 서술하고, 새로 정한 절차는 넷째 문장에 처음 나온다."
+    },
+    {
+      "where": "「설명서의 0번 화면 둘러보기」 첫 문단(299줄), 「사용자 설명서」 둘째 문단(280줄), 「설명서와 원본 관리」 문단(317줄)",
+      "type": "style",
+      "claim": "세 단락이 모두 네 문장을 넘는다. 299줄 단락은 여덟 문장이고, 묶음 구성·움직임·번호 표시·재생 시간·개발자용 제외라는 서로 다른 결정을 한 단락에 담았다. 280줄은 다섯 문장, 317줄은 다섯 문장이다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "299줄: 설명서는 맨 위에 … 화면 한 장은 움직이지 않는다(사용자 결정 2026-10-16). 화면 전체에 번호를 찍고, … 전체 재생 중에는 6초 보여 준 뒤 … 개발자용 화면에는 넣지 않는다(사용자 결정 2026-10-16). 개발자용은 흐름 그림 무대가 …",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "ONE-IDEA: 한 문장에 한 개념만 두고, 단락은 네 문장 이하로 끊어라.",
+      "principle": "ONE-IDEA",
+      "consequence": "현재 299줄 단락 하나에 사용자 결정 세 건과 근거 없는 기준값 하나가 섞여 있다."
+    },
+    {
+      "where": "「화면 항목 목록과 설명 대조」 표 「채우기」 행(257줄)",
+      "type": "style",
+      "claim": "주어가 잘못 놓였다. 「요소는 … 장면을 추가한다」로 읽혀, 장면을 추가하는 주체가 요소가 된다. 실제 주체인 주 세션이 적혀 있지 않다. 뒤 절 「표시 규칙은 … 싣고」에도 싣는 주체가 없다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "빠진 요소 중 누르면 화면이나 데이터가 바뀌는 요소는 그 기능에 장면을 추가한다. 표시 규칙은 0번 화면 둘러보기 항목으로 싣고, 모르면 결과를 잘못 읽는 규칙이면 알아 둘 점 핵심으로도 싣는다",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "SUBJECT-OBJECT: 누가 누구에게 무엇을 하는지 생략하지 마라. 판단하고 행동하는 주체를 사람이나 도구로 적고 …",
+      "principle": "SUBJECT-OBJECT",
+      "consequence": "현재 「채우기」 단계를 실행하는 주체가 주 세션인지 항목 서브에이전트인지 이 행에 적혀 있지 않다."
+    },
+    {
+      "where": "「화면 항목 목록과 설명 대조」 절 끝 문단(259줄)",
+      "type": "style",
+      "claim": "둘째 문장의 주어와 서술어가 맞지 않는다. 주제어는 「장면과 알아 둘 점은」인데, 서술어는 「개발자용과 설명서가 같은 flow.json 을 쓰기 때문이다」이다. 그래서 무엇의 이유인지가 문장 안에서 이어지지 않는다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "대조는 두 결과물에 함께 적용된다. 장면과 알아 둘 점은 개발자용과 설명서가 같은 `flow.json` 을 쓰기 때문이다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "FULL-SENTENCE: 본문에서는 명사 조각이나 기호로 문장을 대신하지 말고 말끝을 흐리지 마라. / SUBJECT-OBJECT",
+      "principle": "FULL-SENTENCE, SUBJECT-OBJECT",
+      "consequence": "현재 이 문장은 「장면과 알아 둘 점」이 무엇을 하는지 서술하지 않은 채 이유절로 끝난다."
+    },
+    {
+      "where": "「설명서의 0번 화면 둘러보기」 첫 문단(299줄)과 예시 앞 문단(308줄)",
+      "type": "style",
+      "claim": "행동하는 주체가 빠졌다. 299줄에서 번호를 찍고 테두리를 그리고 6초 뒤 넘기는 주체(manual_template.html 또는 render.py)가 적혀 있지 않다. 308줄에서 시안에 추정해 적은 주체와 코드를 따라간 주체, 더 앞선 달까지 내려간 주체(조회 코드)도 적혀 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "299줄: 화면 전체에 번호를 찍고, … 그 칸에 테두리를 그린다. 전체 재생 중에는 6초 보여 준 뒤 다음 장면으로 넘어간다. 개발자용 화면에는 넣지 않는다 / 308줄: 시안에는 처음에 「이전」 배지를 … 추정해 적었다. 그런데 코드를 따라가 보니 직전 월에 기록이 없으면 더 앞선 달까지 내려갔다. 그래서 근거 없는 뜻은 싣지 않는다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "SUBJECT-OBJECT: 판단하고 행동하는 주체를 사람이나 도구로 적고 …",
+      "principle": "SUBJECT-OBJECT",
+      "consequence": "현재 308줄 「싣지 않는다」를 지키는 주체가 항목 서브에이전트인지 주 세션인지 문장에 없다."
+    },
+    {
+      "where": "250줄, 254줄, 278줄, 299줄의 관형절",
+      "type": "style",
+      "claim": "관형절이 문장 중간에 끼어 있다. 299줄 「레포에서 사람이 보는 주요 화면」은 관형절과 「주요」라는 수식어 두 개가 한 명사 앞에 겹쳐 있다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "250줄: …출발하므로, 동작 없이 표시로만 뜻을 전하는 요소를 놓친다 / 254줄: 화면 하나의 렌더 코드에서 사람이 보는 요소를 모두 나열한다 / 278줄: 스킬은 개발자용 안내 화면과 함께 화면을 쓰는 사람이 읽을 설명서를 만든다 / 299줄: 이 묶음에는 레포에서 사람이 보는 주요 화면(…)을 화면마다 한 장씩 넣는다",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "NO-MID-MOD: 관형절을 문장 중간에 끼우지 마라. / NO-STACK-MOD: 명사 앞에 수식어를 2개 이상 두지 마라.",
+      "principle": "NO-MID-MOD, NO-STACK-MOD",
+      "consequence": "현재 278줄에서 읽는 사람은 「개발자용 안내 화면과 함께」가 「만든다」에 걸리는지 「화면을 쓰는 사람」에 걸리는지 문장 끝까지 읽은 뒤에야 가릴 수 있다."
+    },
+    {
+      "where": "「설명서와 원본 관리」 문단(317줄) 넷째 문장",
+      "type": "style",
+      "claim": "연결어미 뒤 쉼표가 한 문장에 두 개 있다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "그 스킬은 이 스킬의 절차와 스크립트를 `${CLAUDE_PLUGIN_ROOT}/skills/explaining-code-flow/` 경로로 가리키고, 내용을 복사하지 않으며, 분석을 줄이지 않는다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "COMMA-CUT: 연결어미 뒤 쉼표는 한 문장에 하나까지만 써라.",
+      "principle": "COMMA-CUT",
+      "consequence": "현재 이 문장에는 「가리키고,」와 「않으며,」 두 곳에 연결어미 뒤 쉼표가 있다."
+    },
+    {
+      "where": "「사용자 설명서」 표 「알아 둘 점」 행(288줄)과 「설명서와 원본 관리」(317줄)",
+      "type": "style",
+      "claim": "정확한 이름 대신 비유를 썼다. 288줄 「다음 무게로 보인다」의 「무게」는 시각 강조 순위를 가리키는 비유이고, 317줄 「입구」와 「얇은 별도 스킬」은 진입 스킬과 내용 없이 경로만 가리키는 스킬을 가리키는 비유다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "288줄: 「이 기능으로 하는 일」 다음 무게로 보인다 / 317줄: 나중에 「설명서만」을 여는 입구가 필요하면 얇은 별도 스킬을 둘 수 있다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "NO-ANALOGY: 지어낸 비유로 정확한 이름을 대신하지 마라.",
+      "principle": "NO-ANALOGY",
+      "consequence": "현재 288줄은 글자 크기와 굵기 중 무엇을 「무게」로 정하는지 적지 않는다."
+    },
+    {
+      "where": "「설명서의 0번 화면 둘러보기」 표 머리(301줄)",
+      "type": "style",
+      "claim": "표 머리 「바꾸는 것」이 대상을 「것」으로 가리킨다. 행 내용도 바꾸는 대상이 아니라 단계마다 하는 일(항목을 낸다, 위치를 측정한다, 검사한다, 그린다)이다. 같은 절 계열인 「화면 항목 목록과 설명 대조」 표는 「하는 일」을 머리로 쓴다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "| 단계 | 바꾸는 것 |",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "SPECIFIC-NAME: 대상을 가리키는 '것'도 그 이름으로 바꿔라. / TERM-ONE: 한 개념에는 한 용어만 쓰고",
+      "principle": "SPECIFIC-NAME, TERM-ONE",
+      "consequence": "현재 단계표 두 개가 같은 열을 「하는 일」과 「바꾸는 것」이라는 서로 다른 머리로 부른다."
+    },
+    {
+      "where": "250·254·278·303·306·317줄의 용어",
+      "type": "constraint",
+      "claim": "같은 대상을 여러 이름으로 부른다. 기존 문서는 「버튼」과 「필터」(152·183줄)와 「템플릿」(32·60·136줄)을 쓰는데, 변경분은 「단추」와 「거르기 단추」와 「화면 틀」을 새로 들였다. 278줄에서는 다시 「버튼」을 쓴다. 화면 구성 요소도 「항목」(절 제목, 대조 행)과 「요소」(250·254·257줄)를 번갈아 쓴다. 「개발자용 템플릿」(292·294줄)은 기존 148줄에서 옮기지 않는다고 정한 「개발자용 단계 화면(flow_template.html)」과 이름이 겹친다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "254줄: 입력 칸, 단추, 탭, 거르기 단추 / 278줄: 버튼을 누르면 무엇을 하는지 / 306줄: | 화면 틀 | 새 `manual_template.html` 이 … / 317줄: 두 화면 틀은 `scripts/` 에 나란히 둔다 / 292줄: 개발자용 템플릿과 같은 배율 식",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "TERM-ONE: 한 개념에는 한 용어만 쓰고, 답이 바뀌어도 같은 대상을 같은 이름으로 가리켜라.",
+      "principle": "TERM-ONE",
+      "consequence": "현재 한 문서 안에서 같은 UI 요소를 「버튼」과 「단추」로, 같은 HTML 원본을 「템플릿」과 「화면 틀」로 부른다. 「개발자용 템플릿」은 movie_template.html 과 flow_template.html 두 파일 모두로 읽힌다."
+    },
+    {
+      "where": "259줄, 280줄, 317줄의 「두 결과물」·「두 화면 틀」",
+      "type": "style",
+      "claim": "대상을 이름 대신 개수로 가리킨다. 「두 결과물」은 index.html 과 manual.html, 「두 화면 틀」은 movie_template.html 과 manual_template.html 을 가리키는 대명사 구실을 하는 수사다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "259줄: 대조는 두 결과물에 함께 적용된다. / 280줄: 두 결과물은 언제나 함께 만들고 … 두 결과물의 기능 순서 · 장면 … / 317줄: 두 화면 틀은 `scripts/` 에 나란히 둔다",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "COUNT-EARNS: 대상을 개수로 가리키지 말고 이름으로 가리키며, 목록 앞에 개수를 예고하지 마라.",
+      "principle": "COUNT-EARNS",
+      "consequence": "현재 317줄 「두 화면 틀」의 파일 이름은 이 절 어디에도 적혀 있지 않다. 읽는 사람이 306줄과 32줄을 찾아 맞춰야 한다."
+    },
+    {
+      "where": "「JSON 형식」 표 새 행(112·115줄)",
+      "type": "format",
+      "claim": "같은 열의 셀 말끝이 맞지 않는다. 이 열은 기존 행과 새 행 모두 「필수」 또는 「선택」으로 시작하는데, `rect` 행만 「캡처가 위치를 찾은 항목만」이라는 명사 조각으로 시작한다. 112줄 괄호 안 「설명서 0번 화면 둘러보기. 화면마다 한 개」도 명사 조각 두 개를 마침표로 이었다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "| 최상위 | `screens` | 필수(설명서 0번 화면 둘러보기. 화면마다 한 개) | / | 항목 | `rect` | 캡처가 위치를 찾은 항목만(1440×1000 기준 `[x, y, 폭, 높이]`) |",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "ONE-ENDING: 한 표 … 안에서 같은 구실을 하는 요소끼리 말끝을 하나로 맞춰라. / FULL-SENTENCE: 표를 쓰더라도 셀은 알아볼 수 있는 문장이나 구로 채워라.",
+      "principle": "ONE-ENDING, FULL-SENTENCE",
+      "consequence": "현재 `rect` 행은 이 열에서 유일하게 필수와 선택 중 어느 쪽인지 적지 않는다. render.py 필드 검사가 이 필드를 어느 쪽으로 다룰지가 표에 없다."
+    },
+    {
+      "where": "「사용자 설명서」 표 「알아 둘 점」 행(288줄)",
+      "type": "constraint",
+      "claim": "결정의 근거로 「설명서 독자는 접힌 내용을 열지 않기 쉽다」를 들었는데, 이 근거에 출처나 관찰 사례가 없다. 사용자 결정 날짜는 있으나 근거 문장이 추측 형태다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "(사용자 결정 2026-10-16, 설명서 독자는 접힌 내용을 열지 않기 쉽다)",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "EVIDENCE-FIRST: 판단, 설계 결정, 제약, 기준값을 추측으로 정하지 말고 … 출처와 함께 적어라. / STATE-ASSUME: 가정해야 하면, 가정이라고 밝혀라.",
+      "principle": "EVIDENCE-FIRST, STATE-ASSUME",
+      "consequence": "현재 이 근거는 시험 관찰인지 사용자 판단인지 가정인지 표시 없이 사실처럼 적혀 있다."
+    },
+    {
+      "where": "299줄 「6초」, 291줄 「재생 속도(0.5~2배)」, 294줄 「기본 비율은 3 : 2」",
+      "type": "constraint",
+      "claim": "기준값 옆에 근거가 없다. 292·294줄의 배율 식과 30~80%는 「개발자용 템플릿과 같은」이라는 출처가 있다. 그러나 둘러보기 화면을 6초 보여 주는 값, 재생 속도 범위 0.5~2배, 기본 폭 비율 3 : 2 에는 사용자 결정 날짜도 시안·기존 템플릿 출처도 붙어 있지 않다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "299줄: 전체 재생 중에는 6초 보여 준 뒤 다음 장면으로 넘어간다. / 291줄: | 재생 막대 | … 재생 속도(0.5~2배)를 둔다 | / 294줄: 기본 비율은 3 : 2 다",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "EVIDENCE-FIRST: 판단, 설계 결정, 제약, 기준값을 추측으로 정하지 말고 … 출처와 함께 적어라. 근거를 찾지 못한 제약은 두지 마라.",
+      "principle": "EVIDENCE-FIRST",
+      "consequence": "현재 이 값들은 시안에서 왔는지, 개발자용 템플릿에서 왔는지, 새로 정했는지 문서에서 가릴 수 없다."
+    },
+    {
+      "where": "「설명서와 원본 관리」 절(317줄)",
+      "type": "constraint",
+      "claim": "결정 「스크립트와 지침은 한 벌만 둔다」 옆에 사용자 결정 날짜나 근거 사례가 없다. 같은 날 추가된 다른 절은 모두 「사용자 결정 2026-10-16」을 단다. 또 요청되지 않은 미래 스킬을 「둘 수 있다」로 적어 두고, 그 스킬의 동작까지 정했다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "스크립트와 지침은 한 벌만 둔다. … 나중에 「설명서만」을 여는 입구가 필요하면 얇은 별도 스킬을 둘 수 있다. 그 스킬은 이 스킬의 절차와 스크립트를 … 가리키고, 내용을 복사하지 않으며, 분석을 줄이지 않는다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "EVIDENCE-FIRST: 설계 결정 … 출처와 함께 적어라. / YAGNI: 요청한 범위를 넘어 만들지 마라. … 요청하지 않은 설정 가능성 … 을 넣지 마라.",
+      "principle": "EVIDENCE-FIRST, YAGNI",
+      "consequence": "현재 이 절의 결정에는 날짜가 없다. 또 이번 범위에 없는 별도 스킬의 규칙 세 가지가 spec 본문에 들어 있다."
+    },
+    {
+      "where": "「화면 항목 목록과 설명 대조」 절 끝 문단(259줄)의 coverage.json 결정",
+      "type": "constraint",
+      "claim": "대조표를 coverage.json 으로 남기고 렌더에는 쓰지 않는다는 결정에 근거나 사용자 결정 날짜가 없다. 이 절 첫 문단의 「사용자 지적 2026-10-16」은 대조 절차의 근거이고, 대조표를 파일로 남기는 결정의 근거는 아니다.",
+      "file": "/home/rladustn1227/02.github/Kiwoom-dashboard/kw-plugins-code-flow/docs/superpowers/specs/2026-10-14-code-flow-guide-design.md",
+      "evidence": "대조표(항목 · 설명된 곳 · 채운 방법)는 `flow.json` 옆 `coverage.json` 으로 남기고, 렌더에는 쓰지 않는다.",
+      "counterpart_file": "/home/rladustn1227/.claude/disciplined-coder/agent-principles.md",
+      "counterpart": "EVIDENCE-FIRST: 판단, 설계 결정 … 을 추측으로 정하지 말고 … 출처와 함께 적어라.",
+      "principle": "EVIDENCE-FIRST",
+      "consequence": "현재 문서에는 coverage.json 을 누가 언제 읽는지 적혀 있지 않다. 절차표(52줄)는 대조 결과를 답에 적으라고만 한다."
+    }
+  ],
+  "principles_applied": [
+    "TITLE-LAYERS",
+    "BOTTOM-LINE",
+    "ONE-IDEA",
+    "SUBJECT-OBJECT",
+    "FULL-SENTENCE",
+    "NO-MID-MOD",
+    "NO-STACK-MOD",
+    "COMMA-CUT",
+    "NO-ANALOGY",
+    "SPECIFIC-NAME",
+    "TERM-ONE",
+    "COUNT-EARNS",
+    "ONE-ENDING",
+    "EVIDENCE-FIRST",
+    "STATE-ASSUME",
+    "YAGNI",
+    "ANTI-LIMIT",
+    "WRITTEN-ONLY",
+    "DOC-TYPE"
+  ],
+  "notes": "검토 범위는 spec-diff.patch 의 추가 줄이다. 줄 번호는 변경 후 spec 파일 기준이다. 체크리스트는 항목마다 따로 보았다. 결과는 아래와 같다. TITLE-LAYERS: 새 절 제목 네 개는 모두 명사구이고 ### 층은 없었다. 「화면 항목 목록과 설명 대조」만 첫 문장이 결론이 아니어서 올렸다. WRITTEN-ONLY: 구어 종결어미와 반말은 찾지 못했다. 312·313줄 예시 표의 「-입니다」는 설명서에 실릴 문구를 그대로 보인 인용이라 대상에서 뺐다. ANTI-LIMIT: 변경분에는 「A가 아니라 B」 대구가 없다. 303줄 「칸뿐 아니라」는 대구가 아니다. 기존 문장에는 152·183·230줄에 세 번 있지만 변경되지 않은 문장이라 지적하지 않았다. 개수 예고: 목록 앞 개수 예고는 없고, 수사를 대명사로 쓴 사례만 올렸다. 표 셀 말끝: 절차표와 새 단계표 두 개와 설명서 처리표는 「-다」로 맞았다. JSON 형식 표만 올렸다. EVIDENCE-FIRST: 새 절 대부분은 「사용자 결정 2026-10-16」이나 RM 시험 사례를 결정 옆에 달았다. 날짜나 근거가 빠진 결정과 기준값만 올렸다. 「사용자 설명서」 표의 캡처·데이터 출처·오른쪽 칸 위치·시작 줌 행도 결정마다 날짜가 없다. 다만 절 머리의 사용자 결정 날짜와 시안 링크가 그 행들을 함께 받친다고 읽을 수 있어 올리지 않았다. 처분할 때 호출자가 정해야 한다. 더 확인할 것: 「6초」·「0.5~2배」·「3 : 2」가 시안(https://claude.ai/artifact/XMKjr2vfuNaCMw5CRkx3kb)에서 왔는지는 이 렌즈의 읽기 범위 밖이라 열지 않았다. 시안에서 왔다면 그 출처를 값 옆에 적으면 해당 지적이 풀린다. manual_template.html 이 「위치」 절의 파일 표(31·32줄 부근)에 없는 문제는 일관성 문제라 lens-consistency 의 몫으로 남기고 올리지 않았다. 금지 낱말 목록은 지시대로 보지 않았다."
+}
