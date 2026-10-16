@@ -46,6 +46,7 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .kicker{font-size:12px;color:var(--text-tertiary);font-weight:600}
 .content h2{margin:2px 0 12px;font-size:22px;letter-spacing:-.02em}
 .body{display:grid;grid-template-columns:minmax(0,960px) minmax(300px,1fr);gap:24px;align-items:start}
+.body[hidden]{display:none}
 /* 무대: 노드는 고정 위치, 자료 아이콘이 그 사이를 움직인다. 창이 좁으면 무대 전체를 비율로 줄여 오른쪽 칸을 남긴다 */
 .stagewrap{width:100%;overflow:hidden}
 .stage{transform-origin:0 0;position:relative;width:960px;height:460px;border:1px solid var(--border-light);border-radius:var(--radius-md);background:var(--bg-surface);overflow:hidden}
@@ -369,8 +370,24 @@ async function typeInto(text, my) {
   }
   await wait(900);
 }
+// 챗봇처럼 대화와 도구 호출로 진행되는 기능은 안내 규칙이 아직 없어 장면 없이 안내 문구만 보인다
+function showChatbot() {
+  ++run;
+  document.getElementById('summary').textContent = F.summary || '';
+  document.getElementById('kicker').textContent = F.name;
+  document.getElementById('sceneTitle').textContent = '챗봇 기능 안내는 개발 중입니다';
+  ['prereq', 'shot', 'tips'].forEach(id => document.getElementById(id).hidden = true);
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('sub').textContent = '';
+  document.getElementById('pg').textContent = '';
+  ['all', 'first', 'prev', 'next', 'replay'].forEach(id => document.getElementById(id).disabled = true);
+  document.querySelector('.body').hidden = true;
+}
 async function play(i, keepAuto, k0 = 0, single = false) {
   if (!keepAuto) setAuto(false);
+  if (!F.scenes.length) return showChatbot();
+  ['all', 'first', 'replay'].forEach(id => document.getElementById(id).disabled = false);
+  document.querySelector('.body').hidden = false;
   const my = ++run, sc = F.scenes[i];
   document.getElementById('summary').textContent = D.features ? (F.summary || '') : '';
   cur = i;

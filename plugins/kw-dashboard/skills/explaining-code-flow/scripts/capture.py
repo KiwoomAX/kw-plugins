@@ -88,6 +88,24 @@ def scene_steps(scene: dict) -> list[dict]:
     return []
 
 
+def split_steps(steps: list[dict]) -> tuple[list[dict], list[dict]]:
+    """준비 동작(setup)과 장면 자신의 동작을 나눈다. 준비 동작은 공통 입력처럼 장면으로 보이지 않는 동작이다."""
+    return [st for st in steps if st.get("setup")], [st for st in steps if not st.get("setup")]
+
+
+def _run(page, steps):
+    for st in steps:
+        if st["action"] == "type":
+            _target(page, st["target"]).fill(st["text"], timeout=5000)
+        elif st["action"] == "select":  # 목록에서 고르는 칸(select)은 입력으로 채울 수 없다
+            _target(page, st["target"]).select_option(st["value"], timeout=5000)
+        elif st["action"] == "wait":  # 화면이 정해 둔 지연 뒤에 바뀌는 장면(예: 완료 1.5초 뒤 창 열기)
+            page.wait_for_timeout(st["ms"])
+            continue
+        else:
+            _target(page, st["target"]).click(timeout=5000)
+        page.wait_for_timeout(1500)
+
 
 def _target(page, target):
     if target.get("selector"):
@@ -144,23 +162,21 @@ def capture(plan_doc: dict) -> dict:
             fr = {"screenImg": f"screens/{img}", "scenes": {}}
             for s in f["scenes"]:
                 steps = scene_steps(s)
-                first = next((st["target"] for st in steps if "target" in st), s.get("start"))
-                sr = {k: v for k, v in (("start", _locate(page, first)), ("end", _locate(page, s.get("end")))) if v}
+                setup, own = split_steps(steps)
+                first = next((st["target"] for st in own if "target" in st), s.get("start"))
+                sr = {} if setup else {k: v for k, v in (("start", _locate(page, first)), ("end", _locate(page, s.get("end")))) if v}
                 if steps:
                     # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
                     cp, _ = fresh()
                     try:
-                        for st in steps:
-                            if st["action"] == "type":
-                                _target(cp, st["target"]).fill(st["text"], timeout=5000)
-                            elif st["action"] == "select":  # 목록에서 고르는 칸(select)은 입력으로 채울 수 없다
-                                _target(cp, st["target"]).select_option(st["value"], timeout=5000)
-                            elif st["action"] == "wait":  # 화면이 정해 둔 지연 뒤에 바뀌는 장면(예: 완료 1.5초 뒤 창 열기)
-                                cp.wait_for_timeout(st["ms"])
-                                continue
-                            else:
-                                _target(cp, st["target"]).click(timeout=5000)
-                            cp.wait_for_timeout(1500)
+                        if setup:
+                            # 준비 동작을 마친 화면이 이 장면의 시작 화면이다. 장면 자신의 첫 동작 위치를 그 화면에서 찾는다
+                            _run(cp, setup)
+                            start_img = f"{s['id']}_start.png"
+                            cp.screenshot(path=str(out_dir / start_img))
+                            sr["startImg"] = f"screens/{start_img}"
+                            sr.update({k: v for k, v in (("start", _locate(cp, first)), ("end", _locate(cp, s.get("end")))) if v})
+                        _run(cp, own)
                         end_img = f"{s['id']}_end.png"
                         cp.screenshot(path=str(out_dir / end_img))
                         sr["endImg"] = f"screens/{end_img}"
@@ -168,8 +184,8 @@ def capture(plan_doc: dict) -> dict:
                         if end:
                             sr["end"] = end
                         # 입력 연출은 시작 화면에 보이는 칸에 치는 장면만 한다. 앞 동작이 화면을 바꾼 뒤에 치는 칸은 시작 화면에 없다
-                        if steps[0].get("action") == "type" and "start" in sr:
-                            sr["typed"] = steps[0]["text"]
+                        if own and own[0].get("action") == "type" and "start" in sr:
+                            sr["typed"] = own[0]["text"]
                     except Exception:
                         pass  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌한다
                     cp.close()
@@ -230,6 +246,10 @@ def _check() -> int:
            pick("http://127.0.0.1:5173/api/search?page=1") == ["전체"] and pick("http://127.0.0.1:5173/api/search?q=회의") == ["전체"])
     expect("click 만 있는 옛 장면은 클릭 동작 하나로 바꾼다",
            scene_steps({"start": {"text": "통계"}, "click": True}) == [{"action": "click", "target": {"text": "통계"}}])
+
+    y = {"action": "select", "target": {"selector": "#year"}, "value": "2026", "setup": True}
+    q = {"action": "type", "target": {"selector": "#q"}, "text": "견적"}
+    expect("준비 동작과 장면 자신의 동작을 나눈다", split_steps([y, q]) == ([y], [q]))
 
     plan_doc = {"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}]}
     expect("띄우지 못한 화면은 모든 장면에 같은 문구를 적는다",

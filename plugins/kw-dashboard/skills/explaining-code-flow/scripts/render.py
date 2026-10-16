@@ -63,6 +63,10 @@ def validate(data: dict) -> list[str]:
         need(f, ["key", "name", "summary", "nodes", "scenes"], fw)
         if "prereq" in f and not (isinstance(f["prereq"], str) and f["prereq"]):
             errs.append(f"{fw}.prereq 는 비어 있지 않은 글자여야 합니다")
+        if "chatbot" in f and not isinstance(f["chatbot"], bool):
+            errs.append(f"{fw}.chatbot 은 true · false 여야 합니다")
+        if f.get("chatbot") and f.get("scenes"):
+            errs.append(f"{fw} 는 챗봇 기능이라 장면을 두지 않습니다(안내 개발 중)")
         ids = set()
         for ni, n in enumerate(f.get("nodes") or []):
             nw = f"{fw}.nodes[{ni}]"
@@ -167,6 +171,12 @@ def _check() -> int:
     expect("defect 가 참 · 거짓이 아니면 잡는다", any("tips[2].defect" in e for e in errs))
     expect("auto 가 참 · 거짓이 아니면 잡는다", any("scenes[1].auto" in e for e in errs))
     expect("빈 prereq 를 잡는다", any("prereq" in e for e in errs))
+
+    chat = copy.deepcopy(SAMPLE)
+    chat["features"].append({"key": "etf", "name": "ETF 챗봇", "summary": "대화로 묻는 기능", "chatbot": True, "nodes": [], "scenes": []})
+    expect("장면 없는 챗봇 기능은 통과한다", validate(chat) == [])
+    chat["features"][1]["scenes"] = copy.deepcopy(SAMPLE["features"][0]["scenes"])
+    expect("챗봇 기능에 장면이 있으면 잡는다", any("챗봇" in e for e in validate(chat)))
 
     norect = copy.deepcopy(SAMPLE)
     del norect["features"][0]["scenes"][0]["screen"]["start"]
