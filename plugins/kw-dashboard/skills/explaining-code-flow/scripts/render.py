@@ -182,14 +182,24 @@ def render(data: dict, template: str = "movie_template.html") -> str:
     return page.replace("__TITLE__", html.escape(data["title"])).replace("__DATA__", payload)
 
 
+ROW_GAP = 24  # 1440×1000 캡처에서 같은 줄로 볼 세로 차이(픽셀)
+
+
 def number_tour(data: dict) -> dict:
-    """위치를 찾은 항목에만 위에서 아래, 왼쪽에서 오른쪽 순서로 번호를 매긴 사본을 돌려준다."""
+    """위치를 찾은 항목에만 위에서 아래, 왼쪽에서 오른쪽 순서로 번호를 매긴 사본을 돌려준다.
+    한 줄에 놓인 칸도 세로 위치가 몇 픽셀씩 다르므로, 앞 칸과 세로 차이가 ROW_GAP 이내면 같은 줄로 보고 왼쪽부터 센다."""
     out = copy.deepcopy(data)
     for sc in out.get("tour") or []:
         areas = sc.get("areas") or []
         for a in areas:
             a.pop("no", None)
-        located = sorted((a for a in areas if a.get("rect")), key=lambda a: (a["rect"][1], a["rect"][0]))
+        rows: list[list[dict]] = []
+        for a in sorted((a for a in areas if a.get("rect")), key=lambda a: a["rect"][1]):
+            if rows and a["rect"][1] - rows[-1][0]["rect"][1] <= ROW_GAP:
+                rows[-1].append(a)
+            else:
+                rows.append([a])
+        located = [a for r in rows for a in sorted(r, key=lambda a: a["rect"][0])]
         for i, a in enumerate(located, 1):
             a["no"] = i
     return out
@@ -276,6 +286,11 @@ def _check() -> int:
     expect("위치를 찾은 항목에만 위에서 아래 순서로 번호를 매긴다",
            [a.get("no") for a in numbered] == [1, 2, None])
     expect("tour 가 있는 예제도 검사를 통과한다", validate(number_tour(SAMPLE)) == [])
+    row = {"tour": [{"key": "r", "name": "r", "img": "x.png", "areas": [
+        {"name": "오른쪽", "meaning": "m", "rect": [900, 10, 50, 20]}, {"name": "왼쪽", "meaning": "m", "rect": [100, 22, 50, 20]},
+        {"name": "아래", "meaning": "m", "rect": [50, 200, 50, 20]}]}]}
+    expect("같은 줄(세로 차이가 작은 칸)은 왼쪽부터 번호를 매긴다",
+           [a["no"] for a in number_tour(row)["tour"][0]["areas"]] == [2, 1, 3])
     nr = copy.deepcopy(number_tour(SAMPLE)); del nr["tour"][0]["areas"][0]["rect"]
     expect("위치 없이 번호만 있는 항목을 잡는다", any("areas[0]" in e and "번호" in e for e in validate(nr)))
     tb = copy.deepcopy(number_tour(SAMPLE))
