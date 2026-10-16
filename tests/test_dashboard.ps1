@@ -85,7 +85,7 @@ Assert 'its frontmatter name matches the folder' (([regex]::Match($flowText, '(?
 $flowDesc = ([regex]::Match($flowText, '(?m)^description:\s*(.+)$')).Groups[1].Value
 Assert 'its description says when to open the skill' ($flowDesc -match '^Use when ')
 Assert 'its description is a safe plain scalar' (-not ($flowDesc -match ': | #'))
-foreach ($ref in @('analysis-prompt.md', 'tips-prompt.md')) {
+foreach ($ref in @('analysis-prompt.md', 'tips-prompt.md', 'areas-prompt.md')) {
     Assert "$ref ships" (Test-Path (Join-Path $FlowDir $ref))
     Assert "SKILL.md links $ref" ($flowText -match [regex]::Escape("]($ref)"))
 }
@@ -97,6 +97,11 @@ foreach ($s in @('render.py', 'run_repo.py', 'capture.py')) {
     Assert "$s --check passes" ($LASTEXITCODE -eq 0)
 }
 Assert 'movie_template.html ships' (Test-Path (Join-Path $FlowDir 'scripts/movie_template.html'))
+Assert 'manual_template.html ships' (Test-Path (Join-Path $FlowDir 'scripts/manual_template.html'))
+Assert 'SKILL.md renders both pages into the output folder' ($flowText -match [regex]::Escape('render.py" <레포>/docs/code-flow/flow.json --out-dir <레포>/docs/code-flow'))
+Assert 'the flow skill matches items against scenes and tips' ($flowText -match '\| 설명 대조 검토 \|')
+Assert 'its description names the user manual' ($flowDesc -match '사용자 설명서')
+Assert 'the plugin description names the user manual' ($pluginJson.description -match '사용자 설명서')
 $flowAll = (Get-ChildItem $FlowDir -Filter *.md | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
 Assert 'no flow skill file calls python3' (-not ($flowAll -match '\bpython3\b'))
 Assert 'no flow skill file points at a personal skills folder' (-not ($flowAll -match '~/\.claude'))
