@@ -178,7 +178,7 @@ Next.js 처럼 서버가 화면을 미리 채워 보내는 부분은 브라우�
 
 | 바꾸는 것 | 내용 |
 |---|---|
-| 캡처 동작 | 캡처 계획의 장면에 `steps`(사용자 동작 목록)를 둔다. 동작은 `{"action": "type", "target": …, "text": "견적"}` 과 `{"action": "click", "target": …}` 두 가지다. `capture.py` 는 화면을 새로 연 뒤 동작을 차례로 실행하고 결과 화면을 `endImg` 로 찍는다. 첫 동작의 대상 위치가 `screen.start` 가 된다 |
+| 캡처 동작 | 캡처 계획의 장면에 `steps`(사용자 동작 목록)를 둔다. 동작 종류는 입력 · 누르기 · 고르기 · 기다리기에 우클릭 · 두 번 누르기 · 키 누르기 · 붙여넣기 · 파일 올리기 · 마우스 올리기 · 끌기 · 스크롤을 더한 12가지다(사용자 결정 2026-10-16). 추가한 8가지는 사내 화면 코드 9곳(Kiwoom-Rag, Kiwoom-Agent ESG2 · ESG3 · GM, wholesale-dashboard, excel-dashboard-test, dashboard-template, email_db)에서 찾은 상호작용이다(`onContextMenu` · `onDoubleClick` · `onKeyDown` · `onPaste` · 파일 칸 · `onDrop` · `onMouseEnter` · `onMouseDown` · 스크롤). `capture.py` 는 계획의 동작 칸을 먼저 검사하고, 화면을 새로 연 뒤 동작을 차례로 실행해 결과 화면을 `endImg` 로 찍는다. 멈춘 동작은 결과의 `failed` 에 몇 번째 동작인지와 오류 문구로 남긴다. 첫 동작의 대상 위치가 `screen.start` 가 된다 |
 | 가짜 응답의 조건 | 가짜 응답에 `query`(쿼리 조건)를 둘 수 있다. 같은 경로라도 검색어가 든 요청과 처음 목록 요청에 서로 다른 응답을 준다. 조건이 있는 응답을 먼저 맞춘다 |
 | 입력 연출 | 장면의 `screen.typed` 에 입력한 글자를 적으면, 템플릿이 검색창으로 줌한 뒤 그 글자를 한 글자씩 쳐 보이고 결과 화면으로 넘어간다 |
 | 실제 값 | 흐름 그림의 자료 이름(`text`)과 설명(`say`)에 가짜 데이터의 실제 값을 쓴다. 예: 「"견적" 검색」 → 「제목 · 본문에 "견적"이 든 메일 3통」 |

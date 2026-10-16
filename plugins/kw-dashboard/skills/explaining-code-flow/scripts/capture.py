@@ -5,7 +5,7 @@
     python capture.py --check
 
 캡처는 uv run --no-project --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
-장면의 steps(입력 · 클릭 · 고르기 · 기다리기 동작 목록)를 차례로 실행하고 결과 화면을 찍는다. 예전 형식의 click 은 클릭 동작 하나로 본다.
+장면의 steps(동작 목록, 동작 종류는 STEP_FIELDS)를 차례로 실행하고 결과 화면을 찍는다. 예전 형식의 click 은 클릭 동작 하나로 본다.
 화면이 보내는 요청은 모두 가로챈다. 화면 파일은 레포에서 읽고, API 는 계획의 가짜 데이터로 응답하며,
 Node 개발 서버를 띄운 때만 나머지 같은 주소 요청을 그 서버로 넘긴다. 그 밖의 요청은 끊는다.
 """
@@ -94,18 +94,88 @@ def split_steps(steps: list[dict]) -> tuple[list[dict], list[dict]]:
     return [st for st in steps if st.get("setup")], [st for st in steps if not st.get("setup")]
 
 
-def _run(page, steps):
-    for st in steps:
-        if st["action"] == "type":
-            _target(page, st["target"]).fill(st["text"], timeout=5000)
-        elif st["action"] == "select":  # 목록에서 고르는 칸(select)은 입력으로 채울 수 없다
-            _target(page, st["target"]).select_option(st["value"], timeout=5000)
-        elif st["action"] == "wait":  # 화면이 정해 둔 지연 뒤에 바뀌는 장면(예: 완료 1.5초 뒤 창 열기)
-            page.wait_for_timeout(st["ms"])
-            continue
-        else:
-            _target(page, st["target"]).click(timeout=5000)
+# 동작마다 꼭 있어야 하는 칸이다. drag 는 이 밖에 to(놓을 대상) 나 by([가로, 세로] 이동량) 중 하나가 있어야 한다
+STEP_FIELDS = {
+    "type": ("target", "text"), "click": ("target",), "select": ("target", "value"), "wait": ("ms",),
+    "rightclick": ("target",), "dblclick": ("target",), "hover": ("target",), "scroll": ("target",),
+    "press": ("key",), "paste": ("target", "text"), "upload": ("target", "file"), "drag": ("target",),
+}
+
+# 브라우저의 붙여넣기 이벤트를 그 칸에 보낸다. 클립보드 권한 없이 엑셀에서 복사한 글을 붙여넣은 것과 같은 이벤트가 간다
+_PASTE = """(el, text) => { el.focus(); const dt = new DataTransfer(); dt.setData('text/plain', text);
+  el.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }"""
+
+
+def plan_errors(plan_doc: dict) -> list[str]:
+    errs = []
+    for f in plan_doc.get("features", []):
+        for s in f.get("scenes", []):
+            for i, st in enumerate(scene_steps(s)):
+                where = f"{s.get('id')} 동작 {i}"
+                need = STEP_FIELDS.get(st.get("action"))
+                if need is None:
+                    errs.append(f"{where}: {st.get('action')!r} 는 없는 동작입니다({' · '.join(STEP_FIELDS)})")
+                    continue
+                errs += [f"{where}: {st['action']} 에 {k} 가 없습니다" for k in need if k not in st]
+                if st["action"] == "drag" and "to" not in st and "by" not in st:
+                    errs.append(f"{where}: drag 에 to 나 by 가 없습니다")
+                if st["action"] == "upload" and not (isinstance(st.get("file"), dict) and st["file"].get("name")):
+                    errs.append(f"{where}: upload 의 file 은 {{\"name\": …, \"text\": …}} 형태여야 합니다")
+    return errs
+
+
+def _run(page, steps, part):
+    for i, st in enumerate(steps):
+        try:
+            _step(page, st)
+        except Exception as e:  # 어느 동작에서 멈췄는지 결과에 남겨, 계획의 대상을 고칠 수 있게 한다
+            first = (str(e).strip().splitlines() or [""])[0][:160]
+            raise RuntimeError(f"{part} 동작 {i + 1}번째({st['action']})에서 멈췄습니다: {first}") from e
+
+
+def _step(page, st):
+    a, t = st["action"], st.get("target")
+    if a == "wait":  # 화면이 정해 둔 지연 뒤에 바뀌는 장면(예: 완료 1.5초 뒤 창 열기)
+        page.wait_for_timeout(st["ms"])
+        return
+    if a == "press" and not t:  # 대상 없이 누르는 키는 화면 전체에 보낸다(예: Escape 로 창 닫기)
+        page.keyboard.press(st["key"])
         page.wait_for_timeout(1500)
+        return
+    el = _target(page, t)
+    if a == "type":
+        el.fill(st["text"], timeout=5000)
+    elif a == "select":  # 목록에서 고르는 칸(select)은 입력으로 채울 수 없다
+        el.select_option(st["value"], timeout=5000)
+    elif a == "rightclick":
+        el.click(button="right", timeout=5000)
+    elif a == "dblclick":
+        el.dblclick(timeout=5000)
+    elif a == "hover":  # 마우스를 올려야 나타나는 단추 · 팝업
+        el.hover(timeout=5000)
+    elif a == "scroll":
+        el.scroll_into_view_if_needed(timeout=5000)
+    elif a == "press":
+        el.press(st["key"], timeout=5000)
+    elif a == "paste":
+        el.evaluate(_PASTE, st["text"])
+    elif a == "upload":  # 숨은 파일 칸에도 가짜 파일을 넣는다. 파일을 끌어 놓는 칸도 대개 이 칸으로 받는다
+        name = st["file"]["name"]
+        el.set_input_files({"name": name, "mimeType": mimetypes.guess_type(name)[0] or "application/octet-stream",
+                            "buffer": st["file"].get("text", "").encode("utf-8")}, timeout=5000)
+    elif a == "drag":
+        if "to" in st:
+            el.drag_to(_target(page, st["to"]), timeout=5000)
+        else:
+            box = el.bounding_box(timeout=5000)
+            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            page.mouse.move(x, y)
+            page.mouse.down()
+            page.mouse.move(x + st["by"][0], y + st["by"][1], steps=12)
+            page.mouse.up()
+    else:
+        el.click(timeout=5000)
+    page.wait_for_timeout(1500)
 
 
 # 요소의 가운데 점에서 실제로 보이는 맨 위 요소가 그 요소이거나 그 안의 요소일 때만 보이는 요소로 친다.
@@ -193,12 +263,12 @@ def capture(plan_doc: dict) -> dict:
                     try:
                         if setup:
                             # 준비 동작을 마친 화면이 이 장면의 시작 화면이다. 장면 자신의 첫 동작 위치를 그 화면에서 찾는다
-                            _run(cp, setup)
+                            _run(cp, setup, "준비")
                             start_img = f"{s['id']}_start.png"
                             cp.screenshot(path=str(out_dir / start_img))
                             sr["startImg"] = f"screens/{start_img}"
                             sr.update({k: v for k, v in (("start", _locate(cp, first)), ("end", _locate(cp, s.get("end")))) if v})
-                        _run(cp, own)
+                        _run(cp, own, "장면")
                         end_img = f"{s['id']}_end.png"
                         cp.screenshot(path=str(out_dir / end_img))
                         sr["endImg"] = f"screens/{end_img}"
@@ -208,12 +278,12 @@ def capture(plan_doc: dict) -> dict:
                         # 입력 연출은 시작 화면에 보이는 칸에 치는 장면만 한다. 앞 동작이 화면을 바꾼 뒤에 치는 칸은 시작 화면에 없다
                         if own and own[0].get("action") == "type" and "start" in sr:
                             sr["typed"] = own[0]["text"]
-                    except Exception:
-                        pass  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌한다
+                    except Exception as e:
+                        sr["failed"] = str(e)  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌하고, 멈춘 동작을 보고에 남긴다
                     cp.close()
                 if steps and not (sr.get("startImg") or sr.get("endImg")):
                     # 동작을 하나도 따라 하지 못한 장면이 기능의 첫 화면을 자기 화면처럼 보이지 않게 이유를 적는다
-                    sr = {"unavailable": MSG_STEP}
+                    sr = {"unavailable": MSG_STEP, **({"failed": sr["failed"]} if "failed" in sr else {})}
                 fr["scenes"][s["id"]] = sr
             result["features"][f["key"]] = fr
             page.close()
@@ -275,6 +345,16 @@ def _check() -> int:
     y = {"action": "select", "target": {"selector": "#year"}, "value": "2026", "setup": True}
     q = {"action": "type", "target": {"selector": "#q"}, "text": "견적"}
     expect("준비 동작과 장면 자신의 동작을 나눈다", split_steps([y, q]) == ([y], [q]))
+    good = [{"action": "rightclick", "target": {"text": "소계"}}, {"action": "press", "key": "Escape"},
+            {"action": "paste", "target": {"selector": "table"}, "text": "a\tb"}, {"action": "drag", "target": {"selector": ".bar"}, "by": [80, 0]},
+            {"action": "upload", "target": {"selector": "input[type=file]"}, "file": {"name": "보고서.pdf", "text": "%PDF-1.4"}}]
+    expect("새 동작 종류가 칸을 갖추면 계획 검사를 통과한다", plan_errors({"features": [{"scenes": [{"id": "x", "steps": good}]}]}) == [])
+    bad = [{"action": "swipe", "target": {"text": "a"}}, {"action": "drag", "target": {"text": "a"}},
+           {"action": "upload", "target": {"text": "a"}, "file": "a.pdf"}, {"action": "paste", "target": {"text": "a"}}]
+    errs = plan_errors({"features": [{"scenes": [{"id": "x", "steps": bad}]}]})
+    expect("없는 동작 · drag 의 to/by · upload 의 file · paste 의 text 누락을 잡는다",
+           any("swipe" in e for e in errs) and any("to 나 by" in e for e in errs)
+           and any("upload 의 file" in e for e in errs) and any("paste 에 text" in e for e in errs))
 
     plan_doc = {"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}]}
     expect("띄우지 못한 화면은 모든 장면에 같은 문구를 적는다",
@@ -297,7 +377,12 @@ def main() -> int:
     if not a.plan or not a.out:
         ap.error("캡처 계획 경로와 --out 이 필요합니다")
     plan_doc = json.loads(Path(a.plan).read_text(encoding="utf-8"))
-    res = fail_result(plan_doc, FAIL_MSG[a.fail]) if a.fail else capture(plan_doc)
+    errs = plan_errors(plan_doc)
+    if errs:
+        print("캡처 계획을 고쳐야 합니다:")
+        print("\n".join("  - " + e for e in errs))
+        return 1
+    res =fail_result(plan_doc, FAIL_MSG[a.fail]) if a.fail else capture(plan_doc)
     Path(a.out).write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
     print(a.out)
     return 0
