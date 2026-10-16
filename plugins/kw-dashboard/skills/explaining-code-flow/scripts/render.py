@@ -45,6 +45,35 @@ SAMPLE = {
 }
 
 
+# 노드 상자는 폭 172 · 높이 약 60(줄바꿈하면 더 높다)이다. 무대 좌표(높이 520 기준)로 이보다 가까우면 겹친다
+NODE_GAP_X, NODE_GAP_Y = 180, 80
+# 구역 상자는 노드 중심에서 좌우 100, 위로 70(구역 이름 칸), 아래로 60 을 감싼다고 보고 겹침을 판정한다
+ZONE_PAD = (100, 70, 60)
+
+
+def overlaps(nodes: list[dict], where: str) -> list[str]:
+    errs = []
+    pts = [n for n in nodes if isinstance(n.get("x"), (int, float)) and isinstance(n.get("y"), (int, float))]
+    for i, a in enumerate(pts):
+        for b in pts[i + 1:]:
+            if abs(a["x"] - b["x"]) < NODE_GAP_X and abs(a["y"] - b["y"]) < NODE_GAP_Y:
+                errs.append(f"{where} 노드 {a.get('id')!r} 와 {b.get('id')!r} 가 겹칩니다(가로 {NODE_GAP_X}, 세로 {NODE_GAP_Y} 이상 띄워야 합니다)")
+    boxes = {}
+    for n in pts:
+        if n.get("zone"):
+            boxes.setdefault(n["zone"], []).append(n)
+    px, top, bottom = ZONE_PAD
+    rect = {z: (min(n["x"] for n in ns) - px, min(n["y"] for n in ns) - top, max(n["x"] for n in ns) + px, max(n["y"] for n in ns) + bottom)
+            for z, ns in boxes.items()}
+    zs = list(rect)
+    for i, a in enumerate(zs):
+        for b in zs[i + 1:]:
+            A, B = rect[a], rect[b]
+            if A[0] < B[2] and B[0] < A[2] and A[1] < B[3] and B[1] < A[3]:
+                errs.append(f"{where} 구역 {a!r} 와 {b!r} 의 상자가 겹칩니다(노드 좌표를 옮겨 구역 사이를 띄워야 합니다)")
+    return errs
+
+
 def validate(data: dict) -> list[str]:
     errs: list[str] = []
 
@@ -81,6 +110,7 @@ def validate(data: dict) -> list[str]:
             x, y = n.get("x"), n.get("y")
             if isinstance(x, (int, float)) and isinstance(y, (int, float)) and not (0 <= x <= STAGE_W and 0 <= y <= STAGE_H):
                 errs.append(f"{nw} 좌표 ({x}, {y}) 가 960×520 무대 밖입니다")
+        errs += overlaps(f.get("nodes") or [], fw)
         for si, s in enumerate(f.get("scenes") or []):
             sw = f"{fw}.scenes[{si}]"
             need(s, ["title", "actions"], sw)
@@ -171,6 +201,14 @@ def _check() -> int:
     expect("defect 가 참 · 거짓이 아니면 잡는다", any("tips[2].defect" in e for e in errs))
     expect("auto 가 참 · 거짓이 아니면 잡는다", any("scenes[1].auto" in e for e in errs))
     expect("빈 prereq 를 잡는다", any("prereq" in e for e in errs))
+
+    near = copy.deepcopy(SAMPLE)
+    near["features"][0]["nodes"][2].update({"x": 150, "y": 200})
+    errs = validate(near)
+    expect("겹치는 노드를 잡는다", any("'pc'" in e and "'mail'" in e for e in errs))
+    zone = copy.deepcopy(SAMPLE)
+    zone["features"][0]["nodes"][1].update({"x": 300, "y": 200})
+    expect("겹치는 구역 상자를 잡는다", any("구역" in e and "겹칩니다" in e for e in validate(zone)))
 
     chat = copy.deepcopy(SAMPLE)
     chat["features"].append({"key": "etf", "name": "ETF 챗봇", "summary": "대화로 묻는 기능", "chatbot": True, "nodes": [], "scenes": []})

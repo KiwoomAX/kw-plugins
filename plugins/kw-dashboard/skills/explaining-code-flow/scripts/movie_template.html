@@ -51,7 +51,7 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .stagewrap{width:100%;overflow:hidden}
 .stage{transform-origin:0 0;position:relative;width:960px;height:460px;border:1px solid var(--border-light);border-radius:var(--radius-md);background:var(--bg-surface);overflow:hidden}
 .group{position:absolute;border:1.5px dashed var(--zc);border-radius:14px;background:var(--zb)}
-.group .gname{position:absolute;left:10px;top:-13px;display:flex;align-items:center;gap:5px;padding:2px 8px 2px 4px;font-size:12px;font-weight:700;color:var(--zc);background:#fff;border:1.5px solid var(--zc);border-radius:999px}
+.group .gname{position:absolute;left:10px;top:-13px;white-space:nowrap;display:flex;align-items:center;gap:5px;padding:2px 8px 2px 4px;font-size:12px;font-weight:700;color:var(--zc);background:#fff;border:1.5px solid var(--zc);border-radius:999px}
 .group .gname svg{width:16px;height:16px;padding:2px;border-radius:50%;background:var(--zc)}
 .node{position:absolute;width:172px;transform:translate(-50%,-50%);display:flex;align-items:center;gap:8px;text-align:left;padding:9px 12px;
       border:1.5px solid var(--kc);border-radius:12px;background:var(--kb);transition:box-shadow .3s}
@@ -190,12 +190,14 @@ function useFeature(k) {
     F.nodes = F.nodes.map(n => ({...n, y: Math.round(30 + (n.y - 30) * 0.86)})); }
   NODE = new Map(F.nodes.map(n => [n.id, n]));
 }
+// 구역 상자는 그려진 노드의 실제 크기로 감싼다. 노드 글자가 줄바꿈되어 높아져도 상자가 노드를 다 덮고,
+// 위쪽에는 구역 이름이 노드를 가리지 않도록 여백을 둔다
 function zoneBoxes() {
-  const by = {};
+  const by = {}, half = n => { const el = document.getElementById('n-' + n.id); return [el.offsetWidth / 2, el.offsetHeight / 2]; };
   F.nodes.forEach(n => { const z = zoneOf(n); if (z) (by[z] = by[z] || []).push(n); });
   return Object.entries(by).map(([z, ns]) => {
-    const x1 = Math.min(...ns.map(n => n.x)) - 100, x2 = Math.max(...ns.map(n => n.x)) + 100;
-    const y1 = Math.min(...ns.map(n => n.y)) - 58, y2 = Math.max(...ns.map(n => n.y)) + 52;
+    const x1 = Math.min(...ns.map(n => n.x - half(n)[0])) - 14, x2 = Math.max(...ns.map(n => n.x + half(n)[0])) + 14;
+    const y1 = Math.min(...ns.map(n => n.y - half(n)[1])) - 26, y2 = Math.max(...ns.map(n => n.y + half(n)[1])) + 14;
     const L = Math.max(6, x1), T = Math.max(14, y1);
     return {z, x: L, y: T, w: Math.min(954, x2) - L, h: Math.min(454, y2) - T};
   });
@@ -268,6 +270,13 @@ function drawStage() {
   const st = document.getElementById('stage');
   st.innerHTML = '<svg class="wires" id="wires" width="960" height="460"></svg>' + F.nodes.map(n => nodeHtml(n)).join('');
   st.insertAdjacentHTML('afterbegin', zoneBoxes().map(g => `<div class="group" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;--zc:${ZONE[g.z].c};--zb:${ZONE[g.z].b}"><span class="gname"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ZONE[g.z].i}</svg>${esc((F.zoneNames || {})[g.z] || ZONE[g.z].name)}</span></div>`).join(''));
+  // 구역 이름이 상자보다 길면 상자를 넓힌다. 무대 오른쪽을 넘으면 왼쪽으로 옮긴다
+  st.querySelectorAll('.group').forEach(g => {
+    const need = g.querySelector('.gname').offsetWidth + 24;
+    if (need <= g.offsetWidth) return;
+    const left = Math.max(6, Math.min(g.offsetLeft, 954 - need));
+    g.style.left = left + 'px'; g.style.width = need + 'px';
+  });
   document.getElementById('kinds').innerHTML = '';
   fitStage();
 }
