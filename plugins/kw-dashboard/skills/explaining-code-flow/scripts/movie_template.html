@@ -166,7 +166,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
     <div class="nav">
       <button class="btn primary" id="all">▶ 전체 재생</button><button class="btn" id="first">처음부터</button><button class="btn" id="prev">◀ 이전 동작</button>
       <button class="btn" id="next">다음 동작 ▶</button><button class="btn" id="replay">이 장면 다시 보기</button>
-      <label class="speed">재생 속도 <input type="range" id="speed" min="0.5" max="2" step="0.25" value="1"><b id="speedVal">1배</b></label>
+      <label class="speed">재생 속도 <input type="range" id="speed" min="1.5" max="2.5" step="0.25" value="2"><b id="speedVal">2배</b></label>
       <span class="pg" id="pg"></span>
     </div>
   </div>
@@ -318,8 +318,9 @@ function drawStage() {
 }
 
 // 재생 속도: 모든 이동 · 멈춤 시간을 이 배수로 나눈다. 바꾸면 진행 중인 움직임에도 바로 적용된다
-let SPEED = 1;
-try { SPEED = +localStorage.getItem('flow-speed') || 1; } catch (e) {}
+// 재생 속도는 1.5 ~ 2.5 배이고 기본은 2 배다. 기억된 값이 이 범위 밖이면(예전 기본값 1 배) 기본으로 돌아간다
+let SPEED = 2;
+try { const v = +localStorage.getItem('flow-speed'); if (v >= 1.5 && v <= 2.5) SPEED = v; } catch (e) {}
 const T = ms => ms / SPEED;
 const wait = ms => new Promise(r => setTimeout(r, T(ms)));
 (() => {

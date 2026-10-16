@@ -126,7 +126,7 @@ def plan_errors(plan_doc: dict) -> list[str]:
         if t.get("scene") not in ids:
             errs.append(f"둘러보기 {t.get('key')}: 장면 {t.get('scene')!r} 가 계획에 없습니다")
         for i, a in enumerate(t.get("areas", [])):
-            if not isinstance(a.get("target"), dict):
+            if not all(isinstance(x, dict) for x in area_targets(a)) or not a.get("target"):
                 errs.append(f"둘러보기 {t.get('key')} 항목 {i}: target 이 없습니다")
     return errs
 
@@ -235,17 +235,29 @@ def pick_unique(seen: list[bool], first: bool = False) -> int | None:
     return idx[0] if len(idx) == 1 else None
 
 
+def area_targets(area: dict) -> list[dict]:
+    """항목의 찾는 방법 목록. 정보 칸 여럿을 묶은 항목은 target 이 목록이다."""
+    t = area.get("target")
+    return t if isinstance(t, list) else [t]
+
+
 def _locate_area(page, area):
-    """둘러보기 항목의 위치. 정확히 같은 글자(또는 선택자) 후보만 보고, 하나로 정해질 때만 사각형을 돌려준다."""
+    """둘러보기 항목의 위치. 묶은 항목은 칸마다 찾아 감싸는 사각형을 만들고, 한 칸이라도 못 찾으면 찾지 못함이다."""
+    rects = [_locate_one(page, t, area.get("first", False)) for t in area_targets(area)]
+    return union(rects) if rects and all(rects) else None
+
+
+def _locate_one(page, target, first=False):
+    """정확히 같은 글자(또는 선택자) 후보만 보고, 하나로 정해질 때만 사각형을 돌려준다."""
     try:
-        els = _candidates(page, area["target"])[0].all()[:20]
+        els = _candidates(page, target)[0].all()[:20]
         seen = []
         for el in els:
             try:
                 seen.append(bool(el.evaluate(_SEEN)))
             except Exception:
                 seen.append(False)
-        i = pick_unique(seen, area.get("first", False))
+        i = pick_unique(seen, first)
         box = els[i].bounding_box() if i is not None else None
     except Exception:
         return None
@@ -461,6 +473,10 @@ def _check() -> int:
            got[1] == {"key": "input", "unavailable": MSG_TOUR})
     terr = plan_errors({"features": [{"scenes": [{"id": "a-0"}]}], "tour": [{"key": "x", "scene": "a-9", "areas": [{"name": "n"}]}]})
     expect("둘러보기가 없는 장면을 가리키거나 target 이 없으면 잡는다", any("a-9" in e for e in terr) and any("target" in e for e in terr))
+    grp = {"name": "펀드 정보", "target": [{"text": "5002"}, {"text": "대체투자1팀"}]}
+    expect("묶은 항목은 찾는 방법 목록을 그대로 쓴다", area_targets(grp) == grp["target"])
+    gerr = plan_errors({"features": [{"scenes": [{"id": "a-0"}]}], "tour": [{"key": "x", "scene": "a-0", "areas": [grp, {"name": "b", "target": [{"text": "a"}, "글자"]}]}]})
+    expect("묶은 항목의 target 목록은 받고, 목록 안이 객체가 아니면 잡는다", gerr == ["둘러보기 x 항목 1: target 이 없습니다"])
 
     plan_doc = {"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}]}
     expect("띄우지 못한 화면은 모든 장면에 같은 문구를 적는다",

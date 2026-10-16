@@ -45,9 +45,11 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.
 .layer{position:absolute;left:0;top:0;width:1440px;height:1000px;transform-origin:0 0}
 .layer img{display:block;width:1440px;height:1000px;max-width:none}
 /* 번호는 칸 글자를 가리지 않도록 작게 하고, 칸 왼쪽 위 모서리 바깥에 걸친다 */
-.pinx{position:absolute;transform:translate(-85%,-85%);width:32px;height:32px;border-radius:50%;background:var(--pin);color:#fff;font-size:17px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 3px #fff}
+.pinx{opacity:0;transition:opacity .15s;position:absolute;transform:translate(-85%,-85%);width:32px;height:32px;border-radius:50%;background:var(--pin);color:#fff;font-size:17px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 3px #fff}
 .pinbox{position:absolute;border:4px solid var(--pin);border-radius:8px;opacity:0;transition:opacity .15s}
-.pinbox.on{opacity:1}
+.pinbox.on,.pinx.on{opacity:1}
+.areas tr{cursor:pointer}
+.areas tr.sel{background:var(--surface);box-shadow:inset 3px 0 0 var(--pin)}
 .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:16px;text-align:center;padding:0 16px;background:var(--bg)}
 .mark{position:absolute;border:3px solid var(--hit);border-radius:6px;box-shadow:0 0 0 3000px rgba(0,0,0,.16);pointer-events:none}
 .typed{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-weight:700;color:#1A1A1A;background:#fff;padding:0 3px;white-space:nowrap}
@@ -131,7 +133,7 @@ details ul{margin:8px 0 0;padding-left:18px}
   <button class="btn" id="prev">◀ 이전 장면</button>
   <button class="btn" id="next">다음 장면 ▶</button>
   <button class="btn" id="again">이 장면 다시 보기</button>
-  <label class="speed" for="speed">재생 속도 <input type="range" id="speed" min="0.5" max="2" step="0.25" value="1"><b id="speedVal">1배</b></label>
+  <label class="speed" for="speed">재생 속도 <input type="range" id="speed" min="1.5" max="2.5" step="0.25" value="2"><b id="speedVal">2배</b></label>
   <span class="pg" id="pg"></span>
 </div></div>
 
@@ -154,8 +156,9 @@ const D = {features: [
           img0: (s.screen || {}).startImg || f.screenImg}))})),
 ]};
 const W0 = 1440, H0 = 1000, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let SPEED = 1;
-try { SPEED = +localStorage.getItem('manual-speed') || 1; } catch (e) {}
+// 재생 속도는 1.5 ~ 2.5 배이고 기본은 2 배다. 기억된 값이 이 범위 밖이면 기본으로 돌아간다
+let SPEED = 2;
+try { const v = +localStorage.getItem('manual-speed'); if (v >= 1.5 && v <= 2.5) SPEED = v; } catch (e) {}
 const T = ms => reduce ? 0 : ms / SPEED;
 const wait = ms => new Promise(r => setTimeout(r, T(ms)));
 let fi = 0, si = 0, run = 0, auto = false;
@@ -203,16 +206,6 @@ function camera(rect, src, instant) {
   layer.style.transform = to;
   Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px', opacity: rect ? 1 : 0});
   mark.innerHTML = '';
-}
-// 번호 표시끼리 32px 안으로 붙으면 뒤 번호를 오른쪽 아래로 비켜 놓는다(배지가 테두리 안에 있는 칸)
-function nudge() {
-  const placed = [];
-  document.querySelectorAll('#pins .pinx').forEach(p => {
-    // 화면 가장자리의 칸은 번호가 캡처 칸 밖으로 잘리지 않게 안쪽으로 들인다
-    let x = Math.max(30, parseFloat(p.style.left)), y = Math.max(30, parseFloat(p.style.top));
-    while (placed.some(q => Math.abs(q[0] - x) < 32 && Math.abs(q[1] - y) < 32)) { x += 30; }
-    p.style.left = x + 'px'; p.style.top = y + 'px'; placed.push([x, y]);
-  });
 }
 function cap(text, color) {
   document.getElementById('capText').textContent = text;
@@ -264,18 +257,25 @@ async function play(a, b) {
     return;
   }
 
-  if (s.overview) {  // 0번 장면: 움직이지 않는다. 화면 전체에 번호를 찍고, 표의 줄에 마우스를 올리면 그 칸에 테두리를 그린다
-    camera(null, s.img, true); cap('화면 전체 · 표의 줄에 마우스를 올리면 그 칸이 표시됩니다', '#5B6C8C');
+  if (s.overview) {  // 0번 장면: 움직이지 않는다. 처음에는 번호를 숨기고, 표의 줄에 마우스를 올리거나 누르면 그 항목의 번호와 칸만 보인다
+    camera(null, s.img, true); cap('화면 전체 · 표의 줄을 누르거나 마우스를 올리면 그 칸이 표시됩니다', '#5B6C8C');
+    // 화면 가장자리의 칸은 번호가 캡처 칸 밖으로 잘리지 않게 안쪽으로 들인다
     document.getElementById('pins').innerHTML = s.areas.filter(ar => ar.no && ar.r).map(ar =>
       `<div class="pinbox" data-n="${ar.no}" style="left:${ar.r[0]}px;top:${ar.r[1]}px;width:${ar.r[2]}px;height:${ar.r[3]}px"></div>` +
-      `<div class="pinx" style="left:${ar.r[0]}px;top:${ar.r[1]}px">${ar.no}</div>`).join('');
-    nudge();
+      `<div class="pinx" data-n="${ar.no}" style="left:${Math.max(30, ar.r[0])}px;top:${Math.max(30, ar.r[1])}px">${ar.no}</div>`).join('');
+    let sel = null;  // 누른 줄은 다른 줄을 누를 때까지 표시를 유지한다
+    const show = n => document.querySelectorAll('#pins [data-n]').forEach(el => el.classList.toggle('on', el.dataset.n === n));
     document.querySelectorAll('.areas tr').forEach(tr => {
-      const box = document.querySelector(`.pinbox[data-n="${tr.dataset.n}"]`);
-      const on = v => { tr.classList.toggle('on', v); if (box) box.classList.toggle('on', v); };
-      tr.onmouseenter = () => on(true); tr.onmouseleave = () => on(false);
+      tr.onmouseenter = () => { tr.classList.add('on'); show(tr.dataset.n); };
+      tr.onmouseleave = () => { tr.classList.remove('on'); show(sel); };
+      tr.onclick = () => {
+        sel = sel === tr.dataset.n ? null : tr.dataset.n;
+        document.querySelectorAll('.areas tr').forEach(r => r.classList.toggle('sel', r.dataset.n === sel && !!sel));
+        show(sel);
+      };
     });
-    await wait(6000); if (my !== run) return;
+    // 둘러보기는 읽는 화면이라 재생 속도와 상관없이 6초 보여 준다
+    await new Promise(r => setTimeout(r, 6000)); if (my !== run) return;
     if (auto) next();
     return;
   }
