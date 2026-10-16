@@ -44,7 +44,8 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.
 .view{position:relative;width:100%;aspect-ratio:1440/1000;max-height:calc(66vh / var(--z, 1));overflow:hidden;background:#EEF0F3}
 .layer{position:absolute;left:0;top:0;width:1440px;height:1000px;transform-origin:0 0}
 .layer img{display:block;width:1440px;height:1000px;max-width:none}
-.pinx{position:absolute;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:50%;background:var(--pin);color:#fff;font-size:22px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 5px #fff}
+/* 번호는 칸 글자를 가리지 않도록 작게 하고, 칸 왼쪽 위 모서리 바깥에 걸친다 */
+.pinx{position:absolute;transform:translate(-85%,-85%);width:32px;height:32px;border-radius:50%;background:var(--pin);color:#fff;font-size:17px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 3px #fff}
 .pinbox{position:absolute;border:4px solid var(--pin);border-radius:8px;opacity:0;transition:opacity .15s}
 .pinbox.on{opacity:1}
 .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:16px;text-align:center;padding:0 16px;background:var(--bg)}
@@ -203,12 +204,13 @@ function camera(rect, src, instant) {
   Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px', opacity: rect ? 1 : 0});
   mark.innerHTML = '';
 }
-// 번호 표시끼리 44px 안으로 붙으면 뒤 번호를 오른쪽 아래로 비켜 놓는다(배지가 테두리 안에 있는 칸)
+// 번호 표시끼리 32px 안으로 붙으면 뒤 번호를 오른쪽 아래로 비켜 놓는다(배지가 테두리 안에 있는 칸)
 function nudge() {
   const placed = [];
   document.querySelectorAll('#pins .pinx').forEach(p => {
-    let x = parseFloat(p.style.left), y = parseFloat(p.style.top);
-    while (placed.some(q => Math.abs(q[0] - x) < 44 && Math.abs(q[1] - y) < 44)) { x += 36; y += 36; }
+    // 화면 가장자리의 칸은 번호가 캡처 칸 밖으로 잘리지 않게 안쪽으로 들인다
+    let x = Math.max(30, parseFloat(p.style.left)), y = Math.max(30, parseFloat(p.style.top));
+    while (placed.some(q => Math.abs(q[0] - x) < 32 && Math.abs(q[1] - y) < 32)) { x += 30; }
     p.style.left = x + 'px'; p.style.top = y + 'px'; placed.push([x, y]);
   });
 }
