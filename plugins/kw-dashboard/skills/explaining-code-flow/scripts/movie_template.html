@@ -15,6 +15,15 @@
   --border-light:#E5E5E5; --border-medium:#D1D1D1;
   --radius-sm:6px; --radius-md:10px;
 }
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --brand:#E6EAF0; --sel-weak:rgba(255,255,255,.07); --hover-weak:rgba(255,255,255,.04); --accent:#8FB0E6;
+  --bg-app:#13171E; --bg-rail:#171C24; --rail-tint:none; --bg-surface:#1B212B; --bg-sunken:#222936; --bg-hover:#262E3B;
+  --text-primary:#E6EAF0; --text-secondary:#B3BCCB; --text-tertiary:#8A94A6; --border-light:#2E3746; --border-medium:#3A4556; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --brand:#E6EAF0; --sel-weak:rgba(255,255,255,.07); --hover-weak:rgba(255,255,255,.04); --accent:#8FB0E6;
+  --bg-app:#13171E; --bg-rail:#171C24; --rail-tint:none; --bg-surface:#1B212B; --bg-sunken:#222936; --bg-hover:#262E3B;
+  --text-primary:#E6EAF0; --text-secondary:#B3BCCB; --text-tertiary:#8A94A6; --border-light:#2E3746; --border-medium:#3A4556; color-scheme:dark}
+.stagewrap,.shot{--bg-surface:#FFFFFF; --bg-sunken:#F4F4F5; --text-primary:#1A1A1A; --text-secondary:#5D5D5D; --text-tertiary:#8E8E8E; --border-light:#E5E5E5; --border-medium:#D1D1D1; color-scheme:light; color:var(--text-primary)}
 *{box-sizing:border-box}
 body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary);font:14px/1.7 'Pretendard',-apple-system,'Segoe UI','Malgun Gothic',sans-serif;-webkit-font-smoothing:antialiased}
 .app{display:grid;grid-template-columns:320px 1fr;min-height:calc(100vh / var(--z, 1))}
@@ -22,19 +31,10 @@ body{margin:0;min-width:1120px;background:var(--bg-app);color:var(--text-primary
 .rail-head{height:68px;display:flex;flex-direction:column;justify-content:center;padding:0 16px}
 .rail-head .co{font-size:12px;font-weight:600;color:var(--text-tertiary);line-height:1.35}
 .rail-head .dv{font-size:16px;font-weight:600;color:var(--text-secondary);line-height:1.25}
-.rail-head.pick{cursor:pointer;position:relative}
-.rail-head.pick:hover{background:var(--hover-weak)}
-.rail-head.pick .dv{color:var(--text-primary)}
-.rail-head.pick .dv::after{content:" ▾";color:var(--text-tertiary);font-size:12px}
-.menu{position:absolute;left:10px;top:64px;width:300px;max-height:70vh;overflow:auto;z-index:20;background:#fff;border:1px solid var(--border-medium);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px;display:none}
-.menu.open{display:block}
-.menu .it{padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer}
-.menu .it:hover{background:var(--bg-hover)}
-.menu .it.on{background:var(--sel-weak)}
-.menu .it b{display:block;font-size:15px} .menu .it span{display:block;font-size:13px;color:var(--text-tertiary);line-height:1.45}
 .summary{color:var(--text-secondary);margin:-6px 0 12px;font-size:16px}
 .rail-sec{font-size:12px;font-weight:600;color:var(--text-tertiary);padding:10px 18px 6px}
-.steps{padding:0 10px 16px;overflow:auto}
+.steps{padding:0 10px 16px;overflow:auto;flex:1;min-height:0}
+.rgrp{font-size:17px;font-weight:700;color:var(--text-primary);margin:14px 10px 6px}
 .step{display:flex;gap:8px;padding:7px 10px;border-radius:var(--radius-sm);color:var(--text-secondary);cursor:pointer;font-size:15px;line-height:1.45}
 .step:hover{background:var(--hover-weak);color:var(--text-primary)}
 .step.on{color:var(--brand);font-weight:700;background:var(--sel-weak)}
@@ -138,7 +138,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .nav{position:fixed;left:320px;right:0;bottom:0;z-index:6;display:flex;align-items:center;gap:8px;padding:12px 32px;background:var(--bg-app);border-top:1px solid var(--border-light)}
 .btn{font:inherit;font-size:13px;font-weight:600;border:1px solid var(--border-medium);background:var(--bg-surface);border-radius:var(--radius-sm);padding:8px 14px;cursor:pointer;color:var(--text-primary)}
 .btn:hover{background:var(--bg-hover)} .btn:disabled{opacity:.4;cursor:default}
-.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn.primary{background:var(--brand);color:var(--bg-app);border-color:var(--brand)}
 .nav .pg{margin-left:auto;font-size:12px;color:var(--text-tertiary)}
 .speed{display:flex;align-items:center;gap:8px;margin-left:16px;font-size:12px;color:var(--text-secondary)}
 .speed input{width:140px;accent-color:var(--accent)}
@@ -148,8 +148,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 <body>
 <div class="app">
   <nav class="rail">
-    <div class="rail-head" id="railHead"><span class="co" id="railCo">동작 흐름 · 움직이며 보기</span><span class="dv" id="railTitle"></span><div class="menu" id="menu"></div></div>
-    <div class="rail-sec">장면</div>
+    <div class="rail-head"><span class="co">동작 흐름 · 움직이며 보기</span><span class="dv" id="railTitle"></span></div>
     <div class="steps" id="steps"></div>
   </nav>
   <div>
@@ -167,7 +166,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
       <button class="btn primary" id="all">▶ 전체 재생</button><button class="btn" id="first">처음부터</button><button class="btn" id="prev">◀ 이전 동작</button>
       <button class="btn" id="next">다음 동작 ▶</button><button class="btn" id="replay">이 장면 다시 보기</button>
       <label class="speed">재생 속도 <input type="range" id="speed" min="1.5" max="2.5" step="0.25" value="2"><b id="speedVal">2배</b></label>
-      <span class="pg" id="pg"></span>
+      <span class="pg" id="pg"></span><button class="btn" id="theme" type="button"></button>
     </div>
   </div>
 </div>
@@ -223,21 +222,17 @@ const ICON = {
 let cur = 0, run = 0;  // run 이 바뀌면 진행 중인 재생을 멈춘다
 
 document.getElementById('title').textContent = D.title;
+// 사이드바는 설명서처럼 모든 기능과 장면을 번호 목록으로 펼친다. 다른 기능의 장면을 누르면 그 기능으로 바꿔 재생한다
 function drawRail() {
-  const head = document.getElementById('railHead'), menu = document.getElementById('menu');
-  document.getElementById('railTitle').textContent = D.features ? F.name : D.title;
-  if (D.features) {
-    head.classList.add('pick');
-    document.getElementById('railCo').textContent = '기능 고르기';
-    menu.innerHTML = FEATURES.map((f, k) => `<div class="it ${k === fi ? 'on' : ''}" data-k="${k}"><b>${esc(f.name)}</b><span>${esc(f.summary || '')}</span></div>`).join('');
-    menu.querySelectorAll('.it').forEach(el => el.onclick = e => { e.stopPropagation(); menu.classList.remove('open'); useFeature(+el.dataset.k); drawRail(); play(0); });
-    head.onclick = () => menu.classList.toggle('open');
-  }
-  document.getElementById('steps').innerHTML = F.scenes.map((s, i) =>
-    `<div class="step" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(s.title)}${s.auto ? '<span class="autob">자동</span>' : ''}</span></div>`).join('');
-  document.querySelectorAll('.step').forEach(el => el.onclick = () => play(+el.dataset.i, auto));
+  document.getElementById('railTitle').textContent = D.title;
+  document.getElementById('steps').innerHTML = FEATURES.map((f, k) =>
+    (D.features ? `<div class="rgrp">${k + 1}. ${esc(f.name)}</div>` : '') + f.scenes.map((s, i) =>
+      `<div class="step" data-f="${k}" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(s.title)}${s.auto ? '<span class="autob">자동</span>' : ''}</span></div>`).join('')).join('');
+  document.querySelectorAll('.step').forEach(el => el.onclick = () => {
+    if (+el.dataset.f !== fi) useFeature(+el.dataset.f);
+    play(+el.dataset.i, auto);
+  });
 }
-document.addEventListener('click', e => { if (!e.target.closest('#railHead')) document.getElementById('menu').classList.remove('open'); });
 document.getElementById('repo').textContent = D.repo || '';
 
 // 노드 종류: 종류마다 색과 아이콘이 있다. 색은 리스크 관리 발표 덱의 남색 · 청록 · 핑크 계열이다.
@@ -449,7 +444,7 @@ async function play(i, keepAuto, k0 = 0, single = false) {
   const my = ++run, sc = F.scenes[i];
   document.getElementById('summary').textContent = D.features ? (F.summary || '') : '';
   cur = i;
-  document.querySelectorAll('.step').forEach((el, k) => el.classList.toggle('on', k === i));
+  document.querySelectorAll('.step').forEach(el => el.classList.toggle('on', +el.dataset.f === fi && +el.dataset.i === i));
   document.getElementById('kicker').textContent = (D.features ? F.name + ' · ' : '') + `장면 ${i + 1} / ${F.scenes.length}`;
   document.getElementById('sceneTitle').innerHTML = esc(sc.title) + (sc.auto ? '<span class="autob">자동</span>' : '');
   // 앞 기능을 먼저 해야 하는 조건은 기능의 첫 장면 위에 띠로 보인다
@@ -580,7 +575,7 @@ function navState() {
   const last = F.scenes[cur].actions.length - 1;
   document.getElementById('prev').disabled = cur === 0 && curK === 0;
   document.getElementById('next').disabled = cur === F.scenes.length - 1 && curK === last;
-  document.getElementById('pg').textContent = `장면 ${cur + 1} / ${F.scenes.length} · 동작 ${curK + 1} / ${last + 1}`;
+  document.getElementById('pg').textContent = D.features ? `${fi + 1}. ${F.name}` : F.name || '';
 }
 document.getElementById('prev').onclick = () => {
   if (curK > 0) play(cur, auto, curK - 1, !auto);
@@ -591,6 +586,13 @@ document.getElementById('next').onclick = () => {
   else if (cur < F.scenes.length - 1) play(cur + 1, auto, 0, !auto);
 };
 document.getElementById('replay').onclick = () => play(cur, auto);
+// 낮 · 밤 전환. 고른 값은 이 브라우저에만 기억하고, 고르지 않았으면 브라우저 설정을 따른다
+const themeBtn = document.getElementById('theme');
+function isDark() { const t = document.documentElement.dataset.theme; return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
+function showTheme() { themeBtn.textContent = isDark() ? '☀ 낮' : '☾ 밤'; }
+try { const t = localStorage.getItem('flow-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+themeBtn.onclick = () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; try { localStorage.setItem('flow-theme', t); } catch (e) {} showTheme(); };
+showTheme();
 useFeature(0);
 drawRail();
 play(0);
