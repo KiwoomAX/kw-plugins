@@ -488,17 +488,31 @@ async function play(i, keepAuto, k0 = 0, single = false) {
   // 글자를 친 장면은 그 뒤로 친 뒤의 화면(endImg)을 보여 준다
   const midImg = sc.screen && sc.screen.typed ? sc.screen.endImg : undefined;
   const opened = new Set();
+  const showEnd = () => {
+    if (sc.screen.end) camera(sc.screen.end, sc.screen.endName || '결과가 나타나는 곳', '#B5446E', false, sc.screen.endImg || sc.screen.startImg || F.screenImg);
+    // 결과 위치를 찾지 못했어도 결과 화면을 찍었으면 전체 화면으로 결과 화면을 보인다
+    else if (sc.screen.endImg) camera(null, sc.screen.endName || '결과 화면', '#B5446E', false, sc.screen.endImg);
+    else camera(null, '이 장면은 화면을 바꾸지 않습니다', '#5B6C8C');
+  };
+  // 사람 동작(step)마다 찍은 동작 이미지. step 이 이미지 수 + 1 이면 마지막 사람 동작이라 결과 화면이다
+  const FR = (sc.screen && sc.screen.frames) || [];
+  const stepped = shot && sc.actions.some(x => x.step);
+  // 사람 동작이 아닌 동작은 바로 앞 사람 동작 뒤의 화면 위에서 처리된다
+  const imgBefore = k => {
+    for (let j = k; j >= 0; j--) { const n = sc.actions[j].step; if (n) return n <= FR.length ? FR[n - 1].img : sc.screen.endImg; }
+    return sc.screen.startImg || F.screenImg;
+  };
+  let endShown = false;
   for (let k = k0; k < sc.actions.length; k++) {
     if (single && k > k0) break;
     curK = k; navState();
-    if (shot && k0 > 0 && k === k0 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
-    if (shot && k === 1 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
-    if (shot && k === last) {
-      if (sc.screen.end) camera(sc.screen.end, sc.screen.endName || '결과가 나타나는 곳', '#B5446E', false, sc.screen.endImg || sc.screen.startImg || F.screenImg);
-      // 결과 위치를 찾지 못했어도 결과 화면을 찍었으면 전체 화면으로 결과 화면을 보인다
-      else if (sc.screen.endImg) camera(null, sc.screen.endName || '결과 화면', '#B5446E', false, sc.screen.endImg);
-      else camera(null, '이 장면은 화면을 바꾸지 않습니다', '#5B6C8C');
-    }
+    const n = sc.actions[k].step;
+    if (stepped && n && n <= FR.length) camera(FR[n - 1].rect || null, sc.actions[k].text, '#27457D', false, FR[n - 1].img);
+    else if (stepped && n) { showEnd(); endShown = true; }
+    else if (stepped && k === k0 && k0 > 0 && !endShown) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, imgBefore(k));
+    if (!stepped && shot && k0 > 0 && k === k0 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
+    if (!stepped && shot && k === 1 && k < last) camera(null, '뒤에서 처리 중 · 대시보드 전체 화면', '#5B6C8C', false, midImg);
+    if (shot && k === last && !endShown) showEnd();
     if (my !== run) return;
     const a = sc.actions[k], f = NODE.get(a.from), t = NODE.get(a.to), [color, svg] = ICON[a.icon] || ICON.card;
     [...log.children].forEach((li, j) => li.className = j < k ? 'done' : j === k ? 'now' : '');

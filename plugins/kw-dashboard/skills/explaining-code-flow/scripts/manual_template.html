@@ -153,7 +153,9 @@ const D = {features: [
     sources: [...new Set((f.nodes || []).filter(n => SRC_ZONES.includes(n.zone)).map(n => n.name))],
     scenes: f.chatbot ? [{title: '챗봇 기능 안내는 개발 중입니다', chatbot: true, tips: []}]
       : (f.scenes || []).map(s => ({title: s.title, auto: !!s.auto, tips: s.tips || [], screen: s.screen || {},
-          img0: (s.screen || {}).startImg || f.screenImg}))})),
+          img0: (s.screen || {}).startImg || f.screenImg,
+          // 동작 이미지의 캡션은 같은 사람 동작 번호(step)를 단 흐름 동작의 글이다
+          caps: Object.fromEntries((s.actions || []).filter(a => a.step).map(a => [a.step, a.text]))}))})),
 ]};
 const W0 = 1440, H0 = 1000, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 // 재생 속도는 1.5 ~ 2.5 배이고 기본은 2 배다. 기억된 값이 이 범위 밖이면 기본으로 돌아간다
@@ -294,6 +296,11 @@ async function play(a, b) {
       await wait(700); if (my !== run) return;
     }
   } else { cap('사람이 누르지 않고 이어서 처리됩니다', '#5B6C8C'); await wait(900); if (my !== run) return; }
+  // 사람 동작마다 찍은 동작 이미지를 시작과 결과 사이에 차례로 보인다
+  for (const [i, fr] of (sc.frames || []).entries()) {
+    camera(fr.rect || null, fr.img); cap(s.caps[i + 1] || '', '#27457D');
+    await wait(1800); if (my !== run) return;
+  }
   camera(sc.end || null, sc.endImg); cap(sc.endName || '결과 화면', '#B5446E');
   await wait(3200); if (my !== run) return;
   if (auto) next();
