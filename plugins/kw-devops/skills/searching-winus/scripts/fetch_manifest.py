@@ -102,7 +102,8 @@ def render_index(rows: list[dict]) -> str:
 
 
 def render_detail(q: dict) -> str:
-    args = ", ".join(f"`{a['name']}`({a['kind']})" for a in q["arguments"]) or "없음"
+    args = ", ".join(f"`{a['name']}`({a['kind']}" + (f", 최대 {a['max_items']}개" if a.get("max_items") else "") + ")"
+                     for a in q["arguments"]) or "없음"
     return "\n".join([f"## id {q['query_id']} · {q['query_name']}", "", f"- 설명: {q['description']}",
                       f"- 사용 테이블: {', '.join(q['tables'])}", f"- 인자: {args}", "- 등록된 SQL:", "",
                       "```sql", q["sql"], "```", ""])
@@ -145,8 +146,8 @@ def _selfcheck() -> None:
         assert "| 1 | 가 | 설명 \\| 하나 | T_A, T_B |" in out, out
         d = render_detail({"query_id": 7, "query_name": "기준일", "description": "d", "tables": ["T"],
                            "sql": "SELECT 1 FROM T", "arguments": [{"name": "오늘", "kind": "스칼라"},
-                                                                    {"name": "codes", "kind": "목록"}]})
-        assert "## id 7 · 기준일" in d and "- 인자: `오늘`(스칼라), `codes`(목록)" in d, d
+                                                                    {"name": "codes", "kind": "목록", "max_items": 100}]})
+        assert "## id 7 · 기준일" in d and "- 인자: `오늘`(스칼라), `codes`(목록, 최대 100개)" in d, d
         assert "```sql\nSELECT 1 FROM T\n```" in d, d
         assert "- 인자: 없음" in render_detail({"query_id": 1, "query_name": "a", "description": "",
                                                  "tables": [], "sql": "", "arguments": []})
