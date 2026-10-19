@@ -27,6 +27,7 @@ description: Use when someone wants to see how their repo works feature by featu
 | 설명 대조 검토 | 항목마다 장면 · 알아 둘 점 중 어디에서 설명되는지 대조한다. 장면이 없는 버튼이 있으면 그 기능의 분석 서브에이전트를 빠진 버튼 목록과 함께 다시 실행해 장면을 받고, 근거 대조 · 알아 둘 점 검토를 다시 거친다. 모르면 결과를 잘못 읽는 표시 규칙이 알아 둘 점에 없으면 그 화면이 처음 나오는 장면의 알아 둘 점에 핵심으로 싣는다. 빠진 항목 수와 채운 방법, `unresolved` 항목을 답에 적는다 |
 | 화면 실행 | 아래 「화면 실행」을 따른다 |
 | 화면 캡처 | 캡처 이미지가 git 에 잡히지 않도록 `docs/code-flow/.gitignore` 를 먼저 만들고(「결과물」 절), 캡처 계획을 만들어 `capture.py` 를 실행한다. Node 화면이면 끝난 뒤 `stop` 을 반드시 실행한다 |
+| 장면 · 화면 대조 | 아래 「장면 · 화면 대조」를 따른다 |
 | JSON 합치기 | 아래 「JSON 합치기」를 따라 `docs/code-flow/flow.json` 을 만든다 |
 | 렌더 | `render.py` 로 `docs/code-flow/index.html` 과 `manual.html` 을 함께 만들고 두 파일을 브라우저로 연다 |
 | 보고 | 아래 「결과 알리기」를 따른다 |
@@ -78,6 +79,7 @@ description: Use when someone wants to see how their repo works feature by featu
 python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" doctor
 python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" start <레포> --state <작업 폴더>/state.json
 python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --no-project --with playwright python "${CLAUDE_SKILL_DIR}/scripts/capture.py" <작업 폴더>/capture_plan.json --out <작업 폴더>/capture_result.json
+python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" exec <레포> -- uv run --no-project --with pillow python "${CLAUDE_SKILL_DIR}/scripts/draw_boxes.py" <작업 폴더>/capture_result.json --screens <레포>/docs/code-flow/screens --out <작업 폴더>/boxes
 python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" stop --state <작업 폴더>/state.json
 python "${CLAUDE_SKILL_DIR}/scripts/render.py" <레포>/docs/code-flow/flow.json --out-dir <레포>/docs/code-flow
 ```
@@ -128,6 +130,7 @@ Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣�
 | `scenes.<id>.endImg` | 장면의 `screen.endImg` |
 | `scenes.<id>.unavailable` | 장면의 `screen.unavailable` |
 | `scenes.<id>.typed` | 장면의 `screen.typed` |
+| `scenes.<id>.frames` | 장면의 `screen.frames`(사람 동작마다 찍은 `img` · `rect`) |
 | `tour[].img` · `unavailable` | `tour[]` 화면의 `img` · `unavailable`(이름은 항목 서브에이전트 결과의 `screen.name`, `areas` 는 그 결과에서 `name` · `meaning` 만 옮긴다) |
 | `tour[].rects.<순번>` | 그 순번 항목의 `rect`(번호 `no` 는 `render.py` 가 매긴다) |
 
@@ -137,9 +140,20 @@ Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣�
 
 결과물은 레포의 `docs/code-flow/` 에 `index.html` · `manual.html` · `screens/` · `flow.json` 으로 둔다. 같은 폴더에 내용이 `*` 한 줄인 `.gitignore` 를 만든다. 이 파일은 자기 자신을 포함한 폴더 전체를 git 에서 제외하므로, 레포 루트의 `.gitignore` 는 고치지 않는다. 렌더한 뒤 `git -C <레포> status --short docs/code-flow` 가 빈 출력인지 확인한다.
 
+## 장면 · 화면 대조
+
+캡처가 끝나면 `draw_boxes.py`(「스크립트」 절)로 캡처 이미지 사본에 화면 사각형을 그린다. 사본은 `<작업 폴더>/boxes` 에 두고 결과물에 넣지 않는다. 사본 이름은 `<장면id>_<순번>_<start|fN|end>.png` 이고 순번은 재생 순서다. 장면마다 사본을 모두 열어 아래 둘을 대조한다.
+
+- 사각형이 장면 제목과 흐름 동작이 말하는 결과를 가리키는가. 끝 사각형은 결과가 보이는 범위 전체여야 하고, 제목 글자 하나면 맞지 않는다.
+- 그 순간의 이미지에 흐름 동작의 값(예: 「2026년 선택」이면 연도 칸의 2026년)이 보이는가.
+
+맞지 않는 장면은 시작 대상 · 끝 대상 · 동작을 고친다. 동작을 고쳤으면 흐름 동작의 `step` 을 다시 센다. 그다음 `capture.py` 에 `--scenes <장면id,...>` 를 붙여 그 장면만 한 번 다시 캡처하고, 결과를 `capture_result.json` 에 합친다. 다시 캡처해도 맞지 않는 장면은 「결과 알리기」에 남긴다.
+
 ## 결과 알리기
 
 결과를 알릴 때 아래를 함께 적는다.
+
+- 장면 · 화면 대조에서 대조한 장면 수, 고친 장면과 고친 내용, 고치지 못한 장면
 
 - 결과물 경로(`docs/code-flow/index.html`, `docs/code-flow/manual.html`)
 - 캡처하지 못한 둘러보기 화면과, 뜻을 정하지 못한 항목(`unresolved`)
