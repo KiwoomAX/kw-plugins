@@ -165,6 +165,18 @@ def validate(data: dict) -> list[str]:
             for key in ("start", "end"):
                 if key in scr and not rect_ok(scr[key]):
                     errs.append(f"{sw}.screen.{key} 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
+            frames = scr.get("frames") or []
+            for fi, fm in enumerate(frames):
+                if not isinstance(fm, dict) or not fm.get("img"):
+                    errs.append(f"{sw}.screen.frames[{fi}] 에 img 가 없습니다")
+                elif "rect" in fm and not rect_ok(fm["rect"]):
+                    errs.append(f"{sw}.screen.frames[{fi}].rect 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
+            # step 은 사람 동작 번호다. 동작 이미지 수 + 1(마지막 사람 동작 = 결과 화면)까지이고 흐름 동작 순서대로 커진다
+            steps = [a["step"] for a in s.get("actions") or [] if isinstance(a, dict) and "step" in a]
+            if any(not isinstance(n, int) or not 1 <= n <= len(frames) + 1 for n in steps):
+                errs.append(f"{sw} 의 step 은 1 부터 동작 이미지 수 + 1({len(frames) + 1}) 사이여야 합니다")
+            elif steps != sorted(steps):
+                errs.append(f"{sw} 의 step 이 흐름 동작 순서대로 커지지 않습니다")
             for ai, a in enumerate(s.get("actions") or []):
                 aw = f"{sw}.actions[{ai}]"
                 need(a, ["from", "to", "icon", "text", "say"], aw)
@@ -255,6 +267,21 @@ def _check() -> int:
     errs = validate(typo)
     expect("launch 가 참 · 거짓이 아니면 잡는다", any("launch" in e for e in errs))
     expect("글자를 칠 칸 없이 typed 만 있으면 잡는다", any("typed" in e for e in errs))
+
+    fr = copy.deepcopy(SAMPLE); sc = fr["features"][0]["scenes"][0]
+    sc["screen"]["frames"] = [{"img": "screens/x_f1.png", "rect": [0, 0, 10, 10]}]
+    sc["actions"].append(dict(sc["actions"][0]))
+    sc["actions"][0]["step"], sc["actions"][1]["step"] = 1, 2
+    expect("frames 와 step 이 맞으면 통과한다", validate(fr) == [])
+    sc["actions"][1]["step"] = 3
+    expect("step 이 frames 수 + 1 을 넘으면 잡는다", any("step" in e for e in validate(fr)))
+    sc["actions"][0]["step"], sc["actions"][1]["step"] = 2, 1
+    expect("step 이 흐름 동작 순서대로 커지지 않으면 잡는다", any("step" in e for e in validate(fr)))
+    sc["actions"][0]["step"], sc["actions"][1]["step"] = 1, 2
+    sc["screen"]["frames"][0]["rect"] = [0, 0, 2000, 10]
+    expect("frames 의 rect 가 화면 밖이면 잡는다", any("frames" in e for e in validate(fr)))
+    del sc["screen"]["frames"][0]["img"]
+    expect("frames 항목에 img 가 없으면 잡는다", any("frames" in e and "img" in e for e in validate(fr)))
 
     tipbad = copy.deepcopy(SAMPLE)
     tips = tipbad["features"][0]["scenes"][0]["tips"]
