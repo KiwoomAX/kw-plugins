@@ -1,0 +1,11 @@
+{ "lens": "lens-consistency", "target": "docs/superpowers/specs/2026-10-14-code-flow-guide-design.md (2026-10-19 변경분)", "issues": [
+ { "where": "「사용자 동작 따라가기」 입력 연출 줄 ↔ 「동작마다 화면」", "type": "contradiction", "claim": "입력 연출은 글자를 친 뒤 바로 결과 화면으로 넘어가는데 새 절은 frames 를 사이에 재생한다. 입력 동작이 typed 와 frames[0] 을 함께 받을 때 순서가 정해지지 않았다", "evidence": "202행 「쳐 보이고 결과 화면으로 넘어간다」 / 214 · 217행" },
+ { "where": "찍는 시점 · 흐름 동작과 잇기 줄, JSON step 줄", "type": "drift", "claim": "frames 는 setup · wait 를 빼고, step 은 setup 만 뺀다. frames 항목에 번호 칸이 없어 목록 순번과 step 이 어긋난다", "evidence": "213 · 215 · 117행" },
+ { "where": "동작 화면 기록 · 개발자용 안내 화면 줄", "type": "drift", "claim": "「마지막 동작」이 캡처 계획의 마지막 동작과 흐름 그림의 마지막 동작 두 뜻으로 쓰인다. 지연 장면은 마지막 캡처 동작이 wait 다", "evidence": "214 · 216행, movie_template 475 · 496-499행, analysis-prompt 117행" },
+ { "where": "동작 화면 기록 줄 이름 규칙", "type": "gap", "claim": "이름 규칙이 12가지 동작 중 세 가지만 정한다. 고르기의 항목 글자는 계획에 없다(value 만 있다)", "evidence": "214행 ↔ 200행" },
+ { "where": "「화면과 문장 규칙」 끝 대상 줄", "type": "contradiction", "claim": "analysis-prompt.md 99행의 「결과 제목」 · 「그 단추 · 칸」 문장을 바꾸라고 적지 않았다. 절 첫 문장은 SKILL.md · analysis-prompt.md · tips-prompt.md 에 모두 적는다고 한다", "evidence": "145 · 131행, analysis-prompt.md 99행" },
+ { "where": "바꾸는 것 표, JSON 화면 사각형 설명, JSON 합치기 줄", "type": "gap", "claim": "render.py 의 frames · step 검사와 SKILL.md 합치기 표의 frames 줄, frames rect 의 1440×1000 기준이 spec 에서 도출되지 않는다", "evidence": "211-218 · 127 · 57행, SKILL.md 124-133행" },
+ { "where": "찍는 시점 ↔ 캡처 실패 처리", "type": "gap", "claim": "중간 동작에서 캡처가 멈출 때 이미 찍은 frames 를 남기는지와 템플릿 표시가 정해지지 않았다", "evidence": "213-214행 ↔ 200행, capture.py 374-379행" },
+ { "where": "「장면 · 화면 대조」 줄 ↔ 흐름 동작과 잇기 줄", "type": "gap", "claim": "대조 단계에서 캡처 동작을 고치면 step 을 누가 다시 맞추는지 적지 않았다", "evidence": "56 · 215행" },
+ { "where": "「화면 칸 이름」", "type": "drift", "claim": "「화면 칸」은 다른 절에서 오른쪽 캡처 영역을 뜻하고, 같은 형태의 startName · endName 은 「화면 표기」로 부른다", "evidence": "214 · 56 · 217행 ↔ 158 · 188 · 50행" } ],
+ "notes": "결과 알리기 · 렌더 줄은 새 절과 부딪치지 않는다. start 사각형은 연도 · 월을 합친 사각형이라 시작에 함께 확대한 뒤 frames[0] 에서 연도만 다시 확대하는 순서가 된다(의도 확인 필요). 「뒤에서 처리 중」과 `k` 는 spec 에 정의가 없다. 바뀌는 파일은 한 구현 계획 크기다. 장면 하나만 다시 캡처하는 수단은 확인하지 않았다." }
