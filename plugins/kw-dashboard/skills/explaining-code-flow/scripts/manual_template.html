@@ -56,9 +56,10 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.
 .shot{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
 .cap{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;font-weight:700;border-bottom:1px solid var(--line)}
 .cap i{width:9px;height:9px;border-radius:50%;background:var(--accent)}
-.view{position:relative;width:100%;aspect-ratio:1440/1000;max-height:calc(66vh / var(--z, 1));overflow:hidden;background:#EEF0F3}
-.layer{position:absolute;left:0;top:0;width:1440px;height:1000px;transform-origin:0 0}
-.layer img{display:block;width:1440px;height:1000px;max-width:none}
+/* 캡처 크기(--shot-w · --shot-h · --shot-ratio)는 스크립트가 데이터의 shot 으로 채운다 */
+.view{position:relative;width:100%;aspect-ratio:var(--shot-ratio);max-height:calc(66vh / var(--z, 1));overflow:hidden;background:#EEF0F3}
+.layer{position:absolute;left:0;top:0;width:var(--shot-w);height:var(--shot-h);transform-origin:0 0}
+.layer img{display:block;width:var(--shot-w);height:var(--shot-h);max-width:none}
 /* 번호는 칸 글자를 가리지 않도록 작게 하고, 칸 왼쪽 위 모서리 바깥에 걸친다 */
 .pinx{opacity:0;transition:opacity .15s;position:absolute;transform:translate(-85%,-85%);width:32px;height:32px;border-radius:50%;background:var(--pin);color:#fff;font-size:17px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 3px #fff}
 .pinbox{position:absolute;border:4px solid var(--pin);border-radius:8px;opacity:0;transition:opacity .15s}
@@ -185,7 +186,11 @@ const D = {features: [
           // 동작 이미지의 캡션은 같은 사람 동작 번호(step)를 단 흐름 동작의 글이다
           caps: Object.fromEntries((s.actions || []).filter(a => a.step).map(a => [a.step, a.text]))}))})),
 ]};
-const W0 = 1440, H0 = 1000, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// 캡처 크기는 render.py 가 capture.py 의 값을 데이터의 shot 으로 넣어 준다
+const [W0, H0] = RAW.shot, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+document.documentElement.style.setProperty('--shot-w', W0 + 'px');
+document.documentElement.style.setProperty('--shot-h', H0 + 'px');
+document.documentElement.style.setProperty('--shot-ratio', `${W0} / ${H0}`);
 // 재생 속도는 1 ~ 2.5 배이고 기본은 1.5 배다. 1 배가 원래 속도다. 기억된 값이 이 범위 밖이면 기본으로 돌아간다.
 // 기본을 바꾼 뒤에도 예전에 고른 2 배가 남지 않게 저장 키를 새로 쓴다
 let SPEED = 1.5;

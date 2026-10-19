@@ -138,7 +138,7 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .shot .cap i{width:8px;height:8px;border-radius:50%}
 /* 캡처는 백엔드 없이 가짜 데이터로 띄운 화면이라, 실제 값으로 오해하지 않도록 화면 아래에 늘 밝힌다 */
 .shot .ex{padding:5px 10px;font-size:12px;color:var(--text-tertiary);border-top:1px solid var(--border-light)}
-.shot .view{position:relative;width:100%;aspect-ratio:1440/1000;max-height:560px;overflow:hidden;background:#F4F4F5}
+.shot .view{position:relative;width:100%;aspect-ratio:var(--shot-ratio);max-height:560px;overflow:hidden;background:#F4F4F5}
 .shot .view img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0}
 .shot .mark{position:absolute;border:3px solid;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.18)}
 .shot .wait{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;text-align:center;padding:0 16px}
@@ -415,10 +415,12 @@ function finish(my) { if (my === run) { busy = false; showPlay(); } }
 // 장면 목록을 눌러도 그 장면으로 옮겨 가서 이어서 재생하고, 기능의 마지막 장면이 끝나거나 다른 기능을 고를 때 끝난다
 let auto = false;
 function setAuto(on) { auto = on; showPlay(); }
-// 화면 창: 실제 대시보드 캡처(1440×1000) 위를 카메라처럼 움직인다. rect 는 캡처 안의 [x, y, 폭, 높이]다.
+// 화면 창: 실제 대시보드 캡처 위를 카메라처럼 움직인다. rect 는 캡처 안의 [x, y, 폭, 높이]다.
 // 장면 시작에는 전체 화면에서 누를 곳으로 확대하고, 뒤에서 동작이 이어지는 동안 전체로 줌아웃했다가,
 // 결과가 돌아오는 마지막 동작에서 결과가 나타나는 곳으로 확대한다.
-const SHOT_W = 1440, SHOT_H = 1000;
+// 캡처 크기는 render.py 가 capture.py 의 값을 데이터의 shot 으로 넣어 준다
+const [SHOT_W, SHOT_H] = D.shot;
+document.documentElement.style.setProperty('--shot-ratio', `${SHOT_W} / ${SHOT_H}`);
 // cont 가 참이면 앞 장면의 결과 화면이 이 장면의 시작 화면과 같아, 전체 화면으로 돌아가지 않고 앞 장면이 끝난 위치에서 이어 간다
 function setupShot(sc, cont) {
   const box = document.getElementById('shot');

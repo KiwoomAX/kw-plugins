@@ -16,7 +16,10 @@ HERE = Path(__file__).parent
 KINDS = {"screen", "server", "db", "ai", "web", "local", "officepc", "code", "clock"}
 ZONES = {"office", "app", "ax", "winus", "fund", "external"}
 ICONS = {"file", "path", "ask", "card", "list", "stack", "bundle", "answer", "check", "table"}
-STAGE_W, STAGE_H, SHOT_W, SHOT_H = 960, 520, 1440, 1000
+sys.path.insert(0, str(HERE))
+from capture import SHOT_W, SHOT_H  # noqa: E402  캡처 크기는 capture.py 한 곳에만 적는다
+
+STAGE_W, STAGE_H = 960, 520
 
 SAMPLE = {
     "title": "예제 대시보드, 움직이며 보기", "repo": "example (main abc1234)", "appZone": "예제 서비스",
@@ -107,7 +110,7 @@ def validate(data: dict) -> list[str]:
             aw = f"{tw}.areas[{ai}]"
             need(a, ["name", "meaning"], aw)
             if "rect" in a and not rect_ok(a["rect"]):
-                errs.append(f"{aw}.rect 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
+                errs.append(f"{aw}.rect 는 {SHOT_W}×{SHOT_H} 안의 [x, y, 폭, 높이] 여야 합니다")
             if "no" in a and "rect" not in a:
                 errs.append(f"{aw} 는 위치(rect) 없이 번호(no)만 있습니다")
             if "no" in a:
@@ -164,13 +167,13 @@ def validate(data: dict) -> list[str]:
                 errs.append(f"{sw}.screen.typed 는 글자이고, 글자를 칠 칸의 screen.start 가 함께 있어야 합니다")
             for key in ("start", "end"):
                 if key in scr and not rect_ok(scr[key]):
-                    errs.append(f"{sw}.screen.{key} 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
+                    errs.append(f"{sw}.screen.{key} 는 {SHOT_W}×{SHOT_H} 안의 [x, y, 폭, 높이] 여야 합니다")
             frames = scr.get("frames") or []
             for fi, fm in enumerate(frames):
                 if not isinstance(fm, dict) or not fm.get("img"):
                     errs.append(f"{sw}.screen.frames[{fi}] 에 img 가 없습니다")
                 elif "rect" in fm and not rect_ok(fm["rect"]):
-                    errs.append(f"{sw}.screen.frames[{fi}].rect 는 1440×1000 안의 [x, y, 폭, 높이] 여야 합니다")
+                    errs.append(f"{sw}.screen.frames[{fi}].rect 는 {SHOT_W}×{SHOT_H} 안의 [x, y, 폭, 높이] 여야 합니다")
             # step 은 사람 동작 번호다. 동작 이미지 수 + 1(마지막 사람 동작 = 결과 화면)까지이고 흐름 동작 순서대로 커진다
             steps = [a["step"] for a in s.get("actions") or [] if isinstance(a, dict) and "step" in a]
             if any(not isinstance(n, int) or not 1 <= n <= len(frames) + 1 for n in steps):
@@ -196,12 +199,13 @@ def page_title(data: dict, template: str) -> str:
 
 
 def render(data: dict, template: str = "movie_template.html") -> str:
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    # 두 페이지는 캡처 크기를 데이터의 shot 에서 읽는다. 크기를 바꿀 때 capture.py 만 고치면 된다
+    payload = json.dumps({**data, "shot": [SHOT_W, SHOT_H]}, ensure_ascii=False).replace("</", "<\\/")
     page = (HERE / template).read_text(encoding="utf-8")
     return page.replace("__TITLE__", html.escape(page_title(data, template))).replace("__DATA__", payload)
 
 
-ROW_GAP = 24  # 1440×1000 캡처에서 같은 줄로 볼 세로 차이(픽셀)
+ROW_GAP = 24  # 캡처에서 같은 줄로 볼 세로 차이(픽셀)
 
 
 def number_tour(data: dict) -> dict:
@@ -350,6 +354,10 @@ def _check() -> int:
         expect("설명서 제목은 「<레포> 사용 설명서」다", "<title>예제 대시보드 사용 설명서</title>" in man)
     mtpl = (HERE / "manual_template.html").read_text(encoding="utf-8")
     expect("설명서 템플릿에 자리표시 문자열이 한 번씩만 있다", mtpl.count("__TITLE__") == 1 and mtpl.count("__DATA__") == 1)
+    # 캡처 크기는 capture.py 한 곳에만 적고, 두 페이지는 렌더가 넣어 준 값을 읽는다
+    shown = json.loads(page.split('<script id="data" type="application/json">')[1].split("</script>")[0])
+    expect("렌더가 캡처 크기를 capture.py 값으로 넣는다", shown.get("shot") == [SHOT_W, SHOT_H])
+    expect("두 템플릿에 캡처 크기 숫자를 적지 않는다", str(SHOT_W) not in tpl + mtpl and str(SHOT_H) + "px" not in tpl + mtpl)
     return 0 if ok else 1
 
 
