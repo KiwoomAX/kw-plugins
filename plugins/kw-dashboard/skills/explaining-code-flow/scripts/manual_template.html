@@ -22,11 +22,14 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.
 .list h1{font-size:16px;margin:0 0 4px}
 .list .note{color:var(--muted);font-size:12px;margin:0 0 14px}
 .feat{margin-bottom:12px}
-.feat b{display:block;font-size:17px;font-weight:700;color:var(--fg);margin:14px 0 6px}
-.feat button{display:flex;gap:8px;width:100%;text-align:left;font:inherit;font-size:15px;color:var(--fg);background:none;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;line-height:1.45}
-.feat button:hover{background:var(--accent-soft)}
-.feat button.on{background:var(--accent-soft);font-weight:700}
-.feat button .no{color:var(--muted);min-width:16px}
+.feat .fh{display:flex;gap:6px;align-items:baseline;width:100%;text-align:left;font:inherit;font-size:17px;font-weight:700;color:var(--fg);background:none;border:0;border-radius:8px;padding:6px 10px;margin-top:8px;cursor:pointer}
+.feat .fh:hover{background:var(--accent-soft)}
+.feat .fh .chev{color:var(--muted);font-size:12px;min-width:12px}
+.app.folded{grid-template-columns:minmax(0,1fr)} .app.folded .list{display:none}
+.feat button.sc{display:flex;gap:8px;width:100%;text-align:left;font:inherit;font-size:15px;color:var(--fg);background:none;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;line-height:1.45}
+.feat button.sc:hover{background:var(--accent-soft)}
+.feat button.sc.on{background:var(--accent-soft);font-weight:700}
+.feat button.sc .no{color:var(--muted);min-width:16px}
 .badge{display:inline-block;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-left:4px;vertical-align:2px}
 .main{min-width:0}
 .row{display:grid;grid-template-columns:minmax(0,var(--lf,3fr)) 12px minmax(300px,var(--rf,2fr));gap:12px;align-items:start}
@@ -131,6 +134,7 @@ details ul{margin:8px 0 0;padding-left:18px}
 </div>
 
 <div class="bar"><div class="in">
+  <button class="btn" id="fold" type="button"></button>
   <button class="btn primary" id="all">▶ 전체 재생</button>
   <button class="btn" id="prev">◀ 이전 장면</button>
   <button class="btn" id="next">다음 장면 ▶</button>
@@ -183,11 +187,28 @@ fitPage();
   el.oninput = () => { SPEED = +el.value; show(); try { localStorage.setItem('manual-speed', SPEED); } catch (e) {} };
 })();
 
-// 왼쪽 목록
+// 왼쪽 목록. 기능 머리를 누르면 그 기능의 장면을 펼치거나 접고, 재생이 다른 기능으로 넘어가면 그 기능만 펼친다
 document.getElementById('feats').innerHTML = D.features.map((f, a) =>
-  `<div class="feat"><b>${fno(a)}. ${esc(f.name)}</b>` + f.scenes.map((s, b) =>
-    `<button data-f="${a}" data-s="${b}"><span class="no">${b + 1}</span><span>${esc(s.title)}${s.auto ? '<span class="badge">자동</span>' : ''}</span></button>`).join('') + '</div>').join('');
-document.querySelectorAll('.feat button').forEach(el => el.onclick = () => { setAuto(false); play(+el.dataset.f, +el.dataset.s); });
+  `<div class="feat"><button class="fh" type="button" data-g="${a}"><span class="chev"></span><span>${fno(a)}. ${esc(f.name)}</span></button><div class="fb" data-g="${a}">` + f.scenes.map((s, b) =>
+    `<button class="sc" data-f="${a}" data-s="${b}"><span class="no">${b + 1}</span><span>${esc(s.title)}${s.auto ? '<span class="badge">자동</span>' : ''}</span></button>`).join('') + '</div></div>').join('');
+const open = new Set();
+let openedFor = -1;
+function showOpen() {
+  document.querySelectorAll('.feat .fh').forEach(el => {
+    const o = open.has(+el.dataset.g);
+    el.setAttribute('aria-expanded', o); el.querySelector('.chev').textContent = o ? '▾' : '▸';
+  });
+  document.querySelectorAll('.feat .fb').forEach(el => el.hidden = !open.has(+el.dataset.g));
+}
+function openCurrent(a) {
+  if (openedFor === a) return;
+  openedFor = a; open.clear(); open.add(a); showOpen();
+}
+document.querySelectorAll('.feat .fh').forEach(el => el.onclick = () => {
+  const g = +el.dataset.g; open.has(g) ? open.delete(g) : open.add(g); showOpen();
+});
+document.querySelectorAll('.feat .sc').forEach(el => el.onclick = () => { setAuto(false); play(+el.dataset.f, +el.dataset.s); });
+showOpen();
 
 // 캡처 위 카메라: rect 로 줌하고, 화면이 바뀌면 앞 화면을 겹쳐 두고 줌하는 동안 지운다
 function camera(rect, src, instant) {
@@ -236,7 +257,8 @@ function side(f, s) {
 async function play(a, b) {
   const my = ++run; fi = a; si = b;
   const f = D.features[a], s = f.scenes[b], sc = s.screen || {};
-  document.querySelectorAll('.feat button').forEach(el => el.classList.toggle('on', +el.dataset.f === a && +el.dataset.s === b));
+  openCurrent(a);
+  document.querySelectorAll('.feat .sc').forEach(el => el.classList.toggle('on', +el.dataset.f === a && +el.dataset.s === b));
   document.getElementById('kicker').textContent = `${fno(a)}. ${f.name} · ${s.overview ? '화면' : '장면'} ${b + 1} / ${f.scenes.length}`;
   document.getElementById('scene').innerHTML = esc(s.title) + (s.auto ? '<span class="badge">자동</span>' : '');
   document.getElementById('pg').textContent = `${fno(a)}. ${f.name}`;
@@ -354,4 +376,10 @@ function showTheme() { themeBtn.textContent = isDark() ? '☀ 낮' : '☾ 밤'; 
 try { const t = localStorage.getItem('flow-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 themeBtn.onclick = () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; try { localStorage.setItem('flow-theme', t); } catch (e) {} showTheme(); };
 showTheme();
+// 목록 접기. 고른 상태는 브라우저에 기억한다(개발자용 화면 틀과 같은 키)
+const foldBtn = document.getElementById('fold'), appEl = document.querySelector('.app');
+function showFold() { foldBtn.textContent = appEl.classList.contains('folded') ? '▶ 목록 펼치기' : '◀ 목록 접기'; }
+try { if (localStorage.getItem('flow-rail') === 'folded') appEl.classList.add('folded'); } catch (e) {}
+foldBtn.onclick = () => { appEl.classList.toggle('folded'); try { localStorage.setItem('flow-rail', appEl.classList.contains('folded') ? 'folded' : 'open'); } catch (e) {} showFold(); };
+showFold();
 </script>
