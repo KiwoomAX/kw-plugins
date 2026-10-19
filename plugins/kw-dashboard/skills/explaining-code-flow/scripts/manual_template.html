@@ -287,11 +287,19 @@ function camera(rect, src, instant) {
     }
     img.src = src;
   }
-  layer.style.transition = mark.style.transition = ease;
+  layer.style.transition = ease;
   layer.style.transform = to;
-  Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px', opacity: rect ? 1 : 0});
+  // 강조 상자는 화면과 함께 움직이면 빈 곳을 가로지르므로, 화면이 움직이는 동안 숨겼다가 다 옮긴 뒤 그 자리에 나타낸다
+  const seq = ++markSeq;
+  mark.style.transition = 'none';
+  Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px', opacity: 0});
+  if (rect) wait(instant ? 0 : 1800).then(() => {
+    if (seq !== markSeq) return;
+    mark.style.transition = `opacity ${T(250) / 1000}s`; mark.style.opacity = 1;
+  });
   mark.innerHTML = '';
 }
+let markSeq = 0;  // 카메라를 옮길 때마다 늘린다. 앞 이동의 상자 나타내기가 뒤 이동 중에 켜지지 않게 한다
 function cap(text, color) {
   document.getElementById('capText').textContent = text;
   document.getElementById('capDot').style.background = color;
@@ -390,7 +398,8 @@ async function play(a, b, p0 = 0, single = false) {
     curP = p;
     const q = parts[p];
     camera(q.rect, q.img, p === 0); cap(q.text, q.color);
-    await wait(q.ms); if (my !== run) return;
+    // 강조 상자는 화면 이동(1.8초)이 끝난 뒤 나타나므로, 상자가 있는 부분은 그만큼 더 머물러 상자가 보이는 시간을 지킨다
+    await wait(q.ms + (q.rect && p > 0 ? 1800 : 0)); if (my !== run) return;
     if (q.typed) {
       const t = document.createElement('span'); t.className = 'typed';
       t.style.fontSize = Math.max(12, Math.min(22, document.getElementById('mark').clientHeight * .5)) + 'px';

@@ -438,6 +438,7 @@ function setupShot(sc, cont) {
   camera(null, '대시보드 전체 화면', '#5B6C8C', true);
   return true;
 }
+let markSeq = 0;  // 카메라를 옮길 때마다 늘린다. 앞 이동의 상자 나타내기가 뒤 이동 중에 켜지지 않게 한다
 function camera(rect, label, color, instant, src) {
   const box = document.getElementById('shot');
   if (box.hidden) return;
@@ -459,10 +460,17 @@ function camera(rect, label, color, instant, src) {
     requestAnimationFrame(() => { old.style.transition = ease; old.style.transform = to; old.style.opacity = 0; });
     wait(instant ? 0 : 1900).then(() => old.remove());
   }
-  img.style.transition = mark.style.transition = ease;
+  img.style.transition = ease;
   img.style.transform = to;
+  // 강조 상자는 화면과 함께 움직이면 빈 곳을 가로지르므로, 화면이 움직이는 동안 숨겼다가 다 옮긴 뒤 그 자리에 나타낸다
+  const seq = ++markSeq;
+  mark.style.transition = 'none';
   Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px',
-                             opacity: rect ? 1 : 0, borderColor: color});
+                             opacity: 0, borderColor: color});
+  if (rect) wait(instant ? 0 : 1800).then(() => {
+    if (seq !== markSeq) return;
+    mark.style.transition = `opacity ${T(250) / 1000}s`; mark.style.opacity = 1;
+  });
   box.querySelector('.cap i').style.background = color;
   box.querySelector('.cap span').textContent = label;
 }
@@ -565,7 +573,8 @@ async function play(i, keepAuto, k0 = 0, single = false) {
     if (my !== run) return;
     if (sc.screen.start) camera(sc.screen.start, sc.screen.startName || '누르는 곳', '#27457D');
     else camera(null, '사람이 누르지 않고 이어서 처리됩니다', '#5B6C8C');
-    await wait(2200);
+    // 강조 상자는 화면 이동(1.8초)이 끝난 뒤 나타나므로, 누를 곳이 있으면 그만큼 더 머물러 상자가 보이는 시간을 지킨다
+    await wait(sc.screen.start ? 2200 + 1800 : 2200);
     if (my !== run) return;
     if (sc.screen.start && sc.screen.typed) await typeInto(sc.screen.typed, my);
     if (my !== run) return;
