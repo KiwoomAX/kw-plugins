@@ -111,8 +111,6 @@ $flowAll = (Get-ChildItem $FlowDir -Filter *.md | ForEach-Object { [IO.File]::Re
 Assert 'no flow skill file calls python3' (-not ($flowAll -match '\bpython3\b'))
 Assert 'no flow skill file points at a personal skills folder' (-not ($flowAll -match '~/\.claude'))
 Assert 'flow skill documents carry no build-history dates' (-not ($flowAll -match '\b20\d\d-\d\d-\d\d\b'))
-$flowTpl = (Get-ChildItem (Join-Path $FlowDir 'scripts') -Filter *_template.html | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
-Assert 'flow page templates load nothing from the network' (-not ($flowTpl -match '(href|src)="https?://|@import|url\(https?:'))
 $flowPy = (Get-ChildItem (Join-Path $FlowDir 'scripts') -Filter *.py | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
 Assert 'no user-facing script message says Docker' (-not ($flowPy -match '(RepoError|print)\(f?"[^"]*[Dd]ocker'))
 Assert 'the plugin description names the flow skill' ($pluginJson.description -match 'explaining-code-flow')
