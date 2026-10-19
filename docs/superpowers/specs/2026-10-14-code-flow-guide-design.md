@@ -160,6 +160,8 @@ MDB · RDB · 파일 서버는 노드 하나로 묶어 「AX팀 DB」로 부른�
 
 `render.py` 는 레포 의존이 없어 그대로 옮기고, 필드 검사를 넣는다. `render.py` 는 출력 폴더를 받아 `movie_template.html` 로 `index.html` 을, `manual_template.html` 로 `manual.html` 을 만든다. 시제품의 단계 화면(`flow_template.html`)은 옮기지 않는다.
 
+두 템플릿은 네트워크에서 아무것도 받아 오지 않는다(사용자 결정 2026-10-19). 글꼴 · 스타일시트 · 스크립트를 외부 주소(`href="https://…"`, `src="https://…"`, `@import`, `url(https://…)`)에서 부르지 않는다. 받아 오는 주소가 막히거나 늦으면 페이지가 로딩에 걸리기 때문이다. 처음에는 개발자용 화면이 Pretendard 를 jsdelivr 에서, 사용자 설명서가 Noto Sans KR 을 Google Fonts 에서 받아 왔다. 그런데 아티팩트 뷰어가 jsdelivr 를 막아, 이 결정에 따라 두 주소를 모두 지웠다. 글꼴은 PC 에 설치된 것만 쓴다(Pretendard, 없으면 맑은 고딕). 계약 테스트 `flow page templates load nothing from the network` 가 이 규칙을 검사한다.
+
 ## 화면 캡처
 
 스킬은 백엔드를 실행하지 않고 화면 코드만 띄워, 화면이 보내는 요청에 가짜 데이터로 응답한 상태를 캡처한다(사용자 결정 2026-10-14, email_db 시험 중). 화면에서 일어나는 동작(버튼, 탭, 필터, 목록 그리기, 색과 표시 규칙)은 브라우저 안의 화면 코드가 처리하므로 실제와 같다. 서버 쪽 흐름은 캡처가 아니라 코드 분석으로 그린 흐름 그림과 설명이 보여 준다.
