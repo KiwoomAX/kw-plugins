@@ -237,7 +237,7 @@ def _locate(page, target):
         box = _target(page, target).bounding_box(timeout=3000)
     except Exception:
         return None  # 화면에서 찾지 못하면 사각형 없이 전체 화면으로 줌한다
-    return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
+    return clip_rect([round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])]) if box else None
 
 
 def _locate_end(page, target):
@@ -269,6 +269,18 @@ def _locate_area(page, area):
     return union([_locate_one(page, t, area.get("first", False)) for t in area_targets(area)])
 
 
+SHOT_W, SHOT_H = 1440, 1000  # 캡처 화면 크기. 브라우저 창(viewport)과 같다
+
+
+def clip_rect(rect: list[int] | None) -> list[int] | None:
+    """사각형을 캡처 화면 안으로 자른다. 화면 아래로 넘친 결과 범위를 그대로 두면 템플릿이 캡처 밖까지 줌아웃해 빈 회색 여백이 생긴다."""
+    if not rect:
+        return None
+    x0, y0 = max(0, rect[0]), max(0, rect[1])
+    x1, y1 = min(SHOT_W, rect[0] + rect[2]), min(SHOT_H, rect[1] + rect[3])
+    return [x0, y0, x1 - x0, y1 - y0] if x1 > x0 and y1 > y0 else None
+
+
 def _locate_one(page, target, first=False):
     """정확히 같은 글자(또는 선택자) 후보만 보고, 하나로 정해질 때만 사각형을 돌려준다."""
     try:
@@ -283,7 +295,7 @@ def _locate_one(page, target, first=False):
         box = els[i].bounding_box() if i is not None else None
     except Exception:
         return None
-    return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
+    return clip_rect([round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])]) if box else None
 
 
 def tour_shot(sr: dict, screen_img: str | None) -> dict:
@@ -355,7 +367,7 @@ def capture(plan_doc: dict) -> dict:
                     route.abort()
 
             def fresh():
-                page = browser.new_page(viewport={"width": 1440, "height": 1000})
+                page = browser.new_page(viewport={"width": SHOT_W, "height": SHOT_H})
                 page.route("**/*", handle)
                 doc = page.goto(base + f["path"], wait_until="load", timeout=30000)
                 page.wait_for_timeout(1500)
@@ -519,6 +531,9 @@ def _check() -> int:
     expect("보이는 후보가 하나면 그 후보를 고른다", pick_unique([False, True, False]) == 1)
     expect("보이는 후보가 둘 이상이면 찾지 못함이다", pick_unique([True, True]) is None)
     expect("보이는 후보가 없으면 찾지 못함이다", pick_unique([False]) is None)
+    expect("화면 아래로 넘친 사각형은 캡처 화면 안으로 자른다", clip_rect([256, 180, 1152, 1436]) == [256, 180, 1152, 820])
+    expect("화면 안의 사각형은 그대로 둔다", clip_rect([10, 20, 30, 40]) == [10, 20, 30, 40])
+    expect("화면 밖에만 있는 사각형은 찾지 못함이다", clip_rect([0, 1200, 100, 50]) is None)
     expect("first 항목은 보이는 첫 후보를 고른다", pick_unique([False, True, True], first=True) == 1)
     tp = [{"key": "result", "scene": "result-1", "areas": [{"name": "a"}, {"name": "b"}]},
           {"key": "input", "scene": "input-4", "areas": [{"name": "c"}]}]
