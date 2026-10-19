@@ -278,7 +278,7 @@ def _check() -> int:
     sc["actions"][0]["step"], sc["actions"][1]["step"] = 2, 1
     expect("step 이 흐름 동작 순서대로 커지지 않으면 잡는다", any("step" in e for e in validate(fr)))
     sc["actions"][0]["step"], sc["actions"][1]["step"] = 1, 2
-    sc["screen"]["frames"][0]["rect"] = [0, 0, 2000, 10]
+    sc["screen"]["frames"][0]["rect"] = [2000, 0, 10, 10]
     expect("frames 의 rect 가 화면 밖이면 잡는다", any("frames" in e for e in validate(fr)))
     del sc["screen"]["frames"][0]["img"]
     expect("frames 항목에 img 가 없으면 잡는다", any("frames" in e and "img" in e for e in validate(fr)))
