@@ -269,8 +269,11 @@ function drawRail() {
     (D.features ? `<button class="rgrp" type="button" data-g="${k}"><span class="chev"></span><span>${k + 1}. ${nameHtml(f.name)}</span></button>` : '') +
     `<div class="rbody" data-g="${k}">` + f.scenes.map((s, i) =>
       `<div class="step" data-f="${k}" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(s.title)}${s.auto ? '<span class="autob">자동</span>' : ''}</span></div>`).join('') + '</div>').join('');
+  // 다른 기능을 펼치면 그 기능의 장면 1로 넘어간다. 지금 기능을 여닫거나 다른 기능을 접을 때는 목록만 바뀐다
   document.querySelectorAll('.rgrp').forEach(el => el.onclick = () => {
-    const g = +el.dataset.g; open.has(g) ? open.delete(g) : open.add(g); showOpen();
+    const g = +el.dataset.g;
+    if (!open.has(g) && g !== fi) { useFeature(g); return play(0); }
+    open.has(g) ? open.delete(g) : open.add(g); showOpen();
   });
   document.querySelectorAll('.step').forEach(el => el.onclick = () => {
     if (+el.dataset.f !== fi) useFeature(+el.dataset.f);

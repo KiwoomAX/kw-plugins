@@ -260,8 +260,11 @@ function openCurrent(a) {
   if (openedFor === a) return;
   openedFor = a; open.clear(); open.add(a); showOpen();
 }
+// 다른 기능을 펼치면 그 기능의 장면 1로 넘어간다. 지금 기능을 여닫거나 다른 기능을 접을 때는 목록만 바뀐다
 document.querySelectorAll('.feat .fh').forEach(el => el.onclick = () => {
-  const g = +el.dataset.g; open.has(g) ? open.delete(g) : open.add(g); showOpen();
+  const g = +el.dataset.g;
+  if (!open.has(g) && g !== fi) { setAuto(false); return play(g, 0); }
+  open.has(g) ? open.delete(g) : open.add(g); showOpen();
 });
 document.querySelectorAll('.feat .sc').forEach(el => el.onclick = () => { setAuto(false); play(+el.dataset.f, +el.dataset.s); });
 showOpen();
