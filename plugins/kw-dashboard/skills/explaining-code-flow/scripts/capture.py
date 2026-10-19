@@ -286,6 +286,13 @@ def _locate_one(page, target, first=False):
     return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
 
 
+def tour_shot(sr: dict, screen_img: str | None) -> dict:
+    """둘러보기에 쓸 장면 결과. 동작이 없어 결과 화면을 따로 찍지 않은 장면은 기능 첫 화면을 결과 화면으로 쓴다."""
+    if sr.get("endImg") or sr.get("unavailable") or not screen_img:
+        return sr
+    return {**sr, "endImg": screen_img}
+
+
 def capture_tour_result(tour_plan: list[dict], scene_results: dict, rects: dict) -> list[dict]:
     """둘러보기 화면마다 그 장면의 결과 화면과 찾은 항목 위치를 모은다. 장면 캡처가 실패했으면 실패 문구를 적는다."""
     out = []
@@ -411,6 +418,10 @@ def capture(plan_doc: dict) -> dict:
                     cp.close()
                 if not sr.get("frames"):
                     sr.pop("frames", None)
+                if not steps:
+                    # 동작 없이 주소로 바로 여는 장면은 기능 첫 화면이 결과 화면이다. 둘러보기 항목도 그 화면에서 잰다
+                    for t in tours_by_scene.get(s["id"], []):
+                        tour_rects[s["id"]] = {i: _locate_area(page, a) for i, a in enumerate(t["areas"])}
                 if steps and not (sr.get("startImg") or sr.get("endImg")):
                     # 동작을 하나도 따라 하지 못한 장면이 기능의 첫 화면을 자기 화면처럼 보이지 않게 이유를 적는다
                     sr = {"unavailable": MSG_STEP, **{k: sr[k] for k in ("failed", "frames") if k in sr}}
@@ -418,7 +429,7 @@ def capture(plan_doc: dict) -> dict:
             result["features"][f["key"]] = fr
             page.close()
         browser.close()
-    scene_results = {sid: r for fr in result["features"].values() for sid, r in fr["scenes"].items()}
+    scene_results = {sid: tour_shot(r, fr.get("screenImg")) for fr in result["features"].values() for sid, r in fr["scenes"].items()}
     result["tour"] = capture_tour_result(plan_doc.get("tour", []), scene_results, tour_rects)
     return result
 
@@ -512,6 +523,8 @@ def _check() -> int:
     got = capture_tour_result(tp, sr, {"result-1": {0: [1, 2, 3, 4], 1: None}})
     expect("둘러보기 화면은 그 장면의 결과 화면과 찾은 위치를 쓴다",
            got[0] == {"key": "result", "img": "screens/result-1_end.png", "rects": {"0": [1, 2, 3, 4]}})
+    expect("동작 없는 장면은 기능 첫 화면을 둘러보기 화면으로 쓴다",
+           tour_shot({}, "screens/a.png") == {"endImg": "screens/a.png"} and tour_shot({"unavailable": MSG_STEP}, "screens/a.png") == {"unavailable": MSG_STEP})
     expect("장면 캡처가 실패한 둘러보기 화면은 실패 문구를 적는다",
            got[1] == {"key": "input", "unavailable": MSG_TOUR})
     terr = plan_errors({"features": [{"scenes": [{"id": "a-0"}]}], "tour": [{"key": "x", "scene": "a-9", "areas": [{"name": "n"}]}]})
