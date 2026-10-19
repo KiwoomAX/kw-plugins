@@ -143,7 +143,7 @@ const RAW = JSON.parse(document.getElementById('data').textContent);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 // flow.json 을 설명서 모양으로 바꾼다. 흐름 그림(nodes · actions)은 그리지 않고, 데이터 출처만 구역에서 뽑는다
 const SRC_ZONES = ['winus', 'fund', 'external'];
-document.getElementById('manualTitle').textContent = RAW.title.replace(/, 움직이며 보기$/, '') + ' 사용 설명서';
+document.getElementById('manualTitle').textContent = document.title;
 const tour = (RAW.tour || []).map(t => ({title: t.name, overview: true, auto: false, tips: [], img: t.img, unavailable: t.unavailable,
   // 표는 번호 순서로 놓고, 위치를 찾지 못해 번호가 없는 항목은 뒤에 둔다
   areas: (t.areas || []).map(a => ({name: a.name, m: a.meaning, no: a.no, r: a.rect})).sort((x, y) => (x.no || 1e9) - (y.no || 1e9))}));

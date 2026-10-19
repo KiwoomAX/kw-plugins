@@ -176,10 +176,17 @@ def validate(data: dict) -> list[str]:
     return errs
 
 
+def page_title(data: dict, template: str) -> str:
+    """설명서는 개발자용 안내 화면과 브라우저 탭에서 구분되도록 「<레포> 사용 설명서」로 부른다."""
+    if template == "manual_template.html":
+        return data["title"].removesuffix(", 움직이며 보기") + " 사용 설명서"
+    return data["title"]
+
+
 def render(data: dict, template: str = "movie_template.html") -> str:
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     page = (HERE / template).read_text(encoding="utf-8")
-    return page.replace("__TITLE__", html.escape(data["title"])).replace("__DATA__", payload)
+    return page.replace("__TITLE__", html.escape(page_title(data, template))).replace("__DATA__", payload)
 
 
 ROW_GAP = 24  # 1440×1000 캡처에서 같은 줄로 볼 세로 차이(픽셀)
@@ -313,6 +320,7 @@ def _check() -> int:
         expect("index.html 과 manual.html 을 함께 쓴다", sorted(p.name for p in outs) == ["index.html", "manual.html"])
         man = (Path(t) / "manual.html").read_text(encoding="utf-8")
         expect("설명서에 자리표시 문자열이 남지 않는다", "__DATA__" not in man and "__TITLE__" not in man)
+        expect("설명서 제목은 「<레포> 사용 설명서」다", "<title>예제 대시보드 사용 설명서</title>" in man)
     mtpl = (HERE / "manual_template.html").read_text(encoding="utf-8")
     expect("설명서 템플릿에 자리표시 문자열이 한 번씩만 있다", mtpl.count("__TITLE__") == 1 and mtpl.count("__DATA__") == 1)
     return 0 if ok else 1
