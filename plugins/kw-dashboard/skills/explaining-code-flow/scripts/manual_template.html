@@ -72,8 +72,9 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.
 @keyframes caret{50%{opacity:0}}
 .ex{padding:5px 10px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
 /* 재생 막대: 화면 아래에 고정 */
-.bar{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.bar .in{max-width:2400px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+/* 재생 막대는 개발자용 안내 화면처럼 사이드바 오른쪽 본문 폭에만 둔다. left 는 스크립트가 목록의 오른쪽 끝에 맞춘다 */
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--bg);border-top:1px solid var(--line);padding-block:12px calc(12px + env(safe-area-inset-bottom,0px));padding-left:16px;padding-right:max(16px,env(safe-area-inset-right,0px))}
+.bar .in{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .btn{font:inherit;font-size:13px;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;padding:8px 14px;cursor:pointer}
 .btn:hover{background:var(--accent-soft)}
 .btn.primary{background:var(--brand);color:var(--surface);border-color:var(--brand)}
@@ -437,7 +438,13 @@ addEventListener('keydown', e => {
   else if (!typing && e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
   else if (!typing && e.key === 'ArrowRight') { e.preventDefault(); next(); }
 });
-addEventListener('resize', () => { fitPage(); play(fi, si); });
+// 막대의 왼쪽 끝을 목록 오른쪽 끝(목록과 본문 사이 간격의 가운데)에 맞춘다. 목록이 본문 위로 올라가는 좁은 창에서는 창 왼쪽부터 둔다
+function placeBar() {
+  const list = document.querySelector('.list'), bar = document.querySelector('.bar');
+  const side = getComputedStyle(list).position === 'sticky';
+  bar.style.left = side ? (list.offsetLeft + list.offsetWidth + 10) + 'px' : '0';
+}
+addEventListener('resize', () => { fitPage(); placeBar(); play(fi, si); });
 // 구분선을 끌면 캡처 칸의 폭 비율(30 ~ 80%)이 바뀌고, 고른 비율은 이 브라우저에 기억해 둔다
 (() => {
   const sp = document.getElementById('split'), row = document.querySelector('.row');
@@ -476,6 +483,7 @@ function showFold() {
   foldBtn.title = label; foldBtn.setAttribute('aria-label', label); foldBtn.setAttribute('aria-expanded', !folded);
 }
 try { if (localStorage.getItem('flow-rail') === 'folded') appEl.classList.add('folded'); } catch (e) {}
-foldBtn.onclick = () => { appEl.classList.toggle('folded'); try { localStorage.setItem('flow-rail', appEl.classList.contains('folded') ? 'folded' : 'open'); } catch (e) {} showFold(); };
+foldBtn.onclick = () => { appEl.classList.toggle('folded'); try { localStorage.setItem('flow-rail', appEl.classList.contains('folded') ? 'folded' : 'open'); } catch (e) {} showFold(); placeBar(); };
 showFold();
+placeBar();
 </script>

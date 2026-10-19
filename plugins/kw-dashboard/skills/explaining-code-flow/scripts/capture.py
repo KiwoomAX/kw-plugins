@@ -425,6 +425,9 @@ def capture(plan_doc: dict) -> dict:
                 if steps and not (sr.get("startImg") or sr.get("endImg")):
                     # 동작을 하나도 따라 하지 못한 장면이 기능의 첫 화면을 자기 화면처럼 보이지 않게 이유를 적는다
                     sr = {"unavailable": MSG_STEP, **{k: sr[k] for k in ("failed", "frames") if k in sr}}
+                # 끝 대상을 적었는데 위치를 못 찾으면 결과 줌 없이 전체 화면만 보여 장면이 멈춘 듯 보인다. 대조 단계에서 고치도록 알린다
+                if s.get("end") and "end" not in sr and "unavailable" not in sr:
+                    print(f"끝 대상을 찾지 못함(후보가 없거나 둘 이상): {s['id']}", file=sys.stderr)
                 fr["scenes"][s["id"]] = sr
             result["features"][f["key"]] = fr
             page.close()
