@@ -300,7 +300,7 @@ try {
 }
 
 Write-Host '--- searching-winus ---'
-# The manifest lives in the internal MongoDB, not in this repo: fetch_manifest.py pulls it at
+# The manifest lives in DBGateway, not in this repo: fetch_manifest.py pulls the index at
 # run time and caches it under ~/.claude/cache. This repo is public, so the publisher and the
 # registry DDL are kept out of it entirely — they carry the kw_deploy table definitions and the
 # SQL that reads them, and only someone who may register a query needs them.
@@ -334,23 +334,17 @@ Assert 'the skill asks for no write' (-not ($dbText -match '\bPOST\b|\bPUT\b|\bP
 # Screen numbers and report names are internal detail; the manifest lists queries, not screens.
 Assert 'the skill names no WINUS screen numbers' (-not ($dbText -match '\b0\d{5}\b'))
 # The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
-$fetCalls = [regex]::Matches($dbText, '(?m)^uv run\b.*fetch_manifest\.py.*$')
+$fetCalls = [regex]::Matches($dbText, '(?m)^python\b.*fetch_manifest\.py.*$')
 Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
-# AhnLab V3 on company PCs blocks the unsigned launcher uv builds for a script that declares its own
-# dependencies; `uv run --with` builds on the standard python launcher and passes. So SKILL.md hands
-# the SDK over with --with, and the pin now lives in two places that must stay in step.
-Assert 'SKILL.md runs fetch_manifest.py through uv run --with' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch '^uv run --no-project --with ' }).Count -eq 0)
-$pinRe      = 'Kiwoom-Manager\.git@([0-9a-f]{40})#subdirectory=mdb-manager'
-$skillPins  = @([regex]::Matches($dbText, $pinRe) | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-$scriptPin  = ([regex]::Match($fetText, $pinRe)).Groups[1].Value
-Assert 'SKILL.md pins the same mdb-manager commit as fetch_manifest.py' ($skillPins.Count -eq 1 -and $scriptPin -ne '' -and $skillPins[0] -eq $scriptPin)
+# The in-house SDKs live in the private KiwoomAM/Kiwoom-Manager repo, which skill users cannot install
+# from. fetch_manifest.py asks DBGateway with the standard library alone and declares no dependencies.
+Assert 'searching-winus pulls nothing from the private Kiwoom-Manager repo' (-not ($dbAll -match 'Kiwoom-Manager|mdb[-_]manager'))
+Assert 'fetch_manifest.py declares no script dependencies' (-not ($fetText -match '(?m)^# /// script'))
 Assert 'SKILL.md tells the reader to fetch the manifest before writing code' ($dbText -match 'fetch_manifest\.py')
 # The cache must not land in the plugin folder (replaced on update) or in the user's repo.
 Assert 'fetch_manifest.py caches under the Claude config dir' ($fetText -match 'CLAUDE_CONFIG_DIR' -and $fetText -match '"cache"')
 Assert 'fetch_manifest.py keeps a one hour TTL' ($fetText -match '(?m)^TTL_SECONDS = 3600\s*$')
-# Publishing an expiring document would delete the manifest; the SDK ttl argument must stay out.
 Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match '(?m)^\s*(def|class)\s+[^\x00-\x7F]'))
-Assert 'fetch_manifest.py asks for no document TTL' (-not ($fetText -match '(?m)^\s*[^#\n]*\bttl\s*='))
 # The stale-copy warning carries an em dash that cp949 lacks; without these two lines the fallback dies while printing it.
 Assert 'fetch_manifest.py pins its output to UTF-8' ($fetText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $fetText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
 
