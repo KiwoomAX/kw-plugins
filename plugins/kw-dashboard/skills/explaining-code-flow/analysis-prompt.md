@@ -135,7 +135,15 @@ MDB · RDB · 파일 서버는 노드 하나로 묶어 「AX팀 DB」로 부른�
 
 `evidence` 는 `"<장면 번호>.<동작 번호>"` 마다 근거 `파일:줄` 목록이다. 모든 동작에 근거가 있어야 하고, 근거를 찾지 못한 동작은 그리지 않는다.
 
-`mismatches` 에는 결함(화면 문구와 다른 동작, 알림 없는 실패, 잘못된 표시), 주석과 동작이 다른 곳, 쓰이지 않거나 도달할 수 없는 경로를 `파일:줄` 과 함께 적는다. 고치지 않고 주 세션에 보고만 한다. 결함은 `tips-prompt.md` 에 따라 알아 둘 점에도 `"defect": true` 로 싣는다.
+`mismatches` 에는 레포 코드 자체의 버그를 적는다. 화면 문구와 다른 동작, 알림 없는 실패, 잘못된 표시, 주석과 동작이 다른 곳, 쓰이지 않거나 도달할 수 없는 경로가 여기에 든다. 고치지 않고 주 세션에 보고만 한다. 항목은 `{"severity": "critical|important|minor", "where": "파일:줄", "text": "무엇이 어떤 조건에서 일어나는지"}` 형태로 적는다. 등급은 아래 기준으로 정한다.
+
+| 등급 | 기준 |
+|---|---|
+| `critical` | 데이터를 잘못 저장하거나 덮어쓰거나 외부로 보낸다. 또는 실패를 성공으로 보여 사용자가 잘못 안다 |
+| `important` | 실패를 알리지 않거나 잘못 표시해 결과를 잘못 읽게 한다. 화면이 멈춘다 |
+| `minor` | 문구 · 표시 오류, 동작이 없는 버튼, 주석과 다른 동작, 쓰이지 않는 코드 |
+
+`critical` · `important` 버그는 `tips-prompt.md` 에 따라 알아 둘 점에도 `"defect": true` 로 싣는다.
 
 ## 출력
 
@@ -178,7 +186,7 @@ JSON 하나만 돌려준다. 아래는 wholesale-dashboard 의 공고 기능을 
   "mockEvidence": {"GET /api/notices": ["app/api/notices/route.ts:9-12", "lib/notice/types.ts:123-142", "lib/notice/types.ts:145-151"]},
   "evidence": {"0.0": ["components/tabs/NoticeTab.tsx:21"], "0.1": ["app/api/notices/route.ts:9-10"]},
   "tipsEvidence": {"0.0": ["components/tabs/NoticeTab.tsx:56-59"], "0.1": ["lib/notice/status.ts:21-29"]},
-  "mismatches": []
+  "mismatches": [{"severity": "important", "where": "components/tabs/NoticeTab.tsx:56-59", "text": "공고를 읽지 못해도 알림 없이 빈 목록을 보입니다."}]
 }
 ```
 
