@@ -242,9 +242,8 @@ def area_targets(area: dict) -> list[dict]:
 
 
 def _locate_area(page, area):
-    """둘러보기 항목의 위치. 묶은 항목은 칸마다 찾아 감싸는 사각형을 만들고, 한 칸이라도 못 찾으면 찾지 못함이다."""
-    rects = [_locate_one(page, t, area.get("first", False)) for t in area_targets(area)]
-    return union(rects) if rects and all(rects) else None
+    """둘러보기 항목의 위치. 묶은 항목은 칸마다 찾아 찾은 칸만 감싼다. 경고 줄처럼 그 화면에 없는 칸이 섞여도 나머지로 위치를 정한다."""
+    return union([_locate_one(page, t, area.get("first", False)) for t in area_targets(area)])
 
 
 def _locate_one(page, target, first=False):
