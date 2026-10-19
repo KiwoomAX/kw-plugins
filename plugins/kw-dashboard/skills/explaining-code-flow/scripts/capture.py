@@ -12,6 +12,7 @@ Node 개발 서버를 띄운 때만 나머지 같은 주소 요청을 그 서버
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import mimetypes
 import sys
@@ -131,13 +132,30 @@ def plan_errors(plan_doc: dict) -> list[str]:
     return errs
 
 
-def _run(page, steps, part):
+def _run(page, steps, part, after=None):
     for i, st in enumerate(steps):
         try:
             _step(page, st)
         except Exception as e:  # 어느 동작에서 멈췄는지 결과에 남겨, 계획의 대상을 고칠 수 있게 한다
             first = (str(e).strip().splitlines() or [""])[0][:160]
             raise RuntimeError(f"{part} 동작 {i + 1}번째({st['action']})에서 멈췄습니다: {first}") from e
+        if after:
+            after(i, st)
+
+
+def frame_points(own: list[dict]) -> list[int]:
+    """동작 이미지를 찍을 동작의 위치. 사람 동작(기다리기가 아닌 동작) 중 마지막을 뺀다. 마지막 동작 뒤 화면은 결과 화면이다."""
+    return [i for i, st in enumerate(own) if st["action"] != "wait"][:-1]
+
+
+def select_scenes(plan_doc: dict, ids: list[str]) -> dict:
+    """고른 장면만 남긴 캡처 계획. 장면 · 화면 대조에서 고친 장면만 다시 캡처할 때 쓴다."""
+    want = set(ids)
+    out = copy.deepcopy(plan_doc)
+    out["features"] = [dict(f, scenes=[s for s in f["scenes"] if s["id"] in want]) for f in out["features"]]
+    out["features"] = [f for f in out["features"] if f["scenes"]]
+    out["tour"] = [t for t in out.get("tour", []) if t["scene"] in want]
+    return out
 
 
 def _step(page, st):
@@ -220,6 +238,11 @@ def _locate(page, target):
     except Exception:
         return None  # 화면에서 찾지 못하면 사각형 없이 전체 화면으로 줌한다
     return [round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])] if box else None
+
+
+def _locate_end(page, target):
+    """끝 대상의 위치. 후보가 둘 이상 보이면 엉뚱한 칸을 확대하지 않도록 찾지 못함으로 둔다."""
+    return _locate_one(page, target) if target else None
 
 
 MSG_TOUR = "둘러보기 화면을 캡처하지 못했습니다."
@@ -345,7 +368,7 @@ def capture(plan_doc: dict) -> dict:
                 steps = scene_steps(s)
                 setup, own = split_steps(steps)
                 firsts = start_targets(own, s.get("start"))
-                sr = {} if setup else {k: v for k, v in (("start", union([_locate(page, t) for t in firsts])), ("end", _locate(page, s.get("end")))) if v}
+                sr = {} if setup else {k: v for k, v in (("start", union([_locate(page, t) for t in firsts])), ("end", _locate_end(page, s.get("end")))) if v}
                 if steps:
                     # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
                     cp, _ = fresh()
@@ -356,15 +379,27 @@ def capture(plan_doc: dict) -> dict:
                             start_img = f"{s['id']}_start.png"
                             cp.screenshot(path=str(out_dir / start_img))
                             sr["startImg"] = f"screens/{start_img}"
-                            sr.update({k: v for k, v in (("start", union([_locate(cp, t) for t in firsts])), ("end", _locate(cp, s.get("end")))) if v})
-                        _run(cp, own, "장면")
+                            sr.update({k: v for k, v in (("start", union([_locate(cp, t) for t in firsts])), ("end", _locate_end(cp, s.get("end")))) if v})
+                        points, frames = frame_points(own), []
+                        sr["frames"] = frames  # 중간 동작에서 멈춰도 그때까지 찍은 동작 이미지는 남는다
+
+                        def after(i, st, cp=cp, sid=s["id"], points=points, frames=frames):
+                            if i not in points:
+                                return
+                            img = f"{sid}_f{len(frames) + 1}.png"
+                            cp.screenshot(path=str(out_dir / img))
+                            # 동작 뒤에 잰다. 누르기로 창이 열려 대상이 가려지면 사각형 없이 전체 화면을 보인다
+                            rect = _locate_one(cp, st["target"], first=True) if st.get("target") else None
+                            frames.append({"img": f"screens/{img}", **({"rect": rect} if rect else {})})
+
+                        _run(cp, own, "장면", after)
                         end_img = f"{s['id']}_end.png"
                         cp.screenshot(path=str(out_dir / end_img))
                         sr["endImg"] = f"screens/{end_img}"
                         # 둘러보기 화면으로 고른 장면이면 결과 화면에서 항목 위치를 측정한다
                         for t in tours_by_scene.get(s["id"], []):
                             tour_rects[s["id"]] = {i: _locate_area(cp, a) for i, a in enumerate(t["areas"])}
-                        end = _locate(cp, s.get("end"))
+                        end = _locate_end(cp, s.get("end"))
                         if end:
                             sr["end"] = end
                         # 입력 연출은 시작 화면에 보이는 칸에 치는 장면만 한다. 앞 동작이 화면을 바꾼 뒤에 치는 칸은 시작 화면에 없다
@@ -374,9 +409,11 @@ def capture(plan_doc: dict) -> dict:
                     except Exception as e:
                         sr["failed"] = str(e)  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌하고, 멈춘 동작을 보고에 남긴다
                     cp.close()
+                if not sr.get("frames"):
+                    sr.pop("frames", None)
                 if steps and not (sr.get("startImg") or sr.get("endImg")):
                     # 동작을 하나도 따라 하지 못한 장면이 기능의 첫 화면을 자기 화면처럼 보이지 않게 이유를 적는다
-                    sr = {"unavailable": MSG_STEP, **({"failed": sr["failed"]} if "failed" in sr else {})}
+                    sr = {"unavailable": MSG_STEP, **{k: sr[k] for k in ("failed", "frames") if k in sr}}
                 fr["scenes"][s["id"]] = sr
             result["features"][f["key"]] = fr
             page.close()
@@ -447,6 +484,13 @@ def _check() -> int:
            start_targets([y, {"action": "wait", "ms": 500}, m, c]) == [y["target"], m["target"]])
     expect("입력 · 고르기로 시작하지 않으면 첫 대상 하나만 넣는다", start_targets([c, q]) == [c["target"]])
     expect("사각형 여럿을 감싸는 사각형을 만든다", union([[10, 20, 30, 40], [50, 10, 20, 20], None]) == [10, 10, 60, 50])
+    expect("사람 동작마다 마지막을 빼고 찍는다(기다리기는 건너뜀)", frame_points([m, {"action": "wait", "ms": 500}, m, c]) == [0, 2])
+    expect("사람 동작이 하나면 찍지 않는다", frame_points([c, {"action": "wait", "ms": 3000}]) == [])
+    expect("누르기 둘 뒤 기다리기면 첫 누르기만 찍는다", frame_points([c, c, {"action": "wait", "ms": 3000}]) == [0])
+    sp = select_scenes({"features": [{"key": "a", "scenes": [{"id": "a-0"}, {"id": "a-1"}]}, {"key": "b", "scenes": [{"id": "b-0"}]}],
+                        "tour": [{"key": "t", "scene": "b-0", "areas": []}]}, ["a-1"])
+    expect("고른 장면만 남기고 장면 없는 기능과 둘러보기는 뺀다",
+           sp["features"] == [{"key": "a", "scenes": [{"id": "a-1"}]}] and sp["tour"] == [])
     good = [{"action": "rightclick", "target": {"text": "소계"}}, {"action": "press", "key": "Escape"},
             {"action": "paste", "target": {"selector": "table"}, "text": "a\tb"}, {"action": "drag", "target": {"selector": ".bar"}, "by": [80, 0]},
             {"action": "upload", "target": {"selector": "input[type=file]"}, "file": {"name": "보고서.pdf", "text": "%PDF-1.4"}}]
@@ -492,6 +536,7 @@ def main() -> int:
     ap.add_argument("--out")
     ap.add_argument("--fail", choices=sorted(FAIL_MSG))
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--scenes", help="이 장면 id 들만 캡처한다(쉼표로 구분)")
     a = ap.parse_args()
     if a.check:
         return _check()
@@ -503,6 +548,8 @@ def main() -> int:
         print("캡처 계획을 고쳐야 합니다:")
         print("\n".join("  - " + e for e in errs))
         return 1
+    if a.scenes:
+        plan_doc = select_scenes(plan_doc, a.scenes.split(","))
     res =fail_result(plan_doc, FAIL_MSG[a.fail]) if a.fail else capture(plan_doc)
     Path(a.out).write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
     print(a.out)
