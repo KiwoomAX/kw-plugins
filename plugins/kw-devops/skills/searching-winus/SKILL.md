@@ -5,10 +5,10 @@ description: 사내 운용 데이터(WINUS·위너스)를 조회하거나 그 �
 
 # searching-winus
 
-등록된 쿼리는 모두 조회다. 이 스킬로는 데이터를 바꾸지 못한다. DBGateway는 쿼리 id로 등록된 SQL을 찾아 인자를 바인딩해 실행하고, 클라이언트 코드는 쿼리 id와 인자만 보낸다. Claude는 쿼리를 고르려고 등록된 SQL을 읽을 수 있지만, 사용자 코드나 문서에는 SQL을 옮겨 적지 않고 쿼리 id로만 요청하게 한다. 여러 쿼리를 잇는 일(앞 결과를 뒤 인자로 넘기기)은 호출하는 쪽이 한다.
+등록된 쿼리는 모두 조회다. 이 스킬로는 데이터를 바꾸지 못한다. 조회도 인자를 요청 본문에 넣어 `POST`로 보내지만, 데이터는 바뀌지 않는다. DBGateway는 쿼리 id로 등록된 SQL을 찾아 인자를 바인딩해 실행하고, 클라이언트 코드는 쿼리 id와 인자만 보낸다. Claude는 쿼리를 고르려고 등록된 SQL을 읽을 수 있지만, 사용자 코드나 문서에는 SQL을 옮겨 적지 않고 쿼리 id로만 요청하게 한다. 여러 쿼리를 잇는 일(앞 결과를 뒤 인자로 넘기기)은 호출하는 쪽이 한다.
 
 ```
-[클라이언트 코드] --GET /winus/query/{id}?인자--> [DBGateway] --등록된 SQL + 인자--> [WINUS]
+[클라이언트 코드] --POST /winus/query/{id} + 본문의 인자--> [DBGateway] --등록된 SQL + 인자--> [WINUS]
 ```
 
 요청할 수 있는 쿼리 목록이 매니페스트다. 매니페스트는 목차와 쿼리별 SQL 두 층이고, 쿼리별 SQL은 id로 받는다. 목차는 쿼리마다 id·이름·설명·사용 테이블을 한 행에 싣는다.
@@ -47,23 +47,22 @@ python "${CLAUDE_SKILL_DIR}/scripts/fetch_manifest.py" --query <id> [<id> …]
 | 항목 | 값 |
 |---|---|
 | 주소 | `http://192.7.9.45:9101` (사내망). 코드에서는 환경변수 `QUERY_GATEWAY_URL`로 받고 이 주소를 기본값으로 둔다 |
-| 메서드·경로 | `GET /winus/query/{id}` — id는 목차의 정수 |
-| 인자 | 질의 문자열에 `이름=값`. 이름은 `--query` 출력의 `인자` |
+| 메서드·경로 | `POST /winus/query/{id}` — id는 목차의 정수 |
+| 인자 | 요청 본문 `{"args": {이름: 값}}`. 이름은 `--query` 출력의 `인자`. 인자가 없는 쿼리는 `{}`를 보낸다 |
 | 인증 | 없음 |
 
 ```
-GET /winus/query/2?dt=20260911&cut=200000000
-GET /winus/query/10?cls=GT002&codes=001&codes=002
-GET /winus/query/7?%EC%98%A4%EB%8A%98=20260915        # 키 '오늘'을 퍼센트 인코딩
+POST /winus/query/2    {"args": {"dt": "20260911", "cut": "200000000"}}
+POST /winus/query/10   {"args": {"cls": "GT002", "codes": ["001", "002"]}}
+POST /winus/query/7    {"args": {"오늘": "20260915"}}
 ```
 
 인자를 채울 때 지킬 것:
 
 - **키는 `인자` 줄의 이름과 정확히 같아야 한다.** 설명에 `:dt`로 적힌 인자의 키는 `dt`다. 하나라도 빠지거나 모르는 키가 섞이면 DBGateway가 400으로 거절하고, `detail`에 빠진 것·모르는 것·필요한 것을 적어 준다.
-- **종류가 `목록`인 인자는 같은 키를 반복한다.** `httpx`·`requests`에 리스트를 주면 값마다 같은 키로 보낸다(`params={"codes": ["001", "002"]}`, 값 하나도 된다). 종류가 `스칼라`인 인자는 값 하나를 보낸다. 인자 줄에 최대 개수가 적혀 있으면 그보다 많은 값은 나눠 순차로 보낸다.
+- **종류가 `목록`인 인자는 배열로 보낸다.** 값이 하나여도 `["001"]`처럼 배열로 보내고, 빈 배열은 400으로 거절된다. 종류가 `스칼라`인 인자는 문자열 하나를 보내며, 배열을 보내면 400으로 거절된다. 인자 줄에 최대 개수가 적혀 있으면 그보다 많은 값은 나눠 순차로 보낸다.
 - **설명이 다른 쿼리의 결과를 넣으라고 하면 그 쿼리를 먼저 호출해 받은 값을 넘긴다.** 설명의 「`:d1`에는 기준일_비교일자(id 1)의 전일 결과를 넣는다」 같은 문장이 그 표시다.
-- **한글 키(`오늘`)는 퍼센트 인코딩해야 한다.** `httpx`·`requests`·`urllib.parse.urlencode`는 알아서 인코딩한다. URL 문자열을 손으로 이어 붙이거나 `curl --data-urlencode '오늘=…'`을 쓰면 키가 인코딩되지 않은 채 나가 서버에 닿기 전에 거부된다(`Invalid HTTP request received`).
-- **값은 문자열로 만든다.** 질의 문자열이라 어차피 문자열로 전달되지만, 날짜는 `"20260911"`, 코드는 `"001"`처럼 맨 앞 0을 살린 문자열로 만들어 넘긴다.
+- **값은 문자열이나 문자열 배열로만 보낸다.** 날짜는 `"20260911"`, 코드는 `"001"`처럼 맨 앞 0을 살린 문자열로 만든다. 숫자·`null`·`true`를 보내면 DBGateway가 422로 거절한다.
 
 ## 응답
 
@@ -83,8 +82,8 @@ GET /winus/query/7?%EC%98%A4%EB%8A%98=20260915        # 키 '오늘'을 퍼센�
 
 | 상태 | 본문 | 뜻 |
 |---|---|---|
-| 400 | `{"kind": "범위 초과 거절", "detail": "…"}` | 없는 id, 인자 누락·모르는 인자, 목록 인자 개수 초과, 실행 상한을 넘긴 조회. `detail`을 그대로 올리고 같은 요청을 재시도하지 않는다(시간 초과는 조건을 좁혀 다시 질의한다) |
-| 422 | FastAPI 검증 오류 | 경로의 id가 정수가 아님 |
+| 400 | `{"kind": "범위 초과 거절", "detail": "…"}` | 없는 id, 인자 누락·모르는 인자, 스칼라 인자에 배열, 빈 배열, 목록 인자 개수 초과, 실행 상한을 넘긴 조회. `detail`을 그대로 올리고 같은 요청을 재시도하지 않는다(시간 초과는 조건을 좁혀 다시 질의한다) |
+| 422 | `{"detail": [{"type": "…", "loc": ["body", "args", "<인자 이름>", …], "msg": "…"}]}` | 본문 형식 오류(값이 문자열·문자열 배열이 아님, 본문의 모르는 칸) 또는 경로의 id가 정수가 아님. `loc`의 셋째 칸이 문제의 인자 이름이다. 보낸 값은 응답에 실리지 않는다 |
 | 429 | `{"kind": "혼잡 거절", "detail": "큐에 세운 조회 N건 사용 중…"}` | 사람당 대기 조회 수·초당 요청 수 상한 초과, 또는 큐 대기 예상 초과 |
 | 503 | `{"kind": "혼잡 거절" 또는 "판정 불능", "detail": "…"}` | 원본 DB 불통·차단 상태 등으로 DBGateway가 판정하지 못함 |
 | 그 밖 5xx | 형식 미확인 | DBGateway나 DB 쪽 오류 |
@@ -95,7 +94,7 @@ GET /winus/query/7?%EC%98%A4%EB%8A%98=20260915        # 키 '오늘'을 퍼센�
 
 사용자가 코드가 아니라 데이터 자체를 물으면(예: 어제 기준 당사 ETF 순자산 상위 5개) 쿼리를 고르고 잇는 방법은 위 「작업 순서」 1·2단계와 같다. 조회는 짧은 파이썬 스크립트로 한다.
 
-- **아래 코드 예시의 `fetch`를 쓴 스크립트 파일을 만들어 `uv run --with httpx <스크립트 파일>`로 실행한다.** 한글 키 인코딩과 응답 해석을 `httpx`가 맡는다.
+- **아래 코드 예시의 `fetch`를 쓴 스크립트 파일을 만들어 `uv run --with httpx <스크립트 파일>`로 실행한다.** 본문 만들기와 응답 해석을 `httpx`가 맡는다.
 - **스크립트 파일에 `# /// script` 의존성 블록을 넣지 않는다.** 이 블록이 있으면 uv가 서명 없는 자체 런처로 환경을 만들고, 사내 PC의 V3가 그 런처를 차단한다. 의존성은 `--with`로만 준다.
 - **스크립트 첫머리에서 `sys.stdout.reconfigure(encoding="utf-8")`를 호출한다.** Windows에서 출력이 파이프로 나가면 파이썬이 CP949로 쓰기 때문에 `−`·`—` 같은 문자에서 `UnicodeEncodeError`로 멈춘다.
 - **PowerShell의 `Invoke-RestMethod`·`Invoke-WebRequest`와 `curl` 별칭을 쓰지 않는다.** DBGateway 응답 헤더에 문자 인코딩이 적혀 있지 않아 PowerShell 5가 한글 열 이름과 값을 깨뜨린다. PowerShell 5의 `curl`은 `Invoke-WebRequest`를 가리킨다.
@@ -117,9 +116,12 @@ Q_내부코드명 = 10
 
 
 def fetch(query_id: int, args: dict[str, str | list[str]]) -> list[dict]:
-    r = httpx.get(f"{GATEWAY_URL}/winus/query/{query_id}", params=args, timeout=30)
+    r = httpx.post(f"{GATEWAY_URL}/winus/query/{query_id}", json={"args": args}, timeout=30)
     if r.status_code == 400:
         raise ValueError(f"쿼리 {query_id} 거절: {r.json()['detail']}")
+    if r.status_code == 422:
+        names = sorted({e["loc"][2] for e in r.json()["detail"] if len(e["loc"]) > 2})
+        raise ValueError(f"쿼리 {query_id} 형식 오류: 인자 {names}의 값이 문자열이나 문자열 배열이 아님")
     r.raise_for_status()
     body = r.json()
     if body["truncated"]:
