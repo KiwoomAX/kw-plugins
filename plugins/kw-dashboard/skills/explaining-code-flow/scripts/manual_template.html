@@ -294,7 +294,9 @@ function camera(rect, src, instant, color) {
     view.querySelectorAll('.layer.old').forEach(o => o.remove());
     if (img.getAttribute('src')) {
       const old = layer.cloneNode(true); old.classList.add('old'); old.removeAttribute('id'); layer.after(old);
-      requestAnimationFrame(() => { old.style.transition = ease; old.style.transform = to; old.style.opacity = 0; });
+      // 앞 화면의 시작 상태를 브라우저가 먼저 계산하게 한 뒤 바꾼다. 계산 전에 바꾸면 전환 없이 바로 사라진다
+      old.getBoundingClientRect();
+      old.style.transition = ease; old.style.transform = to; old.style.opacity = 0;
       wait(1900).then(() => old.remove());
     }
     img.src = src;

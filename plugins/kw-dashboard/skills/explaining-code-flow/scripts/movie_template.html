@@ -467,7 +467,9 @@ function camera(rect, label, color, instant, src) {
     old.classList.add('old');
     img.after(old);
     img.src = src;
-    requestAnimationFrame(() => { old.style.transition = ease; old.style.transform = to; old.style.opacity = 0; });
+    // 앞 화면의 시작 상태를 브라우저가 먼저 계산하게 한 뒤 바꾼다. 계산 전에 바꾸면 전환 없이 바로 사라진다
+    old.getBoundingClientRect();
+    old.style.transition = ease; old.style.transform = to; old.style.opacity = 0;
     wait(instant ? 0 : 1900).then(() => old.remove());
   }
   img.style.transition = ease;
