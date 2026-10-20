@@ -334,6 +334,9 @@ Assert 'the skill does not describe the cache or its source' (-not ($dbText -mat
 Assert 'the skill asks for no write' (-not ($dbText -match '\bPUT\b|\bPATCH\b|\bDELETE\b|execute_dml|insert_one'))
 # DBGateway is retiring the query-string GET (Kiwoom-DBgateway#99), so the code the skill teaches must not use it.
 Assert 'the skill calls queries with POST, not the retiring GET' ($dbText -match 'httpx\.post\(' -and -not ($dbText -match 'GET /winus/query|httpx\.get\('))
+# The response field truncated is always false and is being retired with the GET (Kiwoom-DBgateway#99);
+# code that reads body["truncated"] would fail with KeyError once it is gone.
+Assert 'the skill reads no truncated field' (-not ($dbText -match 'truncated'))
 # Screen numbers and report names are internal detail; the manifest lists queries, not screens.
 Assert 'the skill names no WINUS screen numbers' (-not ($dbText -match '\b0\d{5}\b'))
 # The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
