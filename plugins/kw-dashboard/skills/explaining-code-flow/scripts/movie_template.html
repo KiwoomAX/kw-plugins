@@ -99,7 +99,8 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .steps-now li::before{content:counter(st) ".";flex:none;min-width:22px;text-align:right}
 .steps-now li:hover{background:var(--bg-hover)}
 .steps-now li.done{color:var(--text-secondary)}
-.steps-now li.now{color:var(--text-primary);font-weight:700;background:#EEF0F3}
+/* 글자색이 낮 · 밤을 따르므로 배경도 토큰을 쓴다. 밝은 색으로 고정하면 밤 화면에서 흰 글자가 흰 배경에 묻힌다 */
+.steps-now li.now{color:var(--text-primary);font-weight:700;background:var(--bg-sunken)}
 /* 오른쪽 알아 둘 점: 화면을 쓰는 사람에게 가장 중요한 내용이라 크게 · 진하게 보인다 */
 .tips{border:1.5px solid #27457D;background:#F5F8FD;padding:14px 16px;border-radius:var(--radius-md);font-size:15.5px;line-height:1.6}
 .tips b{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:16px;color:#27457D}
