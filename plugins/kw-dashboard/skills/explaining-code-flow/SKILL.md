@@ -133,6 +133,7 @@ Node 화면은 `static` 대신 `"baseUrl": "<start 가 출력한 url>"` 을 넣�
 | `scenes.<id>.frames` | 장면의 `screen.frames`(사람 동작마다 찍은 `img` · `rect`) |
 | `tour[].img` · `unavailable` | `tour[]` 화면의 `img` · `unavailable`(이름은 항목 서브에이전트 결과의 `screen.name`, `areas` 는 그 결과에서 `name` · `meaning` 만 옮긴다) |
 | `tour[].rects.<순번>` | 그 순번 항목의 `rect`(번호 `no` 는 `render.py` 가 매긴다) |
+| `tour[].parts.<순번>` | 그 순번 항목의 `rects`(여러 칸을 묶은 항목에서 찾은 칸이 둘 이상일 때만 있다) |
 
 `render.py` 가 고칠 곳을 출력하면 그 목록대로 `flow.json` 을 고친 뒤 다시 실행한다.
 

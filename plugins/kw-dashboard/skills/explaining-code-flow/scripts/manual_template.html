@@ -179,7 +179,8 @@ const SRC_ZONES = ['winus', 'fund', 'external'];
 document.getElementById('manualTitle').textContent = document.title;
 const tour = (RAW.tour || []).map(t => ({title: t.name, overview: true, auto: false, tips: [], img: t.img, unavailable: t.unavailable,
   // 표는 번호 순서로 놓고, 위치를 찾지 못해 번호가 없는 항목은 뒤에 둔다
-  areas: (t.areas || []).map(a => ({name: a.name, m: a.meaning, no: a.no, r: a.rect})).sort((x, y) => (x.no || 1e9) - (y.no || 1e9))}));
+  // 여러 칸을 묶은 항목은 칸마다 상자를 그린다(rs). 번호는 첫 칸(r)에만 붙인다
+  areas: (t.areas || []).map(a => ({name: a.name, m: a.meaning, no: a.no, r: a.rect, rs: a.rects || (a.rect ? [a.rect] : [])})).sort((x, y) => (x.no || 1e9) - (y.no || 1e9))}));
 const D = {features: [
   ...(tour.length ? [{name: '화면 둘러보기', overviewGroup: true, summary: '화면의 각 칸이 무엇을 뜻하는지 보입니다.', prereq: null, sources: [], scenes: tour}] : []),
   ...RAW.features.map(f => ({name: f.name, summary: f.summary, prereq: f.prereq || null,
@@ -371,7 +372,7 @@ async function play(a, b, p0 = 0, single = false) {
     camera(null, s.img, true); cap('화면 전체 · 표의 줄을 누르거나 마우스를 올리면 그 칸이 표시됩니다', '#5B6C8C');
     // 화면 가장자리의 칸은 번호가 캡처 칸 밖으로 잘리지 않게 안쪽으로 들인다
     document.getElementById('pins').innerHTML = s.areas.filter(ar => ar.no && ar.r).map(ar =>
-      `<div class="pinbox" data-n="${ar.no}" style="left:${ar.r[0]}px;top:${ar.r[1]}px;width:${ar.r[2]}px;height:${ar.r[3]}px"></div>` +
+      ar.rs.map(r => `<div class="pinbox" data-n="${ar.no}" style="left:${r[0]}px;top:${r[1]}px;width:${r[2]}px;height:${r[3]}px"></div>`).join('') +
       `<div class="pinx" data-n="${ar.no}" style="left:${Math.max(30, ar.r[0])}px;top:${Math.max(30, ar.r[1])}px">${ar.no}</div>`).join('');
     let sel = null;  // 누른 줄은 다른 줄을 누를 때까지 표시를 유지한다
     const show = n => document.querySelectorAll('#pins [data-n]').forEach(el => el.classList.toggle('on', el.dataset.n === n));

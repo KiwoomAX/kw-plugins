@@ -111,6 +111,10 @@ def validate(data: dict) -> list[str]:
             need(a, ["name", "meaning"], aw)
             if "rect" in a and not rect_ok(a["rect"]):
                 errs.append(f"{aw}.rect 는 {SHOT_W}×{SHOT_H} 안의 [x, y, 폭, 높이] 여야 합니다")
+            # 여러 칸을 묶은 항목은 칸마다 위치가 있고, 템플릿이 칸마다 상자를 그린다
+            for ri, r in enumerate(a.get("rects") or []):
+                if not rect_ok(r):
+                    errs.append(f"{aw}.rects[{ri}] 는 {SHOT_W}×{SHOT_H} 안의 [x, y, 폭, 높이] 여야 합니다")
             if "no" in a and "rect" not in a:
                 errs.append(f"{aw} 는 위치(rect) 없이 번호(no)만 있습니다")
             if "no" in a:
@@ -339,6 +343,11 @@ def _check() -> int:
     expect("둘러보기 화면에 캡처와 실패 문구가 함께 있으면 잡는다", any("tour[0]" in e and "실패 문구" in e for e in errs))
     expect("1440×1000 밖의 항목 위치를 잡는다", any("areas[0].rect" in e for e in errs))
     expect("뜻 없는 항목을 잡는다", any("areas[1].meaning" in e for e in errs))
+    parts = copy.deepcopy(number_tour(SAMPLE)); a0 = parts["tour"][0]["areas"][0]
+    a0["rects"] = [a0["rect"], [10, 20, 30, 40]]
+    expect("묶은 항목의 칸별 위치(rects)는 받는다", validate(parts) == [])
+    a0["rects"] = [a0["rect"], [99999, 0, 1, 1]]
+    expect("화면 밖의 칸별 위치를 잡는다", any("areas[0].rects[1]" in e for e in validate(parts)))
     dup = copy.deepcopy(number_tour(SAMPLE)); dup["tour"][0]["areas"][1]["no"] = 1
     expect("같은 화면의 번호 중복을 잡는다", any("번호" in e and "중복" in e for e in validate(dup)))
     empty = copy.deepcopy(SAMPLE); empty["tour"] = []

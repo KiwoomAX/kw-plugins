@@ -234,10 +234,9 @@ def _locate(page, target):
     if not target:
         return None
     try:
-        box = _target(page, target).bounding_box(timeout=3000)
+        return _box(_target(page, target), target)
     except Exception:
         return None  # 화면에서 찾지 못하면 사각형 없이 전체 화면으로 줌한다
-    return clip_rect([round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])]) if box else None
 
 
 def _locate_end(page, target):
@@ -265,8 +264,8 @@ def area_targets(area: dict) -> list[dict]:
 
 
 def _locate_area(page, area):
-    """둘러보기 항목의 위치. 묶은 항목은 칸마다 찾아 찾은 칸만 감싼다. 경고 줄처럼 그 화면에 없는 칸이 섞여도 나머지로 위치를 정한다."""
-    return union([_locate_one(page, t, area.get("first", False)) for t in area_targets(area)])
+    """둘러보기 항목에서 찾은 칸의 위치 목록. 묶은 항목은 칸마다 찾는다. 경고 줄처럼 그 화면에 없는 칸이 섞여도 찾은 칸만 남긴다."""
+    return [r for r in (_locate_one(page, t, area.get("first", False)) for t in area_targets(area)) if r]
 
 
 SHOT_W, SHOT_H = 1440, 1000  # 캡처 화면 크기. 브라우저 창(viewport)과 같다
@@ -281,6 +280,23 @@ def clip_rect(rect: list[int] | None) -> list[int] | None:
     return [x0, y0, x1 - x0, y1 - y0] if x1 > x0 and y1 > y0 else None
 
 
+# 글자로 찾은 칸은 그 글자를 품은 가장 가까운 누르는 요소의 범위를 쓴다. 글자만 감싸면 아이콘 · 설명 글이 든 카드형 단추에서 상자가 글자 한 줄에만 걸린다
+CLICKABLE = 'button, a, label, [role="button"], [role="tab"]'
+_CLICK_BOX = "(el, sel) => { const r = (el.closest(sel) || el).getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }"
+
+
+def _box(el, target) -> list[int] | None:
+    """찾은 요소의 사각형. 선택자로 찾았으면 그 요소, 글자로 찾았으면 그 글자를 품은 누르는 요소의 범위다."""
+    if target.get("text"):
+        x, y, w, h = el.evaluate(_CLICK_BOX, CLICKABLE)
+    else:
+        b = el.bounding_box(timeout=3000)
+        if not b:
+            return None
+        x, y, w, h = b["x"], b["y"], b["width"], b["height"]
+    return clip_rect([round(x), round(y), round(w), round(h)]) if w and h else None
+
+
 def _locate_one(page, target, first=False):
     """정확히 같은 글자(또는 선택자) 후보만 보고, 하나로 정해질 때만 사각형을 돌려준다."""
     try:
@@ -292,10 +308,9 @@ def _locate_one(page, target, first=False):
             except Exception:
                 seen.append(False)
         i = pick_unique(seen, first)
-        box = els[i].bounding_box() if i is not None else None
+        return _box(els[i], target) if i is not None else None
     except Exception:
         return None
-    return clip_rect([round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])]) if box else None
 
 
 def tour_shot(sr: dict, screen_img: str | None) -> dict:
@@ -313,8 +328,13 @@ def capture_tour_result(tour_plan: list[dict], scene_results: dict, rects: dict)
         if not sr.get("endImg"):
             out.append({"key": t["key"], "unavailable": MSG_TOUR})
             continue
-        out.append({"key": t["key"], "img": sr["endImg"],
-                    "rects": {str(i): r for i, r in (rects.get(t["scene"]) or {}).items() if r}})
+        found = {str(i): parts for i, parts in (rects.get(t["scene"]) or {}).items() if parts}
+        item = {"key": t["key"], "img": sr["endImg"], "rects": {i: parts[0] for i, parts in found.items()}}
+        # 여러 칸을 묶은 항목은 칸마다 상자를 따로 그리도록 찾은 칸을 모두 남긴다. 하나로 합치면 떨어진 칸 사이의 빈 곳까지 덮는다
+        multi = {i: parts for i, parts in found.items() if len(parts) > 1}
+        if multi:
+            item["parts"] = multi
+        out.append(item)
     return out
 
 
@@ -538,9 +558,14 @@ def _check() -> int:
     tp = [{"key": "result", "scene": "result-1", "areas": [{"name": "a"}, {"name": "b"}]},
           {"key": "input", "scene": "input-4", "areas": [{"name": "c"}]}]
     sr = {"result-1": {"endImg": "screens/result-1_end.png"}, "input-4": {"unavailable": MSG_STEP}}
-    got = capture_tour_result(tp, sr, {"result-1": {0: [1, 2, 3, 4], 1: None}})
+    got = capture_tour_result(tp, sr, {"result-1": {0: [[1, 2, 3, 4]], 1: []}})
     expect("둘러보기 화면은 그 장면의 결과 화면과 찾은 위치를 쓴다",
            got[0] == {"key": "result", "img": "screens/result-1_end.png", "rects": {"0": [1, 2, 3, 4]}})
+    got2 = capture_tour_result(tp[:1], sr, {"result-1": {0: [[1, 2, 3, 4], [50, 60, 7, 8]]}})
+    expect("묶은 항목은 칸마다 위치를 남기고 첫 칸을 대표 위치로 쓴다",
+           got2[0]["rects"] == {"0": [1, 2, 3, 4]} and got2[0]["parts"] == {"0": [[1, 2, 3, 4], [50, 60, 7, 8]]})
+    expect("누르는 요소를 찾는 선택자는 button · a · label · role 단추와 탭이다",
+           all(s in CLICKABLE for s in ("button", "a", "label", '[role="button"]', '[role="tab"]')))
     expect("동작 없는 장면은 기능 첫 화면을 둘러보기 화면으로 쓴다",
            tour_shot({}, "screens/a.png") == {"endImg": "screens/a.png"} and tour_shot({"unavailable": MSG_STEP}, "screens/a.png") == {"unavailable": MSG_STEP})
     expect("장면 캡처가 실패한 둘러보기 화면은 실패 문구를 적는다",
