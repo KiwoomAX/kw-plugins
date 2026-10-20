@@ -121,7 +121,12 @@ svg.wires{position:absolute;inset:0;pointer-events:none}
 .prereq b{color:#C2410C;margin-right:8px}
 .autob{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:4px;background:#EEF0F3;color:#5B6C8C;font-size:12px;font-weight:700;vertical-align:2px}
 /* 오른쪽 칸(화면 캡처 · 알아 둘 점)은 아래 진행 목록을 읽으며 내려가도 상단 막대 아래에 붙어 따라온다 */
-.log{font-size:13px;position:sticky;top:72px;align-self:start;max-height:calc(100vh / var(--z, 1) - 160px);overflow:auto}
+/* 오른쪽 칸: 캡처는 위에 고정하고 알아 둘 점만 칸 안에서 스크롤한다. 구분선으로 칸을 넓혀 캡처가 커져도 캡처가 밀려 올라가지 않는다 */
+.log{font-size:13px;position:sticky;top:72px;align-self:start;max-height:calc(100vh / var(--z, 1) - 160px);display:flex;flex-direction:column;overflow:hidden}
+.log .shot{flex:none}
+.log .tips{min-height:0;overflow:auto;scrollbar-gutter:stable}
+/* 왼쪽 칸: 흐름 그림은 위에 고정하고, 그 아래 진행 목록만 페이지와 함께 스크롤한다 */
+.stagewrap{position:sticky;top:72px;z-index:2}
 /* 외부 프로그램 · 시스템이 처음 쓰일 때 창이 열리는 동작 */
 .node.opened{border-color:#27457D;border-style:solid}
 .launchwin{position:absolute;z-index:4;width:64px;height:46px;border:2px solid #27457D;border-radius:6px;background:#fff;

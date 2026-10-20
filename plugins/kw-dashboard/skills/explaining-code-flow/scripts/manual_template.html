@@ -91,7 +91,11 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.
 .speed b{min-width:40px;color:var(--fg)}
 .pg{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 /* 오른쪽: 하는 일이 가장 눈에 띄고, 알아 둘 점은 그다음 */
-.side{min-width:0;position:sticky;top:16px;align-self:start;display:grid;gap:14px;max-height:calc(100vh / var(--z, 1) - 120px);overflow:auto}
+/* 오른쪽 칸: 「이 기능으로 하는 일」은 위에 고정하고 알아 둘 점만 칸 안에서 스크롤한다. 왼쪽 캡처도 위에 고정한다 */
+.side{min-width:0;position:sticky;top:16px;align-self:start;display:flex;flex-direction:column;gap:14px;max-height:calc(100vh / var(--z, 1) - 120px);overflow:hidden}
+.side .doing{flex:none}
+.side .know{min-height:0;overflow:auto;scrollbar-gutter:stable}
+.row > .shot{position:sticky;top:16px}
 .doing{background:var(--accent-soft);border:2px solid var(--accent);border-radius:12px;padding:18px 20px}
 .doing h3{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:16px;color:var(--accent)}
 .doing p{margin:0;font-size:20px;font-weight:700;line-height:1.5}
