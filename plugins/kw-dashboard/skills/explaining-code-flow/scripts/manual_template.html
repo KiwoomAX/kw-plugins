@@ -281,8 +281,8 @@ document.querySelectorAll('.feat .sc').forEach(el => el.onclick = () => { setAut
 showOpen();
 
 // 캡처 위 카메라: rect 로 줌하고, 화면이 바뀌면 앞 화면을 겹쳐 두고 줌하는 동안 지운다
-// 화면 칸의 상자 색: 사람이 누르거나 입력하는 곳은 파랑, 결과가 나타나는 곳은 분홍이다. 남색은 대시보드의 남색 바탕과 겹쳐 보이지 않았다
-const ACT = '#2563EB', HIT = '#B5446E';
+// 화면 칸의 상자 색은 분홍 하나다. 누르는 곳 · 결과를 색으로 나누면 범례 없이는 읽히지 않아, 무엇인지는 화면 칸 위 설명 줄이 알린다
+const BOX = '#B5446E';
 function camera(rect, src, instant, color) {
   const view = document.getElementById('view'), layer = document.getElementById('layer'), img = document.getElementById('img'), mark = document.getElementById('mark');
   const W = view.clientWidth, H = view.clientHeight, pad = 30;
@@ -306,7 +306,7 @@ function camera(rect, src, instant, color) {
   // 강조 상자는 화면과 함께 움직이면 빈 곳을 가로지르므로, 화면이 움직이는 동안 숨겼다가 다 옮긴 뒤 그 자리에 나타낸다
   const seq = ++markSeq;
   mark.style.transition = 'none';
-  Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px', opacity: 0, borderColor: color || HIT});
+  Object.assign(mark.style, {left: (x * k + ox) + 'px', top: (y * k + oy) + 'px', width: w * k + 'px', height: h * k + 'px', opacity: 0, borderColor: color || BOX});
   if (rect) wait(instant ? 0 : 1800).then(() => {
     if (seq !== markSeq) return;
     mark.style.transition = `opacity ${T(250) / 1000}s`; mark.style.opacity = 1;
@@ -396,11 +396,11 @@ async function play(a, b, p0 = 0, single = false) {
   const img0 = s.img0 || sc.endImg;
   // 부분 목록. 각 부분은 카메라가 갈 곳(rect · img)과 설명 칸 문구와 머무는 시간이다
   const parts = [{rect: null, img: img0, text: '전체 화면', color: '#5B6C8C', ms: 900}];
-  if (sc.start) parts.push({rect: sc.start, img: img0, text: sc.startName || '누르는 곳', color: ACT, ms: 2000, typed: sc.typed});
+  if (sc.start) parts.push({rect: sc.start, img: img0, text: sc.startName || '누르는 곳', color: BOX, ms: 2000, typed: sc.typed});
   else parts.push({rect: null, img: img0, text: '사람이 누르지 않고 이어서 처리됩니다', color: '#5B6C8C', ms: 900});
   // 사람 동작마다 찍은 동작 이미지를 시작과 결과 사이에 차례로 보인다
-  (sc.frames || []).forEach((fr, i) => parts.push({rect: fr.rect || null, img: fr.img, text: s.caps[i + 1] || '', color: ACT, ms: 1800}));
-  parts.push({rect: sc.end || null, img: sc.endImg, text: sc.endName || '결과 화면', color: '#B5446E', ms: 3200});
+  (sc.frames || []).forEach((fr, i) => parts.push({rect: fr.rect || null, img: fr.img, text: s.caps[i + 1] || '', color: BOX, ms: 1800}));
+  parts.push({rect: sc.end || null, img: sc.endImg, text: sc.endName || '결과 화면', color: BOX, ms: 3200});
   // 앞 장면의 결과 화면이 이 장면의 시작 화면과 같으면 전체 화면으로 돌아가지 않고 앞 장면이 끝난 위치에서 이어 간다
   const img = document.getElementById('img');
   const cont = p0 === 0 && b > 0 && cameFrom === `${a}:${b - 1}` && !!img0 && img.src.endsWith(img0);
