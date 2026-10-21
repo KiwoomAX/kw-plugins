@@ -4,6 +4,9 @@
 쿼리들의 이름·설명·사용 테이블·인자·등록된 SQL 을 낸다. 목차에는 SQL 이 없고, SQL 은 고른 id 만
 DBGateway 에 묻는다. 쓰지 않을 쿼리의 SQL 까지 사용자 PC 에 받지 않으려고 나눴다.
 
+요청마다 환경변수 KIWOOM_ACCESS_KEY 의 접근 키를 싣는다. 키가 없거나 DBGateway 가 키를 거절하면
+접근 키 화면을 브라우저로 열고, 발급·등록 순서를 적고 멈춘다. 낡은 사본으로 넘기지 않는다.
+
 목차는 ~/.claude/cache/searching-winus/manifest_index.json 에 남긴다. 한 시간이 지나지 않은 사본이 있으면
 DBGateway 를 부르지 않고 그것을 쓴다. 목차를 못 받았는데 사본이 낡았으면 낡은 것을 쓰되 첫 줄에 그렇게
 적는다. 사본이 아예 없으면 멈춘다. SQL 은 남기지 않는다.
@@ -20,22 +23,38 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 TTL_SECONDS = 3600
 GATEWAY = os.environ.get("QUERY_GATEWAY_URL", "http://192.7.9.45:9101")
+KEY_ENV = "KIWOOM_ACCESS_KEY"
+KEY_PAGE = "http://192.7.9.45:3000/#access-key"
 CONFIG_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 CACHE = CONFIG_DIR / "cache" / "searching-winus" / "manifest_index.json"
 # 옛 버전이 MongoDB 에서 받아 남긴 사본이다. 쿼리 전체의 SQL 이 들어 있어 보이는 대로 지운다.
 OLD_CACHE = CACHE.with_name("query_index.json")
 
 
+def key_refused(reason: str) -> SystemExit:
+    """접근 키 화면을 열고, 발급·등록 순서를 적은 종료를 돌려준다."""
+    webbrowser.open(KEY_PAGE)
+    return SystemExit(f"{reason} 브라우저로 연 접근 키 화면({KEY_PAGE})에서 키를 발급하고, 그 화면의 「사용 방법」대로 "
+                      f"환경변수 {KEY_ENV} 에 등록한 뒤 새 Claude Code 세션에서 다시 요청한다. 키 원문은 대화에 붙여 넣지 않는다.")
+
+
 def get(path: str) -> dict:
-    """DBGateway GET. 400 은 DBGateway 가 판정한 거절이라 낡은 사본으로 넘기지 않고 그 detail 로 멈춘다."""
+    """DBGateway GET. 400 과 401 은 DBGateway 가 판정한 거절이라 낡은 사본으로 넘기지 않고 멈춘다."""
+    key = os.environ.get(KEY_ENV, "").strip()
+    if not key:
+        raise key_refused(f"환경변수 {KEY_ENV} 에 접근 키가 없다.")
+    request = urllib.request.Request(GATEWAY + path, headers={"Authorization": f"Bearer {key}"})
     try:
-        with urllib.request.urlopen(GATEWAY + path, timeout=30) as r:
+        with urllib.request.urlopen(request, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise key_refused("DBGateway 가 접근 키를 거절했다 — 키가 틀렸거나 폐기됐다.")
         if e.code != 400:
             raise
         body = e.read().decode("utf-8", "replace")
@@ -151,6 +170,20 @@ def _selfcheck() -> None:
         assert "```sql\nSELECT 1 FROM T\n```" in d, d
         assert "- 인자: 없음" in render_detail({"query_id": 1, "query_name": "a", "description": "",
                                                  "tables": [], "sql": "", "arguments": []})
+        # 키가 없으면 DBGateway 를 부르지 않는다. 실제 브라우저가 열리지 않게 webbrowser.open 을 바꿔 둔다.
+        opened, real_open = [], webbrowser.open
+        real_key = os.environ.pop(KEY_ENV, None)
+        webbrowser.open = opened.append
+        try:
+            get("/winus/manifest")
+        except SystemExit as e:
+            assert KEY_ENV in str(e) and opened == [KEY_PAGE], (e, opened)
+        else:
+            raise AssertionError("접근 키가 없으면 접근 키 화면을 열고 멈춘다")
+        finally:
+            webbrowser.open = real_open
+            if real_key is not None:
+                os.environ[KEY_ENV] = real_key
     finally:
         shutil.rmtree(CACHE.parent, ignore_errors=True)
         CACHE, OLD_CACHE = saved
