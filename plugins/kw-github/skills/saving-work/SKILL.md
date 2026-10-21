@@ -7,7 +7,7 @@ description: 사내 개발자용 기능 레포(최상위 폴더에 .kiwoom-featu
 
 이 스킬은 기능 레포의 작업을 이 PC 에 commit 하고, 개발자가 승인한 작업만 회사 GitHub 에 push 한다. commit 과 push 는 언제나 `save_work.py` 로 한다. 저장 스크립트만 비밀값과 데이터 파일을 검사하므로 `git commit` 과 `git push` 를 직접 실행하지 않는다. 가드 훅도 그 명령을 거부한다.
 
-개발자는 commit, push, branch 같은 개념에 익숙하지 않다고 본다. 개발자에게 하는 말은 `${CLAUDE_PLUGIN_ROOT}/git_terms.md` 를 따른다. commit·push·main·branch 만 영어로 쓰고 그 행동의 결과를 같은 문장에 붙인다. 나머지 git 용어는 쉬운 말로 바꾸거나 말하지 않는다. 예: "commit 해 두었어요. 이 시점으로 코드를 되돌릴 수 있어요."
+개발자는 commit, push, branch 같은 개념에 익숙하지 않다고 본다. 개발자에게 하는 말은 `${CLAUDE_PLUGIN_ROOT}/git_terms.md` 를 따른다. commit·push·main·branch 만 영어로 쓰고 그 행동의 결과를 같은 문장에 붙인다. 나머지 git 용어는 쉬운 말로 바꾸거나 말하지 않는다. 예: "commit 해 두었습니다. 이 시점으로 코드를 되돌릴 수 있습니다."
 
 아래에서 `<작업 폴더>` 는 지금 작업 중인 폴더이고, `<레포>` 는 push 절차 2단계의 `prepare-upload` 결과의 `repo` 다(예: `KiwoomAX/fund-list`). 이슈 제목의 `<name>` 은 `<레포>` 의 `/` 뒤 이름이다. 예전 방식 레포는 표식 파일에 `name` 이 없으므로 표식 파일에서 이 값을 읽지 않는다. 이슈 본문 파일은 기능 레포 밖의 임시 폴더에 쓴다. 레포 안에 쓰면 다음 commit 에 함께 들어간다.
 
@@ -16,16 +16,16 @@ description: 사내 개발자용 기능 레포(최상위 폴더에 .kiwoom-featu
 기능 단위가 끝나면 개발자에게 묻지 않고 commit 한다. "저장해줘" 같은 요청을 기다리지 않는다. commit 은 이 PC 에만 남고 GitHub 에 올리지 않으므로 승인이 필요하지 않다. 기능 단위는 개발자가 요청한 기능 하나가 동작하는 상태가 된 때다. 화면 하나를 완성했을 때, 스크립트가 처음으로 끝까지 실행됐을 때, 버그 하나를 고쳤을 때가 그 예다. 한 세션에서 여러 번 commit 해도 된다.
 
 1. 이번에 바뀐 파일을 `${CLAUDE_PLUGIN_ROOT}/data_security_checklist.md` 의 점검표로 검토한다. 해당하는 것이 있으면 commit 하기 전에 고친다. 비밀값은 `.env` 로 옮기고 코드에서는 환경 변수로 읽게 하며, 업무 데이터와 개인정보는 코드에서 빼고, ipynb 출력 셀은 지운다. 고친 내용을 개발자에게 한 줄로 알린다.
-2. 현재 작업 브랜치가 `feat/session-` 으로 시작하면 먼저 `git branch -m <새 이름>` 으로 이름을 작업 내용에 맞게 바꾼다. 세션 시작 훅이 이름을 정할 수 없어 붙인 이름이다.
+2. 현재 작업 branch가 `feat/session-` 으로 시작하면 먼저 `git branch -m <새 이름>` 으로 이름을 작업 내용에 맞게 바꾼다. 세션 시작 훅이 이름을 정할 수 없어 붙인 이름이다.
 3. 이번에 한 일을 한국어 한 줄로 적고 아래 명령을 실행한다. "출금요청서를 엑셀로 바꾸는 화면 추가" 처럼 쓴다.
 
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴더>" --message "<한 줄 설명>" --branch <종류>/<영문 요약>
    ```
 
-   `--branch` 는 새 작업 브랜치가 필요할 때 쓰는 이름이다. 종류는 `feat/`(기능)·`fix/`(버그)·`refactor/`(정리)·`docs/`(문서) 중 하나이고, 영문 요약은 `fund-list-screen` 처럼 소문자와 하이픈으로 쓴다. 이미 이어 쓸 작업 브랜치가 있으면 스크립트가 그 브랜치를 쓰고 `--branch` 는 무시한다. 첫 commit 은 `main` 에 들어간다.
+   `--branch` 는 새 작업 branch가 필요할 때 쓰는 이름이다. 종류는 `feat/`(기능)·`fix/`(버그)·`refactor/`(정리)·`docs/`(문서) 중 하나이고, 영문 요약은 `fund-list-screen` 처럼 소문자와 하이픈으로 쓴다. 이미 이어 쓸 작업 branch가 있으면 스크립트가 그 branch를 쓰고 `--branch` 는 무시한다. 첫 commit 은 `main` 에 들어간다.
 
-4. 결과를 「결과 처리」 절대로 처리한다. 결과의 `unpushed` 가 참이면 이어서 「push 질문」 절대로 묻는다.
+4. 결과를 「결과 처리」 절에 따라 처리한다. 결과의 `unpushed` 가 참이면 이어서 「push 질문」 절에 따라 묻는다.
 
 ## 결과 처리
 
@@ -40,8 +40,8 @@ description: 사내 개발자용 기능 레포(최상위 폴더에 .kiwoom-featu
 
 `status` 가 `failed` 면 `detail` 을 읽고 아래대로 처리한 뒤 다시 실행한다. 개발자에게 물을 수 있는 것은 동작이 다른 충돌과 어느 작업을 먼저 올릴지뿐이다. 나머지는 묻지도 설명하지도 않는다.
 - **진행 중인 merge 가 있다.** 앞선 업로드가 충돌로 멈췄다. 「push 절차」 5단계대로 충돌을 풀고 `upload --continue` 로 마친다.
-- **미반영 커밋이 있는 작업 브랜치가 둘 이상이다.** 한 브랜치를 다른 브랜치로 `git merge` 해 하나로 만든 뒤 다시 commit 한다. 어느 쪽으로 합칠지 애매하면 개발자에게 두 작업을 쉬운 말로 적어 묻는다. 브랜치를 지우거나 `git reset` 으로 커밋을 버리지 않는다.
-- **새 작업 브랜치의 이름이 없다.** 이번 작업에 맞는 이름을 정해 `--branch` 로 다시 실행한다.
+- **미반영 commit 이 있는 작업 branch 가 둘 이상이다.** `detail` 이 정한 대로 한다. 개발자에게 두 작업을 쉬운 말로 적어 어느 쪽을 먼저 올릴지 묻고, `git switch <branch>` 로 그 branch 로 옮겨 「push 절차」대로 올린 뒤 다시 commit 한다. branch 를 `git merge` 로 합치거나 지우지 않고, `git reset` 으로 commit 을 버리지 않는다.
+- **새 작업 branch의 이름이 없다.** 이번 작업에 맞는 이름을 정해 `--branch` 로 다시 실행한다.
 - **제한 시간을 넘겼다.** 한 번만 다시 실행한다. 또 실패하면 `message` 만 전하고 넘어간다.
 - **규칙 파일 오류다.** 고치지 않는다. `message` 만 전한다. AX팀이 고칠 일이다.
 - **git 이나 gh 를 찾지 못했거나 GitHub 로그인이 필요하다.** 개발자에게 사내 설치기 `kw_install` 을 다시 실행하거나, 터미널에서 `gh auth login --web --git-protocol https --skip-ssh-key --clipboard` 를 한 번 실행하라고 안내한다.
@@ -79,14 +79,14 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
 
    `status` 가 `other-owner` 면 올리려는 곳이 회사 GitHub(KiwoomAX)가 아니다. 개발자에게 `detail` 의 주소를 보여 주고 "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다. `<주소>` 에 올려도 될까요?" 라고 묻는다. 개발자가 동의하면 `prepare-upload` 와 4단계의 `upload` 에 모두 `--allow-other-owner` 를 붙여 실행한다. 이 동의는 그 push 한 번에만 유효하다. 동의하지 않으면 올리지 않고 멈춘다. `upload` 가 `other-owner` 를 내도 같은 방법으로 묻는다.
 
-3. 작업 이슈를 정한다. 「작업 이슈」 절대로 한다.
+3. 작업 이슈를 정한다. 「작업 이슈」 절에 따라 한다.
 4. 올린다. 고친 버그의 번호와, 개발자가 기능을 마무리하기로 했으면 기능 이슈 번호를 번호마다 `--close <번호>` 로 넘긴다.
 
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" upload --repo "<작업 폴더>" --task <작업 이슈 번호> --title "<작업 이슈 제목>"
    ```
 
-   스크립트는 작업 브랜치를 올리고 GitHub 공유 코드(`main`)에 `--no-ff` 로 합친 뒤 올리고, 합친 작업 브랜치는 이 PC 와 GitHub 에서 지운다. merge 커밋의 `closes` 줄이 작업 이슈와 `--close` 로 넘긴 이슈를 닫는다. 결과를 「결과 처리」 절대로 처리한다. `status` 가 `nothing` 이면 올릴 commit 이 없다는 뜻이다. 이때 기능을 마무리하기로 했으면 `gh issue close <기능 이슈 번호> -R <레포>` 로 닫는다.
+   스크립트는 작업 branch를 올리고 `main`에 `--no-ff` 로 합친 뒤 올리고, 합친 작업 branch는 이 PC 와 GitHub 에서 지운다. merge commit의 `closes` 줄이 작업 이슈와 `--close` 로 넘긴 이슈를 닫는다. 결과를 「결과 처리」 절에 따라 처리한다. `status` 가 `nothing` 이면 올릴 commit 이 없다는 뜻이다. 이때 기능을 마무리하기로 했으면 `gh issue close <기능 이슈 번호> -R <레포>` 로 닫는다.
 
 5. `upload` 가 충돌로 멈추면 충돌한 파일을 연다. 두 곳에서 같은 줄을 다르게 고쳤다. 양쪽의 동작이 같고 줄바꿈·공백·표기만 다르면 개발자에게 묻지 않고 푼다. 양쪽의 동작이 다를 때만 묻는다. 질문에는 "GitHub에 올라온 것"과 "지금 PC에 저장된 것"이라는 표현을 쓴다. 두 쪽이 각각 어떻게 동작하는지 A 와 B 로 적고, 차이가 의도한 변경인지와 어느 쪽으로 갈지를 고르게 한다. 고친 뒤 `git add <파일>` 을 하고 아래를 실행한다. 이어서 하는 업로드는 다시 승인받지 않는다.
 
@@ -100,12 +100,12 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" review-upload --repo "<작업 폴더>"
    ```
 
-   - `uploaded` 가 거짓이면 이 PC 의 `main` 이 GitHub 공유 코드와 다르다. 다른 PC 에서 올린 작업이 있다는 뜻이므로 개발자에게 알린다.
-   - `leaked` 에 파일이 있으면 GitHub 공유 코드에 올라가면 안 되는 파일이 이미 올라가 있다. 파일과 `reason` 을 개발자에게 알리고, 비밀값이면 폐기하고 새로 발급받으라고 안내한다. 지우는 일은 개발자의 동의를 받은 뒤 commit 과 업로드로 한다.
+   - `uploaded` 가 거짓이면 이 PC 의 `main` 이 GitHub 의 `main`와 다르다. 다른 PC 에서 올린 작업이 있다는 뜻이므로 개발자에게 알린다.
+   - `leaked` 에 파일이 있으면 GitHub 의 `main`에 올라가면 안 되는 파일이 이미 올라가 있다. 파일과 `reason` 을 개발자에게 알리고, 비밀값이면 폐기하고 새로 발급받으라고 안내한다. 지우는 일은 개발자의 동의를 받은 뒤 commit 과 업로드로 한다.
    - 이슈는 개발자에게 말하지도 묻지도 않는다(사용자 결정, 2026-10-21). `issues` 중 `ours` 가 참인 이슈만 Claude 가 정리하고, `ours` 가 거짓인 이슈는 다른 사람이 만든 이슈이므로 손대지 않고 알리지 않는다.
-   - `ours` 인 기능 이슈와 작업 이슈 중 만들다 만 이슈(`template_only` 가 참)와 기록이 빠진 이슈(이번 merge 까지 올라간 commit 이 본문의 커밋 목록에 없음)는 본문을 고쳐 채운다. 이 기능과 이번 작업에서 아는 내용과 `git log` 의 commit 으로 각 절을 채워 레포 밖 임시 파일에 쓰고 `gh issue edit <번호> -R <레포> --body-file "<본문 파일>"` 로 고친다. 모르는 절은 "확인 필요" 로 적는다.
+   - `ours` 인 기능 이슈와 작업 이슈 중 만들다 만 이슈(`template_only` 가 참)와 기록이 빠진 이슈(이번 merge 까지 올라간 commit 이 본문의 commit 목록에 없음)는 본문을 고쳐 채운다. 이 기능과 이번 작업에서 아는 내용과 `git log` 의 commit 으로 각 절을 채워 레포 밖 임시 파일에 쓰고 `gh issue edit <번호> -R <레포> --body-file "<본문 파일>"` 로 고친다. 모르는 절은 "확인 필요" 로 적는다.
    - `ours` 이고 `template_only` 인데 기능 이슈도 아니고 어느 commit 과도 이어지지 않은 이슈는 오류로 생긴 빈 이슈다. 다음 작업 이슈를 만들 때 다시 쓸 수 있으므로 하나는 남겨 두고, 그보다 많으면 `gh issue delete <번호> -R <레포> --yes` 로 지운다. 삭제 권한이 없어 실패하면 `gh issue close <번호> -R <레포> --reason "not planned"` 로 닫는다.
-   - `ours` 이고 `no_assignee` 가 참인 이슈는 `gh issue edit <번호> -R <레포> --add-assignee @me` 로 담당자를 지정한다.
+   - `ours` 이고 `no_assignee` 가 참인 이슈는 `gh issue edit <번호> -R <레포> --add-assignee '@me'` 로 담당자를 지정한다.
    - `ours` 이고 `feature` 가 참인 이슈는 진행 중인 기능 이슈이므로 그대로 둔다. 그 밖에 열려 있는 `ours` 작업 이슈와 Bug 이슈는 Claude 가 판단한다. 이번 업로드까지의 commit 으로 끝난 일이면 `gh issue close <번호> -R <레포>` 로 닫고, 아직 남은 일이면 그대로 둔다.
 
    점검 결과는 `leaked` 가 있거나 `uploaded` 가 거짓일 때만 개발자에게 알린다. 이슈를 정리한 일은 알리지 않는다.
@@ -118,12 +118,12 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
 
 ## 작업 이슈
 
-push 한 번마다 작업 이슈 하나를 정한다. 무엇을 언제 올렸는지 이슈 목록으로 남기기 위해서다. 제목은 `[<name>] <이번에 한 일을 쉬운 말로 한 줄>` 이다. 본문에는 `기능 이슈: #<기능 이슈 번호>` 와, 올릴 미반영 커밋 목록(`git log --oneline origin/main..<작업 브랜치>`)을 적는다.
+push 한 번마다 작업 이슈 하나를 정한다. 무엇을 언제 올렸는지 이슈 목록으로 남기기 위해서다. 제목은 `[<name>] <이번에 한 일을 쉬운 말로 한 줄>` 이다. 본문에는 `기능 이슈: #<기능 이슈 번호>` 와, 올릴 commit 목록을 적는다. commit 목록은 `prepare-upload` 결과의 `commits` 를 그대로 쓴다. 첫 push 에는 `origin/main` 이 없어 `git log` 로 직접 계산할 수 없기 때문이다.
 
-열린 `Task` 이슈 중 본문의 커밋 목록이 이번 미반영 커밋을 모두 포함한 이슈가 있으면 새로 만들지 않고 그 이슈를 쓴다. 앞선 push 가 끊긴 상황이다. 그런 이슈가 없고, 제목이 `[<name>] ` 으로 시작하는데 본문이 양식뿐이고 어느 commit 과도 이어지지 않은 빈 이슈가 열려 있으면 새로 만들지 않는다. 오류로 생긴 빈 이슈이므로 `gh issue edit <번호> -R <레포> --title "<제목>" --body-file "<본문 파일>" --add-assignee @me` 로 이번 작업 이슈를 거기에 적어 다시 쓴다. 둘 다 없으면 새로 만든다. 어느 쪽이든 Type 을 `Task` 로 정한다.
+열린 `Task` 이슈 중 본문의 commit 목록이 이번 `commits` 를 모두 포함한 이슈가 있으면 새로 만들지 않고 그 이슈를 쓴다. 앞선 push 가 끊긴 상황이다. 그런 이슈가 없고, 제목이 `[<name>] ` 으로 시작하는데 본문이 양식뿐이고 어느 commit 과도 이어지지 않은 빈 이슈가 열려 있으면 새로 만들지 않는다. 오류로 생긴 빈 이슈이므로 `gh issue edit <번호> -R <레포> --title "<제목>" --body-file "<본문 파일>" --add-assignee '@me'` 로 이번 작업 이슈를 거기에 적어 다시 쓴다. 둘 다 없으면 새로 만든다. 어느 쪽이든 Type 을 `Task` 로 정한다.
 
 ```
-gh issue create -R <레포> --title "[<name>] <한 줄>" --body-file "<본문 파일>" --assignee @me
+gh issue create -R <레포> --title "[<name>] <한 줄>" --body-file "<본문 파일>" --assignee '@me'
 gh api -X PATCH repos/<레포>/issues/<새 번호> -f type=Task
 ```
 
@@ -131,12 +131,12 @@ gh api -X PATCH repos/<레포>/issues/<새 번호> -f type=Task
 
 ## 기능 이슈에 남기는 기록
 
-기능 레포에는 그 기능을 대표하는 기능 이슈가 하나 있고, 번호는 `.kiwoom-feature` 의 `issue=` 줄에 있다. 첫 push 때 `prepare-upload` 가 만들고 적는다. merge 커밋에 `#<기능 이슈 번호>` 줄이 붙으므로 올린 작업은 이슈 화면에 저절로 나타난다. 이슈 기록은 개발자에게 묻지 않고 Claude 가 남긴다. 기능 이슈 번호가 아직 없으면 기록을 생략한다.
+기능 레포에는 그 기능을 대표하는 기능 이슈가 하나 있고, 번호는 `.kiwoom-feature` 의 `issue=` 줄에 있다. 첫 push 때 `prepare-upload` 가 만들고 적는다. merge commit에 `#<기능 이슈 번호>` 줄이 붙으므로 올린 작업은 이슈 화면에 저절로 나타난다. 이슈 기록은 개발자에게 묻지 않고 Claude 가 남긴다. 기능 이슈 번호가 아직 없으면 기록을 생략한다.
 
 - **버그를 찾았을 때.** 찾을 때마다 Bug 이슈를 따로 만든다. 본문 끝에 `기능 이슈: #<기능 이슈 번호>` 를 적어 연결한다. 고친 버그는 그 버그를 올리는 `upload` 의 `--close` 로 닫는다.
 
   ```
-  gh issue create -R <레포> --title "[<name>] <버그를 쉬운 말로 한 줄>" --body-file "<본문 파일>" --assignee @me
+  gh issue create -R <레포> --title "[<name>] <버그를 쉬운 말로 한 줄>" --body-file "<본문 파일>" --assignee '@me'
   gh api -X PATCH repos/<레포>/issues/<새 번호> -f type=Bug
   ```
 
@@ -147,4 +147,4 @@ gh api -X PATCH repos/<레포>/issues/<새 번호> -f type=Task
   gh issue comment <기능 이슈 번호> -R <레포> --body-file "<본문 파일>"
   ```
 
-이슈는 `upload` 의 `--task` 와 `--close` 로만 닫고, 커밋 메시지에 닫기 키워드를 직접 쓰지 않는다.
+이슈는 `upload` 의 `--task` 와 `--close` 로만 닫고, commit 메시지에 닫기 키워드를 직접 쓰지 않는다.

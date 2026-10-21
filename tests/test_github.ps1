@@ -157,7 +157,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $repoDir 'c.py'), "z = 3`n")
     $ctx = Invoke-Py @((Join-Path $Hooks 'session_start.py')) (@{ cwd = $repoDir; session_id = 'kwgh-test' } | ConvertTo-Json -Compress)
     $context = ($ctx | ConvertFrom-Json).hookSpecificOutput.additionalContext
-    Assert 'the session start hook commits leftovers and asks before uploading' ($context -match [regex]::Escape('올릴까요?'))
+    Assert 'the session start hook commits leftovers and asks before uploading' ($context -match [regex]::Escape('「push 질문」 절'))
     Assert 'the session start hook never pushes' ((Invoke-Git $remote @('rev-parse', 'main')).Trim() -eq $before)
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 

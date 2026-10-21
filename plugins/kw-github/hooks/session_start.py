@@ -1,6 +1,6 @@
-"""세션을 새로 열 때 남은 변경을 로컬 커밋으로 만들고 Claude 에게 결과와 push 질문 지시를 넣는다.
+"""세션을 새로 열 때 남은 변경을 로컬 commit 으로 만들고 Claude 에게 결과와 push 질문 지시를 넣는다.
 
-기능 레포인지 가장 먼저 본다. 커밋은 save_work.commit_work 를 같은 프로세스에서 실행해 45초 안에 끝낸다.
+기능 레포인지 가장 먼저 본다. commit 은 save_work.commit_work 를 같은 프로세스에서 실행해 45초 안에 끝낸다.
 이 훅은 push 와 로그인 확인을 하지 않는다. push 는 개발자가 승인한 뒤 saving-work 가 한다.
 """
 import json
@@ -25,8 +25,9 @@ REMINDER = (
     "처리한다."
 )
 UNPUSHED_NOTE = (
-    "GitHub 에 올리지 않은 commit 이 있다. 개발자에게 '업로드되지 않은 작업이 있습니다. 올릴까요?'라고 묻고, "
-    "동의하면 saving-work 의 push 절차를 하라. '나중에'라고 하면 이 세션에서는 다시 묻지 않는다."
+    "GitHub 에 올리지 않은 commit 이 있다. 개발자에게 '업로드되지 않은 작업이 있습니다.' 라고 한 줄 알린 뒤 "
+    "saving-work 스킬의 「push 질문」 절에 따라 묻고, 동의하면 「push 절차」 절을 하라. 아래 first_push 와 "
+    "history_reset 은 그 절의 덧붙임 문장을 정하는 값이다. '나중에'라고 하면 이 세션에서는 다시 묻지 않는다."
 )
 OTHER_OWNER_NOTE = (
     "이 폴더의 origin 은 회사 GitHub(KiwoomAX) 밖이다. 올릴지 물을 때 그 주소를 함께 알리고, 회사 GitHub 이 아닌 "
@@ -58,9 +59,11 @@ def build_context(result, elsewhere=False):
     if result.get("excluded"):
         lines.append("빠진 파일(excluded): " + json.dumps(result["excluded"], ensure_ascii=False))
     if result["status"] == "failed":
-        lines.append("saving-work 스킬의 「결과 처리」 절대로 처리하라.")
+        lines.append("saving-work 스킬의 「결과 처리」 절에 따라 처리하라.")
     if result.get("unpushed"):
         lines.append(UNPUSHED_NOTE)
+        lines.append(f"first_push: {str(bool(result.get('first_push'))).lower()}, "
+                     f"history_reset: {result.get('history_reset') or '없음'}")
         if elsewhere:
             # 사용자 결정(2026-10-20): KiwoomAX 밖으로 올리는 것은 막지 않고 한 번 확인받는다.
             lines.append(OTHER_OWNER_NOTE)
@@ -73,7 +76,7 @@ def code_rules():
 
 def _with_rules(text):
     # 기능 레포에서는 저장이 어떻게 끝나든 코드를 쓰는 동안 지킬 규칙을 함께 넣는다.
-    # 개발자에게 쓸 쉬운 말과 괄호로 붙일 git 용어의 표도 함께 넣는다.
+    # 개발자에게 하는 말의 git 용어 규칙(git_terms.md)도 함께 넣는다.
     terms = GIT_TERMS_PATH.read_text(encoding="utf-8")
     return f"{text}\n\n{code_rules()}\n\n{terms}"
 
@@ -92,7 +95,7 @@ START_NOTE = (
 )
 ELSEWHERE_NOTE = (
     "이 폴더는 회사 GitHub(KiwoomAX) 밖의 원격과 연결되어 있다. 회사 코드는 KiwoomAX 에만 올라가므로, "
-    "개발자가 회사 기능을 새로 만들려고 하면 이 폴더 대신 새 폴더에서 Claude Code 를 다시 열라고 안내하라."
+    "개발자가 회사 기능을 새로 만들려고 하면 이 폴더 대신 새 폴더에서 클로드 코드를 다시 열라고 안내하라."
 )
 
 
@@ -114,7 +117,7 @@ def context_for(cwd, session_id=None):
     if top is None:
         return _guidance_for(cwd)
     if session_id:
-        # 다른 세션이 작업 중이면 그 세션의 미완성 코드를 커밋하지 않도록 저장을 건너뛴다.
+        # 다른 세션이 작업 중이면 그 세션의 미완성 코드를 commit 하지 않도록 저장을 건너뛴다.
         busy = session_mark.others_active(top, session_id)
         session_mark.touch(top, session_id)
         if busy:

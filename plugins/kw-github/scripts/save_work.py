@@ -433,8 +433,9 @@ def choose_branch(top, wanted, catch_up, deadline=None):
     candidates = [name for name in work_branches(top, deadline) if _ahead(top, name, deadline)]
     if len(candidates) > 1:
         raise BranchChoiceError(
-            f"미반영 커밋이 있는 작업 브랜치가 둘 이상이다: {', '.join(candidates)}. 개발자에게 어느 작업을 "
-            "먼저 올릴지 묻고, 그 브랜치를 upload 로 올린 뒤 다시 commit 하라.")
+            f"미반영 commit 이 있는 작업 branch 가 둘 이상이다: {', '.join(candidates)}. 개발자에게 어느 작업을 "
+            "먼저 올릴지 묻고, git switch <branch> 로 옮겨 그 branch 를 upload 로 올린 뒤 다시 commit 하라. "
+            "branch 를 git merge 로 합치지 않는다.")
     if candidates:
         target = candidates[0]
         if current_branch(top, deadline) != target:
@@ -619,6 +620,16 @@ def prepare_upload(repo, allow_other_owner=False, body_file=None):
         return _ready_result("failed", MSG_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
 
 
+def unpushed_commits(top, deadline=None):
+    """GitHub 공유 main 에 아직 없는 commit 을 "<짧은 번호> <제목>" 줄로 돌려준다. 작업 이슈 본문에 쓴다."""
+    refs = [ref for ref in [BRANCH, *work_branches(top, deadline)] if _ref_exists(top, f"refs/heads/{ref}", deadline)]
+    if not refs:
+        return []
+    exclude = ["--not", REMOTE_REF] if _ref_exists(top, REMOTE_REF, deadline) else []
+    out = gitcmd.git(top, "log", "--format=%h %s", *refs, *exclude, deadline=deadline)
+    return [line for line in out.splitlines() if line.strip()]
+
+
 def _ready_result(status, message, detail="", repo=None, feature_issue=None, team_shared=None):
     return {"status": status, "repo": repo, "feature_issue": feature_issue, "team_shared": team_shared,
             "excluded": [], "message": message, "detail": detail}
@@ -648,7 +659,8 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
     company = owner.lower() == ORG.lower()
     if marker.get("issue"):
         # 기능 이슈까지 마친 레포다. topic 과 팀 권한은 그때 이미 맞췄다.
-        return _ready_result("ready", "", repo=full, feature_issue=int(marker["issue"]))
+        return dict(_ready_result("ready", "", repo=full, feature_issue=int(marker["issue"])),
+                    commits=unpushed_commits(top, deadline))
     team_shared = None
     if company:
         # topic 과 팀 권한은 회사 레포에만 단다.
@@ -658,7 +670,8 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
                                         "-f", "permission=pull", deadline=deadline)[0] == 0
     title = marker.get("title") or remote_description(full, deadline) or name
     number = _feature_issue(top, full, name, title, deadline, body_file)
-    return _ready_result("ready", "", repo=full, feature_issue=number, team_shared=team_shared)
+    return dict(_ready_result("ready", "", repo=full, feature_issue=number, team_shared=team_shared),
+                commits=unpushed_commits(top, deadline))
 
 
 UPLOAD_STATE = "kiwoom-upload.json"
@@ -697,15 +710,12 @@ def _work_branch_for_upload(top, deadline):
     current = current_branch(top, deadline)
     candidates = [name for name in work_branches(top, deadline) if _ahead(top, name, deadline)]
     if current and current.startswith(WORK_PREFIXES):
-        candidates = [name for name in candidates if name != current]
-        if candidates:
-            raise UploadStop(f"미반영 커밋이 있는 작업 브랜치가 둘 이상이다: {current}, {', '.join(candidates)}. "
-                             "개발자에게 어느 작업을 먼저 올릴지 묻고 그 브랜치로 옮긴 뒤 다시 실행하라.")
+        # 다른 작업 branch 에 미반영 commit 이 있어도 지금 branch 만 올린다. 나머지는 다음 업로드가 올린다.
         relocate_main(top, deadline)
         return current
     if len(candidates) > 1:
-        raise UploadStop(f"미반영 커밋이 있는 작업 브랜치가 둘 이상이다: {', '.join(candidates)}. "
-                         "개발자에게 어느 작업을 먼저 올릴지 묻고 그 브랜치로 옮긴 뒤 다시 실행하라.")
+        raise UploadStop(f"미반영 commit 이 있는 작업 branch 가 둘 이상이다: {', '.join(candidates)}. "
+                         "개발자에게 어느 작업을 먼저 올릴지 묻고 git switch <branch> 로 옮긴 뒤 다시 실행하라.")
     if candidates:
         gitcmd.git(top, "switch", "-q", candidates[0], deadline=deadline)
         relocate_main(top, deadline)
@@ -949,15 +959,18 @@ def review_upload(repo):
         local = gitcmd.git(top, "rev-parse", BRANCH, deadline=deadline).strip()
         remote = gitcmd.git(top, "rev-parse", REMOTE_REF, deadline=deadline).strip()
         feature = read_marker(top).get("issue")
+        me = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
         listed = json.loads(gitcmd.gh("issue", "list", "-R", "/".join(parsed), "--state", "open", "--json",
-                                      "number,title,body,assignees", "--limit", "100", deadline=deadline) or "[]")
+                                      "number,title,body,assignees,author", "--limit", "100", deadline=deadline) or "[]")
         payload.update(
             status="ok", message="",
             uploaded=local == remote,
             leaked=_leaked(top, rules.load(RULES_PATH), deadline),
-            # ours: 플러그인이 만든 이슈다. 제목이 "[<레포 이름>] " 으로 시작한다.
+            # ours: 플러그인이 만든 이슈다. 제목이 "[<레포 이름>] " 으로 시작하고 작성자가 지금 gh 사용자다.
+            # 같은 접두어로 팀원이 만든 이슈를 지우거나 닫지 않기 위해서다.
             issues=[{"number": item["number"], "title": item["title"], "feature": str(item["number"]) == feature,
-                     "ours": item["title"].startswith(f"[{parsed[1]}] "),
+                     "ours": bool(me) and item["title"].startswith(f"[{parsed[1]}] ")
+                             and (item.get("author") or {}).get("login") == me,
                      "template_only": template_only(item["title"], item.get("body")),
                      "no_assignee": not item.get("assignees")} for item in listed],
         )
