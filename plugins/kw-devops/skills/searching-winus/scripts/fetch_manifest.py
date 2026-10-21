@@ -5,7 +5,7 @@
 DBGateway 에 묻는다. 쓰지 않을 쿼리의 SQL 까지 사용자 PC 에 받지 않으려고 나눴다.
 
 요청마다 환경변수 KIWOOM_ACCESS_KEY 의 접근 키를 싣는다. 키가 없거나 DBGateway 가 키를 거절하면
-접근 키 화면을 브라우저로 열고, 발급·등록 순서를 적고 멈춘다. 낡은 사본으로 넘기지 않는다.
+접근 키 화면을 브라우저로 열고, 발급·설정 순서를 적고 멈춘다. 낡은 사본으로 넘기지 않는다.
 
 목차는 ~/.claude/cache/searching-winus/manifest_index.json 에 남긴다. 한 시간이 지나지 않은 사본이 있으면
 DBGateway 를 부르지 않고 그것을 쓴다. 목차를 못 받았는데 사본이 낡았으면 낡은 것을 쓰되 첫 줄에 그렇게
@@ -47,10 +47,10 @@ OLD_CACHE = CACHE.with_name("query_index.json")
 
 
 def key_refused(reason: str) -> SystemExit:
-    """접근 키 화면을 열고, 발급·등록 순서를 적은 종료를 돌려준다."""
+    """접근 키 화면을 열고, 발급·설정 순서를 적은 종료를 돌려준다."""
     webbrowser.open(KEY_PAGE)
     return SystemExit(f"{reason} 브라우저로 연 접근 키 화면({KEY_PAGE})에서 키를 발급하고, 그 화면의 「사용 방법」대로 "
-                      f"환경변수 {KEY_ENV} 에 등록한 뒤 새 Claude Code 세션에서 다시 요청한다. 키 원문은 대화에 붙여 넣지 않는다.")
+                      f"환경변수 {KEY_ENV} 에 설정한 뒤 새 Claude Code 세션에서 다시 요청한다. 키 원문은 대화에 붙여 넣지 않는다.")
 
 
 def get(path: str) -> dict:
