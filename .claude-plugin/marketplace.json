@@ -24,6 +24,11 @@
       "name": "kw-dashboard",
       "source": "./plugins/kw-dashboard",
       "description": "본부 · 팀 대시보드 스킬. building-kiwoom-dashboard는 KiwoomAX/dashboard-template 으로 만든 대시보드 레포에서 기능을 붙이고, 알림 서랍을 채우고, 내용 구획의 색 · 글자 크기 · 배치를 고르는 규칙과 이미 만든 대시보드를 템플릿으로 옮기는 법을 안내한다."
+    },
+    {
+      "name": "kw-github",
+      "source": "./plugins/kw-github",
+      "description": "사내 개발자가 git 을 몰라도 기능 코드를 회사 GitHub(KiwoomAX)에 남기게 하는 플러그인. 작업 폴더를 준비하고, 기능 단위가 끝나면 묻지 않고 commit 하며, push(업로드)는 개발자가 승인한 작업만 한다. 올리기 전에 비밀값과 데이터 파일을 걸러 낸다. 파이썬과 GitHub CLI(gh)를 전제한다."
     }
   ]
 }
