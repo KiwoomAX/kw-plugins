@@ -30,6 +30,16 @@ TTL_SECONDS = 3600
 GATEWAY = os.environ.get("QUERY_GATEWAY_URL", "http://192.7.9.45:9101")
 KEY_ENV = "KIWOOM_ACCESS_KEY"
 KEY_PAGE = "http://192.7.9.45:3000/#access-key"
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """리다이렉트를 따라가지 않는다. urllib 는 따라갈 때 Authorization 헤더까지 새 주소로 보내므로, 접근 키가 다른 호스트로 넘어간다."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
 CONFIG_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 CACHE = CONFIG_DIR / "cache" / "searching-winus" / "manifest_index.json"
 # 옛 버전이 MongoDB 에서 받아 남긴 사본이다. 쿼리 전체의 SQL 이 들어 있어 보이는 대로 지운다.
@@ -50,7 +60,7 @@ def get(path: str) -> dict:
         raise key_refused(f"환경변수 {KEY_ENV} 에 접근 키가 없다.")
     request = urllib.request.Request(GATEWAY + path, headers={"Authorization": f"Bearer {key}"})
     try:
-        with urllib.request.urlopen(request, timeout=30) as r:
+        with OPENER.open(request, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 401:
@@ -184,6 +194,34 @@ def _selfcheck() -> None:
             webbrowser.open = real_open
             if real_key is not None:
                 os.environ[KEY_ENV] = real_key
+        # 리다이렉트를 받으면 따라가지 않고 멈춘다 — 따라가면 접근 키가 Location 의 주소로 넘어간다
+        import http.server
+        import threading
+        paths = []
+
+        class Redirecting(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                paths.append(self.path)
+                self.send_response(302)
+                self.send_header("Location", "/stolen")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Redirecting)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            OPENER.open(urllib.request.Request(f"http://127.0.0.1:{server.server_port}/winus/manifest",
+                                               headers={"Authorization": "Bearer kwam_x"}), timeout=5)
+        except urllib.error.HTTPError as e:
+            assert e.code == 302, e.code
+        else:
+            raise AssertionError("리다이렉트를 받으면 멈춘다")
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert paths == ["/winus/manifest"], paths
     finally:
         shutil.rmtree(CACHE.parent, ignore_errors=True)
         CACHE, OLD_CACHE = saved
