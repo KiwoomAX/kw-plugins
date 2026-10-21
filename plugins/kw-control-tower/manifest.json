@@ -8,12 +8,13 @@
     { "name": "chshin-tools", "repo": "chshin84/disciplined-coder" }
   ],
 
-  "_required_comment": "disciplined-coder 는 답변 원칙과 한국어 금지어 목록을 CLAUDE.md 에 넣는다. 컨트롤 타워가 같은 내용의 복사본을 따로 가지고 사람이 직접 원본과 같게 고치던 일을 없애려고 필수로 넣었다(2026-10-05 사용자 결정). 그 플러그인의 훅은 Git Bash 와 PowerShell 7 과 파이썬을 쓰며, 설치기가 3가지를 모두 설치한다.",
+  "_required_comment": "disciplined-coder 는 답변 원칙과 한국어 금지어 목록을 CLAUDE.md 에 넣는다. 컨트롤 타워가 같은 내용의 복사본을 따로 가지고 사람이 직접 원본과 같게 고치던 일을 없애려고 필수로 넣었다(2026-10-05 사용자 결정). 그 플러그인의 훅은 Git Bash 와 PowerShell 7 과 파이썬을 쓰며, 설치기가 3가지를 모두 설치한다. kw-design 은 사내 웹 화면의 기본 디자인 스킬이다. 사내 지침이 화면을 그릴 때 이 스킬을 읽으라고 하므로 모든 PC 에 있어야 하고, 서버에 접속하지 않아 외부망 PC 에서도 쓸 수 있어 필수로 넣었다(2026-10-21 사용자 결정). 대시보드 스킬 kw-dashboard 는 권장으로 둔다.",
 
   "required": [
     "kw-doc-formats@kiwoom-ax",
     "document-skills@anthropic-agent-skills",
-    "disciplined-coder@chshin-tools"
+    "disciplined-coder@chshin-tools",
+    "kw-design@kiwoom-ax"
   ],
 
   "_suggested_comment": "kw-devops 는 사내 서버 192.7.9.45 에만 접속하므로 외부망 PC 에서는 쓸 수 없다. 필수에 두면 사용자가 비활성화해도 동기화가 매 세션 다시 활성화한다. 그래서 권장으로 두어 한 번만 설치하고, 사용자가 비활성화한 것은 그대로 둔다(2026-09-29 사용자 결정). kw-dashboard 는 배포를 kw-devops 에 맡기므로 마찬가지로 권장에 둔다. document-skills 는 kw-doc-formats 가 기반으로 하는 기본 스킬이라 필수로 옮겼다(2026-09-30 사용자 결정). 권장 플러그인은 플러그인마다 한 번 설치하고 상태 파일의 suggestedDone 에 적는다. 설치되어 있으면 활성화 여부와 관계없이, 최신 버전이 아닐 때 동기화가 업데이트한다.",

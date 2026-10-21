@@ -1,0 +1,453 @@
+<!doctype html>
+<!-- 기능 화면 목업 템플릿. 이 파일을 복사해 쓰고, 표시된 구간(목업 스타일 · 목업 내용)만 고친다.
+     사이드바와 상태바는 없다. 낮 · 밤은 OS 설정을 따른다.
+     맨 아래 <style> 은 tokens.css 복사본이다. 원본은 KiwoomAX/dashboard-template 의 src/frontend/src/shell/tokens.css 이다. -->
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>기능 목업</title>
+    <style>
+      /* 기본 바탕 — 대시보드 셸과 같은 서체와 숫자 정렬. 고치지 않는다 */
+      body { margin: 0; background: var(--bg-app); color: var(--text-primary); font-size: 14px; line-height: 1.5;
+        font-family: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+      /* 내용 폭 — 최대 1560px, 왼쪽에 붙인다. 대시보드 내용 구획과 같다 */
+      .content { max-width: 1560px; padding: 24px 32px 64px; box-sizing: border-box; }
+    </style>
+    <!-- ════ 여기부터 목업 스타일이다. 고쳐도 된다 ════
+         · 색 · 모서리 · 간격은 토큰 변수로 쓴다: var(--bg-surface) · var(--text-secondary) ·
+           var(--border-light) · var(--radius-md) · var(--accent) 같은 이름이다. 낮 · 밤에 맞게 바뀐다.
+         · 선택자는 .content 아래로 묶는다. 대시보드에 붙였을 때 셸 모양을 바꾸지 않게 하기 위해서다. -->
+    <style id="mockup-style">
+      .content h1 { margin: 0 0 4px; font-size: 17px; }
+      .content .lede { margin: 0 0 16px; font-size: 13px; color: var(--text-secondary); }
+      .content .card { background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 16px; }
+      .content table { width: 100%; border-collapse: collapse; }
+      .content th { text-align: left; font-size: 13px; padding: 8px 12px; background: var(--th-bg); color: var(--th-ink); }
+      .content td { font-size: 14px; padding: 10px 12px; border-bottom: 1px solid var(--border-light); }
+    </style>
+  </head>
+  <body>
+    <!-- ════ 여기부터 목업 내용이다. 고쳐도 된다 ════ -->
+    <main class="content">
+      <h1>기능 이름</h1>
+      <p class="lede">목업 예시 화면입니다. main 안의 HTML 을 바꿔 화면을 그립니다. 예시 데이터입니다.</p>
+      <div class="card">
+        <table>
+          <thead><tr><th>항목</th><th>계획</th><th>실적</th></tr></thead>
+          <tbody>
+            <tr><td>예시 항목 1</td><td>100</td><td>90</td></tr>
+            <tr><td>예시 항목 2</td><td>200</td><td>210</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+    <!-- ════ 목업 내용 끝 ════ -->
+    <style>
+/* ══════════════════════════════════════════════════════════════════════
+   대시보드 토큰 — 셸 파일이다. 대시보드를 만들면서 고치지 않는다.
+
+   값은 2026-09-30 에 낮과 밤을 화면으로 대조해 정한 것이다. 두 층으로 둔다.
+     · :root 블록 — 값을 가진 원시 층. 셸 CSS 가 var(--bg-rail) 처럼 직접 쓴다.
+     · 맨 끝 @theme — Tailwind 유틸리티 이름을 붙이는 층. 내용 구획은 이 이름을 쓴다
+       (bg-surface · text-on-surface · border-outline · text-rise …).
+
+   낮/밤: 기본은 OS 설정을 따르고, 사이드바 하단 설정 판에서 고르면 <html data-theme> 로
+   덮어쓴다. 셸 강조(--brand)가 무채색이라 사이드바와 상태바는 두 테마가 서로 뒤집힌 값을
+   쓰고, 내용 구획 강조(--accent)는 슬레이트 남색으로 따로 둔다.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 낮 (기본) ─────────────────────────────────────────────── */
+:root {
+  /* 셸 강조 — 사이드바와 상태바가 쓴다. 내용 구획은 --accent 를 쓴다 */
+  --brand: #1A1A1A;
+  --brand-fill: #1A1A1A;
+  --brand-fill-hover: #33353A;
+  --on-brand: #FFFFFF;
+  /* 포커스 링. 키보드로 어디 있는지 알리는 표시라 선택 면(--sel-weak)보다 진하다 */
+  --brand-weak: rgba(0, 0, 0, .055);
+  /* 「고른 것」에 까는 면. 선택은 굵은 글자가 함께 말하므로 면은 옅게 둔다 */
+  --sel-weak: rgba(0, 0, 0, .034);
+  /* 사이드바 안의 호버 면. 불투명 회색(--bg-hover)을 쓰면 사이드바 그라데이션을 덮고,
+     선택 면보다 진해져 지나가는 항목이 보고 있는 항목보다 도드라진다 */
+  --hover-weak: rgba(0, 0, 0, .014);
+  /* 프로필 아바타 — 누구나 같은 남색(CI 네이비)이고 밤에도 바뀌지 않는다 */
+  --avatar-bg: #00468B;
+  --on-avatar: #FFFFFF;
+
+  /* 내용 구획 강조 — 칩 · 단추 · 달성률 막대 · 진행 중 표시가 쓴다.
+     옅은 면(--accent-weak)은 이 색을 흰 면에 12% 섞은 고정값이다 */
+  --accent: #3F5A80;
+  --on-accent: #FFFFFF;
+  --accent-weak: #E8EBF0;
+  /* 커서가 올라왔을 때와 누르고 있는 동안. 더 강조하는 것이 아니라 어디에 있는지 알리는
+     되먹임이라, 바탕에서 또렷해지는 쪽으로 간다 — 낮은 어두워지고 밤은 밝아진다 */
+  --accent-hover: #35496A;
+  --accent-active: #2C3D58;
+
+  /* 그래프 선 — 겹치지 않는 차트(도넛 · 단일 막대)는 1·2순위와 회색 셋만 쓴다.
+     3순위 이상은 겹치는 차트에만 쓰고, 넷을 넘으면 색을 더 만들지 않는다 */
+  --chart-1: #3F5A80;
+  --chart-2: #009E98;
+  --chart-3: #8E44AD;
+  --chart-4: #B0453F;
+  --chart-gray-1: #7C8DA7;
+  --chart-gray-2: #9FAEC3;
+  --chart-gray-3: #C5CFDC;
+  /* 막대 위를 지나는 선처럼 겹쳐 그릴 때의 2순위. 낮은 흰 카드라 밝히면 선이 사라지므로
+     2순위를 그대로 쓰고, 밤은 어두운 카드라 흰색으로 띄운다 */
+  --chart-2-over: var(--chart-2);
+
+  --bg-app: #FFFFFF;
+  /* 사이드바 바탕. 단색으로 둔다 — 스크롤바 썸이 이 값을 border 에 쓰는데 border 에는
+     그라데이션을 넣을 수 없다. 면에 까는 한기는 --rail-tint 가 따로 맡는다 */
+  --bg-rail: #FAFAFA;
+  /* CI 네이비에서 뽑은 아주 옅은 한기. 위에서 시작해 절반쯤에서 무채색으로 풀린다 */
+  --rail-tint: linear-gradient(180deg, #F1F5FB 0%, #FAFAFA 52%, #FAFAFA 100%);
+  --bg-surface: #FFFFFF;
+  --bg-sunken: #F4F6FA;
+  --bg-hover: #EFF1F4;
+  /* 대화상자 면. 밤에는 뒤에 깔린 카드와 갈라져야 해서 카드보다 한 단 밝다 */
+  --bg-dialog: #FFFFFF;
+  /* 표에서 고른 행. 굵은 글씨가 함께 말한다 */
+  --row-sel: #EFF1F4;
+  --scrim: rgba(0, 0, 0, .40);
+
+  --text-primary: #1A1A1A;
+  --text-secondary: #5D5D5D;
+  --text-tertiary: #8E8E8E;
+  --link: #5D5D5D;
+  --link-hover: #3F5A80;
+  --focus: #2A5FA0;
+  --disabled: #8E8E8E;
+
+  --border-light: #E5E5E5;
+  --border-medium: #D1D1D1;
+
+  /* 표 머리 — 낮은 옅은 하늘 면에 검은 글자를 얹는다. 강조색 면은 표가 여럿인 화면에서
+     머리 띠가 너무 세게 보여 뺐다. 고른 행(#EFF1F4)과는 OKLab 거리 4.1 로 떨어뜨렸다 —
+     옅은 강조(#E8EBF0)는 거리가 1.8 이라 고른 행과 같은 색으로 보인다.
+     밤에는 흰 글자가 대비 2.59 밖에 안 나와 채도를 한 단 내린 면에 어두운 글자를 둔다 */
+  --th-bg: #DDE5F2;
+  --th-ink: #1A1A1A;
+
+  /* 상태 3색. 초록과 노랑은 쓰지 않는다 — 흰 면에서 맑은 노랑은 대비가 2.2 까지
+     떨어지고, 초록은 낮 3.09 대 밤 10.2 로 두 테마의 무게가 어긋난다.
+       ok   = 진행 중(접수중). 면 없이 보통 굵기로 둔다
+       warn = 확인 필요(검수필요). 굵은 글씨에 옅은 면을 준다
+       bad  = 마감 알림(마감임박 · D-n). 굵은 글씨에 옅은 면을 준다 */
+  --ok: #3F5A80;
+  --ok-weak: #E8EBF0;
+  --warn: #E98B33;
+  --warn-weak: #FCEFE2;
+  --bad: #C93A3A;
+  --bad-weak: #F9E7E7;
+
+  /* 등락 — 국내 주식 관행대로 상승이 붉은 계열, 하락이 푸른 계열이다.
+     자금 유입과 유출도 등락이므로 같은 값을 쓴다.
+     글자는 --rise · --fall 을 쓰고, 흰 글자를 얹는 면과 도형은 --rise-fill · --fall-fill 을
+     쓴다. 밤에는 면 위에 흰 글자를 얹지 않으므로 둘이 같은 값이다 */
+  --rise: #C93A3A;
+  --fall: #2A5FA0;
+  --rise-fill: #B0453F;
+  --fall-fill: #3F6FA8;
+  --rise-weak: #F9E7E7;
+  --fall-weak: #E4EBF4;
+
+  --grid-line: #EDEDED;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-full: 9999px;
+
+  /* 키보드로 어디에 있는지 알리는 표시. 두께와 간격을 화면마다 다르게 적지 않는다 */
+  --focus-width: 2px;
+  --focus-offset: 1px;
+
+  /* 그림자는 「떠 있다」는 신호다. 잠깐 나타났다 사라지는 것에만 쓰고
+     카드와 표와 지표 칸에는 두지 않는다 */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .08);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, .14);
+
+  /* 겹치는 차례. 숫자를 코드에 직접 적지 않는다 */
+  --z-rail: 20;
+  --z-drawer: 60;
+  --z-modal: 80;
+
+  /* 맑은 고딕은 Semilight · Regular · Bold 세 벌뿐이다. 500 은 400 으로, 600 은 700 으로
+     그려지므로 그 둘은 이름을 두지 않는다 */
+  --w-light: 300;
+  --w-regular: 400;
+  --w-bold: 700;
+
+  --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+
+  --rail-w: 264px;
+  /* 사이드바 머리 칸과 상태바의 높이. 둘은 따로 정한다 */
+  --head-h: 68px;
+  --topbar-h: 56px;
+  --t-fast: .15s ease;
+
+  --lead-tight: 1.2; --lead-snug: 1.5; --lead-relaxed: 1.6;
+}
+
+/* ── 밤 : OS 설정을 따르는 때 ──────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand: #ECEEF1;
+    --brand-fill: #ECEEF1;
+    --brand-fill-hover: #FFFFFF;
+    --on-brand: #14161A;
+    --brand-weak: rgba(255, 255, 255, .09);
+    --sel-weak: rgba(255, 255, 255, .054);
+    --hover-weak: rgba(255, 255, 255, .026);
+
+    --accent: #7FA3D6;
+    --on-accent: #12161C;
+    --accent-weak: #232932;
+    --accent-hover: #93B2DF;
+    --accent-active: #A6C0E6;
+
+    --chart-1: #2E7DEA;
+    --chart-2: #17A79F;
+    --chart-3: #9463D9;
+    --chart-4: #C6635E;
+    --chart-gray-1: #B0B5BA;
+    --chart-gray-2: #7E848A;
+    --chart-gray-3: #4E5359;
+    --chart-2-over: #FFFFFF;
+
+    --bg-app: #0F1013;
+    --bg-rail: #121418;
+    /* 밤에는 그라데이션을 쓰지 않는다. 사이드바가 본문보다 이미 밝아 경계가 서 있고,
+       어두운 바탕에 한기를 얹으면 면이 탁해진다. 변수를 지우지 않고 none 으로 둔다 */
+    --rail-tint: none;
+    --bg-surface: #16181C;
+    --bg-sunken: #282C35;
+    --bg-hover: #2A2F38;
+    --bg-dialog: #20242B;
+    --row-sel: #26303F;
+    --scrim: rgba(0, 0, 0, .70);
+
+    --text-primary: #F2F4F7;
+    --text-secondary: #A8B0BC;
+    --text-tertiary: #7C8490;
+    --link: #A8B0BC;
+    --link-hover: #7FA3D6;
+    --focus: #6FB0FF;
+    --disabled: #7C8490;
+
+    --border-light: #2A2E35;
+    --border-medium: #3A414A;
+
+    --th-bg: #7C9BC4;
+    --th-ink: #12161C;
+
+    --ok: #7FA3D6;
+    --ok-weak: #232932;
+    --warn: #E08A4E;
+    --warn-weak: #2E2622;
+    --bad: #FF7A6E;
+    --bad-weak: #322426;
+
+    --rise: #FF7A6E;
+    --fall: #6FB0FF;
+    --rise-fill: #FF7A6E;
+    --fall-fill: #6FB0FF;
+    --rise-weak: #322426;
+    --fall-weak: #222B35;
+
+    --grid-line: #262A31;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
+    --shadow-md: 0 6px 18px rgba(0, 0, 0, .55);
+  }
+}
+
+/* ── 밤 : 설정 판에서 고른 때 (미디어쿼리를 이긴다) ─────────── */
+:root[data-theme="dark"] {
+  --brand: #ECEEF1;
+  --brand-fill: #ECEEF1;
+  --brand-fill-hover: #FFFFFF;
+  --on-brand: #14161A;
+  --brand-weak: rgba(255, 255, 255, .09);
+  --sel-weak: rgba(255, 255, 255, .054);
+  --hover-weak: rgba(255, 255, 255, .026);
+
+  --accent: #7FA3D6;
+  --on-accent: #12161C;
+  --accent-weak: #232932;
+  --accent-hover: #93B2DF;
+  --accent-active: #A6C0E6;
+
+  --chart-1: #2E7DEA;
+  --chart-2: #17A79F;
+  --chart-3: #9463D9;
+  --chart-4: #C6635E;
+  --chart-gray-1: #B0B5BA;
+  --chart-gray-2: #7E848A;
+  --chart-gray-3: #4E5359;
+  --chart-2-over: #FFFFFF;
+
+  --bg-app: #0F1013;
+  --bg-rail: #121418;
+  --rail-tint: none;
+  --bg-surface: #16181C;
+  --bg-sunken: #282C35;
+  --bg-hover: #2A2F38;
+  --bg-dialog: #20242B;
+  --row-sel: #26303F;
+  --scrim: rgba(0, 0, 0, .70);
+
+  --text-primary: #F2F4F7;
+  --text-secondary: #A8B0BC;
+  --text-tertiary: #7C8490;
+  --link: #A8B0BC;
+  --link-hover: #7FA3D6;
+  --focus: #6FB0FF;
+  --disabled: #7C8490;
+
+  --border-light: #2A2E35;
+  --border-medium: #3A414A;
+
+  --th-bg: #7C9BC4;
+  --th-ink: #12161C;
+
+  --ok: #7FA3D6;
+  --ok-weak: #232932;
+  --warn: #E08A4E;
+  --warn-weak: #2E2622;
+  --bad: #FF7A6E;
+  --bad-weak: #322426;
+
+  --rise: #FF7A6E;
+  --fall: #6FB0FF;
+  --rise-fill: #FF7A6E;
+  --fall-fill: #6FB0FF;
+  --rise-weak: #322426;
+  --fall-weak: #222B35;
+
+  --grid-line: #262A31;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, .55);
+}
+
+/* ── 키움 색 후보 ───────────────────────────────────────────────
+   기본은 위에 적은 슬레이트 계열이다. 1순위가 남색이고 2순위가 청록이다. 옛 대시보드가 쓰던
+   키움 남색과 핑크는 아래에 -kiwoom 이름으로 함께 둔다. 켜는 스위치는 없다. 쓰겠다고 하면
+   대시보드가 자기 CSS 파일에서 다섯 이름을 아래 토막대로 되가리킨다.
+
+     :root,
+     :root[data-theme="dark"] { --chart-1: var(--chart-1-kiwoom); --chart-2: var(--chart-2-kiwoom);
+       --rise: var(--rise-kiwoom); --rise-fill: var(--rise-fill-kiwoom); --rise-weak: var(--rise-weak-kiwoom); }
+     @media (prefers-color-scheme: dark) {
+       :root:not([data-theme="light"]) { 같은 다섯 줄 }
+     }
+
+   선택자를 셸과 같은 모양으로 맞추는 까닭은 :root[data-theme="dark"] 가 :root 보다 점수가 높아서다.
+   평범한 :root 한 블록만 적으면 낮에만 바뀌고 밤에는 셸 값이 그대로 나온다.
+
+   후보도 테마마다 값을 보유하므로 되가리키기만 하면 낮과 밤이 함께 따라온다. 하락색과 배경과
+   표 머리와 회색 셋은 두 팔레트가 같다. 상승만 팔레트를 따르므로, 한 대시보드 안에서는 상승이
+   늘 한 색이다. */
+:root {
+  --chart-1-kiwoom: #001D52;
+  --chart-2-kiwoom: #E8196C;
+  --rise-kiwoom: #E8196C;
+  /* 흰 글자를 얹는 면이라 상승색보다 어둡다 — #E8196C 는 흰 글자 대비가 4.39 뿐이다 */
+  --rise-fill-kiwoom: #C9185C;
+  --rise-weak-kiwoom: #FCE3ED;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chart-1-kiwoom: #608CD1;
+    --chart-2-kiwoom: #F64A93;
+    --rise-kiwoom: #F64A93;
+    --rise-fill-kiwoom: #F64A93;
+    --rise-weak-kiwoom: #311E2A;
+  }
+}
+
+:root[data-theme="dark"] {
+  --chart-1-kiwoom: #608CD1;
+  --chart-2-kiwoom: #F64A93;
+  --rise-kiwoom: #F64A93;
+  --rise-fill-kiwoom: #F64A93;
+  --rise-weak-kiwoom: #311E2A;
+}
+
+/* ── Tailwind 유틸리티 이름 ─────────────────────────────────────
+   inline 이라 유틸리티가 var(--bg-surface) 를 그대로 심는다. 그래서 낮/밤이 바뀌면
+   유틸리티 색도 함께 바뀐다. Tailwind 기본 색(red-500 등)은 지우지 않는다 —
+   내용 구획의 색 규칙은 권장이고, 권장은 스킬이 말한다. */
+@theme inline {
+  --color-brand: var(--brand);
+  --color-on-brand: var(--on-brand);
+
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-weak: var(--accent-weak);
+
+  --color-surface: var(--bg-surface);
+  --color-surface-app: var(--bg-app);
+  --color-surface-sunken: var(--bg-sunken);
+  --color-surface-hover: var(--bg-hover);
+  --color-surface-dialog: var(--bg-dialog);
+  --color-row-sel: var(--row-sel);
+
+  --color-on-surface: var(--text-primary);
+  --color-on-surface-variant: var(--text-secondary);
+  --color-on-surface-tertiary: var(--text-tertiary);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-focus: var(--focus);
+  --color-disabled: var(--disabled);
+
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+
+  --font-weight-light: var(--w-light);
+  --font-weight-regular: var(--w-regular);
+  --font-weight-bold: var(--w-bold);
+
+  --color-outline: var(--border-light);
+  --color-outline-strong: var(--border-medium);
+
+  --color-th: var(--th-bg);
+  --color-on-th: var(--th-ink);
+
+  --color-status-ok: var(--ok);
+  --color-status-ok-weak: var(--ok-weak);
+  --color-status-warn: var(--warn);
+  --color-status-warn-weak: var(--warn-weak);
+  --color-status-bad: var(--bad);
+  --color-status-bad-weak: var(--bad-weak);
+
+  --color-rise: var(--rise);
+  --color-fall: var(--fall);
+  --color-rise-fill: var(--rise-fill);
+  --color-fall-fill: var(--fall-fill);
+  --color-rise-weak: var(--rise-weak);
+  --color-fall-weak: var(--fall-weak);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-2-over: var(--chart-2-over);
+  --color-chart-gray-1: var(--chart-gray-1);
+  --color-chart-gray-2: var(--chart-gray-2);
+  --color-chart-gray-3: var(--chart-gray-3);
+
+  --color-grid: var(--grid-line);
+}
+
+    </style>
+  </body>
+</html>

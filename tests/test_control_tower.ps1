@@ -1430,7 +1430,7 @@ function Invoke-SyncScenario {
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
     $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
-             'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
+             'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools', 'kw-design@kiwoom-ax')
     $plug = @{}; $en = @{}
     foreach ($id in $ids) {
         $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })
@@ -1603,7 +1603,7 @@ Check '짧게 부르면 재시작 안내 아래 한 일을 한 줄씩만 낸다'
     $lines = @($r.Out -split "`n" | Where-Object { $_.Trim() })
     ($lines[0] -eq 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.') -and
         (@($lines | Select-Object -Skip 1 | Where-Object { $_ -notmatch '^  - ' }).Count -eq 0) -and
-        (@($lines | Where-Object { $_ -match ' : c875eb1 → 811b47e$' }).Count -eq 4) -and
+        (@($lines | Where-Object { $_ -match ' : c875eb1 → 811b47e$' }).Count -eq 5) -and
         (([regex]::Matches($r.Out, 'kw-control-tower@kiwoom-ax')).Count -eq 1)
 }
 Check '짧게 부르면 진행 출력을 기록 파일에 남긴다' {

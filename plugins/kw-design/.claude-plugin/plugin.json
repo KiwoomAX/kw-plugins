@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "kw-design",
+  "displayName": "KW Design",
+  "description": "사내 웹 화면의 기본 디자인 스킬. designing-kiwoom-frontend는 본부 · 팀 대시보드 화면과 일반 사내 웹 기능 화면을 처음 만들 때 쓰는 색 · 글자 크기 · 아이콘 · 배치 기본값과 쓰지 않는 장식을 안내하고, 대시보드용과 기능용 목업 HTML 템플릿을 준다.",
+  "author": {
+    "name": "KiwoomAX"
+  },
+  "license": "UNLICENSED",
+  "keywords": [
+    "kiwoom",
+    "design",
+    "frontend",
+    "mockup",
+    "tokens"
+  ]
+}
