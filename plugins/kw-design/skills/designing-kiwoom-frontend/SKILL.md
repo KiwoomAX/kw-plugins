@@ -1,6 +1,6 @@
 ---
 name: designing-kiwoom-frontend
-description: Use when drawing any Kiwoom in-house web screen or its mockup — a 본부 · 팀 dashboard page or a standalone in-house web feature — including mockups shown during brainstorming before any code exists, and when choosing colors, type sizes, icons, layout, or decoration for such a screen. Gives the default design (color tokens, type scale, icons, layout, decorations to avoid) and two ready HTML mockup templates. Triggers on 사내 웹 화면·화면 목업·대시보드 디자인·기능 화면 디자인·색 토큰·글자 크기·화면 초안.
+description: Use when drawing any Kiwoom in-house web screen or its mockup — a 본부 · 팀 dashboard page or a standalone in-house web feature — including mockups shown during brainstorming before any code exists, and when choosing colors, type sizes, icons, layout, or decoration for such a screen. Gives the default design (color tokens, type scale, icons, layout, decorations to avoid) a ready dashboard mockup HTML template, and the token file. Triggers on 사내 웹 화면·화면 목업·대시보드 디자인·기능 화면 디자인·색 토큰·글자 크기·화면 초안.
 ---
 
 # designing-kiwoom-frontend
@@ -17,25 +17,25 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup — a
 
 ## 목업 만들기
 
-화면 코드를 쓰기 전에 목업을 먼저 만들어 사람에게 보인다. 목업은 아래 템플릿 중 하나를 복사해 만든다.
+화면 코드를 쓰기 전에 목업을 먼저 만들어 사람에게 보인다. 목업은 HTML 파일 하나로 만든다. 첫 줄을
+`<!doctype html>` 로 두면 더블클릭으로 열리고, brainstorming 의 목업 창에도 그 창의 테마로 감싸지지 않고 그대로 뜬다.
+
+**대시보드 화면**은 [templates/dashboard-mockup.html](templates/dashboard-mockup.html) 을 복사해 만든다.
 **사이드바와 상태바를 HTML 로 손수 그리지 않는다.** 손으로 옮기면 접기와 설정 판 같은 동작이 빠진다.
 
-| 템플릿 | 쓰는 때 | 들어 있는 것 |
-|---|---|---|
-| [templates/dashboard-mockup.html](templates/dashboard-mockup.html) | 대시보드 화면 | 실제 셸 코드로 그리는 사이드바 · 상태바 · 알림 서랍. 내용 구획만 비어 있다 |
-| [templates/feature-mockup.html](templates/feature-mockup.html) | 일반 기능 화면 | 토큰과 기본 서체만 있다. 사이드바와 상태바가 없다 |
-
-- 템플릿은 파일 하나다. 더블클릭으로 열리고, brainstorming 의 목업 창에도 그대로 띄울 수 있다. 첫 줄이
-  `<!doctype html>` 이라 목업 창이 자기 테마로 감싸지 않는다.
-- 템플릿 안에서 고쳐도 되는 곳은 「목업 스타일」 과 「목업 내용」 표시 구간뿐이다. 나머지는 셸 코드와 토큰이다.
-- 대시보드 템플릿은 `mockup-config` JSON 에 조직 이름과 메뉴를 적고, `<template data-path="…">` 하나에 화면
-  하나를 적는다. 메뉴 줄 모양과 적는 법은 파일 안 주석에 있다.
+- 이 템플릿은 실제 셸 코드로 사이드바 · 상태바 · 알림 서랍을 그리고, 내용 구획만 비워 둔다.
+- 고쳐도 되는 곳은 「목업 스타일」 과 「목업 내용」 표시 구간뿐이다. `mockup-config` JSON 에 조직 이름과 메뉴를
+  적고, `<template data-path="…">` 하나에 화면 하나를 적는다. 적는 법은 파일 안 주석에 있다.
 - 목업 스타일은 토큰 변수(`var(--bg-surface)` · `var(--text-secondary)` · `var(--border-light)` ·
-  `var(--radius-md)` · `var(--accent)` 등)로 적는다. 목업은 Tailwind 를 빌드하지 않으므로 Tailwind 클래스는
-  듣지 않는다. 선택자는 `.content` 아래로 묶는다.
-- 목업 안의 `<script>` 는 실행되지 않는다. 목업은 모양을 정하는 데만 쓰고, 승인되면 실제 코드로 다시 만든다.
-- 예시 데이터를 쓰면 화면에 예시라고 적는다.
+  `var(--radius-md)` · `var(--accent)` 등)로 적고 선택자는 `.content` 아래로 묶는다. 목업은 Tailwind 를
+  빌드하지 않으므로 Tailwind 클래스는 듣지 않는다.
+- `<template>` 안의 `<script>` 는 실행되지 않는다. 목업은 모양을 정하는 데만 쓰고, 승인되면 실제 코드로 다시 만든다.
 - 대시보드 저장소가 이미 있으면 그 저장소를 실행해 보이는 것도 된다. 셸이 실제 코드이므로 같은 결과다.
+
+**일반 기능 화면**은 [templates/tokens.css](templates/tokens.css) 를 `<style>` 로 넣은 HTML 에 내용만 그린다.
+사이드바와 상태바는 그리지 않는다. 나머지는 아래 규칙을 기본값으로 참고하면 된다.
+
+예시 데이터를 쓰면 화면에 예시라고 적는다.
 
 ## 일반 기능 화면
 
@@ -46,7 +46,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup — a
   「색」 의 이름(`bg-surface` 등)을 그대로 쓴다. Tailwind 를 쓰지 않으면 토큰 변수(`var(--bg-surface)`)로 쓴다.
 - 사이드바와 상태바와 자체 머리글을 만들지 않는다. 내용만 그린다.
 - `body` · `h1` · `table` 같은 태그 이름 규칙을 전역 CSS 에 적지 않는다. 대시보드에 붙이면 셸 모양까지 바뀐다.
-- 서체는 바탕 요소 하나에만 맑은 고딕으로 준다(`feature-mockup.html` 의 기본 바탕과 같다). 화면마다 다시 주지 않는다.
+- 서체는 바탕 요소 하나에만 맑은 고딕으로 준다. 화면마다 다시 주지 않는다.
 - 내용 폭은 최대 1560px 이고 왼쪽에 붙인다. 가운데 정렬(`mx-auto` · `margin: 0 auto`)하지 않는다.
 - 화면에서 부르는 API 는 `/api/<기능 이름>` 아래에 둔다. 대시보드에 붙일 때 주소를 바꾸지 않아도 된다.
 - 대시보드에 붙이기 전에 그 대시보드에서 한 번 실행해 본다. 대시보드는 화면 전체를 0.85배로 줄인 뒤 내용만

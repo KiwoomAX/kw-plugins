@@ -105,7 +105,7 @@ PC가 다시 설치해야 한다. 그래서 이름을 바꾸지 않는다.
 | `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `migrating-existing-dashboard.md` |
 | `tests/test_devops.ps1` | 배포 스킬과 DBGateway 스킬과 리포트 검색 스킬이 지킬 조건을 확인하는 검사 |
 | `tests/test_dashboard.ps1` | 대시보드 스킬이 지킬 조건을 확인하는 검사 |
-| `plugins/kw-design/skills/` | 사내 웹 화면의 기본 디자인 스킬 `designing-kiwoom-frontend`와 목업 템플릿 2개(`templates/`) |
+| `plugins/kw-design/skills/` | 사내 웹 화면의 기본 디자인 스킬 `designing-kiwoom-frontend`와 대시보드 목업 템플릿·토큰 복사본(`templates/`) |
 | `tests/test_design.ps1` | 디자인 스킬이 지킬 조건을 확인하는 검사 |
 | `docs/style-guide.md` | 문서, 주석, 화면 문구의 용어와 표현 기준 |
 | `docs/superpowers/specs/` | 설계 문서. 왜 그렇게 만들었는지 |

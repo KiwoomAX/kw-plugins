@@ -2,9 +2,8 @@
 # Contract tests for the kw-design plugin.
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File .\tests\test_design.ps1
 #
-# The skill gives the default look of in-house web screens and two mockup
-# templates. The dashboard template is generated from KiwoomAX/dashboard-template;
-# the feature template carries a copy of the template's tokens.
+# The skill gives the default look of in-house web screens, a dashboard mockup
+# template generated from KiwoomAX/dashboard-template, and a copy of its tokens.
 
 $ErrorActionPreference = 'Stop'
 $Repo      = Split-Path -Parent $PSScriptRoot
@@ -60,30 +59,21 @@ Assert 'no skill file calls python3' (-not ($text -match '\bpython3\b'))
 Assert 'skill document carries no build-history notes' (-not ($text -match '\b20\d\d-\d\d-\d\d\b|\(실측|실측\)'))
 
 # A template that SKILL.md does not link is never opened.
-foreach ($t in @('templates/dashboard-mockup.html', 'templates/feature-mockup.html', 'templates/tokens.css')) {
+foreach ($t in @('templates/dashboard-mockup.html', 'templates/tokens.css')) {
     Assert "$t ships" (Test-Path (Join-Path $SkillDir $t))
     Assert "SKILL.md links $t" ($text -match [regex]::Escape("]($t)"))
 }
 
 Write-Host '--- templates ---'
 $dash = Read-TextOrEmpty (Join-Path $SkillDir 'templates/dashboard-mockup.html')
-$feat = Read-TextOrEmpty (Join-Path $SkillDir 'templates/feature-mockup.html')
-$tok  = Read-TextOrEmpty (Join-Path $SkillDir 'templates/tokens.css')
 # The brainstorming mockup window serves a file as-is only when it starts with a doctype.
-Assert 'both templates start with a doctype' (($dash -match '^\s*<!doctype html>') -and ($feat -match '^\s*<!doctype html>'))
+Assert 'the dashboard template starts with a doctype' ($dash -match '^\s*<!doctype html>')
 # Opened by double click, so nothing may load from outside the file.
-foreach ($pair in @(@('dashboard', $dash), @('feature', $feat))) {
-    $outside = @([regex]::Matches($pair[1], '(?:src|href)="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } |
-                 Where-Object { -not ($_ -match '^(data:|#)') })
-    Assert "$($pair[0]) template loads nothing from outside the file" ($outside.Count -eq 0)
-}
+$outside = @([regex]::Matches($dash, '(?:src|href)="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } |
+             Where-Object { -not ($_ -match '^(data:|#)') })
+Assert 'the dashboard template loads nothing from outside the file' ($outside.Count -eq 0)
 Assert 'the dashboard template carries the editable config and a page template' (($dash -match 'id="mockup-config"') -and ($dash -match '<template data-path="/"'))
 Assert 'the dashboard template draws the shell from code' ($dash -match 'createRoot')
-# The feature template must use the same token copy that feature repos copy.
-$tokBody = ($tok -split "\*/", 2)[1]
-Assert 'the feature template inlines the shipped tokens' ($tokBody -and $feat.Contains($tokBody.Trim().Substring(0, 400)))
-Assert 'the feature template draws no sidebar' (-not ($feat -match 'class="rail'))
-
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)
 if ($script:Fail -ne 0) { exit 1 }
