@@ -29,9 +29,9 @@ python "${CLAUDE_SKILL_DIR}/scripts/fetch_manifest.py" --query <id> [<id> …]
 
 ## 접근 키
 
-DBGateway는 요청마다 접근 키로 요청한 사람을 확인하고, 그 사람에게 허용된 쿼리만 목차에 싣고 실행한다. 접근 키는 `kwam_`으로 시작하는 개인 키이고, 이 PC의 환경변수 `KIWOOM_ACCESS_KEY`에 설정해 둔다. `fetch_manifest.py`와 요청 코드는 그 환경변수에서 키를 읽어 `Authorization: Bearer <키>` 헤더로 보낸다. 키 없이 보내면 전환 기간에는 `PUBLIC` 쿼리만 보이고 팀 전용 쿼리는 없는 id처럼 거절되며, 전환이 끝나면 401로 거절된다(Kiwoom-DBgateway ADR-0043). 그래서 `fetch_manifest.py`는 키가 없으면 요청하지 않고 멈춘다.
+DBGateway는 요청마다 접근 키로 요청한 사람을 확인하고, 그 사람에게 허용된 쿼리만 목차에 포함하고 실행한다. 접근 키는 `kwam_`으로 시작하는 개인 키이고, 이 PC의 환경변수 `KIWOOM_ACCESS_KEY`에 설정해 둔다. `fetch_manifest.py`와 요청 코드는 그 환경변수에서 키를 읽어 `Authorization: Bearer <키>` 헤더로 보낸다. 키 없이 보내면 전환 기간에는 `PUBLIC` 쿼리만 보이고 팀 전용 쿼리는 없는 id처럼 거절되며, 전환이 끝나면 401로 거절된다(Kiwoom-DBgateway ADR-0043). 그래서 `fetch_manifest.py`는 키가 없으면 요청하지 않고 멈춘다.
 
-`fetch_manifest.py`가 "접근 키가 없다"나 "접근 키를 거절했다"로 멈추면, 그 스크립트가 접근 키 화면(`http://192.7.9.45:3000/#access-key`)을 브라우저로 이미 열어 둔 상태다. 화면이 열리지 않았으면 이 주소를 사용자에게 알린다. Claude는 사용자에게 아래 순서를 안내하고, 키가 설정될 때까지 조회를 진행하지 않는다.
+`fetch_manifest.py`가 `접근 키 없음`이나 `DBGateway 신원 거절(401)`로 멈추면, 출력의 `조치` 줄에 접근 키 화면 주소와 브라우저로 열었는지가 적혀 있다. `브라우저로 열지 못함`이면 그 주소를 사용자에게 알린다. Claude는 사용자에게 아래 순서를 안내하고, 키가 설정될 때까지 조회를 진행하지 않는다.
 
 1. 열린 화면에서 사내 계정으로 로그인하고 「키 발급」을 누른다. 키가 있는데 거절됐으면 「재발급」을 누른다. 키 원문은 발급 직후 한 번만 보인다.
 2. 같은 화면 「사용 방법」의 Windows 명령이나 Claude Code 프롬프트로 키를 환경변수 `KIWOOM_ACCESS_KEY`에 설정한다.
@@ -122,7 +122,11 @@ import os
 import httpx
 
 GATEWAY_URL = os.environ.get("QUERY_GATEWAY_URL", "http://192.7.9.45:9101")
-ACCESS_KEY = os.environ["KIWOOM_ACCESS_KEY"]  # 키 원문은 코드에 적지 않고 환경변수로만 받는다.
+KEY_PAGE = "http://192.7.9.45:3000/#access-key"
+# 키 원문은 코드에 적지 않고 환경변수로만 받는다. 앞뒤 공백·줄바꿈이 섞이면 헤더가 깨지므로 지운다.
+ACCESS_KEY = os.environ.get("KIWOOM_ACCESS_KEY", "").strip()
+if not ACCESS_KEY:
+    raise SystemExit(f"접근 키 없음: 환경변수 KIWOOM_ACCESS_KEY — {KEY_PAGE} 에서 발급해 설정")
 
 # id만으로는 무엇인지 알 수 없으므로 목차의 이름을 상수 이름에 남긴다.
 Q_기준일_비교일자 = 1
@@ -134,7 +138,7 @@ def fetch(query_id: int, args: dict[str, str | list[str]]) -> list[dict]:
     r = httpx.post(f"{GATEWAY_URL}/winus/query/{query_id}", json={"args": args},
                    headers={"Authorization": f"Bearer {ACCESS_KEY}"}, timeout=30)
     if r.status_code == 401:
-        raise PermissionError("접근 키가 없거나 거절됨: http://192.7.9.45:3000/#access-key 에서 발급해 KIWOOM_ACCESS_KEY에 설정")
+        raise PermissionError(f"DBGateway 신원 거절(401): {r.json()['detail']} — {KEY_PAGE} 에서 재발급해 설정")
     if r.status_code == 400:
         raise ValueError(f"쿼리 {query_id} 거절: {r.json()['detail']}")
     if r.status_code == 422:
