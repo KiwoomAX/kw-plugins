@@ -174,7 +174,7 @@ def render_detail(q: dict) -> str:
 def _selfcheck() -> None:
     import shutil
     global CACHE, OLD_CACHE
-    # 사용자의 실제 사본과 섞이지 않게 빈 임시 폴더를 쓴다.
+    # 사용자의 실제 복사본과 섞이지 않게 빈 임시 폴더를 쓴다.
     saved = CACHE, OLD_CACHE
     CACHE = Path(tempfile.mkdtemp()) / "manifest_index.json"
     OLD_CACHE = CACHE.with_name("query_index.json")
