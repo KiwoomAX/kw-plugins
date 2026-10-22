@@ -151,19 +151,25 @@ Check '명령과 인자를 나눠 적는다' {
     @($all | Where-Object { $_.command -ne 'pwsh' -or @($_.args).Count -lt 6 }).Count -eq 0
 }
 # matcher 는 도구 이름만 거른다. 명령 내용을 거르는 것은 if 이고, 이것이 없으면
-# 도커도 python3 도 아닌 명령마다 프로그램이 실행된다.
-Check '도구 훅마다 if 규칙이 적용되어 있다' {
+# 도커도 python3 도 아닌 명령마다 프로그램이 실행된다. WebFetch 는 명령이 아니라 주소를 거르고
+# 드물게 호출되므로 if 없이 훅이 호스트를 직접 판정한다.
+Check '명령 도구 훅마다 if 규칙이 적용되어 있다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
-    $tool = @($j.hooks.PreToolUse | ForEach-Object { $_.hooks })
-    (@($tool).Count -eq 4) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
+    $tool = @($j.hooks.PreToolUse | Where-Object { $_.matcher -ne 'WebFetch' } | ForEach-Object { $_.hooks })
+    (@($tool).Count -eq 6) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
 }
 Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $bad = 0
-    foreach ($g in @($j.hooks.PreToolUse)) {
+    foreach ($g in @($j.hooks.PreToolUse | Where-Object { $_.matcher -ne 'WebFetch' })) {
         foreach ($h in @($g.hooks)) { if (-not $h.'if'.StartsWith($g.matcher + '(')) { $bad++ } }
     }
     $bad -eq 0
+}
+Check 'WebFetch 훅은 금융투자협회 가드 하나뿐이다' {
+    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+    $w = @($j.hooks.PreToolUse | Where-Object { $_.matcher -eq 'WebFetch' } | ForEach-Object { $_.hooks })
+    (@($w).Count -eq 1) -and (@($w[0].args) -contains '${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1')
 }
 # 점검이 외부 프로그램을 호출하면 목록과 다른 곳이 없는 세션까지 그 비용을 치른다. 동기화를
 # 호출하는 것은 이 검사 뒤의 코드이고, 목록과 다른 곳이 있는 세션에서만 실행된다. 승인된 것은
@@ -246,7 +252,8 @@ Write-Host '한글'
 # BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽고, BOM 이 없으면 5.1 로 잘못 실행했을 때
 # 한글이 조용히 깨지지 않고 그 줄에서 문법 오류로 드러난다.
 foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plugin 'scripts\sync.ps1'),
-                 (Join-Path $plugin 'hooks\python3-guard.ps1'), (Join-Path $plugin 'hooks\docker-cert-reminder.ps1'))) {
+                 (Join-Path $plugin 'hooks\python3-guard.ps1'), (Join-Path $plugin 'hooks\docker-cert-reminder.ps1'),
+                 (Join-Path $plugin 'hooks\kofia-guard.ps1'))) {
     Check "UTF-8 BOM 이 없다: $(Split-Path $f -Leaf)" {
         $b = [System.IO.File]::ReadAllBytes($f)
         -not ($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191)
@@ -567,6 +574,37 @@ Check '동기화가 python3 을 판정하지 않는다' { $syncSrc -notmatch 'fs
 
 Remove-Item -LiteralPath $fake2 -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- 금융투자협회 가드 ------------------------------------------------------
+Write-Host ''
+Write-Host '금융투자협회 가드'
+$kofiaGuard = Join-Path $plugin 'hooks\kofia-guard.ps1'
+$fake3 = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-k-" + [guid]::NewGuid().ToString('n').Substring(0,8))
+New-Item -ItemType Directory -Force -Path (Join-Path $fake3 '.claude') | Out-Null
+
+function Invoke-KofiaGuard {
+    param([string]$Tool, [hashtable]$ToolInput)
+    $payload = @{ tool_name = $Tool; tool_input = $ToolInput } | ConvertTo-Json -Compress
+    return ($payload | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake3'; & '$kofiaGuard'" 2>&1 | Out-String)
+}
+
+Check 'WebFetch 로 www.kofia.or.kr 를 읽으면 거부한다'      { (Invoke-KofiaGuard 'WebFetch' @{ url = 'https://www.kofia.or.kr/a?b=1' }) -match 'deny' }
+Check 'WebFetch 로 하위 주소(freesis)를 읽어도 거부한다'    { (Invoke-KofiaGuard 'WebFetch' @{ url = 'http://freesis.kofia.or.kr/x' }) -match 'deny' }
+Check '대문자 주소도 거부한다'                             { (Invoke-KofiaGuard 'WebFetch' @{ url = 'HTTPS://BOND.KOFIA.OR.KR/' }) -match 'deny' }
+Check '방식이 없는 주소도 거부한다'                        { (Invoke-KofiaGuard 'WebFetch' @{ url = 'dis.kofia.or.kr/x' }) -match 'deny' }
+Check '다른 호스트는 거부하지 않는다'                       { -not ((Invoke-KofiaGuard 'WebFetch' @{ url = 'https://example.com/' }) -match 'deny') }
+Check '이름이 비슷한 호스트(notkofia.or.kr)는 거부하지 않는다' { -not ((Invoke-KofiaGuard 'WebFetch' @{ url = 'https://notkofia.or.kr/' }) -match 'deny') }
+Check '명령에 kofia.or.kr 가 있으면 거부한다'               { (Invoke-KofiaGuard 'Bash' @{ command = 'curl -s https://www.kofia.or.kr/x | head' }) -match 'deny' }
+Check '한글이 섞인 명령도 거부한다'                         { (Invoke-KofiaGuard 'Bash' @{ command = 'python -c "requests.post(''http://freesis.kofia.or.kr'')" # 협회' }) -match 'deny' }
+Check '명령에 주소가 없으면 거부하지 않는다'                { -not ((Invoke-KofiaGuard 'Bash' @{ command = 'ls -la' }) -match 'deny') }
+Check '이름이 비슷한 명령 안의 주소는 거부하지 않는다'       { -not ((Invoke-KofiaGuard 'Bash' @{ command = 'curl https://notkofia.or.kr' }) -match 'deny') }
+Check '가드가 스스로 실패하면 호출을 막지 않고 기록을 남긴다' {
+    $out = ('{bad' | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake3'; & '$kofiaGuard'" 2>&1 | Out-String)
+    (-not ($out -match 'deny')) -and (Test-Path -LiteralPath (Join-Path $fake3 '.claude\kw-control-tower.error'))
+}
+Check '가드가 예외 메시지를 전부 남기지 않는다' { (Get-Content $kofiaGuard -Raw) -match 'Substring\(0, 120\)' }
+
+Remove-Item -LiteralPath $fake3 -Recurse -Force -ErrorAction SilentlyContinue
+
 # --- 사용자 파일을 쓸 때 ----------------------------------------------------
 Write-Host ''
 Write-Host '사용자 파일 쓰기'
@@ -681,7 +719,7 @@ Write-Host '표준입력'
 # [Console]::In 은 콘솔 코드페이지로 해석한다. 한국어 윈도우는 949 라 클로드가 보내는
 # UTF-8 한글이 깨지고 따옴표 짝이 어긋나 JSON 을 읽지 못한다. 그러면 가드가 판정하지 못해
 # 한글이 포함된 명령만 빠져나간다(2026-09-19, 949 와 65001 로 확인).
-foreach ($h in @('python3-guard.ps1', 'docker-cert-reminder.ps1')) {
+foreach ($h in @('python3-guard.ps1', 'docker-cert-reminder.ps1', 'kofia-guard.ps1')) {
     $src = Get-Content (Join-Path $plugin (Join-Path 'hooks' $h)) -Raw
     Check "표준입력을 UTF-8 로 직접 읽는다: $h" {
         ($src -match 'OpenStandardInput') -and ($src -notmatch '\$Console\]::In\.ReadToEnd')
