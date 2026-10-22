@@ -71,6 +71,10 @@ Assert 'plugin.json carries no version (commit-based auto update)' ($null -ne $p
 Assert "the control tower requires $PluginId" ($null -ne $manifest -and @($manifest.required) -contains $PluginId)
 Assert "the control tower does not also suggest $PluginId" ($null -ne $manifest -and @($manifest.suggested) -notcontains $PluginId)
 
+# The always-loaded company instructions point Claude at the two skills, so they trigger in any folder.
+$axTemplate = Read-TextOrEmpty (Join-Path $Repo 'plugins/kw-control-tower/templates/claude-md-ko.md')
+Assert 'the company instructions name both kw-github skills' (($axTemplate -match 'kw-github:starting-feature-repo') -and ($axTemplate -match 'kw-github:saving-work'))
+
 Write-Host '--- hooks ---'
 $hooksJson = Read-JsonOrNull (Join-Path $Hooks 'hooks.json')
 $start = @($hooksJson.hooks.SessionStart)
