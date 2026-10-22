@@ -642,6 +642,11 @@ Check '사내 지침 템플릿이 맥락의 메일로 git 명의를 채우지 �
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     ($tplSrc -match 'user\.email') -and ($tplSrc -match '채우지 않는다')
 }
+# 금융투자협회 홈페이지에 반복 접속하면 사내 접속이 차단되어 전 직원의 업무에 지장이 생긴다(PR #68).
+Check '사내 지침 템플릿이 금융투자협회 홈페이지의 자동 반복 접속을 하지 않는다고 한다' {
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
+    ($tplSrc -match 'kofia\.or\.kr') -and ($tplSrc -match '자동으로 여러 번 접속해 내용을 모으는 일을 하지 않는다')
+}
 # 점검은 외부 프로그램을 늘리지 않는다. 명의는 git 을 실행하지 않고 파일에서 읽는다.
 Check '점검이 git 을 실행하지 않고 .gitconfig 를 직접 읽는다' {
     ($hookDetect -match "Join-Path \`$userHome '\.gitconfig'") -and ($hookDetect -notmatch '(?m)^[^#\r\n]*\bgit\s+config\b')
