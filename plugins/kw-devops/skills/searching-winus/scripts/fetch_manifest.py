@@ -4,9 +4,9 @@
 쿼리들의 이름·설명·사용 테이블·인자·등록된 SQL 을 낸다. 목차에는 SQL 이 없고, SQL 은 고른 id 만
 DBGateway 에 묻는다. 쓰지 않을 쿼리의 SQL 까지 사용자 PC 에 받지 않으려고 나눴다.
 
-요청마다 환경변수 KIWOOM_ACCESS_KEY 의 접근 키를 함께 보낸다. 키가 없거나 DBGateway 가 키를 거절하면
+요청마다 환경 변수 KIWOOM_ACCESS_KEY 의 접근 키를 함께 보낸다. 키가 없거나 DBGateway 가 키를 거절하면
 접근 키 화면을 알리고(Windows 에서는 브라우저로 열고) 멈춘다. 오래된 목차 복사본으로 건너뛰지 않는다.
-다만 Windows 레지스트리(HKCU\\Environment)에는 키가 있는데 이 프로그램의 환경변수에 없거나 이전 키가 남았으면,
+다만 Windows 레지스트리(HKCU\\Environment)에는 키가 있는데 이 프로그램의 환경 변수에 없거나 이전 키가 남았으면,
 발급 화면 대신 창을 모두 닫고 다시 열라고 안내하고 멈춘다. 레지스트리 값은 확인에만 쓰고 요청에는 쓰지 않는다.
 
 목차는 ~/.claude/cache/searching-winus/manifest_index.json 에 받은 키의 확인값과 함께 남긴다. DBGateway 는
@@ -57,28 +57,29 @@ CACHE = CONFIG_DIR / "cache" / "searching-winus" / "manifest_index.json"
 OLD_CACHE = CACHE.with_name("query_index.json")
 
 
-REOPEN = ("Claude Code를 실행한 프로그램의 창을 모두 닫고 다시 연 뒤 새 세션에서 같은 요청"
-          " (터미널이면 Windows Terminal·PowerShell 창 전부, VS Code면 VS Code 창 전부)")
+REOPEN = ("클로드 코드를 실행한 프로그램의 창을 모두 닫고 다시 연 뒤 새 세션에서 같은 요청"
+          " (터미널이면 Windows Terminal·PowerShell 창 전부, VS Code·JetBrains·클로드 데스크톱 앱이면 그 프로그램 창 전부)")
+STILL_SAME = "그래도 같으면 Windows 로그아웃 후 다시 로그인\n- 키를 다시 발급하지 않음"
 
 
 def key_refused(reason: str) -> SystemExit:
     """접근 키 화면을 알리고(Windows 에서는 브라우저로 열고), 발급·설정 순서를 적은 종료를 돌려준다."""
     opened = OPEN_BROWSER and webbrowser.open(KEY_PAGE)
     page = f"접근 키 화면 {KEY_PAGE} ({'브라우저로 열림' if opened else '브라우저로 열지 못함'})"
-    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급·「사용 방법」대로 환경변수 {KEY_ENV} 설정\n"
+    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급·「사용 방법」대로 환경 변수 {KEY_ENV} 설정\n"
                       f"- 설정 뒤: {REOPEN}\n- 키 원문은 대화에 붙여 넣지 않음")
 
 
-def not_applied(reason: str) -> SystemExit:
+def not_applied(reason: str, still_same: str = STILL_SAME) -> SystemExit:
     """키는 설정됐는데 이 프로그램에 아직 반영되지 않았을 때의 종료. 재발급이 필요하다고 오해하지 않게 발급 화면을 열지 않는다."""
-    return SystemExit(f"{reason}\n- 조치: {REOPEN}\n- 같은 창에서 Claude Code만 다시 실행하면 반영되지 않음"
-                      "\n- 그래도 같으면 Windows 로그아웃 후 다시 로그인\n- 키를 다시 발급하지 않음")
+    return SystemExit(f"{reason}\n- 조치: {REOPEN}\n- 같은 창에서 클로드 코드만 다시 실행하면 반영되지 않음"
+                      f"\n- {still_same}")
 
 
 def registry_key() -> str:
-    """Windows 사용자 환경변수 저장소(HKCU\\Environment)의 접근 키. 없거나 Windows 가 아니면 빈 문자열.
+    """Windows 사용자 환경 변수 저장소(HKCU\\Environment)의 접근 키. 없거나 Windows 가 아니면 빈 문자열.
 
-    접근 키 화면의 설정 명령이 저장하는 곳이다. 실행 중인 프로그램의 환경변수는 시작할 때 부모에게서 복사된 것이라,
+    접근 키 화면의 설정 명령이 저장하는 곳이다. 실행 중인 프로그램의 환경 변수는 시작할 때 부모에게서 복사된 것이라,
     설정 뒤 창을 다시 열지 않으면 이 값과 다르다. 반영 여부를 판단하는 데만 쓰고 요청에는 쓰지 않는다.
     """
     if sys.platform != "win32":
@@ -92,13 +93,13 @@ def registry_key() -> str:
 
 
 def access_key() -> str:
-    """환경변수의 접근 키. 없으면 DBGateway 에 묻지 않고, 목차 복사본도 내지 않고 멈춘다."""
+    """환경 변수의 접근 키. 없으면 DBGateway 에 묻지 않고, 목차 복사본도 내지 않고 멈춘다."""
     key = os.environ.get(KEY_ENV, "").strip()
     if key:
         return key
     if registry_key():
         raise not_applied("접근 키는 설정됨: 이 창에는 아직 반영되지 않음")
-    raise key_refused(f"접근 키 없음: 환경변수 {KEY_ENV}")
+    raise key_refused(f"접근 키 없음: 환경 변수 {KEY_ENV}")
 
 
 def key_tag(key: str) -> str:
@@ -123,9 +124,13 @@ def get(path: str) -> dict:
             return json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 401:
-            saved = registry_key()
-            if saved and saved != key:  # 재발급한 새 키가 저장돼 있는데 이 창에는 이전 키가 남은 상태
-                raise not_applied("새 접근 키가 설정됨: 이 창에는 이전 키가 남아 DBGateway 신원 거절(401)")
+            registry = registry_key()
+            # 재발급한 새 키가 레지스트리에 있는데 이 창에는 이전 키가 남은 상태로 본다. 다만 이 창의 키가 레지스트리가 아닌
+            # 곳(클로드 코드 설정의 env 등)에서 오면 창을 다시 열어도 같으므로, 그때 재발급으로 빠져나갈 길을 함께 적는다.
+            if registry and registry != key:
+                raise not_applied("새 접근 키가 설정됨: 이 창에는 이전 키가 남아 DBGateway 신원 거절(401)",
+                                  f"다시 연 뒤에도 같은 거절이면 이 창의 키는 레지스트리가 아닌 곳(클로드 코드 설정의 env 등)에서"
+                                  f" 오는 것: 접근 키 화면 {KEY_PAGE}에서 재발급해 그곳의 키 교체")
             raise key_refused(f"DBGateway 신원 거절(401): {refusal_detail(e)}")
         if 300 <= e.code < 400:
             raise SystemExit(f"다른 호스트로의 리다이렉트 거절: {e.headers.get('Location')}"
@@ -258,10 +263,32 @@ def _selfcheck() -> None:
         assert "```sql\nSELECT 1 FROM T\n```" in d, d
         assert "- 인자: 없음" in render_detail({"query_id": 1, "query_name": "a", "description": "",
                                                  "tables": [], "sql": "", "arguments": []})
+        _selfcheck_registry()
         _selfcheck_key_and_http()
     finally:
         shutil.rmtree(CACHE.parent, ignore_errors=True)
         CACHE, OLD_CACHE = saved
+
+
+def _selfcheck_registry() -> None:
+    """실제 winreg 경로. 쓰지 않는 이름으로 값을 잠깐 만들었다 지우므로 사용자의 접근 키는 건드리지 않는다."""
+    global KEY_ENV
+    if sys.platform != "win32":
+        return
+    import winreg
+    saved_name, KEY_ENV = KEY_ENV, "KW_SEARCHING_WINUS_SELFCHECK"
+    try:
+        assert registry_key() == "", "값이 없으면 OSError 를 삼키고 빈 문자열"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as k:
+            winreg.SetValueEx(k, KEY_ENV, 0, winreg.REG_SZ, " kwam_probe \n")
+        assert registry_key() == "kwam_probe", "앞뒤 공백·줄바꿈을 지운 값"
+    finally:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as k:
+            try:
+                winreg.DeleteValue(k, KEY_ENV)
+            except OSError:
+                pass
+        KEY_ENV = saved_name
 
 
 def _selfcheck_key_and_http() -> None:
@@ -272,8 +299,8 @@ def _selfcheck_key_and_http() -> None:
     saved = GATEWAY, OPEN_BROWSER, webbrowser.open, registry_key, os.environ.get(KEY_ENV)
     opened, paths = [], []
     webbrowser.open = lambda url: opened.append(url) or True
-    stored = {"key": ""}  # 레지스트리 대신 쓴다. Windows 에서 실행해도 사용자의 실제 레지스트리를 읽지 않는다
-    registry_key = lambda: stored["key"]  # noqa: E731
+    registry = {"key": ""}  # 레지스트리 대신 쓴다. Windows 에서 실행해도 사용자의 실제 레지스트리를 읽지 않는다
+    registry_key = lambda: registry["key"]  # noqa: E731
 
     class Gateway(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -310,18 +337,18 @@ def _selfcheck_key_and_http() -> None:
         # 키가 없으면 DBGateway 를 부르지 않고 화면을 알린다. 열었는지는 문구로 구분한다
         os.environ.pop(KEY_ENV, None)
         OPEN_BROWSER = True
-        stops(lambda: get("/ok"), f"접근 키 없음: 환경변수 {KEY_ENV}", "브라우저로 열림")
+        stops(lambda: get("/ok"), f"접근 키 없음: 환경 변수 {KEY_ENV}", "브라우저로 열림")
         assert opened == [KEY_PAGE] and paths == [], (opened, paths)
         OPEN_BROWSER = False
         stops(access_key, "브라우저로 열지 못함", KEY_PAGE)
         assert opened == [KEY_PAGE], opened
         # 레지스트리에는 있는데 이 창에 없으면 발급 화면을 열지 않고 창을 다시 열라고 한다
         OPEN_BROWSER = True
-        stored["key"] = "kwam_new"
+        registry["key"] = "kwam_new"
         msg = stops(lambda: get("/ok"), "접근 키는 설정됨: 이 창에는 아직 반영되지 않음", "창을 모두 닫고", "키를 다시 발급하지 않음")
         assert "kwam_new" not in msg and opened == [KEY_PAGE] and paths == [], (msg, opened, paths)
         OPEN_BROWSER = False
-        stored["key"] = ""
+        registry["key"] = ""
         os.environ[KEY_ENV] = " kwam_x\n"
         # 같은 호스트의 리다이렉트는 따라가고, 다른 호스트로는 접근 키를 보내지 않는다
         assert get("/same") == {"queries": [{"query_id": 9}]} and paths == ["/same", "/ok"], paths
@@ -329,15 +356,16 @@ def _selfcheck_key_and_http() -> None:
         assert "/stolen" not in paths, paths
         # 401 은 DBGateway 의 사유를 올리고, 오래된 복사본이 있어도 그것으로 건너뛰지 않는다
         stops(lambda: get("/unauth"), "DBGateway 신원 거절(401): 폐기된 키")
-        # 401 인데 레지스트리에 다른(재발급한) 키가 있으면 이 창에 이전 키가 남은 것이다 — 발급 화면을 열지 않는다
+        # 401 인데 레지스트리에 다른(재발급한) 키가 있으면 이 창에 이전 키가 남은 것으로 보고 발급 화면을 열지 않는다
         OPEN_BROWSER = True
-        stored["key"] = "kwam_new"
-        stops(lambda: get("/unauth"), "새 접근 키가 설정됨", "창을 모두 닫고")
-        stored["key"] = "kwam_x"  # 같은 키가 거절되면 키 자체의 문제다
+        registry["key"] = "kwam_new"
+        msg = stops(lambda: get("/unauth"), "새 접근 키가 설정됨", "창을 모두 닫고", f"{KEY_PAGE}에서 재발급")
+        assert "키를 다시 발급하지 않음" not in msg and opened == [KEY_PAGE], (msg, opened)
+        registry["key"] = "kwam_x"  # 같은 키가 거절되면 키 자체의 문제다
         stops(lambda: get("/unauth"), "DBGateway 신원 거절(401): 폐기된 키", "브라우저로 열림")
         assert opened == [KEY_PAGE, KEY_PAGE], opened
         OPEN_BROWSER = False
-        stored["key"] = ""
+        registry["key"] = ""
         CACHE.write_text(json.dumps({"key": key_tag("kwam_x"), "queries": [{"query_id": 1}]}), encoding="utf-8")
         os.utime(CACHE, (0, 0))
         stops(lambda: manifest("kwam_x", lambda: get("/unauth")), "신원 거절(401)")
