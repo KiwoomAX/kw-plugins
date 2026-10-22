@@ -346,6 +346,10 @@ Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -
 # from. fetch_manifest.py asks DBGateway with the standard library alone and declares no dependencies.
 Assert 'searching-winus pulls nothing from the private Kiwoom-Manager repo' (-not ($dbAll -match 'Kiwoom-Manager|mdb[-_]manager'))
 Assert 'fetch_manifest.py declares no script dependencies' (-not ($fetText -match '(?m)^# /// script'))
+# Offline self-check: cache, access key refusals (incl. the key-set-but-not-applied branches), redirects,
+# and on Windows the real HKCU read with a throwaway value name.
+$fetSelf = & python $dbFetch --selfcheck 2>&1 | Out-String
+Assert 'fetch_manifest.py --selfcheck passes' ($LASTEXITCODE -eq 0 -and $fetSelf -match 'selfcheck ok')
 Assert 'SKILL.md tells the reader to fetch the manifest before writing code' ($dbText -match 'fetch_manifest\.py')
 # The cache must not land in the plugin folder (replaced on update) or in the user's repo.
 Assert 'fetch_manifest.py caches under the Claude config dir' ($fetText -match 'CLAUDE_CONFIG_DIR' -and $fetText -match '"cache"')
