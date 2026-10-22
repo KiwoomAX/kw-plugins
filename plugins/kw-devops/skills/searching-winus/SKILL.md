@@ -62,7 +62,7 @@ DBGateway는 요청마다 접근 키로 요청한 사람을 확인하고, 그 �
 | 항목 | 값 |
 |---|---|
 | 주소 | `http://192.7.9.45:9101` (사내망). 코드에서는 환경 변수 `QUERY_GATEWAY_URL`로 받고 이 주소를 기본값으로 둔다 |
-| 메서드·경로 | `POST /winus/query/{id}` — id는 목차의 정수 |
+| 메서드·경로 | `POST /winus/query/{id}`. id는 목차의 정수 |
 | 인자 | 요청 본문 `{"args": {이름: 값}}`. 이름은 `--query` 출력의 `인자`. 인자가 없는 쿼리는 `{}`를 보낸다 |
 | 인증 | 헤더 `Authorization: Bearer <접근 키>`. 키는 환경 변수 `KIWOOM_ACCESS_KEY`에서 읽는다(위 「접근 키」) |
 
@@ -128,7 +128,7 @@ KEY_PAGE = "http://192.7.9.45:3000/#access-key"
 # 키 원문은 코드에 적지 않고 환경 변수로만 받는다. 앞뒤 공백·줄바꿈이 섞이면 헤더가 깨지므로 지운다.
 ACCESS_KEY = os.environ.get("KIWOOM_ACCESS_KEY", "").strip()
 if not ACCESS_KEY:
-    raise SystemExit(f"접근 키 없음: 환경 변수 KIWOOM_ACCESS_KEY — 설정했으면 창을 모두 닫고 다시 열기, 아니면 {KEY_PAGE} 에서 발급해 설정")
+    raise SystemExit(f"접근 키 없음: 환경 변수 KIWOOM_ACCESS_KEY. 설정했으면 창을 모두 닫고 다시 열기, 아니면 {KEY_PAGE} 에서 발급해 설정")
 
 # id만으로는 무엇인지 알 수 없으므로 목차의 이름을 상수 이름에 남긴다.
 Q_기준일_비교일자 = 1
@@ -140,7 +140,7 @@ def fetch(query_id: int, args: dict[str, str | list[str]]) -> list[dict]:
     r = httpx.post(f"{GATEWAY_URL}/winus/query/{query_id}", json={"args": args},
                    headers={"Authorization": f"Bearer {ACCESS_KEY}"}, timeout=30)
     if r.status_code == 401:
-        raise PermissionError(f"DBGateway 신원 거절(401): {r.json()['detail']} — 새 키를 설정했으면 창을 모두 닫고 다시 열기, 아니면 {KEY_PAGE} 에서 재발급해 설정")
+        raise PermissionError(f"DBGateway 신원 거절(401): {r.json()['detail']}. 새 키를 설정했으면 창을 모두 닫고 다시 열기, 아니면 {KEY_PAGE} 에서 재발급해 설정")
     if r.status_code == 400:
         raise ValueError(f"쿼리 {query_id} 거절: {r.json()['detail']}")
     if r.status_code == 422:

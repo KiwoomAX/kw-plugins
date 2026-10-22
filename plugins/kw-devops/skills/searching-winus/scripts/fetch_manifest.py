@@ -134,7 +134,7 @@ def get(path: str) -> dict:
             raise key_refused(f"DBGateway 신원 거절(401): {refusal_detail(e)}")
         if 300 <= e.code < 400:
             raise SystemExit(f"다른 호스트로의 리다이렉트 거절: {e.headers.get('Location')}"
-                             " — 접근 키를 그 주소로 보내지 않음, QUERY_GATEWAY_URL 확인 필요")
+                             "\n- 접근 키를 그 주소로 보내지 않음\n- 조치: QUERY_GATEWAY_URL 확인")
         if e.code != 400:
             raise
         raise SystemExit(f"DBGateway 가 거절했다: {refusal_detail(e)}")
@@ -177,8 +177,8 @@ def manifest(key: str, fetch=fetch_index) -> tuple[list[dict], str | None]:
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
         if cached is None:
-            raise SystemExit(f"쿼리 목차를 받지 못했고 이 키로 받은 복사본도 없다 — 사내망인지 확인한다. {detail}")
-        return cached, f"DBGateway 에서 목차를 받지 못해 {age / 3600:.1f}시간 지난 복사본을 쓴다 — {detail}"
+            raise SystemExit(f"쿼리 목차를 받지 못했고 이 키로 받은 복사본도 없다. 사내망인지 확인한다. {detail}")
+        return cached, f"DBGateway 에서 목차를 받지 못해 {age / 3600:.1f}시간 지난 복사본을 쓴다: {detail}"
     CACHE.parent.mkdir(parents=True, exist_ok=True)
     # 다른 세션이 반쯤 쓴 복사본을 읽지 않도록 임시 파일에 쓴 뒤 바꿔 끼운다. Windows 에서는 그 순간
     # 다른 세션이 복사본을 열고 있으면 교체가 거부되는데, 복사본은 다음 실행에 다시 받으면 되므로 건너뛴다.
@@ -399,7 +399,7 @@ def main() -> None:
     rows, warning = manifest(key)
     if warning:
         print(f"경고: {warning}", file=sys.stderr)
-        print(f"> **경고 — {warning}**\n")
+        print(f"> **경고: {warning}**\n")
     print(render_index(rows))
 
 
