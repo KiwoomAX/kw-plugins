@@ -34,7 +34,7 @@
       .content .card { background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: var(--sp-md); }
       .content .lede { margin: 0 0 var(--sp-md); font-size: 13px; color: var(--text-secondary); }
       .content table { width: 100%; border-collapse: collapse; }
-      .content th { text-align: left; font-size: 13px; padding: 8px 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border-medium); }
+      .content th { text-align: left; font-size: 13px; padding: 8px 12px; background: var(--th-bg); color: var(--th-ink); }
       .content td { font-size: 14px; padding: 10px 12px; border-bottom: 1px solid var(--border-light); }
     </style>
   </head>
@@ -48,29 +48,20 @@
          · 사이드바와 상태바는 그리지 않는다. 아래 스크립트가 실제 셸 코드로 그린다. -->
     <script type="application/json" id="mockup-config">
       {
-        "org": "경영전략본부",
+        "org": "OO본부",
         "menu": [
-          { "name": "경영 현황", "path": "/" },
-          { "name": "경영보고서 작성", "path": "/report" }
+          { "name": "기능 1", "path": "/" },
+          { "name": "기능 2", "path": "/feature-2" }
         ]
       }
     </script>
 
-    <template data-path="/" data-title="경영 현황" data-asof="예시 데이터">
-      <p class="lede">목업 예시 화면입니다. 이 template 안의 HTML 을 바꿔 화면을 그립니다.</p>
-      <div class="card">
-        <table>
-          <thead><tr><th>항목</th><th>계획</th><th>실적</th></tr></thead>
-          <tbody>
-            <tr><td>예시 항목 1</td><td>100</td><td>90</td></tr>
-            <tr><td>예시 항목 2</td><td>200</td><td>210</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <template data-path="/">
+      <p class="lede">여기에 화면 내용을 적습니다. 목업 스타일의 .card · table 은 미리 정해 둔 모양입니다.</p>
     </template>
 
-    <template data-path="/report">
-      <p class="lede">두 번째 화면 예시입니다.</p>
+    <template data-path="/feature-2">
+      <p class="lede">두 번째 화면입니다.</p>
     </template>
 
     <template id="alerts" data-count="0">

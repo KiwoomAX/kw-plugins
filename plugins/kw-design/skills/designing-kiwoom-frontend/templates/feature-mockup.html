@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 기능 화면 목업 템플릿. 이 파일을 복사해 쓰고, 표시된 구간(목업 스타일 · 목업 내용)만 고친다.
-     사이드바와 상태바는 없다. 낮 · 밤은 OS 설정을 따른다.
+     사이드바와 상태바는 없다. 낮 · 밤은 OS 설정으로 시작하고, 오른쪽 아래 목업 전용 단추로 바꿔 본다.
      맨 아래 <style> 은 tokens.css 복사본이다. 원본은 KiwoomAX/dashboard-template 의 src/frontend/src/shell/tokens.css 이다. -->
 <html lang="ko">
   <head>
@@ -14,7 +14,17 @@
         font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
       /* 내용 폭 — 최대 1560px, 왼쪽에 붙인다. 대시보드 내용 구획과 같다 */
       .content { max-width: 1560px; padding: 24px 32px 64px; box-sizing: border-box; }
+      /* 목업 전용 낮 · 밤 단추 — 화면 비교용이다. 실제 기능 화면에는 옮기지 않는다 */
+      .mockup-theme { position: fixed; right: 16px; bottom: 16px; padding: 6px 12px; font: inherit; font-size: 12px;
+        color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border-medium);
+        border-radius: var(--radius-sm); cursor: pointer; }
+      .mockup-theme:hover { color: var(--text-primary); }
     </style>
+    <script>
+      /* 첫 페인트 전에 OS 설정으로 낮 · 밤을 정한다. 목업 전용 단추가 이 값을 바꾼다 */
+      document.documentElement.setAttribute('data-theme',
+        window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    </script>
     <!-- ════ 여기부터 목업 스타일이다. 고쳐도 된다 ════
          · 색 · 모서리 · 간격은 토큰 변수로 쓴다: var(--bg-surface) · var(--text-secondary) ·
            var(--border-light) · var(--radius-md) · var(--accent) 같은 이름이다. 낮 · 밤에 맞게 바뀐다.
@@ -32,18 +42,10 @@
     <!-- ════ 여기부터 목업 내용이다. 고쳐도 된다 ════ -->
     <main class="content">
       <h1>기능 이름</h1>
-      <p class="lede">목업 예시 화면입니다. main 안의 HTML 을 바꿔 화면을 그립니다. 예시 데이터입니다.</p>
-      <div class="card">
-        <table>
-          <thead><tr><th>항목</th><th>계획</th><th>실적</th></tr></thead>
-          <tbody>
-            <tr><td>예시 항목 1</td><td>100</td><td>90</td></tr>
-            <tr><td>예시 항목 2</td><td>200</td><td>210</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <p class="lede">여기에 화면 내용을 적습니다. 목업 스타일의 .card · table 은 미리 정해 둔 모양입니다.</p>
     </main>
     <!-- ════ 목업 내용 끝 ════ -->
+    <button class="mockup-theme" type="button" onclick="var r=document.documentElement;r.setAttribute('data-theme',r.getAttribute('data-theme')==='dark'?'light':'dark')">낮 · 밤 전환</button>
     <style>
 /* ══════════════════════════════════════════════════════════════════════
    대시보드 토큰 — 셸 파일이다. 대시보드를 만들면서 고치지 않는다.
