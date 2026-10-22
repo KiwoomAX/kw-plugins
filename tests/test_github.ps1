@@ -67,9 +67,9 @@ Assert "the marketplace ships $PluginName" ($null -ne $entry)
 Assert 'the plugin source is an in-repo path' ($null -ne $entry -and $entry.source -eq './plugins/kw-github')
 Assert 'both descriptions are the same text' ($null -ne $pluginJson.description -and $null -ne $entry -and $pluginJson.description -eq $entry.description)
 Assert 'plugin.json carries no version (commit-based auto update)' ($null -ne $pluginJson -and $null -eq $pluginJson.PSObject.Properties['version'])
-# Suggested, not required: only in-house developers work in feature folders, so others may turn it off.
-Assert "the control tower suggests $PluginId" ($null -ne $manifest -and @($manifest.suggested) -contains $PluginId)
-Assert "the control tower does not require $PluginId" ($null -ne $manifest -and @($manifest.required) -notcontains $PluginId)
+# Required: every PC on this list is a developer PC, and the plugin keeps company code from reaching GitHub unchecked (decided 2026-10-22).
+Assert "the control tower requires $PluginId" ($null -ne $manifest -and @($manifest.required) -contains $PluginId)
+Assert "the control tower does not also suggest $PluginId" ($null -ne $manifest -and @($manifest.suggested) -notcontains $PluginId)
 
 Write-Host '--- hooks ---'
 $hooksJson = Read-JsonOrNull (Join-Path $Hooks 'hooks.json')

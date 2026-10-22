@@ -1126,7 +1126,8 @@ if ($Brief) {
 '@
 Check '로그인하지 않은 PC 에는 로그인 안내를 한 줄로 알린다' {
     $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh
-    $gh = @($o -split "`n" | Where-Object { $_ -match 'GitHub|gh auth|초대' })
+    # 필수 플러그인 안내에 kw-github 라는 이름이 나오므로 대소문자를 가리는 -cmatch 로 GitHub 만 찾는다.
+    $gh = @($o -split "`n" | Where-Object { $_ -cmatch 'GitHub|gh auth|초대' })
     ($gh.Count -eq 1) -and ($gh[0] -match '^KW 컨트롤 타워: 사내 GitHub 로그인이 필요합니다\. .*gh auth login --web')
 }
 Check '로그인한 PC 에는 로그인 안내를 내지 않는다' {
