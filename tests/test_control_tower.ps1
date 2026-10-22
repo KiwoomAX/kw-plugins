@@ -1421,6 +1421,11 @@ $syncCut = Join-Path $sy 'sync-cut.ps1'
 Check '동기화를 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0) -and ($cutEnd -gt $cut3) }
 [System.IO.File]::WriteAllText($syncCut, $syncText.Substring(0, $cut3) + $syncText.Substring($cutEnd), (New-Object System.Text.UTF8Encoding($false)))
 
+# 동기화 시나리오의 가짜 PC 에 설치되어 있는 플러그인이다. 업데이트 알림 줄 개수 같은 기대값은
+# 숫자로 적지 않고 이 목록에서 센다. 플러그인을 추가할 때 이 목록만 고치면 된다.
+$script:ScenarioIds = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
+                        'kw-design@kiwoom-ax', 'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
+
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 동기화를 실행하고 출력과 상태 파일과 설치된 플러그인의 버전을 돌려준다.
     param([string]$Mk = 'ok', [string]$Up = 'ok', [string]$State = '', [switch]$Brief, [string]$Steps = '', [int]$Budget = 0, [int]$Sleep = 0, [string]$Bin = '',
@@ -1429,8 +1434,7 @@ function Invoke-SyncScenario {
     $h = Join-Path $sy ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     $pd = Join-Path $h '.claude\plugins'
     New-Item -ItemType Directory -Force -Path (Join-Path $pd 'cache\x') | Out-Null
-    $ids = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
-             'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
+    $ids = $script:ScenarioIds
     $plug = @{}; $en = @{}
     foreach ($id in $ids) {
         $plug[$id] = @(@{ installPath = (Join-Path $pd 'cache\x'); gitCommitSha = $shaOld; version = $shaOld.Substring(0, 12) })
@@ -1603,7 +1607,7 @@ Check '짧게 부르면 재시작 안내 아래 한 일을 한 줄씩만 낸다'
     $lines = @($r.Out -split "`n" | Where-Object { $_.Trim() })
     ($lines[0] -eq 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.') -and
         (@($lines | Select-Object -Skip 1 | Where-Object { $_ -notmatch '^  - ' }).Count -eq 0) -and
-        (@($lines | Where-Object { $_ -match ' : c875eb1 → 811b47e$' }).Count -eq 4) -and
+        (@($lines | Where-Object { $_ -match ' : c875eb1 → 811b47e$' }).Count -eq @($script:ScenarioIds | Where-Object { $_ -like '*@kiwoom-ax' }).Count) -and
         (([regex]::Matches($r.Out, 'kw-control-tower@kiwoom-ax')).Count -eq 1)
 }
 Check '짧게 부르면 진행 출력을 기록 파일에 남긴다' {
