@@ -155,21 +155,24 @@ Check '명령과 인자를 나눠 적는다' {
 # 드물게 호출되므로 if 없이 훅이 호스트를 직접 판정한다.
 Check '명령 도구 훅마다 if 규칙이 적용되어 있다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
-    $tool = @($j.hooks.PreToolUse | Where-Object { $_.matcher -ne 'WebFetch' } | ForEach-Object { $_.hooks })
-    (@($tool).Count -eq 6) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
+    $tool = @($j.hooks.PreToolUse | Where-Object { $_.matcher -in @('Bash', 'PowerShell') } | ForEach-Object { $_.hooks })
+    (@($tool).Count -gt 0) -and (@($tool | Where-Object { -not $_.'if' }).Count -eq 0)
 }
 Check 'if 규칙이 그 훅의 도구와 짝이 맞는다' {
     $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
     $bad = 0
-    foreach ($g in @($j.hooks.PreToolUse | Where-Object { $_.matcher -ne 'WebFetch' })) {
+    foreach ($g in @($j.hooks.PreToolUse | Where-Object { $_.matcher -in @('Bash', 'PowerShell') })) {
         foreach ($h in @($g.hooks)) { if (-not $h.'if'.StartsWith($g.matcher + '(')) { $bad++ } }
     }
     $bad -eq 0
 }
-Check 'WebFetch 훅은 금융투자협회 가드 하나뿐이다' {
-    $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
-    $w = @($j.hooks.PreToolUse | Where-Object { $_.matcher -eq 'WebFetch' } | ForEach-Object { $_.hooks })
-    (@($w).Count -eq 1) -and (@($w[0].args) -contains '${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1')
+# 주소를 받는 도구는 명령이 아니라 주소를 보므로 if 없이 가드가 호스트를 판정한다.
+foreach ($m in @('WebFetch', 'mcp__plugin_playwright_playwright__browser_navigate')) {
+    Check "주소 도구에 금융투자협회 가드가 붙어 있다: $m" {
+        $j = Get-Content (Join-Path $plugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+        $w = @($j.hooks.PreToolUse | Where-Object { $_.matcher -eq $m } | ForEach-Object { $_.hooks } | Where-Object { @($_.args) -contains '${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1' })
+        @($w).Count -gt 0
+    }
 }
 # 점검이 외부 프로그램을 호출하면 목록과 다른 곳이 없는 세션까지 그 비용을 치른다. 동기화를
 # 호출하는 것은 이 검사 뒤의 코드이고, 목록과 다른 곳이 있는 세션에서만 실행된다. 승인된 것은
@@ -593,6 +596,12 @@ Check '대문자 주소도 거부한다'                             { (Invoke-K
 Check '방식이 없는 주소도 거부한다'                        { (Invoke-KofiaGuard 'WebFetch' @{ url = 'dis.kofia.or.kr/x' }) -match 'deny' }
 Check '다른 호스트는 거부하지 않는다'                       { -not ((Invoke-KofiaGuard 'WebFetch' @{ url = 'https://example.com/' }) -match 'deny') }
 Check '이름이 비슷한 호스트(notkofia.or.kr)는 거부하지 않는다' { -not ((Invoke-KofiaGuard 'WebFetch' @{ url = 'https://notkofia.or.kr/' }) -match 'deny') }
+Check '끝에 점이 붙은 주소도 거부한다'                      { (Invoke-KofiaGuard 'WebFetch' @{ url = 'https://www.kofia.or.kr./a' }) -match 'deny' }
+Check '브라우저 자동화 도구의 주소 이동도 거부한다'          { (Invoke-KofiaGuard 'mcp__plugin_playwright_playwright__browser_navigate' @{ url = 'https://www.kofia.or.kr' }) -match 'deny' }
+Check '입력을 읽지 못해도 원문에 주소가 있으면 거부한다' {
+    $out = ('{bad www.kofia.or.kr' | & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$fake3'; & '$kofiaGuard'" 2>&1 | Out-String)
+    $out -match 'deny'
+}
 Check '명령에 kofia.or.kr 가 있으면 거부한다'               { (Invoke-KofiaGuard 'Bash' @{ command = 'curl -s https://www.kofia.or.kr/x | head' }) -match 'deny' }
 Check '한글이 섞인 명령도 거부한다'                         { (Invoke-KofiaGuard 'Bash' @{ command = 'python -c "requests.post(''http://freesis.kofia.or.kr'')" # 협회' }) -match 'deny' }
 Check '명령에 주소가 없으면 거부하지 않는다'                { -not ((Invoke-KofiaGuard 'Bash' @{ command = 'ls -la' }) -match 'deny') }
@@ -681,9 +690,9 @@ Check '사내 지침 템플릿이 맥락의 메일로 git 명의를 채우지 �
     ($tplSrc -match 'user\.email') -and ($tplSrc -match '채우지 않는다')
 }
 # 금융투자협회 홈페이지에 반복 접속하면 사내 접속이 차단되어 전 직원의 업무에 지장이 생긴다(PR #68).
-Check '사내 지침 템플릿이 금융투자협회 홈페이지의 자동 반복 접속을 하지 않는다고 한다' {
+Check '사내 지침 템플릿이 금융투자협회 홈페이지에 접속하지 않는다고 한다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
-    ($tplSrc -match 'kofia\.or\.kr') -and ($tplSrc -match '자동으로 여러 번 접속해 내용을 모으는 일을 하지 않는다')
+    ($tplSrc -match 'kofia\.or\.kr') -and ($tplSrc -match '에는 접속하지 않는다')
 }
 # 점검은 외부 프로그램을 늘리지 않는다. 명의는 git 을 실행하지 않고 파일에서 읽는다.
 Check '점검이 git 을 실행하지 않고 .gitconfig 를 직접 읽는다' {

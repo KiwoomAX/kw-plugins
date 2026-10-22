@@ -94,7 +94,7 @@ PC가 다시 설치해야 한다. 그래서 이름을 바꾸지 않는다.
 |---|---|
 | `.claude-plugin/marketplace.json` | 마켓플레이스 `kiwoom-ax` 정의 |
 | `plugins/kw-control-tower/manifest.json` | **목록.** 새 플러그인은 여기에 추가한다 |
-| `plugins/kw-control-tower/hooks/` | 세션 점검 훅, 도커 인증서 안내, 가짜 `python3` 호출 차단 |
+| `plugins/kw-control-tower/hooks/` | 세션 점검 훅, 도커 인증서 안내, 가짜 `python3` 호출 차단, 금융투자협회 홈페이지 접속 거부 |
 | `plugins/kw-control-tower/scripts/sync.ps1` | PC를 목록에 맞게 고치는 동기화 스크립트. 세션 점검 훅과 설치기 9단계가 호출한다 |
 | `plugins/kw-control-tower/scripts/git-identity.ps1` | git 명의를 GitHub 계정의 사내 메일로 제안하고, 사용자가 승인한 값을 저장한다. 세션 점검 훅의 안내를 받은 클로드가 실행한다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
