@@ -6,6 +6,8 @@ DBGateway 에 묻는다. 쓰지 않을 쿼리의 SQL 까지 사용자 PC 에 받
 
 요청마다 환경변수 KIWOOM_ACCESS_KEY 의 접근 키를 함께 보낸다. 키가 없거나 DBGateway 가 키를 거절하면
 접근 키 화면을 알리고(Windows 에서는 브라우저로 열고) 멈춘다. 오래된 목차 복사본으로 건너뛰지 않는다.
+다만 Windows 레지스트리(HKCU\\Environment)에는 키가 있는데 이 프로그램의 환경변수에 없거나 이전 키가 남았으면,
+발급 화면 대신 창을 모두 닫고 다시 열라고 안내하고 멈춘다. 레지스트리 값은 확인에만 쓰고 요청에는 쓰지 않는다.
 
 목차는 ~/.claude/cache/searching-winus/manifest_index.json 에 받은 키의 확인값과 함께 남긴다. DBGateway 는
 사람마다 허용된 쿼리만 목차에 포함하므로, 키가 다른 복사본은 없는 것으로 본다. 한 시간이 지나지 않은 복사본이
@@ -55,20 +57,48 @@ CACHE = CONFIG_DIR / "cache" / "searching-winus" / "manifest_index.json"
 OLD_CACHE = CACHE.with_name("query_index.json")
 
 
+REOPEN = ("Claude Code를 실행한 프로그램의 창을 모두 닫고 다시 연 뒤 새 세션에서 같은 요청"
+          " (터미널이면 Windows Terminal·PowerShell 창 전부, VS Code면 VS Code 창 전부)")
+
+
 def key_refused(reason: str) -> SystemExit:
     """접근 키 화면을 알리고(Windows 에서는 브라우저로 열고), 발급·설정 순서를 적은 종료를 돌려준다."""
     opened = OPEN_BROWSER and webbrowser.open(KEY_PAGE)
     page = f"접근 키 화면 {KEY_PAGE} ({'브라우저로 열림' if opened else '브라우저로 열지 못함'})"
-    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급·「사용 방법」대로 환경변수 {KEY_ENV} 설정 후 새 Claude Code"
-                      " 세션에서 다시 요청\n- 키 원문은 대화에 붙여 넣지 않음")
+    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급·「사용 방법」대로 환경변수 {KEY_ENV} 설정\n"
+                      f"- 설정 뒤: {REOPEN}\n- 키 원문은 대화에 붙여 넣지 않음")
+
+
+def not_applied(reason: str) -> SystemExit:
+    """키는 설정됐는데 이 프로그램에 아직 반영되지 않았을 때의 종료. 재발급이 필요하다고 오해하지 않게 발급 화면을 열지 않는다."""
+    return SystemExit(f"{reason}\n- 조치: {REOPEN}\n- 같은 창에서 Claude Code만 다시 실행하면 반영되지 않음"
+                      "\n- 그래도 같으면 Windows 로그아웃 후 다시 로그인\n- 키를 다시 발급하지 않음")
+
+
+def registry_key() -> str:
+    """Windows 사용자 환경변수 저장소(HKCU\\Environment)의 접근 키. 없거나 Windows 가 아니면 빈 문자열.
+
+    접근 키 화면의 설정 명령이 저장하는 곳이다. 실행 중인 프로그램의 환경변수는 시작할 때 부모에게서 복사된 것이라,
+    설정 뒤 창을 다시 열지 않으면 이 값과 다르다. 반영 여부를 판단하는 데만 쓰고 요청에는 쓰지 않는다.
+    """
+    if sys.platform != "win32":
+        return ""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            return str(winreg.QueryValueEx(k, KEY_ENV)[0]).strip()
+    except OSError:
+        return ""
 
 
 def access_key() -> str:
     """환경변수의 접근 키. 없으면 DBGateway 에 묻지 않고, 목차 복사본도 내지 않고 멈춘다."""
     key = os.environ.get(KEY_ENV, "").strip()
-    if not key:
-        raise key_refused(f"접근 키 없음: 환경변수 {KEY_ENV}")
-    return key
+    if key:
+        return key
+    if registry_key():
+        raise not_applied("접근 키는 설정됨: 이 창에는 아직 반영되지 않음")
+    raise key_refused(f"접근 키 없음: 환경변수 {KEY_ENV}")
 
 
 def key_tag(key: str) -> str:
@@ -86,12 +116,16 @@ def refusal_detail(e: urllib.error.HTTPError) -> str:
 
 def get(path: str) -> dict:
     """DBGateway GET. 400·401·3xx 는 DBGateway 앞에서 판정이 끝난 응답이라 오래된 복사본으로 건너뛰지 않고 멈춘다."""
-    request = urllib.request.Request(GATEWAY + path, headers={"Authorization": f"Bearer {access_key()}"})
+    key = access_key()
+    request = urllib.request.Request(GATEWAY + path, headers={"Authorization": f"Bearer {key}"})
     try:
         with OPENER.open(request, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 401:
+            saved = registry_key()
+            if saved and saved != key:  # 재발급한 새 키가 저장돼 있는데 이 창에는 이전 키가 남은 상태
+                raise not_applied("새 접근 키가 설정됨: 이 창에는 이전 키가 남아 DBGateway 신원 거절(401)")
             raise key_refused(f"DBGateway 신원 거절(401): {refusal_detail(e)}")
         if 300 <= e.code < 400:
             raise SystemExit(f"다른 호스트로의 리다이렉트 거절: {e.headers.get('Location')}"
@@ -234,10 +268,12 @@ def _selfcheck_key_and_http() -> None:
     """접근 키와 DBGateway 응답 처리. 실제 브라우저가 열리지 않게 webbrowser.open 을 바꾸고, 가짜 서버로 응답을 만든다."""
     import http.server
     import threading
-    global GATEWAY, OPEN_BROWSER
-    saved = GATEWAY, OPEN_BROWSER, webbrowser.open, os.environ.get(KEY_ENV)
+    global GATEWAY, OPEN_BROWSER, registry_key
+    saved = GATEWAY, OPEN_BROWSER, webbrowser.open, registry_key, os.environ.get(KEY_ENV)
     opened, paths = [], []
     webbrowser.open = lambda url: opened.append(url) or True
+    stored = {"key": ""}  # 레지스트리 대신 쓴다. Windows 에서 실행해도 사용자의 실제 레지스트리를 읽지 않는다
+    registry_key = lambda: stored["key"]  # noqa: E731
 
     class Gateway(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -279,6 +315,13 @@ def _selfcheck_key_and_http() -> None:
         OPEN_BROWSER = False
         stops(access_key, "브라우저로 열지 못함", KEY_PAGE)
         assert opened == [KEY_PAGE], opened
+        # 레지스트리에는 있는데 이 창에 없으면 발급 화면을 열지 않고 창을 다시 열라고 한다
+        OPEN_BROWSER = True
+        stored["key"] = "kwam_new"
+        msg = stops(lambda: get("/ok"), "접근 키는 설정됨: 이 창에는 아직 반영되지 않음", "창을 모두 닫고", "키를 다시 발급하지 않음")
+        assert "kwam_new" not in msg and opened == [KEY_PAGE] and paths == [], (msg, opened, paths)
+        OPEN_BROWSER = False
+        stored["key"] = ""
         os.environ[KEY_ENV] = " kwam_x\n"
         # 같은 호스트의 리다이렉트는 따라가고, 다른 호스트로는 접근 키를 보내지 않는다
         assert get("/same") == {"queries": [{"query_id": 9}]} and paths == ["/same", "/ok"], paths
@@ -286,13 +329,22 @@ def _selfcheck_key_and_http() -> None:
         assert "/stolen" not in paths, paths
         # 401 은 DBGateway 의 사유를 올리고, 오래된 복사본이 있어도 그것으로 건너뛰지 않는다
         stops(lambda: get("/unauth"), "DBGateway 신원 거절(401): 폐기된 키")
+        # 401 인데 레지스트리에 다른(재발급한) 키가 있으면 이 창에 이전 키가 남은 것이다 — 발급 화면을 열지 않는다
+        OPEN_BROWSER = True
+        stored["key"] = "kwam_new"
+        stops(lambda: get("/unauth"), "새 접근 키가 설정됨", "창을 모두 닫고")
+        stored["key"] = "kwam_x"  # 같은 키가 거절되면 키 자체의 문제다
+        stops(lambda: get("/unauth"), "DBGateway 신원 거절(401): 폐기된 키", "브라우저로 열림")
+        assert opened == [KEY_PAGE, KEY_PAGE], opened
+        OPEN_BROWSER = False
+        stored["key"] = ""
         CACHE.write_text(json.dumps({"key": key_tag("kwam_x"), "queries": [{"query_id": 1}]}), encoding="utf-8")
         os.utime(CACHE, (0, 0))
         stops(lambda: manifest("kwam_x", lambda: get("/unauth")), "신원 거절(401)")
     finally:
         server.shutdown()
         server.server_close()
-        GATEWAY, OPEN_BROWSER, webbrowser.open, real_key = saved
+        GATEWAY, OPEN_BROWSER, webbrowser.open, registry_key, real_key = saved
         os.environ.pop(KEY_ENV, None)
         if real_key is not None:
             os.environ[KEY_ENV] = real_key
