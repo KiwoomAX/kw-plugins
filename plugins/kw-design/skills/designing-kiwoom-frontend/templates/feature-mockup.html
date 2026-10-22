@@ -118,7 +118,7 @@
   --text-secondary: #5D5D5D;
   --text-tertiary: #8E8E8E;
   --link: #5D5D5D;
-  --link-hover: #3F5A80;
+  --link-hover: var(--accent);
   --focus: #2A5FA0;
   --disabled: #8E8E8E;
 
@@ -137,12 +137,16 @@
        ok   = 진행 중(접수중). 면 없이 보통 굵기로 둔다
        warn = 확인 필요(검수필요). 굵은 글씨에 옅은 면을 준다
        bad  = 마감 알림(마감임박 · D-n). 굵은 글씨에 옅은 면을 준다 */
-  --ok: #3F5A80;
-  --ok-weak: #E8EBF0;
+  /* 진행 중은 강조색과 같다. 강조색을 바꾸면 함께 바뀐다. 밤 값은 --accent 가 밤 값으로
+     바뀌면서 따라온다 */
+  --ok: var(--accent);
+  --ok-weak: var(--accent-weak);
   --warn: #E98B33;
   --warn-weak: #FCEFE2;
   --bad: #C93A3A;
   --bad-weak: #F9E7E7;
+  /* 마감 알림 면 위의 글자(알림 종 건수 배지). 밤의 --bad 는 밝아 흰 글자가 묻히므로 밤에는 어둡게 둔다 */
+  --on-bad: #FFFFFF;
 
   /* 등락 — 국내 주식 관행대로 상승이 붉은 계열, 하락이 푸른 계열이다.
      자금 유입과 유출도 등락이므로 같은 값을 쓴다.
@@ -167,12 +171,13 @@
 
   /* 그림자는 「떠 있다」는 신호다. 잠깐 나타났다 사라지는 것에만 쓰고
      카드와 표와 지표 칸에는 두지 않는다 */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .08);
-  --shadow-md: 0 6px 18px rgba(0, 0, 0, .14);
+  --elev-sm: 0 1px 3px rgba(0, 0, 0, .08);
+  --elev-md: 0 6px 18px rgba(0, 0, 0, .14);
 
-  /* 겹치는 차례. 숫자를 코드에 직접 적지 않는다 */
-  --z-rail: 20;
-  --z-drawer: 60;
+  /* 겹치는 차례. 숫자를 코드에 직접 적지 않는다.
+     modal 은 페이지가 대화상자를 만들 때 쓴다 */
+  --z-topbar: 20;
+  --z-popover: 60;
   --z-modal: 80;
 
   /* 맑은 고딕은 Semilight · Regular · Bold 세 벌뿐이다. 500 은 400 으로, 600 은 700 으로
@@ -234,7 +239,6 @@
     --text-secondary: #A8B0BC;
     --text-tertiary: #7C8490;
     --link: #A8B0BC;
-    --link-hover: #7FA3D6;
     --focus: #6FB0FF;
     --disabled: #7C8490;
 
@@ -244,12 +248,11 @@
     --th-bg: #7C9BC4;
     --th-ink: #12161C;
 
-    --ok: #7FA3D6;
-    --ok-weak: #232932;
     --warn: #E08A4E;
     --warn-weak: #2E2622;
     --bad: #FF7A6E;
     --bad-weak: #322426;
+    --on-bad: #12161C;
 
     --rise: #FF7A6E;
     --fall: #6FB0FF;
@@ -260,8 +263,8 @@
 
     --grid-line: #262A31;
 
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
-    --shadow-md: 0 6px 18px rgba(0, 0, 0, .55);
+    --elev-sm: 0 1px 3px rgba(0, 0, 0, .40);
+    --elev-md: 0 6px 18px rgba(0, 0, 0, .55);
   }
 }
 
@@ -304,7 +307,6 @@
   --text-secondary: #A8B0BC;
   --text-tertiary: #7C8490;
   --link: #A8B0BC;
-  --link-hover: #7FA3D6;
   --focus: #6FB0FF;
   --disabled: #7C8490;
 
@@ -314,12 +316,11 @@
   --th-bg: #7C9BC4;
   --th-ink: #12161C;
 
-  --ok: #7FA3D6;
-  --ok-weak: #232932;
   --warn: #E08A4E;
   --warn-weak: #2E2622;
   --bad: #FF7A6E;
   --bad-weak: #322426;
+  --on-bad: #12161C;
 
   --rise: #FF7A6E;
   --fall: #6FB0FF;
@@ -330,8 +331,8 @@
 
   --grid-line: #262A31;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
-  --shadow-md: 0 6px 18px rgba(0, 0, 0, .55);
+  --elev-sm: 0 1px 3px rgba(0, 0, 0, .40);
+  --elev-md: 0 6px 18px rgba(0, 0, 0, .55);
 }
 
 /* ── 키움 색 후보 ───────────────────────────────────────────────
@@ -409,8 +410,8 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-active: var(--accent-active);
 
-  --shadow-sm: var(--shadow-sm);
-  --shadow-md: var(--shadow-md);
+  --shadow-sm: var(--elev-sm);
+  --shadow-md: var(--elev-md);
 
   --font-weight-light: var(--w-light);
   --font-weight-regular: var(--w-regular);
