@@ -74,6 +74,13 @@ $outside = @([regex]::Matches($dash, '(?:src|href)="([^"]+)"') | ForEach-Object 
 Assert 'the dashboard template loads nothing from outside the file' ($outside.Count -eq 0)
 Assert 'the dashboard template carries the editable config and a page template' (($dash -match 'id="mockup-config"') -and ($dash -match '<template data-path="/"'))
 Assert 'the dashboard template draws the shell from code' ($dash -match 'createRoot')
+# tokens.css is a hand copy shipped beside the generated dashboard template. The template records
+# the sha256 of the tokens it was built from; the copy (without its header comment) must match.
+$tokText = (Read-TextOrEmpty (Join-Path $SkillDir 'templates/tokens.css')) -replace "`r`n", "`n"
+$tokBody = ($tokText -split "\*/`n", 2)[1]
+$tokSha  = if ($tokBody) { [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($tokBody))).Replace('-', '').ToLower() } else { '' }
+$tplSha  = ([regex]::Match($dash, 'name="kw-tokens-sha256" content="([0-9a-f]{64})"')).Groups[1].Value
+Assert 'tokens.css and the dashboard template come from the same tokens' ($tplSha -and $tokSha -eq $tplSha)
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)
 if ($script:Fail -ne 0) { exit 1 }

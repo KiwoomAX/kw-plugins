@@ -1,6 +1,6 @@
 ---
 name: designing-kiwoom-frontend
-description: Use when drawing any Kiwoom in-house web screen or its mockup — a 본부 · 팀 dashboard page or a standalone in-house web feature — including mockups shown during brainstorming before any code exists, and when choosing colors, type sizes, icons, layout, or decoration for such a screen. Gives the default design (color tokens, type scale, icons, layout, decorations to avoid) a ready dashboard mockup HTML template, and the token file. Triggers on 사내 웹 화면·화면 목업·대시보드 디자인·기능 화면 디자인·색 토큰·글자 크기·화면 초안.
+description: Use when drawing any Kiwoom in-house web screen or its mockup (a 본부 · 팀 dashboard page or a standalone in-house web feature), including mockups shown during brainstorming before any code exists, and when choosing colors, type sizes, icons, layout, or decoration for such a screen. Gives the default design (color tokens, type scale, icons, layout, decorations to avoid), a ready dashboard mockup HTML template, and the token file. Triggers on 사내 웹 화면·화면 목업·대시보드 디자인·기능 화면 디자인·색 토큰·글자 크기·화면 초안.
 ---
 
 # designing-kiwoom-frontend
@@ -33,7 +33,8 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup — a
 - 대시보드 저장소가 이미 있으면 그 저장소를 실행해 보이는 것도 된다. 셸이 실제 코드이므로 같은 결과다.
 
 **일반 기능 화면**은 [templates/tokens.css](templates/tokens.css) 를 `<style>` 로 넣은 HTML 에 내용만 그린다.
-사이드바와 상태바는 그리지 않는다. 나머지는 아래 규칙을 기본값으로 참고하면 된다.
+사이드바와 상태바는 그리지 않는다. 이 목업도 Tailwind 를 빌드하지 않으므로 Tailwind 클래스는 듣지 않는다.
+아래 「색」 표의 토큰 변수 열로 CSS 를 적는다. 나머지는 아래 규칙을 기본값으로 참고하면 된다.
 
 예시 데이터를 쓰면 화면에 예시라고 적는다.
 
@@ -47,28 +48,30 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup — a
 - 사이드바와 상태바와 자체 머리글을 만들지 않는다. 내용만 그린다.
 - `body` · `h1` · `table` 같은 태그 이름 규칙을 전역 CSS 에 적지 않는다. 대시보드에 붙이면 셸 모양까지 바뀐다.
 - 서체는 바탕 요소 하나에만 맑은 고딕으로 준다. 화면마다 다시 주지 않는다.
-- 내용 폭은 최대 1560px 이고 왼쪽에 붙인다. 가운데 정렬(`mx-auto` · `margin: 0 auto`)하지 않는다.
+- 내용은 왼쪽에 붙이고 가운데 정렬(`mx-auto` · `margin: 0 auto`)하지 않는다. 폭 상한은 기능마다 정한다. 대시보드에
+  붙이면 셸이 내용 폭을 정한다.
 - 화면에서 부르는 API 는 `/api/<기능 이름>` 아래에 둔다. 대시보드에 붙일 때 주소를 바꾸지 않아도 된다.
 - 대시보드에 붙이기 전에 그 대시보드에서 한 번 실행해 본다. 대시보드는 화면 전체를 0.85배로 줄인 뒤 내용만
   1.12배로 확대하고, 알림 서랍을 열면 내용 폭이 화면에서 약 290px 좁아진다.
 
 ## 색
 
-색은 아래 Tailwind 이름으로 쓴다. 값은 토큰이라 낮과 밤에 맞게 저절로 바뀐다.
+색은 아래 Tailwind 이름으로 쓴다. Tailwind 를 빌드하지 않는 HTML(목업 등)에서는 같은 줄의 토큰 변수를
+`var(--bg-surface)` 처럼 쓴다. 값은 토큰이라 낮과 밤에 맞게 저절로 바뀐다.
 
-| 쓰임 | 이름 |
-|---|---|
-| 바탕과 면 | `bg-surface-app` · `bg-surface` · `bg-surface-sunken` · `bg-surface-hover` · `bg-surface-dialog` |
-| 글자 | `text-on-surface` · `text-on-surface-variant` · `text-on-surface-tertiary` |
-| 선 | `border-outline` · `border-outline-strong` |
-| 내용 강조(칩 · 단추 · 막대) | `accent` · `on-accent` · `accent-weak` |
-| 셸 강조(사이드바 · 상태바) | `brand` · `on-brand` |
-| 표 머리 | `bg-th` · `text-on-th` |
-| 고른 행 | `bg-row-sel` |
-| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak` |
-| 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` · `rise-fill` · `fall-fill` · `rise-weak` · `fall-weak` |
-| 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` |
-| 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` |
+| 쓰임 | Tailwind 이름 | 토큰 변수(Tailwind 없는 HTML) |
+|---|---|---|
+| 바탕과 면 | `bg-surface-app` · `bg-surface` · `bg-surface-sunken` · `bg-surface-hover` · `bg-surface-dialog` | `--bg-app` · `--bg-surface` · `--bg-sunken` · `--bg-hover` · `--bg-dialog` |
+| 글자 | `text-on-surface` · `text-on-surface-variant` · `text-on-surface-tertiary` | `--text-primary` · `--text-secondary` · `--text-tertiary` |
+| 선 | `border-outline` · `border-outline-strong` | `--border-light` · `--border-medium` |
+| 내용 강조(칩 · 단추 · 막대) | `accent` · `on-accent` · `accent-weak` | `--accent` · `--on-accent` · `--accent-weak` |
+| 셸 강조(사이드바 · 상태바) | `brand` · `on-brand` | `--brand` · `--on-brand` |
+| 표 머리 | `bg-th` · `text-on-th` | `--th-bg` · `--th-ink` |
+| 고른 행 | `bg-row-sel` | `--row-sel` |
+| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak` | `--ok` · `--warn` · `--bad` 와 각각의 `-weak` |
+| 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` · `rise-fill` · `fall-fill` · `rise-weak` · `fall-weak` | 같은 이름의 `--rise` · `--fall` 등 |
+| 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` | `--chart-1`~`--chart-4` · `--chart-gray-1`~`--chart-gray-3` · `--grid-line` |
+| 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` | `--link` · `--focus` · `--disabled` |
 
 - 색은 기본값을 그대로 쓴다. 차트 1순위가 남색이고 2순위가 청록이며 상승이 빨강이다. 어느 색으로 할지 먼저
   묻지 않는다.
@@ -122,7 +125,9 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup — a
 - `#333` 이나 `red-500` 같은 값을 직접 쓰지 않는다. 새 색이 필요하면 자기 CSS 파일에 토큰을 정의한다. 낮
   (`:root`), OS 설정의 밤(`@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme="light"])`),
   사용자가 고른 밤(`:root[data-theme="dark"]`) 세 곳에 모두 적는다. 그다음 `@theme inline` 에
-  `--color-<이름>` 으로 이름을 붙인다.
+  `--color-<이름>` 으로 이름을 붙인다. 마지막으로 그 파일을 불러온다. 대시보드는 `src/frontend/src/index.css` 에
+  `@import` 하고, 일반 기능은 Tailwind 를 불러오는 CSS 파일에서 `@import` 한다. 불러오지 않으면 Tailwind 가
+  새 이름의 클래스를 만들지 않는다. 위의 키움 색 되가리키기 토막도 같은 방법으로 불러온다.
 
 ## 글자 크기
 
