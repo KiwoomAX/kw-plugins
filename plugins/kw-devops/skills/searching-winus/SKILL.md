@@ -37,7 +37,7 @@ DBGateway는 요청마다 접근 키로 요청한 사람을 확인하고, 그 �
 2. 이어서 사용자에게 "접근 키 화면에서 키의 「복사」를 누른 뒤 '복사했다'고 답해 달라"고 요청하고 답을 기다린다.
 3. 사용자가 답하면 클립보드에서 키를 읽어 사용자 환경 변수 `KIWOOM_ACCESS_KEY`에 등록한다. 키는 명령 안에서 바로 넘기고, 대화에 쓰거나 명령에 직접 적거나 출력으로 보이게 하지 않는다.
    - Windows PowerShell: `[Environment]::SetEnvironmentVariable('KIWOOM_ACCESS_KEY', (Get-Clipboard).Trim(), 'User')`
-   - WSL: `powershell.exe -NoProfile -Command Get-Clipboard`로 읽고 끝의 `\r`을 지워 `~/.bashrc`에 `export KIWOOM_ACCESS_KEY=...` 줄로 넣는다. 그 파일에 이미 `export KIWOOM_ACCESS_KEY` 줄이 있으면 먼저 지운다.
+   - WSL: `powershell.exe -NoProfile -Command Get-Clipboard`로 읽고 끝의 `\r`을 지운다. 사용자 셸의 설정 파일에 `export KIWOOM_ACCESS_KEY=...` 줄로 넣는다. 셸은 `$SHELL`로 확인하고, zsh면 `~/.zshrc`, bash면 `~/.bashrc`에 넣는다. 다른 셸의 파일에 넣으면 새 터미널에서 키가 보이지 않는다. 그 파일에 이미 `export KIWOOM_ACCESS_KEY` 줄이 있으면 먼저 지운다.
    - 클립보드를 읽을 수 없거나 클로드 코드가 그 명령을 거부하면 등록하지 않는다. 그 사실과 거부 문구를 전하고, 접근 키 화면 「사용 방법」의 PowerShell 명령으로 사용자가 직접 등록하게 한다.
 4. 등록한 값이 `kwam_`으로 시작하고 48자인지 참·거짓만 출력해 확인한다. 거짓이면 클립보드에 키가 아닌 내용이 있었던 것이므로, 「복사」를 다시 누르게 하고 3번부터 다시 한다.
 5. 출력의 `설정 뒤` 줄대로 클로드 코드를 실행한 프로그램의 창을 모두 닫고 다시 연 뒤, 새 세션에서 같은 요청을 다시 하라고 알린다. 프로그램은 시작할 때 환경 변수를 복사해 두므로, 같은 창에서 클로드 코드만 다시 실행하면 새 키가 보이지 않는다. 접근 키 화면을 연 브라우저는 닫지 않아도 된다. 클로드는 사용자가 어느 프로그램을 쓰는지 묻지 않고 그 줄을 그대로 전한다.
