@@ -6,8 +6,9 @@
 
 캡처는 uv run --no-project --with playwright 로 실행하고, PC 에 설치된 Chrome 을 쓴다.
 장면의 steps(동작 목록, 동작 종류는 STEP_FIELDS)를 차례로 실행하고 결과 화면을 찍는다. 예전 형식의 click 은 클릭 동작 하나로 본다.
-화면이 보내는 요청은 모두 가로챈다. 화면 파일은 레포에서 읽고, API 는 계획의 가짜 데이터로 응답하며,
-Node 개발 서버를 띄운 때만 나머지 같은 주소 요청을 그 서버로 넘긴다. 그 밖의 요청은 끊는다.
+화면이 보내는 요청은 모두 가로챈다. 화면 파일은 레포에서 읽고, API 는 계획의 가짜 데이터로 응답한다.
+Node 개발 서버를 띄운 때는 화면 파일 요청(문서 · 스크립트 · 스타일 · 이미지 · 글꼴)만 그 서버로 넘긴다.
+가짜 데이터가 없는 데이터 요청과 그 밖의 요청은 모두 끊는다. 서버 코드가 실제로 실행되지 않게 하기 위해서다.
 """
 from __future__ import annotations
 
@@ -59,8 +60,13 @@ def _static_file(static: dict, path: str) -> Path | None:
     return None
 
 
-def respond(url: str, method: str, plan_doc: dict, mocks: list[dict]) -> tuple:
-    """요청 하나를 어떻게 처리할지 정한다. ("fulfill", 응답) · ("continue",) · ("abort",) 중 하나다."""
+# Node 개발 서버로 넘기는 요청 종류(Playwright 의 resource_type). 화면을 그리는 파일만 넘긴다
+SCREEN_FILE_KINDS = {"document", "script", "stylesheet", "image", "font", "media", "manifest", "texttrack"}
+
+
+def respond(url: str, method: str, plan_doc: dict, mocks: list[dict], kind: str = "", headers: dict | None = None) -> tuple:
+    """요청 하나를 어떻게 처리할지 정한다. ("fulfill", 응답) · ("continue",) · ("abort",) 중 하나다.
+    kind 는 요청 종류(document · script · fetch · xhr 등), headers 는 요청 머리글이다."""
     u = urlparse(url)
     base = urlparse(plan_doc.get("baseUrl") or STATIC_ORIGIN)
     if (u.scheme, u.netloc) != (base.scheme, base.netloc):
@@ -78,7 +84,13 @@ def respond(url: str, method: str, plan_doc: dict, mocks: list[dict]) -> tuple:
                 ctype += "; charset=utf-8"
             return ("fulfill", {"status": 200, "body": f.read_bytes(), "contentType": ctype})
         return ("fulfill", {"status": 404, "body": b"", "contentType": "text/plain"})
-    return ("continue",)  # Node 개발 서버가 화면 파일을 내준다
+    # Node 개발 서버는 화면 파일만 내준다. 가짜 데이터가 없는 데이터 요청(fetch · xhr), GET 이 아닌 요청,
+    # 서버 함수 실행 요청(Next-Action)을 넘기면 서버 코드가 레포 설정으로 실제 실행돼 외부 사이트 접속 · 저장이 일어나므로 끊는다
+    if method.upper() not in ("GET", "HEAD") or kind not in SCREEN_FILE_KINDS:
+        return ("abort",)
+    if any(k.lower() == "next-action" for k in (headers or {})):
+        return ("abort",)
+    return ("continue",)
 
 
 def scene_steps(scene: dict) -> list[dict]:
@@ -378,7 +390,7 @@ def capture(plan_doc: dict) -> dict:
             mocks = f.get("mocks", []) + plan_doc.get("mocks", [])  # 기능의 가짜 데이터가 공통 가짜 데이터보다 먼저다
 
             def handle(route, request):
-                r = respond(request.url, request.method, plan_doc, mocks)
+                r = respond(request.url, request.method, plan_doc, mocks, request.resource_type, request.headers)
                 if r[0] == "fulfill":
                     route.fulfill(status=r[1]["status"], body=r[1]["body"], content_type=r[1]["contentType"])
                 elif r[0] == "continue":
@@ -508,9 +520,21 @@ def _check() -> int:
         expect("방식이 다른 요청은 가짜 데이터로 응답하지 않는다", r[0] == "fulfill" and r[1]["status"] == 404)
         expect("외부 서비스 요청은 끊는다", respond("https://fonts.googleapis.com/css", "GET", static_plan, mocks) == ("abort",))
         node_plan = {"baseUrl": "http://127.0.0.1:5173"}
-        expect("Node 화면의 나머지 같은 주소 요청은 개발 서버로 넘긴다", respond("http://127.0.0.1:5173/src/main.tsx", "GET", node_plan, mocks) == ("continue",))
-        r = respond("http://127.0.0.1:5173/api/search", "GET", node_plan, mocks)
+        expect("Node 화면의 화면 파일 요청은 개발 서버로 넘긴다",
+               respond("http://127.0.0.1:5173/src/main.tsx", "GET", node_plan, mocks, "script") == ("continue",)
+               and respond("http://127.0.0.1:5173/", "GET", node_plan, mocks, "document") == ("continue",))
+        r = respond("http://127.0.0.1:5173/api/search", "GET", node_plan, mocks, "fetch")
         expect("Node 화면의 API 도 가짜 데이터로 응답한다", r[0] == "fulfill" and r[1]["status"] == 200)
+        # 가짜 데이터가 없는 데이터 요청이 개발 서버에 닿으면 서버 코드가 실제로 실행돼 외부 접속 · 저장이 일어난다
+        expect("가짜 데이터가 없는 데이터 요청은 개발 서버로 넘기지 않고 끊는다",
+               respond("http://127.0.0.1:5173/api/market-indicators", "GET", node_plan, mocks, "fetch") == ("abort",)
+               and respond("http://127.0.0.1:5173/api/notices", "GET", node_plan, mocks, "xhr") == ("abort",))
+        expect("가짜 데이터가 없는 GET 이 아닌 요청은 화면 파일 종류라도 끊는다",
+               respond("http://127.0.0.1:5173/", "POST", node_plan, mocks, "document") == ("abort",))
+        expect("서버 함수 실행 요청(Next-Action)은 끊는다",
+               respond("http://127.0.0.1:5173/", "GET", node_plan, mocks, "document", {"next-action": "abc"}) == ("abort",))
+        expect("종류를 모르는 요청은 데이터 요청으로 보고 끊는다",
+               respond("http://127.0.0.1:5173/x", "GET", node_plan, mocks) == ("abort",))
 
     qmocks = [{"path": "/api/search", "json": {"rows": ["전체"]}},
               {"path": "/api/search", "query": {"q": "견적"}, "json": {"rows": ["견적 메일"]}}]
