@@ -55,7 +55,7 @@ Assert 'description says when to open the skill' ($desc -match '^Use when ')
 Assert 'description is a safe plain scalar' (-not ($desc -match ': | #'))
 
 # A reference file that SKILL.md does not link is never opened.
-$refs = @('moving-existing-dashboard.md')
+$refs = @('migrating-existing-dashboard.md')
 foreach ($ref in $refs) {
     Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
     Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))

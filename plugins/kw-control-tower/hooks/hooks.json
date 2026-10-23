@@ -30,6 +30,13 @@
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1"],
             "if": "Bash(python3*)",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1"],
+            "if": "Bash(*kofia.or.kr*)",
+            "timeout": 10
           }
         ]
       },
@@ -48,6 +55,35 @@
             "command": "pwsh",
             "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/python3-guard.ps1"],
             "if": "PowerShell(python3*)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1"],
+            "if": "PowerShell(*kofia.or.kr*)",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1"],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_playwright_playwright__browser_navigate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/hooks/kofia-guard.ps1"],
             "timeout": 10
           }
         ]
