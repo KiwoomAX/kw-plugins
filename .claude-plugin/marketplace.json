@@ -29,11 +29,6 @@
       "name": "kw-design",
       "source": "./plugins/kw-design",
       "description": "사내 웹 화면의 기본 디자인 스킬. designing-kiwoom-frontend는 본부 · 팀 대시보드 화면과 일반 사내 웹 기능 화면을 처음 만들 때 쓰는 색 · 글자 크기 · 아이콘 · 배치 기본값과 쓰지 않는 장식을 안내하고, 대시보드 목업 HTML 템플릿과 토큰 파일을 준다."
-    },
-    {
-      "name": "kw-github",
-      "source": "./plugins/kw-github",
-      "description": "사내 개발자가 git 을 몰라도 기능 코드를 회사 GitHub(KiwoomAX)에 남기게 하는 플러그인. 작업 폴더를 준비하고, 기능 단위가 끝나면 묻지 않고 commit 하며, push(업로드)는 개발자가 승인한 작업만 한다. 올리기 전에 비밀값과 데이터 파일을 걸러 낸다. 파이썬과 GitHub CLI(gh)를 전제한다."
     }
   ]
 }
