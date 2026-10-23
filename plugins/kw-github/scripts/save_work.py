@@ -620,9 +620,29 @@ def prepare_upload(repo, allow_other_owner=False, body_file=None):
         return _ready_result("failed", MSG_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
 
 
+def upload_target(top, deadline=None):
+    """upload 가 올릴 작업 branch 이름을 돌려준다. 저장소를 바꾸지 않는다.
+
+    지금 작업 branch 에 있으면 그 branch 다. 아니면 미반영 commit 이 있는 작업 branch 이고, 그런 branch 가
+    둘 이상이면 그 목록을 담은 UploadStop 을 올린다. 없으면 None 이다(main 의 commit 만 올린다).
+    """
+    current = current_branch(top, deadline)
+    if current and current.startswith(WORK_PREFIXES):
+        return current
+    candidates = [name for name in work_branches(top, deadline) if _ahead(top, name, deadline)]
+    if len(candidates) > 1:
+        raise UploadStop(f"미반영 commit 이 있는 작업 branch 가 둘 이상이다: {', '.join(candidates)}. "
+                         "개발자에게 어느 작업을 먼저 올릴지 묻고 git switch <branch> 로 옮긴 뒤 다시 실행하라.")
+    return candidates[0] if candidates else None
+
+
 def unpushed_commits(top, deadline=None):
-    """GitHub 공유 main 에 아직 없는 commit 을 "<짧은 번호> <제목>" 줄로 돌려준다. 작업 이슈 본문에 쓴다."""
-    refs = [ref for ref in [BRANCH, *work_branches(top, deadline)] if _ref_exists(top, f"refs/heads/{ref}", deadline)]
+    """이번 upload 가 올릴 commit 을 "<짧은 번호> <제목>" 줄로 돌려준다. 작업 이슈 본문에 쓴다.
+
+    main 과 upload_target 의 branch 만 본다. 다른 작업 branch 의 commit 은 이번에 올라가지 않기 때문이다.
+    """
+    target = upload_target(top, deadline)
+    refs = [ref for ref in [BRANCH, target] if ref and _ref_exists(top, f"refs/heads/{ref}", deadline)]
     if not refs:
         return []
     exclude = ["--not", REMOTE_REF] if _ref_exists(top, REMOTE_REF, deadline) else []
@@ -707,19 +727,13 @@ def _work_branch_for_upload(top, deadline):
         check_head(top, deadline)
     except BranchChoiceError as exc:
         raise UploadStop(str(exc)) from exc
-    current = current_branch(top, deadline)
-    candidates = [name for name in work_branches(top, deadline) if _ahead(top, name, deadline)]
-    if current and current.startswith(WORK_PREFIXES):
-        # 다른 작업 branch 에 미반영 commit 이 있어도 지금 branch 만 올린다. 나머지는 다음 업로드가 올린다.
+    # 다른 작업 branch 에 미반영 commit 이 있어도 upload_target 하나만 올린다. 나머지는 다음 업로드가 올린다.
+    target = upload_target(top, deadline)
+    if target:
+        if current_branch(top, deadline) != target:
+            gitcmd.git(top, "switch", "-q", target, deadline=deadline)
         relocate_main(top, deadline)
-        return current
-    if len(candidates) > 1:
-        raise UploadStop(f"미반영 commit 이 있는 작업 branch 가 둘 이상이다: {', '.join(candidates)}. "
-                         "개발자에게 어느 작업을 먼저 올릴지 묻고 git switch <branch> 로 옮긴 뒤 다시 실행하라.")
-    if candidates:
-        gitcmd.git(top, "switch", "-q", candidates[0], deadline=deadline)
-        relocate_main(top, deadline)
-        return candidates[0]
+        return target
     if not _ref_exists(top, REMOTE_REF, deadline):
         return None  # 첫 push 이고 main 만 있다
     # 이전 방식에서 push 하지 못한 main 의 커밋이나 main 위의 변경을 작업 브랜치로 옮긴다.

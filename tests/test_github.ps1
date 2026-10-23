@@ -165,6 +165,77 @@ try {
     Assert 'the session start hook never pushes' ((Invoke-Git $remote @('rev-parse', 'main')).Trim() -eq $before)
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 
+Write-Host '--- two work branches ---'
+# upload sends only the branch it targets, and the commit list for the task issue matches it (PR #63 review).
+$work2 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$repo2   = Join-Path $work2 'repo'
+$remote2 = Join-Path $work2 'remote.git'
+New-Item -ItemType Directory -Path $repo2 | Out-Null
+try {
+    $null = Invoke-Git $work2 @('init', '-q', '--bare', '-b', 'main', $remote2)
+    $null = Invoke-Git $repo2 @('init', '-q', '-b', 'main')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $repo2 (@('config') + $kv) }
+    $url2 = 'https://github.com/KiwoomAX/kwgh-two.git'
+    $null = Invoke-Git $repo2 @('remote', 'add', 'origin', $url2)
+    $null = Invoke-Git $repo2 @('config', "url.$($remote2.Replace('\', '/')).insteadOf", $url2)
+    # issue= is already set, so prepare-upload calls no gh and only reports the commit list.
+    [IO.File]::WriteAllText((Join-Path $repo2 '.kiwoom-feature'), "name=kwgh-two`ntitle=시험`nissue=1`n")
+    [IO.File]::WriteAllText((Join-Path $repo2 'a.py'), "x = 1`n")
+    $null = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'commit', '--repo', $repo2, '--message', '작업 폴더 준비')
+    $null = Invoke-Git $repo2 @('push', '-q', '-u', 'origin', 'main')
+    foreach ($b in @('feat/b', 'feat/a')) {
+        $null = Invoke-Git $repo2 @('switch', '-q', '-c', $b, 'main')
+        [IO.File]::WriteAllText((Join-Path $repo2 ($b.Replace('/', '_') + '.py')), "y = 1`n")
+        $null = Invoke-Git $repo2 @('add', '-A')
+        $null = Invoke-Git $repo2 @('commit', '-q', '-m', "$b work")
+    }
+    $prep = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'prepare-upload', '--repo', $repo2) | ConvertFrom-Json
+    $listed = @($prep.commits | ForEach-Object { $_.Split(' ', 2)[1] })
+    Assert 'prepare-upload lists only the commits of the branch being uploaded' (($listed -join '|') -eq 'feat/a work')
+    $up2 = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'upload', '--repo', $repo2, '--task', '7', '--title', 'a 올리기') | ConvertFrom-Json
+    $log2 = Invoke-Git $remote2 @('log', '--format=%s', 'main')
+    Assert 'upload sends the current work branch only' ($up2.status -eq 'uploaded' -and $log2 -match 'feat/a work' -and $log2 -notmatch 'feat/b work')
+    Assert 'the other work branch stays on this PC' ((Invoke-Git $repo2 @('branch', '--list')) -match 'feat/b')
+} finally { Remove-Item -LiteralPath $work2 -Recurse -Force -ErrorAction SilentlyContinue }
+
+Write-Host '--- issue ownership ---'
+# review-upload may delete issues it marks "ours", so only issues written by the current gh user count (PR #63 review).
+# gh is replaced inside Python so no real GitHub call is made.
+$probe = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $probe | Out-Null
+try {
+    $null = Invoke-Git $probe @('init', '-q', '-b', 'main')
+    $null = Invoke-Git $probe @('remote', 'add', 'origin', 'https://github.com/KiwoomAX/kwgh-own.git')
+    [IO.File]::WriteAllText((Join-Path $probe '.kiwoom-feature'), "name=kwgh-own`nissue=1`n")
+    $harness = @'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import gitcmd, save_work
+me = sys.argv[3]
+issues = [{"number": 1, "title": "[kwgh-own] mine", "body": "", "assignees": [], "author": {"login": "me"}},
+          {"number": 2, "title": "[kwgh-own] teammate", "body": "", "assignees": [], "author": {"login": "teammate"}}]
+def gh(*args, **kwargs):
+    if args[:2] == ("api", "user"):
+        return me + "\n"
+    if args[:2] == ("issue", "list"):
+        return json.dumps(issues)
+    raise AssertionError(args)
+gitcmd.gh = gh
+real = gitcmd.git
+gitcmd.git = lambda top, *a, **k: "" if a[:1] in (("fetch",), ("rev-parse",)) else real(top, *a, **k)
+save_work._leaked = lambda *a, **k: []
+r = save_work.review_upload(sys.argv[2])
+print(json.dumps({str(i["number"]): i["ours"] for i in r["issues"]}))
+'@
+    $hf = Join-Path $probe 'harness.py'
+    [IO.File]::WriteAllText($hf, $harness)
+    $mine = Invoke-Py @($hf, $Scripts, $probe, 'me') | ConvertFrom-Json
+    Assert 'an issue written by the current user is ours' ($mine.'1' -eq $true)
+    Assert 'an issue a teammate wrote with the same prefix is not ours' ($mine.'2' -eq $false)
+    $nobody = Invoke-Py @($hf, $Scripts, $probe, '') | ConvertFrom-Json
+    Assert 'no issue is ours when the current user is unknown' (($nobody.'1' -eq $false) -and ($nobody.'2' -eq $false))
+} finally { Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue }
+
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)
 if ($script:Fail -gt 0) { exit 1 }
