@@ -58,7 +58,8 @@ OLD_CACHE = CACHE.with_name("query_index.json")
 
 
 REOPEN = ("클로드 코드를 실행한 프로그램의 창을 모두 닫고 다시 연 뒤 새 세션에서 같은 요청"
-          " (터미널이면 Windows Terminal·PowerShell 창 전부, VS Code·JetBrains·클로드 데스크톱 앱이면 그 프로그램 창 전부)")
+          " (터미널이면 Windows Terminal·PowerShell 창 전부, VS Code·JetBrains·클로드 데스크톱 앱이면 그 프로그램 창 전부)."
+          " 접근 키 화면을 연 브라우저는 닫지 않아도 됨")
 STILL_SAME = "그래도 같으면 Windows 로그아웃 후 다시 로그인\n- 키를 다시 발급하지 않음"
 
 
