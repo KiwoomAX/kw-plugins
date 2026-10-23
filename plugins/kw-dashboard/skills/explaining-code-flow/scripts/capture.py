@@ -350,6 +350,12 @@ def capture_tour_result(tour_plan: list[dict], scene_results: dict, rects: dict)
     return out
 
 
+def end_on_first_screen(own: list[dict]) -> bool:
+    """동작 전 화면에서 결과 위치를 찾는지. 사람 동작이 있는 장면의 결과는 동작 뒤 화면에 있으므로 거기서만 찾는다.
+    동작 전 위치를 먼저 넣어 두면, 동작 뒤에 찾지 못했을 때 그 위치가 결과 화면에 잘못 남고 경고도 나오지 않는다."""
+    return not own
+
+
 def start_targets(own: list[dict], fallback=None) -> list[dict]:
     """시작 줌에 넣을 대상. 앞쪽에 이어진 입력 · 고르기 동작(예: 연도 고르기 → 월 고르기)의 대상을 모두 넣고,
     그런 동작이 없으면 첫 대상 하나를 넣는다. 사이의 기다리기는 건너뛴다."""
@@ -419,7 +425,8 @@ def capture(plan_doc: dict) -> dict:
                 steps = scene_steps(s)
                 setup, own = split_steps(steps)
                 firsts = start_targets(own, s.get("start"))
-                sr = {} if setup else {k: v for k, v in (("start", union([_locate(page, t) for t in firsts])), ("end", _locate_end(page, s.get("end")))) if v}
+                sr = {} if setup else {k: v for k, v in (("start", union([_locate(page, t) for t in firsts])),
+                                                         ("end", _locate_end(page, s.get("end")) if end_on_first_screen(own) else None)) if v}
                 if steps:
                     # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
                     cp, _ = fresh()
@@ -430,7 +437,8 @@ def capture(plan_doc: dict) -> dict:
                             start_img = f"{s['id']}_start.png"
                             cp.screenshot(path=str(out_dir / start_img))
                             sr["startImg"] = f"screens/{start_img}"
-                            sr.update({k: v for k, v in (("start", union([_locate(cp, t) for t in firsts])), ("end", _locate_end(cp, s.get("end")))) if v})
+                            sr.update({k: v for k, v in (("start", union([_locate(cp, t) for t in firsts])),
+                                                         ("end", _locate_end(cp, s.get("end")) if end_on_first_screen(own) else None)) if v})
                         points, frames = frame_points(own), []
                         sr["frames"] = frames  # 중간 동작에서 멈춰도 그때까지 찍은 동작 이미지는 남는다
 
@@ -572,6 +580,8 @@ def _check() -> int:
            any("swipe" in e for e in errs) and any("to 나 by" in e for e in errs)
            and any("upload 의 file" in e for e in errs) and any("paste 에 text" in e for e in errs))
 
+    expect("사람 동작이 없는 장면만 동작 전 화면에서 결과 위치를 찾는다",
+           end_on_first_screen([]) and not end_on_first_screen([{"action": "click", "target": {"text": "검색"}}]))
     expect("보이는 후보가 하나면 그 후보를 고른다", pick_unique([False, True, False]) == 1)
     expect("보이는 후보가 둘 이상이면 찾지 못함이다", pick_unique([True, True]) is None)
     expect("보이는 후보가 없으면 찾지 못함이다", pick_unique([False]) is None)
