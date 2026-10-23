@@ -66,7 +66,7 @@ def key_refused(reason: str) -> SystemExit:
     """접근 키 화면을 알리고(Windows 에서는 브라우저로 열고), 발급·설정 순서를 적은 종료를 돌려준다."""
     opened = OPEN_BROWSER and webbrowser.open(KEY_PAGE)
     page = f"접근 키 화면 {KEY_PAGE} ({'브라우저로 열림' if opened else '브라우저로 열지 못함'})"
-    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급·「사용 방법」대로 환경 변수 {KEY_ENV} 설정\n"
+    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급. 클로드가 SKILL.md 「접근 키」 순서대로 환경 변수 {KEY_ENV} 등록\n"
                       f"- 설정 뒤: {REOPEN}\n- 키 원문은 대화에 붙여 넣지 않음")
 
 
