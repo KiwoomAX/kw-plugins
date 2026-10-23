@@ -1178,8 +1178,7 @@ if ($Brief) {
 '@
 Check '로그인하지 않은 PC 에는 로그인 안내를 한 줄로 알린다' {
     $o = Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -NoGh
-    # 필수 플러그인 안내에 kw-github 라는 이름이 나오므로 대소문자를 가리는 -cmatch 로 GitHub 만 찾는다.
-    $gh = @($o -split "`n" | Where-Object { $_ -cmatch 'GitHub|gh auth|초대' })
+    $gh = @($o -split "`n" | Where-Object { $_ -match 'GitHub|gh auth|초대' })
     ($gh.Count -eq 1) -and ($gh[0] -match '^KW 컨트롤 타워: 사내 GitHub 로그인이 필요합니다\. .*gh auth login --web')
 }
 Check '로그인한 PC 에는 로그인 안내를 내지 않는다' {
@@ -1477,7 +1476,7 @@ Check '동기화를 단계 1·2 와 마무리로 뗄 수 있다' { ($cut3 -gt 0)
 # 동기화 시나리오의 가짜 PC 에 설치되어 있는 플러그인이다. 업데이트 알림 줄 개수 같은 기대값은
 # 숫자로 적지 않고 이 목록에서 센다. 플러그인을 추가할 때 이 목록만 고치면 된다.
 $script:ScenarioIds = @('kw-control-tower@kiwoom-ax', 'kw-doc-formats@kiwoom-ax', 'kw-devops@kiwoom-ax', 'kw-dashboard@kiwoom-ax',
-                        'kw-design@kiwoom-ax', 'kw-github@kiwoom-ax', 'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
+                        'kw-design@kiwoom-ax', 'document-skills@anthropic-agent-skills', 'disciplined-coder@chshin-tools')
 
 function Invoke-SyncScenario {
     # 가짜 홈에서 떼어 낸 동기화를 실행하고 출력과 상태 파일과 설치된 플러그인의 버전을 돌려준다.
