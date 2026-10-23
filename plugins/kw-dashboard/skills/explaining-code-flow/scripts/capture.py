@@ -406,9 +406,13 @@ def capture(plan_doc: dict) -> dict:
 
             def fresh():
                 page = browser.new_page(viewport={"width": SHOT_W, "height": SHOT_H})
-                page.route("**/*", handle)
-                doc = page.goto(base + f["path"], wait_until="load", timeout=30000)
-                page.wait_for_timeout(1500)
+                try:
+                    page.route("**/*", handle)
+                    doc = page.goto(base + f["path"], wait_until="load", timeout=30000)
+                    page.wait_for_timeout(1500)
+                except Exception:
+                    page.close()  # 열다가 실패한 화면을 열어 둔 채로 두지 않는다
+                    raise
                 return page, (doc.status if doc else 0)
 
             try:
@@ -428,9 +432,11 @@ def capture(plan_doc: dict) -> dict:
                 sr = {} if setup else {k: v for k, v in (("start", union([_locate(page, t) for t in firsts])),
                                                          ("end", _locate_end(page, s.get("end")) if end_on_first_screen(own) else None)) if v}
                 if steps:
-                    # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다
-                    cp, _ = fresh()
+                    # 앞 장면의 동작이 남긴 상태를 지우려고 장면마다 화면을 새로 연다. 응답이 가짜라 눌러도 바깥에 아무 일도 없다.
+                    # 화면 열기도 아래 오류 처리 안에서 한다. 한 장면의 열기 시간 초과가 캡처 전체를 끝내지 않고 그 장면만 실패로 남긴다
+                    cp = None
                     try:
+                        cp, _ = fresh()
                         if setup:
                             # 준비 동작을 마친 화면이 이 장면의 시작 화면이다. 장면 자신의 첫 동작 위치를 그 화면에서 찾는다
                             _run(cp, setup, "준비")
@@ -467,7 +473,8 @@ def capture(plan_doc: dict) -> dict:
                             sr["typed"] = own[0]["text"]
                     except Exception as e:
                         sr["failed"] = str(e)  # 대상을 찾지 못하면 시작 화면 안의 결과 위치로 줌하고, 멈춘 동작을 보고에 남긴다
-                    cp.close()
+                    if cp:
+                        cp.close()
                 if not sr.get("frames"):
                     sr.pop("frames", None)
                 if not steps:
