@@ -392,6 +392,12 @@ async function play(a, b, p0 = 0, single = false) {
     return sceneDone(my);
   }
 
+  if (sc.unavailable) {  // 캡처하지 못한 장면은 앞 장면 화면을 남기지 않고, 캡처 칸을 회색 면으로 덮어 이유를 보인다
+    view.insertAdjacentHTML('beforeend', `<div class="wait">${esc(sc.unavailable)}</div>`);
+    cap('캡처하지 못한 장면', '#5B6C8C');
+    await wait(3000); if (my !== run) return;
+    return sceneDone(my);
+  }
   if (sc.endImg) new Image().src = sc.endImg;
   const img0 = s.img0 || sc.endImg;
   // 부분 목록. 각 부분은 카메라가 갈 곳(rect · img)과 설명 칸 문구와 머무는 시간이다
