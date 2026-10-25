@@ -122,7 +122,8 @@ def _node_service(d: Path) -> dict | None:
         run = ["npm", "exec", "--", "react-scripts", "start"]
         env = {"HOST": "127.0.0.1", "PORT": "{port}", "BROWSER": "none"}
     else:
-        raise RepoError(f"{d.name}: Next.js · Vite · Create React App 이 아닌 화면은 아직 띄우는 방법을 모릅니다")
+        # 모노레포 루트의 dev 처럼 화면이 아닌 스크립트일 수 있으므로 여기서 멈추지 않고 다음 폴더를 찾게 한다
+        return {"unknown": d.name}
     if (d / "node_modules").exists():
         install = []
     else:
@@ -131,14 +132,20 @@ def _node_service(d: Path) -> dict | None:
 
 
 def plan(repo: Path) -> dict:
+    unknown = []
     for d in _dirs(repo):
         svc = _node_service(d)
+        if svc and "unknown" in svc:
+            unknown.append(svc["unknown"])
+            continue
         if svc:
             port = free_port()
             svc["port"] = port
             svc["run"] = [str(port) if t == "{port}" else t for t in svc["run"]]
             svc["env"] = {k: str(port) if v == "{port}" else v for k, v in svc["env"].items()}
             return svc
+    if unknown:
+        raise RepoError(f"{', '.join(unknown)}: Next.js · Vite · Create React App 이 아닌 화면은 아직 띄우는 방법을 모릅니다")
     raise RepoError("이 레포에서 Node 화면(package.json 의 dev 스크립트, 또는 Create React App 의 start 스크립트)을 찾지 못했습니다")
 
 
@@ -285,6 +292,22 @@ def _check() -> int:
         p = plan(cra)
         expect("Create React App 화면은 start 스크립트로 찾고 react-scripts 를 직접 부른다", p["run"][3:] == ["react-scripts", "start"])
         expect("Create React App 은 루프백 · 빈 포트를 환경변수로 준다", p["env"].get("HOST") == "127.0.0.1" and p["env"].get("PORT") == str(p["port"]) and p["env"].get("BROWSER") == "none")
+
+        mono = root / "monorepo"; (mono / "src" / "frontend").mkdir(parents=True)
+        (mono / "package.json").write_text(json.dumps({"scripts": {"dev": "concurrently \"npm:api\" \"npm:web\""}}), encoding="utf-8")
+        (mono / "src" / "frontend" / "package.json").write_text(json.dumps({"scripts": {"dev": "vite"}, "devDependencies": {"vite": "6"}}), encoding="utf-8")
+        try:
+            p = plan(mono)
+            expect("루트의 dev 스크립트가 화면이 아니면 하위 폴더의 화면을 찾는다", p["cwd"].replace("\\", "/").endswith("src/frontend"))
+        except RepoError as e:
+            expect(f"루트의 dev 스크립트가 화면이 아니면 하위 폴더의 화면을 찾는다 ({e})", False)
+        only = root / "onlyroot"; only.mkdir()
+        (only / "package.json").write_text(json.dumps({"scripts": {"dev": "nodemon server.js"}}), encoding="utf-8")
+        try:
+            plan(only)
+            expect("어느 폴더에도 아는 화면이 없으면 실행 방법을 모른다고 알린다", False)
+        except RepoError as e:
+            expect("어느 폴더에도 아는 화면이 없으면 실행 방법을 모른다고 알린다", "띄우는 방법을 모릅니다" in str(e) and "onlyroot" in str(e))
 
         empty = root / "static"; (empty / "src" / "web").mkdir(parents=True)
         try:
