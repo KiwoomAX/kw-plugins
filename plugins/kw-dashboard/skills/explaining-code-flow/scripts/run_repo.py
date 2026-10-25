@@ -190,6 +190,9 @@ def _kill_tree(pid: int) -> None:
 
 
 def start(repo: Path, state_path: Path) -> dict:
+    # 지난 실행이 남긴 상태 파일은 지우기만 한다. 오래된 파일의 프로그램 번호는 이미 다른 프로그램의 것일 수 있어 끄지 않는다.
+    # 지워 두면 이번 설치가 실패해 stop 이 실행돼도 지난 실행의 번호를 읽지 않는다
+    state_path.unlink(missing_ok=True)
     svc = plan(repo)
     tmp = state_path.parent
     tmp.mkdir(parents=True, exist_ok=True)
@@ -238,6 +241,9 @@ def stop(state_path: Path) -> list[str]:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     for pid in reversed(state.get("pids", [])):
         _kill_tree(pid)
+    # 끈 뒤 상태 파일을 지운다. 남겨 두면 다음 stop 이 이미 끝난 프로그램 번호를 다시 강제 종료하는데,
+    # Windows 는 그 번호를 곧 다른 프로그램에 다시 주므로 사용자가 쓰던 프로그램이 꺼질 수 있다
+    state_path.unlink(missing_ok=True)
     after = _git_status(Path(state["repo"]))
     return [line for line in after if line not in state.get("git_before", [])]
 
@@ -341,6 +347,24 @@ def _check() -> int:
             expect("이미 꺼진 프로세스를 두 번 꺼도 오류가 없다", True)
         except Exception as e:
             expect(f"이미 꺼진 프로세스를 두 번 꺼도 오류가 없다 ({e})", False)
+
+        # Windows 는 끝난 프로그램 번호를 곧 다른 프로그램에 다시 준다. 한 번 끈 번호를 다시 강제 종료하지 않아야 한다
+        killed = []
+        real_kill = globals()["_kill_tree"]
+        globals()["_kill_tree"] = killed.append
+        try:
+            st.write_text(json.dumps({"repo": t, "pids": [999999], "git_before": []}), encoding="utf-8")
+            stop(st); first = list(killed); stop(st)
+            expect("stop 을 두 번 실행해도 두 번째는 아무 프로그램도 끄지 않는다", first == [999999] and killed == [999999] and not st.exists())
+            # start 첫머리는 남은 상태 파일을 지우기만 하고 그 번호를 끄지 않는다. 화면이 없는 레포라 plan 에서 멈추게 해 확인한다
+            st.write_text(json.dumps({"repo": t, "pids": [888888], "git_before": []}), encoding="utf-8")
+            try:
+                start(empty, st)
+            except RepoError:
+                pass
+            expect("start 는 지난 실행의 상태 파일을 지우기만 하고 그 프로그램은 끄지 않는다", 888888 not in killed and not st.exists())
+        finally:
+            globals()["_kill_tree"] = real_kill
 
     win = ("  TCP    127.0.0.1:8765         0.0.0.0:0              LISTENING       1234\n"
            "  TCP    0.0.0.0:3012           0.0.0.0:0              LISTENING       99\n"
