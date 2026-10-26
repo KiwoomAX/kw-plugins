@@ -1,6 +1,6 @@
 ---
 name: building-kiwoom-dashboard
-description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from KiwoomAX/dashboard-template, such as starting a new 본부 dashboard, adding a feature page or sidebar menu entry, filling the alert drawer, adding a backend API, or deciding how far a dashboard page may differ from the kw-design default look. Also use when moving an existing dashboard (such as an old dash-kit HTML one) into the template, and when reviewing such a change before it ships. Triggers on 본부 대시보드·대시보드 기능 추가·사이드바 메뉴·알림 서랍·dashboard-template·dash-kit 이전·대시보드 규칙.
+description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from KiwoomAX/dashboard-template, such as starting a new 본부 dashboard, adding a feature page or sidebar menu entry, filling the alert drawer, adding a backend API, or deciding how far a dashboard page may differ from the kw-design default look. Also use when moving an existing dashboard (such as an old dash-kit HTML one) into the template, when moving a feature repo into a 본부 dashboard repo, and when reviewing such a change before it ships. Triggers on 본부 대시보드·대시보드 기능 추가·사이드바 메뉴·알림 서랍·dashboard-template·dash-kit 이전·기능 레포 이전·대시보드에 기능 옮기기·대시보드 규칙.
 ---
 
 # building-kiwoom-dashboard
@@ -103,22 +103,29 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 기능 붙이기
 
-기능 하나는 페이지 하나와 메뉴 줄 하나다.
+기능 하나는 기능 폴더 두 곳이다. 템플릿이 두 폴더를 찾아 사이드바 메뉴와 백엔드 라우터를 저절로 붙이므로
+`routes.tsx` 와 `main.py` 는 고치지 않는다.
 
-1. 페이지 컴포넌트를 만들고 내용을 `DashboardLayout` 으로 감싼다. 상태바에 보일 값은 이 컴포넌트의 props 로만
-   넘긴다(아래 「상태바 값」).
-2. `src/frontend/src/routes.tsx` 의 메뉴 목록에 줄을 추가한다. 줄 모양과 카테고리 규칙은 그 파일 주석에 있고,
-   규칙을 어기면 브라우저 콘솔에 `[shell]` 경고가 나온다.
-   **대표 기능 하나는 `path: '/'` 로 둔다.** 그 기능이 대시보드의 첫 화면이 된다. `/` 를 맡은 기능이 없으면
-   주소 `/` 로 들어온 사람은 템플릿의 빈 첫 화면을 본다.
-3. **화면이 아직 없는 기능은 메뉴에 넣지 않는다.** 화면이 생길 때 줄을 추가한다. `locked: true` 는 화면이 있는데
-   권한이 없는 기능에만 쓴다. 툴팁이 「접근 권한이 없습니다」라서 화면이 없는 기능에 쓰면 뜻이 틀린다.
-4. **카테고리에 들지 않은 낱개 기능은 카테고리 앞이나 뒤에 모아 둔다.** 홈처럼 첫 화면이 되는 기능은 카테고리
-   앞에 둔다. 카테고리 사이에 끼우면 콘솔에 경고가 나온다. 카테고리 안 기능이 하나뿐이어도 된다.
+1. 화면은 `src/frontend/src/features/<기능 이름>/` 에 둔다. 페이지 컴포넌트의 내용을 `DashboardLayout` 으로 감싸고,
+   상태바에 보일 값은 이 컴포넌트의 props 로만 넘긴다(아래 「상태바 값」).
+2. 같은 폴더의 `menu.ts` 에 메뉴 항목을 적는다. `name` 은 메뉴 이름, `page` 는 페이지 컴포넌트, `cat` 은 카테고리,
+   `path` 는 주소다. `path` 를 비우면 `/<기능 이름>` 이 된다. 메뉴 순서를 정하는 칸은 없다. 템플릿의 `buildMenu`
+   가 순서를 정한다. `manualMenu` 의 낱개 항목이 적은 순서대로 먼저 오고, 카테고리 없는 기능이 폴더 이름순으로
+   그 뒤에 온다. 카테고리 있는 기능은 같은 이름의 카테고리 안에 폴더 이름순으로 들어가고, 새 카테고리는 맨 뒤에
+   붙는다.
+3. **대표 기능 하나는 `path: '/'` 로 둔다.** 그 기능이 대시보드의 첫 화면이 되고, 카테고리 없는 기능 중 맨 앞에
+   온다. 첫 화면 기능에는 카테고리를 두지 않는다. 카테고리에 들면 사이드바 맨 앞에 오지 않는다.
+4. **화면이 아직 없는 기능은 메뉴에 넣지 않는다.** 화면이 생길 때 `menu.ts` 를 만든다. 잠긴 메뉴(`locked: true`)는
+   `menu.ts` 에 쓸 수 없고 `manualMenu` 에만 적는다. 화면이 있는데 권한이 없는 기능에만 쓴다. 툴팁이 「접근 권한이
+   없습니다」라서 화면이 없는 기능에 쓰면 뜻이 틀린다.
 5. 기능 이름은 한글 13자 안쪽을 권장한다. 넘으면 2줄로 접혀 그 줄만 키가 커진다.
-6. 백엔드 API 는 `src/backend` 에 라우터로 만들어 `/api/<기능 이름>` 아래에 붙인다. 기능 이름은 영문 소문자와
-   하이픈으로 짓고(`/api/kpi`), 알림 서랍은 `/api/alerts` 를 쓴다. nginx 가 `/api/` 로 시작하는 요청만 백엔드로
-   넘긴다. 다른 서버의 키나 토큰이 필요한 호출은 브라우저에서 하지 않고 백엔드가 한다.
+6. 백엔드 API 는 `src/backend/features/<기능 이름>/router.py` 에 FastAPI `APIRouter` 를 `router` 라는 이름으로 둔다.
+   그러면 `/api/<기능 이름>` 아래에 붙는다. 기능 폴더 이름은 영문 소문자와 하이픈으로 짓고(`kpi` → `/api/kpi`),
+   알림 서랍은 `/api/alerts` 를 쓴다. nginx 가 `/api/` 로 시작하는 요청만 백엔드로 넘긴다. 다른 서버의 키나
+   토큰이 필요한 호출은 브라우저에서 하지 않고 백엔드가 한다.
+7. 기능 시험은 `src/backend/features/<기능 이름>/tests/` 에 둔다. 기능 폴더 이름에 하이픈이 들 수 있어 import
+   문을 쓸 수 없으므로 `importlib.import_module("src.backend.features.<기능 이름>.<모듈>")` 로 들여온다.
+8. 기능 폴더가 없는 메뉴 항목만 `routes.tsx` 의 `manualMenu` 에 직접 적는다.
 
 ## 상태바 값
 
@@ -139,7 +146,6 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 사람이 지키는 것
 
-- 사이드바 메뉴에 기능을 추가하려면 본부 승인이 있어야 한다.
 - 권한 설정은 배포하기 전에 AX 팀에 요청한다. 누가 어느 대시보드와 기능을 보는지는 AX 팀이 정한다.
 - 메뉴에 붙인 기능마다 설명 문서를 repo 의 `docs/` 에 둔다. 형식은 PDF 나 Word 이고 PDF 를 권장한다. 파일
   이름은 API 와 같은 기능 이름으로 짓는다(`/api/kpi` → `docs/kpi.pdf`). 화면 목적 · 데이터 출처와 갱신 주기 ·
@@ -158,6 +164,12 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
   가운데로 옮기면 사이드바를 접거나 알림 서랍을 열 때마다 내용의 왼쪽 끝이 움직인다.
 - 목업은 그 스킬의 대시보드 목업 템플릿으로 만들거나, 이 repo 를 실행해 보인다. 사이드바와 상태바를 HTML 로
   손수 그리지 않는다.
+
+## 기능 레포를 대시보드로 옮길 때
+
+개발자가 kw-github 로 따로 만든 기능 레포를 본부 대시보드에 붙이려 하면, 또는 그 기능으로 대시보드를 처음
+만들려 하면 [adopting-feature-repo.md](adopting-feature-repo.md) 를 끝까지 읽고 옮긴다. 기능 레포 하나를 한 번
+옮기고, 옮긴 뒤에는 대시보드 쪽 코드가 기준이 되며 기능 레포는 정리한다.
 
 ## 이미 만든 대시보드를 옮길 때
 
@@ -181,5 +193,5 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 - [ ] 낮과 밤에서 모두 보인다. 사이드바를 편 채 알림 서랍을 연 상태에서도 내용 구획이 깨지지 않는다
 - [ ] 새로 만든 화면의 글자 크기가 `designing-kiwoom-frontend` 크기 표 안의 값이고, 색은 토큰 이름이다. 공용 디자인 적용을 승인받지 않았다면 옮겨 온 화면은 옛 모양 그대로다
 - [ ] 새로 만든 화면에 `designing-kiwoom-frontend` 「쓰지 않는 장식」 의 장식이 없다. 사람이 요청한 장식은 예외다
-- [ ] 화면이 없는 기능이 메뉴에 없고, 대표 기능 하나가 `path: '/'` 다
+- [ ] 화면이 없는 기능에 `menu.ts` 가 없고, 대표 기능 하나의 `menu.ts` 가 `path: '/'` 다
 - [ ] `docs/` 에 새 기능의 설명 문서가 있다. 없으면 사람에게 알린다

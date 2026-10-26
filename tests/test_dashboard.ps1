@@ -55,7 +55,7 @@ Assert 'description says when to open the skill' ($desc -match '^Use when ')
 Assert 'description is a safe plain scalar' (-not ($desc -match ': | #'))
 
 # A reference file that SKILL.md does not link is never opened.
-$refs = @('migrating-existing-dashboard.md')
+$refs = @('migrating-existing-dashboard.md', 'adopting-feature-repo.md')
 foreach ($ref in $refs) {
     Assert "$ref ships" (Test-Path (Join-Path $SkillDir $ref))
     Assert "SKILL.md links $ref" ($text -match [regex]::Escape("]($ref)"))
@@ -73,6 +73,19 @@ Assert 'the skill names the template repo' ($text -match 'KiwoomAX/dashboard-tem
 Assert 'the deploy skill it hands off to ships in this marketplace' (
     ($allText -match 'deploying-kiwoom-service') -and
     (Test-Path (Join-Path $Repo 'plugins/kw-devops/skills/deploying-kiwoom-service/SKILL.md')))
+
+# Moving a feature repo into a dashboard runs on scripts the procedure calls.
+# Each one carries a --check self test on throwaway git repos.
+$adoptText = Read-TextOrEmpty (Join-Path $SkillDir 'adopting-feature-repo.md')
+foreach ($s in @('check_central.py', 'check_feature.py', 'import_feature.py', 'resume_state.py', 'cleanup_check.py')) {
+    $py = Join-Path $SkillDir "scripts/$s"
+    Assert "$s ships" (Test-Path $py)
+    Assert "adopting-feature-repo.md calls $s through CLAUDE_SKILL_DIR" ($adoptText -match [regex]::Escape('${CLAUDE_SKILL_DIR}/scripts/' + $s))
+    $null = & python $py --check 2>&1 | Out-String
+    Assert "$s --check passes" ($LASTEXITCODE -eq 0)
+}
+# Menu entries no longer need a division sign-off; the auto-register template took that step away.
+Assert 'SKILL.md no longer asks for a division sign-off on menu entries' (-not ($text -match '본부 승인'))
 
 Write-Host '--- explaining-code-flow ---'
 # The flow skill runs a repo on this PC, captures its screens and renders a guide
