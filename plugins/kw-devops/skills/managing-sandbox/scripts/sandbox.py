@@ -179,6 +179,162 @@ def cmd_select(args) -> int:
     return 0
 
 
+MAX_ROWS = 30_000
+"""조회 한 번의 상한(계약 request.MAX_LIMIT). 행 수를 셀 때 이보다 많으면 "30,000행 이상"으로 보인다."""
+
+CHANGES = ("add_column", "drop_column", "rename_column", "rename_table", "set_description")
+"""표 변경 요청의 다섯 모양(계약 changes.TableChange). 요청 하나에 하나만 든다."""
+
+
+def _table_entry(schema: str, table: str) -> dict:
+    for t in call("GET", f"/sandbox/schemas/{schema}")["tables"]:
+        if t["table"] == table:
+            return t
+    raise Refused("sandbox_unknown_table", "범위 초과 거절", f"샌드박스 테이블 없음: {schema}.{table}")
+
+
+def _describe(schema: str, table: str) -> dict:
+    return call("POST", "/sandbox/table/describe", {"schema": schema, "table": table})
+
+
+def preview(action: str, body: dict) -> tuple[str, list[str]]:
+    """(확인값, 미리보기 줄들). 확인값은 실행 직전에 다시 계산해 미리보기 때와 같을 때만 실행한다."""
+    schema, table = body["schema"], body["table"]
+    lines = [f"대상: {schema}.{table}"]
+    if not record.has(schema, table):
+        lines.append("내 표 기록에 없음: 다른 사람이 만들었을 수 있는 표")
+    if action in ("rename_table", "rename_column"):
+        lines.append("이 이름을 쓰는 다른 사람의 서비스가 깨질 수 있음")
+        return (body["rename_table"] if action == "rename_table" else body["rename_column"]["to"]), lines
+    if action == "upsert":
+        lines.append(f"보낼 행: {len(body['rows'])}. 같은 primary key 의 행은 덮어씀")
+        return str(len(body["rows"])), lines
+    if action in ("update", "delete") and not body.get("all"):
+        # 값은 받지 않을 수 없으니, 짧은 primary key 컬럼 하나만 받고 출력하지 않는다.
+        detail = _describe(schema, table)
+        column = (detail["primary_key"] or [detail["columns"][0]["name"]])[0]
+        page = call("POST", "/sandbox/rows/select", {"schema": schema, "table": table, "columns": [column],
+                                                     "where": body.get("where"), "limit": MAX_ROWS})
+        if page["truncated"]:
+            lines.append("조건에 맞는 행: 30,000행 이상")
+            return f"{MAX_ROWS}+", lines
+        lines.append(f"조건에 맞는 행: {len(page['rows'])}")
+        return str(len(page["rows"])), lines
+    # 표 전체가 대상이면 행을 조회하지 않는다. 데이터가 PC 로 들어오지 않게 추정 행 수를 쓴다.
+    entry = _table_entry(schema, table)
+    estimated = entry["estimated_rows"]
+    shown = "없음" if estimated is None else f"{estimated:,}"
+    lines.append(f"추정 행: {shown} · 크기 {_size(entry['size_bytes'])}. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있음")
+    if action == "drop_column":
+        indexes = [i["name"] for i in _describe(schema, table)["indexes"] if body["drop_column"] in i["columns"]]
+        if indexes:
+            lines.append(f"함께 삭제됨: 인덱스 {', '.join(indexes)}")
+    return ("추정없음" if estimated is None else str(estimated)), lines
+
+
+def guarded(action: str, body: dict, confirm: str | None, send) -> int:
+    """확인 대상 동작. 확인값 없이는 미리보기만 내고(종료 코드 3), 확인값이 바뀌었으면 실행하지 않는다."""
+    token, lines = preview(action, body)
+    if confirm is None:
+        print("\n".join(lines))
+        print(f"확인값: {token}")
+        print(f"실행하려면 --confirm {token}")
+        return 3
+    if confirm != token:
+        print(f"대상 규모가 바뀜: 미리보기 {confirm}, 지금 {token}. 실행하지 않음")
+        return 1
+    return send(token)
+
+
+def _record(update) -> int:
+    """변경이 반영된 뒤의 기록 갱신. 실패해도 변경을 다시 보내지 않게 그 사실을 함께 알린다."""
+    try:
+        update()
+    except OSError as e:
+        print(f"변경은 반영됨. 내 표 기록만 고치지 못함: {e}\n- 조치: 같은 요청을 다시 보내지 않고 record 명령으로 기록 수정")
+        return 1
+    return 0
+
+
+def _rows(kind: str, body: dict, token: str | None) -> int:
+    done = call("POST", f"/sandbox/rows/{kind}", body)
+    label = {"insert": "삽입한", "update": "수정한", "delete": "삭제한"}[kind]
+    print(f"{label} 행: {done['row_count']}" + (f" (확인값 {token})" if token else ""))
+    return 0
+
+
+def cmd_insert(args) -> int:
+    body = read_json(args.request)
+    mode = body.get("mode", "append")
+    if mode in ("replace", "upsert"):
+        return guarded(mode, body, args.confirm, lambda token: _rows("insert", body, token))
+    return _rows("insert", body, None)
+
+
+def _cmd_target(kind: str):
+    def run(args) -> int:
+        body = read_json(args.request)
+        if body.get("where") is None and not body.get("all"):
+            return _rows(kind, body, None)  # DBGateway 가 where 와 all 이 둘 다 없는 요청을 거절한다
+        return guarded(kind, body, args.confirm, lambda token: _rows(kind, body, token))
+    return run
+
+
+def cmd_drop(args) -> int:
+    body = {"schema": args.schema, "table": args.table}
+    record.entries()  # 기록이 깨졌으면 변경 요청을 보내기 전에 멈춘다
+
+    def send(token: str) -> int:
+        call("POST", "/sandbox/table/drop", body)
+        print(f"완료: {args.schema}.{args.table} 삭제")
+        return _record(lambda: record.remove(args.schema, args.table))
+    return guarded("drop", body, args.confirm, send)
+
+
+def cmd_alter(args) -> int:
+    body = read_json(args.change)
+    kinds = [k for k in CHANGES if k in body]
+    if len(kinds) != 1:
+        raise SystemExit(f"변경 요청에는 다음 가운데 하나만 넣음: {', '.join(CHANGES)}")
+    kind = kinds[0]
+
+    def send(token: str | None) -> int:
+        call("POST", "/sandbox/table/alter", body)
+        if kind == "rename_table":
+            print(f"완료: {body['schema']}.{body['table']} → {body['rename_table']}")
+            return _record(lambda: record.rename(body["schema"], body["table"], body["rename_table"]))
+        print(f"완료: {body['schema']}.{body['table']} {kind}")
+        return 0
+    if kind in ("drop_column", "rename_column", "rename_table"):
+        if kind == "rename_table":
+            record.entries()
+        return guarded(kind, body, args.confirm, send)
+    return send(None)
+
+
+def cmd_create(args) -> int:
+    spec = read_json(args.spec)
+    if not spec.get("description"):
+        raise SystemExit("DB 설명(description) 없음: 동료가 알아볼 짧은 요약 필요")
+    record.entries()
+    call("POST", "/sandbox/table/create", spec)
+    print(f"완료: {spec['schema']}.{spec['table']} 생성, 내 표 기록에 추가")
+    return _record(lambda: record.add(spec["schema"], spec["table"], args.purpose))
+
+
+def cmd_index_create(args) -> int:
+    spec = read_json(args.spec)
+    call("POST", "/sandbox/index/create", spec)
+    print(f"완료: 인덱스 {spec['name']} 생성")
+    return 0
+
+
+def cmd_index_drop(args) -> int:
+    call("POST", "/sandbox/index/drop", {"schema": args.schema, "table": args.table, "name": args.name})
+    print(f"완료: 인덱스 {args.name} 삭제")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="DBGateway 샌드박스 경로를 접근 키로 호출한다.")
     parser.add_argument("--selfcheck", action="store_true", help=argparse.SUPPRESS)
@@ -196,6 +352,31 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--all", action="store_true", help="모든 페이지를 받는다. --out 이 필요하다")
     p.add_argument("--out", metavar="FILE", help="결과를 이 파일에 쓴다")
     p.set_defaults(func=cmd_select)
+    p = sub.add_parser("create", help="표 생성. 스펙은 JSON 파일, description 필수")
+    p.add_argument("--spec", required=True, metavar="FILE")
+    p.add_argument("--purpose", required=True, help="내 표 기록에 남길 자세한 용도")
+    p.set_defaults(func=cmd_create)
+    for name, func, file_arg, text in (("insert", cmd_insert, "--request", "행 삽입. replace·upsert 는 확인 필요"),
+                                       ("update", _cmd_target("update"), "--request", "행 수정. 확인 필요"),
+                                       ("delete", _cmd_target("delete"), "--request", "행 삭제. 확인 필요"),
+                                       ("alter", cmd_alter, "--change", "표 변경. 컬럼 삭제·이름 변경은 확인 필요")):
+        p = sub.add_parser(name, help=text)
+        p.add_argument(file_arg, required=True, metavar="FILE")
+        p.add_argument("--confirm", metavar="확인값")
+        p.set_defaults(func=func)
+    p = sub.add_parser("drop", help="표 삭제. 확인 필요")
+    p.add_argument("--schema", required=True)
+    p.add_argument("--table", required=True)
+    p.add_argument("--confirm", metavar="확인값")
+    p.set_defaults(func=cmd_drop)
+    p = sub.add_parser("index-create", help="인덱스 생성. 스펙은 JSON 파일")
+    p.add_argument("--spec", required=True, metavar="FILE")
+    p.set_defaults(func=cmd_index_create)
+    p = sub.add_parser("index-drop", help="인덱스 삭제")
+    p.add_argument("--schema", required=True)
+    p.add_argument("--table", required=True)
+    p.add_argument("--name", required=True)
+    p.set_defaults(func=cmd_index_drop)
     args = parser.parse_args(argv)
     if args.selfcheck:
         record._selfcheck()
@@ -316,6 +497,42 @@ class Fake:
                          "truncated": len(rows) > offset + limit}
         if path == "/sandbox/rows/insert" and "rows" not in (body or {}):
             return 422, {"detail": [{"type": "missing", "loc": ["body", "rows"], "msg": "Field required"}]}
+        if path.startswith("/sandbox/rows/"):
+            t = self.tables.get(body["table"])
+            if t is None:
+                return self._unknown(body["table"])
+            hit = [r for r in t["rows"] if body.get("all") or all(r.get(k) == v for k, v in body.get("where", {}).items())]
+            if path.endswith("/insert"):
+                if body.get("mode") == "replace":
+                    t["rows"] = []
+                t["rows"] += [dict(r) for r in body["rows"]]
+                return 200, {"row_count": len(body["rows"])}
+            if path.endswith("/update"):
+                for r in hit:
+                    r.update(body["set"])
+                return 200, {"row_count": len(hit)}
+            if path.endswith("/delete"):
+                t["rows"] = [r for r in t["rows"] if r not in hit]
+                return 200, {"row_count": len(hit)}
+        if path == "/sandbox/table/create":
+            self.tables[body["table"]] = {"columns": body["columns"], "primary_key": body.get("primary_key", []),
+                                          "indexes": [], "estimated_rows": None, "size_bytes": 8192,
+                                          "description": body.get("description"), "rows": []}
+            return self.route("/sandbox/table/describe", body)
+        if path in ("/sandbox/table/drop", "/sandbox/table/alter", "/sandbox/index/drop"):
+            t = self.tables.get(body["table"])
+            if t is None:
+                return self._unknown(body["table"])
+            if path.endswith("/drop") and "index" not in path:
+                del self.tables[body["table"]]
+                return 204, None
+            if "index" in path:
+                t["indexes"] = [i for i in t["indexes"] if i["name"] != body["name"]]
+                return 204, None
+            if "rename_table" in body:
+                self.tables[body["rename_table"]] = self.tables.pop(body["table"])
+                return self.route("/sandbox/table/describe", {**body, "table": body["rename_table"]})
+            return self.route("/sandbox/table/describe", body)
         return 404, {"detail": "Not Found"}
 
 
@@ -389,6 +606,7 @@ def _selfcheck() -> None:
         assert code == 2, "--all 은 --out 없이 받지 않는다(argparse 오류)"
         code, out = run_cli(["tables", "BS"])
         assert code == 0 and "투자후보" in out and "kwam_x" not in out, out
+        _selfcheck_writes(fake, json_file, bodies_for)
     finally:
         fake.close()
         gw.GATEWAY, gw.OPEN_BROWSER, gw.registry_key, webbrowser.open, record.RECORD, real_key = saved
@@ -397,6 +615,60 @@ def _selfcheck() -> None:
             os.environ[gw.KEY_ENV] = real_key
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
+    """쓰기 명령과 확인 절차. 조회 시험이 남긴 가짜 서버와 내 표 기록을 이어받는다."""
+    del_where = json_file({"schema": "BS", "table": "투자후보", "where": {"단계": "검토"}})
+    code, out = run_cli(["delete", "--request", del_where])
+    assert code == 3 and "대상: BS.투자후보" in out and "확인값: 3" in out and "--confirm 3" in out, out
+    assert "내 표 기록에 없음" in out and not bodies_for("/sandbox/rows/delete"), out
+    count_body = bodies_for("/sandbox/rows/select")[-1]
+    assert count_body["columns"] == ["코드"] and count_body["limit"] == 30000 and "비밀값" not in out, count_body
+    fake.tables["투자후보"]["rows"].append({"코드": "Z", "단계": "검토"})  # 동료가 행을 추가
+    code, out = run_cli(["delete", "--request", del_where, "--confirm", "3"])
+    assert code == 1 and "대상 규모가 바뀜" in out and not bodies_for("/sandbox/rows/delete"), out
+    code, out = run_cli(["delete", "--request", del_where, "--confirm", "4"])
+    assert code == 0 and bodies_for("/sandbox/rows/delete") and "4" in out, out
+    inserts = len(bodies_for("/sandbox/rows/insert"))  # 조회 시험의 422 요청이 하나 남아 있다
+    for req in ({"schema": "BS", "table": "투자후보", "rows": [{"코드": "A"}], "mode": "replace"},
+                {"schema": "BS", "table": "투자후보", "rows": [{"코드": "A"}], "mode": "upsert"}):
+        code, out = run_cli(["insert", "--request", json_file(req)])
+        assert code == 3 and len(bodies_for("/sandbox/rows/insert")) == inserts, (req["mode"], out)
+    assert "덮어씀" in out and "확인값: 1" in out, out
+    code, out = run_cli(["insert", "--request", json_file({"schema": "BS", "table": "투자후보", "rows": [{"코드": "B"}]})])
+    assert code == 0 and len(bodies_for("/sandbox/rows/insert")) == inserts + 1, "append 는 확인 없이 실행"
+    upd_all = json_file({"schema": "BS", "table": "투자후보", "set": {"단계": "완료"}, "all": True})
+    code, out = run_cli(["update", "--request", upd_all])
+    assert code == 3 and "확인값: 120" in out and "추정치" in out and not bodies_for("/sandbox/rows/update"), out
+    selects = len(bodies_for("/sandbox/rows/select"))
+    code, out = run_cli(["drop", "--schema", "BS", "--table", "투자후보"])
+    assert code == 3 and "확인값: 120" in out and len(bodies_for("/sandbox/rows/select")) == selects, out
+    code, out = run_cli(["alter", "--change", json_file({"schema": "BS", "table": "투자후보", "drop_column": "단계"})])
+    assert code == 3 and "ix_단계" in out, out
+    code, out = run_cli(["alter", "--change", json_file({"schema": "BS", "table": "투자후보",
+                                                          "rename_column": {"from": "단계", "to": "상태"}})])
+    assert code == 3 and "확인값: 상태" in out and "깨질 수 있음" in out, out
+    assert run_cli(["index-drop", "--schema", "BS", "--table", "투자후보", "--name", "ix_단계"])[0] == 0
+    code, out = run_cli(["alter", "--change", json_file({"schema": "BS", "table": "투자후보",
+                                                          "set_description": {"description": "요약"}})])
+    assert code == 0, out
+    new_table = {"schema": "BS", "table": "새표", "columns": [{"name": "코드", "type": "text"}],
+                 "primary_key": ["코드"], "description": "요약"}
+    code, out = run_cli(["create", "--spec", json_file(new_table), "--purpose", "월별 집계"])
+    assert code == 0 and record.has("BS", "새표"), out
+    no_desc = {k: v for k, v in new_table.items() if k != "description"} | {"table": "설명없는표"}
+    assert run_cli(["create", "--spec", json_file(no_desc), "--purpose", "x"])[0] == 1 and "설명없는표" not in fake.tables
+    code, out = run_cli(["alter", "--change", json_file({"schema": "BS", "table": "새표", "rename_table": "새표2"}),
+                         "--confirm", "새표2"])
+    assert code == 0 and "완료" in out and record.has("BS", "새표2") and not record.has("BS", "새표"), out
+    fake.fail["/sandbox/table/drop"] = ("write_outcome_unknown", "판정 불능")
+    code, out = run_cli(["drop", "--schema", "BS", "--table", "새표2", "--confirm", "추정없음"])
+    assert code == 1 and record.has("BS", "새표2") and "다시 보내지 않" in out and bodies_for("/sandbox/table/drop"), out
+    record.RECORD.write_text("{깨짐", encoding="utf-8")
+    n = len(bodies_for("/sandbox/table/create"))
+    code, out = run_cli(["create", "--spec", json_file(new_table | {"table": "새표3"}), "--purpose", "x"])
+    assert code == 1 and "덮어쓰지 않음" in out and len(bodies_for("/sandbox/table/create")) == n, out
 
 
 if __name__ == "__main__":
