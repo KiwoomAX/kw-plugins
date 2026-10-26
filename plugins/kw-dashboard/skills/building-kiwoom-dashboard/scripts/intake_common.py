@@ -29,6 +29,22 @@ TEMPLATE_URL = "https://github.com/KiwoomAX/dashboard-template.git"
 TEMPLATE_REF = "refs/kw-intake/template"
 
 
+GENERATED_PARTS = {".venv", "node_modules", "__pycache__"}
+DATA_EXT = (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".docx", ".pptx", ".db", ".sqlite", ".parquet")
+JSON_LIMIT = 100 * 1024
+FILE_LIMIT = 10 * 1024 * 1024
+
+
+def is_generated(path: str) -> bool:
+    return any(part in GENERATED_PARTS for part in path.rstrip("/").split("/"))
+
+
+def is_data(path: str, size: int) -> bool:
+    """데이터 파일: 엑셀·CSV·PDF 같은 확장자, 100KiB 를 넘는 JSON, 10MiB 를 넘는 파일."""
+    low = path.lower()
+    return low.endswith(DATA_EXT) or (low.endswith(".json") and size > JSON_LIMIT) or size > FILE_LIMIT
+
+
 class GitError(RuntimeError):
     pass
 
