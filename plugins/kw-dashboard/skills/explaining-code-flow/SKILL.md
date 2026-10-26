@@ -73,7 +73,7 @@ description: Use when someone wants to see how their repo works feature by featu
 
 ## 스크립트
 
-`<작업 폴더>` 는 레포 밖 임시 폴더다(예: 윈도우 `%TEMP%` 아래 `code-flow-<레포 이름>`). 상태 파일 · 로그 · 캡처 계획을 여기에 둔다.
+`<작업 폴더>` 는 레포 밖 임시 폴더다(예: 윈도우 `$env:TEMP` 아래 `code-flow-<레포 이름>`, PowerShell 기준). 상태 파일 · 로그 · 캡처 계획을 여기에 둔다.
 
 ```text
 python "${CLAUDE_SKILL_DIR}/scripts/run_repo.py" doctor
