@@ -43,7 +43,7 @@ JSON 하나만 돌려준다. 근거 경로는 레포 상대 경로다.
 {"screen": {"key": "result", "name": "위험등급 산정 결과 화면", "scene": "result-1"},
  "areas": [
   {"name": "펀드 종합등급", "meaning": "왼쪽 「이전」은 직전 월까지 WINUS 에 저장된 가장 최근 위험등급이고, 오른쪽 「현재」는 이번 산정 등급입니다.",
-   "target": {"text": "펀드 종합등급"}, "evidence": ["src/components/GradeSummary.tsx:36-39", "src/repositories/risk/loader.py:252-272"]},
+   "target": {"selector": "div:has(> div:text-is(\"펀드 종합등급\"))"}, "evidence": ["src/components/GradeSummary.tsx:36-39", "src/repositories/risk/loader.py:252-272"]},
   {"name": "보라 테두리 · 「변경」 배지", "meaning": "지난달과 등급이 다르거나 지난달 기록이 없는 요인입니다.",
    "target": {"selector": ".factor-card.changed"}, "first": true, "evidence": ["src/components/FactorCardList.tsx:56-67"]}],
  "excluded": [{"line": "src/components/RiskGradeResultView.tsx:520", "reason": "개발 중 디버그 표시로 화면에서 도달할 수 없음"}],

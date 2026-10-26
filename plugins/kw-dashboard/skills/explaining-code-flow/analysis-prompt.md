@@ -173,7 +173,7 @@ JSON 하나만 돌려준다. 아래는 wholesale-dashboard 의 공고 기능을 
   "capture": {
     "path": "/#notices",
     "scenes": [
-      {"steps": [{"action": "click", "target": {"text": "공고"}}], "end": {"text": "공고 현황"}}
+      {"steps": [{"action": "click", "target": {"text": "공고"}}], "end": {"selector": "table"}}
     ]
   },
   "mocks": [
