@@ -37,8 +37,10 @@ python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" create --spec <파일> --purpose
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" insert --request <파일> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" update --request <파일> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" delete --request <파일> [--confirm <확인값>]
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" overwrite --request <파일> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" alter --change <파일> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" drop --schema BS --table 투자후보 [--confirm <확인값>]
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" truncate --schema BS --table 투자후보 [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" index-create --spec <파일>
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" index-drop --schema BS --table 투자후보 --name <인덱스>
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record list
@@ -50,6 +52,9 @@ python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record rename --schema BS --tabl
 - `schemas` 는 이 키로 쓸 수 있는 스키마와 사용량·상한(10 GB)을 낸다. "쓸 수 있는 스키마 없음"이 나오면 그 사람의 조직에는 샌드박스가 없으니, 클로드는 AX팀에 문의하라고 알린다.
 - `tables` 는 표마다 추정 행 수·크기·설명을 내고, 내 표 기록에 있는 표에는 "내 표"를 붙인다.
 - `select` 한 번은 기본 1,000행, 최대 30,000행을 받는다. 더 많으면 `--all --out <결과 파일>` 로 모든 페이지를 파일에 받는다. 표 전체가 대화로 들어오지 않게 `--all` 은 `--out` 없이 쓰지 못한다.
+- `insert` 의 `upsert` 는 새로 삽입한 행 수와 수정한 행 수를 따로 낸다. 고치기만 하려고 보냈는데 새로 삽입한 행이 있으면 primary key 를 잘못 적은 것이니, 클로드는 그 사실을 사용자에게 알린다.
+- `overwrite` 는 `where` 범위(전부면 `"all": true`)의 행을 모두 지우고 보낸 행을 넣는다. 보내는 행이 그 범위의 전부일 때 쓴다(예: 10월분을 다시 조회해 올리기). 보내지 않은 컬럼은 비워지고, 미리보기가 그 컬럼 이름을 알린다. 범위 밖 행이 섞이면 DBGateway 가 아무것도 반영하지 않고 거절한다. 범위의 행이 30,000행 이상이면 스크립트는 지워질 행 수를 셀 수 없어 실행하지 않으니, 범위를 나눠(예: 월별) 요청한다. 바뀐 일부 행만 고치려면 `upsert` 를 쓴다.
+- `truncate` 는 컬럼·primary key·인덱스·설명을 남기고 행만 모두 지운다. `delete` 는 `where` 가 반드시 있어야 하고, 모든 행 삭제는 `truncate` 로 한다.
 - 종료 코드는 0 성공, 1 거절·중단, 3 확인 필요다.
 
 JSON 파일의 모양은 다음과 같다. `//` 줄은 설명이라 파일에 넣지 않는다. `where` 의 연산자는 `=`·`!=`·`>`·`>=`·`<`·`<=`·`between`·`in`·`like` 다.
@@ -66,14 +71,21 @@ JSON 파일의 모양은 다음과 같다. `//` 줄은 설명이라 파일에 �
 {"schema": "BS", "table": "리테일_월별판매", "columns": ["상품코드", "판매금액"],
  "where": {"기준월": {">=": "202601"}}, "order_by": [{"column": "판매금액", "descending": true}], "limit": 100}
 
-// insert --request (mode: append 덧붙이기 · replace 비우고 다시 넣기 · upsert 같은 primary key 는 덮어쓰기)
+// insert --request (mode: append 덧붙이기 · upsert 같은 primary key 는 보낸 컬럼만 덮어쓰기)
 {"schema": "BS", "table": "리테일_월별판매", "mode": "append",
  "rows": [{"기준월": "202609", "상품코드": "A001", "판매금액": "1250000"}]}
 
-// update --request · delete --request (전부가 대상이면 where 대신 "all": true)
+// update --request (전부가 대상이면 where 대신 "all": true)
 {"schema": "BS", "table": "리테일_월별판매", "where": {"상품코드": "A001"}, "set": {"판매금액": "1300000"}}
 
-// alter --change (아래 다섯 가지 가운데 하나만)
+// delete --request (where 필수)
+{"schema": "BS", "table": "리테일_월별판매", "where": {"기준월": "202609"}}
+
+// overwrite --request (전부가 대상이면 where 대신 "all": true)
+{"schema": "BS", "table": "리테일_월별판매", "where": {"기준월": "202609"},
+ "rows": [{"기준월": "202609", "상품코드": "A001", "판매금액": "1250000"}]}
+
+// alter --change (아래 다섯 가지 중 하나만)
 {"schema": "BS", "table": "리테일_월별판매", "add_column": {"name": "비고", "type": "text"}}
 {"schema": "BS", "table": "리테일_월별판매", "drop_column": "비고"}
 {"schema": "BS", "table": "리테일_월별판매", "rename_column": {"from": "비고", "to": "메모"}}
@@ -96,7 +108,7 @@ JSON 파일의 모양은 다음과 같다. `//` 줄은 설명이라 파일에 �
 
 ## 확인 절차
 
-표 삭제, `replace`·`upsert` 삽입, 행 수정·삭제, 컬럼 삭제, 표·컬럼 이름 변경은 데이터나 구조를 되돌릴 수 없게 바꾼다. 같은 본부 동료가 만든 표일 수도 있다. 그래서 스크립트는 `--confirm` 없이 실행되면 변경 요청을 보내지 않고, 미리보기와 `확인값:` 줄을 낸 뒤 종료 코드 3 으로 멈춘다.
+표 삭제·비우기, `upsert` 삽입, 범위 교체, 행 수정·삭제, 컬럼 삭제, 표·컬럼 이름 변경은 데이터나 구조를 되돌릴 수 없게 바꾼다. 같은 본부 동료가 만든 표일 수도 있다. 그래서 스크립트는 `--confirm` 없이 실행되면 변경 요청을 보내지 않고, 미리보기와 `확인값:` 줄을 낸 뒤 종료 코드 3 으로 멈춘다.
 
 ```
 대상: BS.투자후보
@@ -110,7 +122,9 @@ JSON 파일의 모양은 다음과 같다. `//` 줄은 설명이라 파일에 �
 2. 사용자가 실행을 고른 때에만 같은 명령에 `--confirm <확인값>` 을 붙여 다시 실행한다. 클로드가 스스로 확인값을 붙이지 않는다.
 3. 그사이 대상이 바뀌어 확인값이 달라졌으면 스크립트는 "대상 규모가 바뀜"으로 멈춘다. 이때는 1번부터 다시 한다.
 
-미리보기의 규모는 동작에 따라 다르다. 조건이 있는 수정·삭제는 실제로 센 행 수다. 표 전체가 대상인 동작(표 삭제, `replace`, `"all": true`, 컬럼 삭제)은 데이터를 PC 로 가져오지 않으려고 통계의 추정 행 수를 쓴다. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있다. 이름 변경의 확인값은 새 이름이다.
+미리보기의 규모는 동작에 따라 다르다. 조건이 있는 수정·삭제·범위 교체는 실제로 센 행 수다. 범위 교체의 미리보기에는 보낼 행 수도 나온다.
+
+표 전체가 대상인 동작(표 삭제·비우기, `"all": true`, 컬럼 삭제)은 데이터를 PC 로 가져오지 않으려고 통계의 추정 행 수를 쓴다. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있다. 이름 변경의 확인값은 새 이름이다.
 
 - **확인 대상 동작은 이 스크립트로만 실행한다.** 스크립트가 실패하거나 원하는 동작이 없으면 즉석 코드나 백엔드 코드로 DBGateway 를 직접 호출하지 않고 사용자에게 알린다.
 - 인덱스 삭제와 설명 변경은 다시 만들 수 있어 확인 없이 실행한다. 컬럼을 지우면 그 컬럼이 든 인덱스도 함께 지워지고, 미리보기가 그 이름을 알린다. primary key 에 든 컬럼은 지울 수 없다.
@@ -133,6 +147,8 @@ DBGateway 는 누가 표를 만들었는지 모른다. 그래서 스크립트는
 - **`sandbox_unreachable`:** 다시 시도하지 않고 사용자에게 알린다. DBGateway 쪽 설정 문제일 수도 있다.
 - **"DBGateway 에 연결하지 못함":** 사내망인지, 환경 변수 `QUERY_GATEWAY_URL` 이 맞는지 확인한다.
 - **`http_404`:** 연결한 DBGateway 에 샌드박스 경로가 없다. 사용자에게 알린다.
+
+범위 교체(`overwrite`)에서 반영 여부를 모르면 클로드는 위와 같이 조회로 범위의 행을 확인한다. 다시 실행해야 하면 직전의 `--confirm` 명령을 쓰지 않고, 확인값 없이 실행해 미리보기부터 사용자에게 보인다. 그사이 동료가 그 범위에 쓴 행도 다시 지워질 수 있기 때문이다.
 
 ## 서비스 백엔드
 

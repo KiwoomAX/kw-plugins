@@ -216,15 +216,24 @@ def preview(action: str, body: dict) -> tuple[str, list[str]]:
         lines.append("이 이름을 쓰는 다른 사람의 서비스가 깨질 수 있음")
         return (body["rename_table"] if action == "rename_table" else body["rename_column"]["to"]), lines
     if action == "upsert":
-        lines.append(f"보낼 행: {len(body['rows'])}. 같은 primary key 의 행은 덮어씀")
+        lines.append(f"보낼 행: {len(body['rows'])}. 같은 primary key 의 행은 보낸 컬럼만 수정됨")
         return str(len(body["rows"])), lines
-    if action in ("update", "delete") and not body.get("all"):
+    if action == "overwrite":
+        lines.append(f"보낼 행: {len(body['rows'])}. 범위의 행을 모두 지우고 이 행들을 넣음")
+        sent = set(body["rows"][0])  # DBGateway 는 행마다 컬럼이 다르면 거절한다
+        empty = [c["name"] for c in _describe(schema, table)["columns"] if c["name"] not in sent]
+        if empty:
+            lines.append(f"비워질 컬럼: {', '.join(empty)}")
+    if action in ("update", "delete", "overwrite") and not body.get("all"):
         # 값은 받지 않을 수 없으니, 짧은 primary key 컬럼 하나만 받고 출력하지 않는다.
         detail = _describe(schema, table)
         column = (detail["primary_key"] or [detail["columns"][0]["name"]])[0]
         page = call("POST", "/sandbox/rows/select", {"schema": schema, "table": table, "columns": [column],
                                                      "where": body.get("where"), "limit": MAX_ROWS})
         if page["truncated"]:
+            if action == "overwrite":  # 보내는 행은 상한이 있지만 지워지는 행은 없다. 모르는 수만큼 지우지 않는다
+                raise SystemExit("범위의 행: 30,000행 이상. 지워질 행 수를 셀 수 없어 실행하지 않음"
+                                 "\n- 조치: 범위를 나눠(예: 월별) 범위마다 요청")
             lines.append("조건에 맞는 행: 30,000행 이상")
             return f"{MAX_ROWS}+", lines
         lines.append(f"조건에 맞는 행: {len(page['rows'])}")
@@ -265,26 +274,34 @@ def _record(update) -> int:
     return 0
 
 
+ROW_LABELS = {"insert": "삽입한", "update": "수정한", "delete": "삭제한"}
+
+
 def _rows(kind: str, body: dict, token: str | None) -> int:
     done = call("POST", f"/sandbox/rows/{kind}", body)
-    label = {"insert": "삽입한", "update": "수정한", "delete": "삭제한"}[kind]
-    print(f"{label} 행: {done['row_count']}" + (f" (확인값 {token})" if token else ""))
+    if kind == "overwrite":
+        line = f"삭제한 행: {done['deleted']} · 삽입한 행: {done['inserted']}"
+    else:
+        line = f"{ROW_LABELS[kind]} 행: {done['row_count']}"
+        if "inserted" in done:  # upsert: 고치려던 행이 새로 들어갔으면 primary key 를 잘못 적은 것이다
+            line += f" (새로 삽입 {done['inserted']} · 수정 {done['updated']})"
+    print(line + (f" (확인값 {token})" if token else ""))
     return 0
 
 
 def cmd_insert(args) -> int:
     body = read_json(args.request)
-    mode = body.get("mode", "append")
-    if mode in ("replace", "upsert"):
-        return guarded(mode, body, args.confirm, lambda token: _rows("insert", body, token))
+    if body.get("mode") == "upsert":
+        return guarded("upsert", body, args.confirm, lambda token: _rows("insert", body, token))
     return _rows("insert", body, None)
 
 
 def _cmd_target(kind: str):
     def run(args) -> int:
         body = read_json(args.request)
-        if body.get("where") is None and not body.get("all"):
-            return _rows(kind, body, None)  # DBGateway 가 where 와 all 이 둘 다 없는 요청을 거절한다
+        whole = body.get("all") and kind != "delete"  # 행 삭제는 all 을 받지 않는다. 표를 비우는 일은 truncate 가 맡는다
+        if body.get("where") is None and not whole:
+            return _rows(kind, body, None)  # DBGateway 가 조건 없는 요청을 거절한다
         return guarded(kind, body, args.confirm, lambda token: _rows(kind, body, token))
     return run
 
@@ -300,11 +317,21 @@ def cmd_drop(args) -> int:
     return guarded("drop", body, args.confirm, send)
 
 
+def cmd_truncate(args) -> int:
+    body = {"schema": args.schema, "table": args.table}
+
+    def send(token: str) -> int:
+        call("POST", "/sandbox/table/truncate", body)
+        print(f"완료: {args.schema}.{args.table} 비움 (확인값 {token})")
+        return 0
+    return guarded("truncate", body, args.confirm, send)
+
+
 def cmd_alter(args) -> int:
     body = read_json(args.change)
     kinds = [k for k in CHANGES if k in body]
     if len(kinds) != 1:
-        raise SystemExit(f"변경 요청에는 다음 가운데 하나만 넣음: {', '.join(CHANGES)}")
+        raise SystemExit(f"변경 요청에는 다음 중 하나만 넣음: {', '.join(CHANGES)}")
     kind = kinds[0]
 
     def send(token: str | None) -> int:
@@ -385,19 +412,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--spec", required=True, metavar="FILE")
     p.add_argument("--purpose", required=True, help="내 표 기록에 남길 자세한 용도")
     p.set_defaults(func=cmd_create)
-    for name, func, file_arg, text in (("insert", cmd_insert, "--request", "행 삽입. replace·upsert 는 확인 필요"),
+    for name, func, file_arg, text in (("insert", cmd_insert, "--request", "행 삽입. upsert 는 확인 필요"),
                                        ("update", _cmd_target("update"), "--request", "행 수정. 확인 필요"),
                                        ("delete", _cmd_target("delete"), "--request", "행 삭제. 확인 필요"),
+                                       ("overwrite", _cmd_target("overwrite"), "--request", "범위 교체. 확인 필요"),
                                        ("alter", cmd_alter, "--change", "표 변경. 컬럼 삭제·이름 변경은 확인 필요")):
         p = sub.add_parser(name, help=text)
         p.add_argument(file_arg, required=True, metavar="FILE")
         p.add_argument("--confirm", metavar="확인값")
         p.set_defaults(func=func)
-    p = sub.add_parser("drop", help="표 삭제. 확인 필요")
-    p.add_argument("--schema", required=True)
-    p.add_argument("--table", required=True)
-    p.add_argument("--confirm", metavar="확인값")
-    p.set_defaults(func=cmd_drop)
+    for name, func, text in (("drop", cmd_drop, "표 삭제. 확인 필요"), ("truncate", cmd_truncate, "표의 행을 모두 삭제. 확인 필요")):
+        p = sub.add_parser(name, help=text)
+        p.add_argument("--schema", required=True)
+        p.add_argument("--table", required=True)
+        p.add_argument("--confirm", metavar="확인값")
+        p.set_defaults(func=func)
     p = sub.add_parser("index-create", help="인덱스 생성. 스펙은 JSON 파일")
     p.add_argument("--spec", required=True, metavar="FILE")
     p.set_defaults(func=cmd_index_create)
@@ -461,7 +490,7 @@ def _fake_tables() -> dict[str, dict]:
 
 
 class Fake:
-    """가짜 DBGateway. 계약(Kiwoom-DBgateway 8defc95)의 응답 모양만 흉내 낸다."""
+    """가짜 DBGateway. 계약(Kiwoom-DBgateway 1bfb556)의 응답 모양만 흉내 낸다."""
 
     def __init__(self) -> None:
         import http.server
@@ -543,16 +572,38 @@ class Fake:
                          "truncated": len(rows) > offset + limit}
         if path == "/sandbox/rows/insert" and "rows" not in (body or {}):
             return 422, {"detail": [{"type": "missing", "loc": ["body", "rows"], "msg": "Field required"}]}
+        if path == "/sandbox/rows/insert" and body.get("mode", "append") not in ("append", "upsert"):
+            return 422, {"detail": [{"type": "enum", "loc": ["body", "mode"], "msg": "Input should be 'append' or 'upsert'"}]}
+        if path == "/sandbox/rows/delete" and ("all" in body or "where" not in body):
+            return 422, {"detail": [{"type": "extra_forbidden", "loc": ["body", "all"], "msg": "Extra inputs are not permitted"}]}
+        if path == "/sandbox/table/truncate":
+            if body["table"] not in self.tables:
+                return self._unknown(body["table"])
+            self.tables[body["table"]]["rows"] = []
+            return 204, None
         if path.startswith("/sandbox/rows/"):
             t = self.tables.get(body["table"])
             if t is None:
                 return self._unknown(body["table"])
             hit = [r for r in t["rows"] if body.get("all") or all(r.get(k) == v for k, v in body.get("where", {}).items())]
             if path.endswith("/insert"):
-                if body.get("mode") == "replace":
-                    t["rows"] = []
-                t["rows"] += [dict(r) for r in body["rows"]]
-                return 200, {"row_count": len(body["rows"])}
+                if body.get("mode") != "upsert":
+                    t["rows"] += [dict(r) for r in body["rows"]]
+                    return 200, {"row_count": len(body["rows"])}
+                key = t["primary_key"]
+                inserted = updated = 0
+                for new in body["rows"]:
+                    old = next((r for r in t["rows"] if all(r.get(k) == new.get(k) for k in key)), None)
+                    if old is None:
+                        t["rows"].append(dict(new))
+                        inserted += 1
+                    else:
+                        old.update(new)
+                        updated += 1
+                return 200, {"row_count": inserted + updated, "inserted": inserted, "updated": updated}
+            if path.endswith("/overwrite"):
+                t["rows"] = [r for r in t["rows"] if r not in hit] + [dict(r) for r in body["rows"]]
+                return 200, {"deleted": len(hit), "inserted": len(body["rows"])}
             if path.endswith("/update"):
                 for r in hit:
                     r.update(body["set"])
@@ -683,16 +734,43 @@ def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
     code, out = run_cli(["delete", "--request", del_where, "--confirm", "4"])
     assert code == 0 and bodies_for("/sandbox/rows/delete") and "4" in out, out
     inserts = len(bodies_for("/sandbox/rows/insert"))  # 조회 시험의 422 요청이 하나 남아 있다
-    for req in ({"schema": "BS", "table": "투자후보", "rows": [{"코드": "A"}], "mode": "replace"},
-                {"schema": "BS", "table": "투자후보", "rows": [{"코드": "A"}], "mode": "upsert"}):
-        code, out = run_cli(["insert", "--request", json_file(req)])
-        assert code == 3 and len(bodies_for("/sandbox/rows/insert")) == inserts, (req["mode"], out)
-    assert "덮어씀" in out and "확인값: 1" in out, out
+    upsert = json_file({"schema": "BS", "table": "투자후보", "rows": [{"코드": "A"}], "mode": "upsert"})
+    code, out = run_cli(["insert", "--request", upsert])
+    assert code == 3 and len(bodies_for("/sandbox/rows/insert")) == inserts, out
+    assert "보낸 컬럼만 수정" in out and "확인값: 1" in out, out
+    code, out = run_cli(["insert", "--request", upsert, "--confirm", "1"])
+    assert code == 0 and "새로 삽입 1" in out and "수정 0" in out, "upsert 는 새로 넣은 행과 고친 행을 나눠 보인다"
+    inserts += 1
     code, out = run_cli(["insert", "--request", json_file({"schema": "BS", "table": "투자후보", "rows": [{"코드": "B"}]})])
     assert code == 0 and len(bodies_for("/sandbox/rows/insert")) == inserts + 1, "append 는 확인 없이 실행"
     upd_all = json_file({"schema": "BS", "table": "투자후보", "set": {"단계": "완료"}, "all": True})
     code, out = run_cli(["update", "--request", upd_all])
     assert code == 3 and "확인값: 120" in out and "추정치" in out and not bodies_for("/sandbox/rows/update"), out
+    code, out = run_cli(["delete", "--request", json_file({"schema": "BS", "table": "투자후보", "all": True})])
+    assert code == 1 and "확인값" not in out and "invalid_request" in out, "모든 행 삭제는 truncate 가 맡는다"
+    ow_where = json_file({"schema": "BS", "table": "투자후보", "where": {"코드": "B"},
+                          "rows": [{"코드": "B", "단계": "재검토"}, {"코드": "D", "단계": "재검토"}]})
+    code, out = run_cli(["overwrite", "--request", ow_where])
+    assert code == 3 and "확인값: 1" in out and "보낼 행: 2" in out and "비워질 컬럼" not in out, out
+    assert not bodies_for("/sandbox/rows/overwrite"), out
+    code, out = run_cli(["overwrite", "--request", ow_where, "--confirm", "1"])
+    assert code == 0 and "삭제한 행: 1" in out and "삽입한 행: 2" in out, out
+    ow_all = json_file({"schema": "BS", "table": "투자후보", "all": True, "rows": [{"코드": "E"}]})
+    code, out = run_cli(["overwrite", "--request", ow_all])
+    assert code == 3 and "확인값: 120" in out and len(bodies_for("/sandbox/rows/overwrite")) == 1, out
+    assert "비워질 컬럼: 단계" in out, "보내지 않은 컬럼을 이름으로 알린다"
+    fake.tables["큰표"] = {**_fake_tables()["투자후보"], "rows": [{"코드": str(i), "단계": "x"} for i in range(MAX_ROWS + 1)]}
+    big = json_file({"schema": "BS", "table": "큰표", "where": {"단계": "x"}, "rows": [{"코드": "0", "단계": "x"}]})
+    code, out = run_cli(["overwrite", "--request", big])
+    assert code == 1 and "나눠" in out and "확인값" not in out, "지울 행 수를 모르는 범위 교체는 실행하지 않는다"
+    del fake.tables["큰표"]
+    fake.fail["/sandbox/rows/overwrite"] = ("write_outcome_unknown", "판정 불능")
+    code, out = run_cli(["overwrite", "--request", ow_where, "--confirm", "1"])
+    assert code == 1 and "다시 보내지 않" in out and len(bodies_for("/sandbox/rows/overwrite")) == 2, out
+    code, out = run_cli(["truncate", "--schema", "BS", "--table", "투자후보"])
+    assert code == 3 and "확인값: 120" in out and not bodies_for("/sandbox/table/truncate"), out
+    code, out = run_cli(["truncate", "--schema", "BS", "--table", "투자후보", "--confirm", "120"])
+    assert code == 0 and "비움" in out and fake.tables["투자후보"]["rows"] == [], out
     selects = len(bodies_for("/sandbox/rows/select"))
     code, out = run_cli(["drop", "--schema", "BS", "--table", "투자후보"])
     assert code == 3 and "확인값: 120" in out and len(bodies_for("/sandbox/rows/select")) == selects, out
