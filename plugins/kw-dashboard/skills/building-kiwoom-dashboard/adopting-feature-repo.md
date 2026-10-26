@@ -26,15 +26,27 @@ kw-github 명령(저장 명령, 기능 전환 명령, 경계 검사, 업로드 �
 
 스킬은 기능 레포의 파일과 git 이력을 고치지 마라. 기능 레포에 필요한 일(저장, branch 합치기)은 개발자가 kw-github 로 하게 안내하라.
 
+## 시작 전: 필요한 값 모으기
+
+이 절차의 스크립트에는 아래 값이 필요하다. 실행할 때마다 처음에 모아라.
+
+| 값 | 얻는 방법 |
+|---|---|
+| 기능 레포 폴더 | 개발자에게 이 PC 의 기능 레포 폴더를 물어라 |
+| 기능 레포 이름 | `git -C "<기능 레포 폴더>" remote get-url origin` 의 마지막 이름(`.git` 제외) |
+| 중앙 레포 | 1단계 「중앙 레포 찾기」로 정한다 |
+| 중앙 레포 폴더 | 개발자에게 이 PC 에 그 중앙 레포를 받아 둔 폴더가 있는지 물어라. 없으면 정한 폴더에 `gh repo clone KiwoomAX/<중앙 레포> "<폴더>"` 로 받아라. 다시 실행할 때는 같은 폴더를 써라 |
+| 기능 이름 | 중앙 레포 폴더에서 `git config --get-regexp "^branch\..*\.kwfeature$"` 를 실행해, 이 기능 레포로 만든 이전 branch 가 있으면 그 값을 써라. 없으면 기능 레포 이름이다. 1단계에서 다른 이름을 받았으면 그 이름을 써라 |
+
 ## 시작 전: 다시 실행 판정
 
-이 절차를 실행할 때마다 맨 먼저 아래를 실행하라. 대화가 끊긴 뒤 다시 실행했는지 판정한다.
+값을 모았으면 아래를 실행하라. 대화가 끊긴 뒤 다시 실행했는지 판정한다.
 
 ```powershell
 python "${CLAUDE_SKILL_DIR}/scripts/resume_state.py" --central "<중앙 레포 폴더>" --feature-repo-name <기능 레포 이름> --feature <기능 이름>
 ```
 
-중앙 레포를 아직 정하지 않았으면 1단계의 「중앙 레포 찾기」를 먼저 하고 이 판정으로 돌아와라.
+중앙 레포를 아직 정하지 않았으면 1단계의 「중앙 레포 찾기」를 먼저 하고 이 판정으로 돌아와라. `--clean` 을 실행했으면 출력의 `cleaned` 가 참일 때만 1단계로 가라.
 
 | `row` | 상태 | 할 일 |
 |---|---|---|
@@ -106,7 +118,8 @@ python "${CLAUDE_SKILL_DIR}/scripts/check_feature.py" --feature-repo "<기능 �
 |---|---|
 | `dirty` 에 경로가 있다 | commit 하지 않은 변경이다. 개발자에게 kw-github 로 먼저 저장하라고 안내하고, 저장이 끝나면 이 단계를 다시 하라 |
 | `entry` 가 둘 다 거짓 | 기능 레포 규칙을 따르지 않는다. AX팀 문의로 멈춰라 |
-| `other_branches` 에 항목이 있다 | branch 이름과 마지막 commit 설명을 보여 주고 이전에 포함할지 물어라. 포함하려면 개발자가 kw-github 로 그 branch 를 기본 branch 에 합친 뒤 이 단계를 다시 하라. 포함하지 않으면 그 작업은 기능 레포를 지우면 사라진다고 알려라 |
+| `sync` 의 `ahead` 나 `behind` 가 0 이 아니다 | PC 의 기본 branch 가 GitHub 과 다르다. `ahead` 는 GitHub 에 올리지 않은 commit, `behind` 는 PC 에 없는 GitHub commit 이다. 개발자에게 kw-github 로 맞추게 안내하고, 맞춘 뒤 이 단계를 다시 하라 |
+| `other_branches` 에 항목이 있다 | branch 이름과 마지막 commit 설명을 보여 주고 이전에 포함할지 물어라. `origin/` 으로 시작하는 이름은 GitHub 에만 있는 branch 다. 포함하려면 개발자가 kw-github 로 그 branch 를 기본 branch 에 합친 뒤 이 단계를 다시 하라. 포함하지 않으면 그 작업은 기능 레포를 지우면 사라진다고 알려라 |
 | `status` 가 `failed` | 기본 branch 를 알 수 없다. `detail` 을 알리고 멈춰라 |
 
 **이력 검사.** kw-github `scan_history.py` 에 `--ref <default_branch>` 를 넘겨 기본 branch 만 검사하라. PC 전용 branch `local-history` 는 가져오지 않는다. 결과의 파일 내용은 열지 마라.
@@ -168,7 +181,7 @@ Intake-History: yes | no
 
 **메뉴 구성 규칙.** 템플릿 `feature-menu.ts` 의 `buildMenu` 가 사이드바를 아래 순서로 만든다. 이 규칙은 바꾸지 말고 결과만 개발자에게 설명하라.
 
-1. `routes.tsx` 의 `manualMenu` 에 적은 항목이 적은 순서대로 먼저 온다.
+1. `routes.tsx` 의 `manualMenu` 에 적은 낱개 항목이 적은 순서대로 먼저 온다.
 2. 카테고리가 없는 기능이 폴더 이름순으로 온다. 첫 화면 기능(`path: '/'`)은 그중 맨 앞에 온다.
 3. 카테고리가 있는 기능은 카테고리 묶음 안에 폴더 이름순으로 들어간다. 새 카테고리는 맨 뒤에 붙는다.
 
@@ -185,7 +198,7 @@ Intake-History: yes | no
 
 백엔드만 있는 기능에는 `menu.ts` 를 만들지 말고 「API 만 붙고 사이드바 메뉴는 생기지 않습니다」라고 알려라. 프론트만 있는 기능에는 백엔드 기능 폴더를 만들지 마라.
 
-이 단계의 변경은 기능 폴더 안에만 있어야 한다. 기능 코드 구조가 자동 등록에 붙일 수 없는 형태이면 AX팀 문의로 멈춰라.
+이 단계의 변경은 기능 폴더 안에만 있어야 한다. 기능 코드 구조가 자동 등록에 붙일 수 없는 형태이면 AX팀 문의로 멈춰라. 이 단계의 변경을 저장 명령 `--intake` 로 commit 하라.
 
 ## 5. 의존성과 환경 변수
 
@@ -226,9 +239,11 @@ addopts = "--import-mode=importlib"
 
 비밀 키 이름이 중앙 레포 `docker-compose.yml` 에 이미 있으면 같은 값을 쓰는 키인지 확인받아라. 같은 값이면 다시 등록 요청하지 않는다. 다른 값이면 같은 이름에 두 값을 쓸 수 없으므로 멈춰라.
 
+이 단계의 변경을 저장 명령 `--intake` 로 commit 하라.
+
 ## 6. 화면 맞추기
 
-「기존 디자인 유지」와 「대시보드 디자인에 맞춤」 중 하나를 한 번 물어라. 기본안은 기존 디자인 유지다. 맞추기로 하면 색 토큰과 글자 크기를 `designing-kiwoom-frontend` 의 권장 값으로 바꿔라. 유지하기로 하면 그 사실을 이전 commit 설명에 적어라.
+「기존 디자인 유지」와 「대시보드 디자인에 맞춤」 중 하나를 한 번 물어라. 기본안은 기존 디자인 유지다. 맞추기로 하면 색 토큰과 글자 크기를 `designing-kiwoom-frontend` 의 권장 값으로 바꿔라. 유지하기로 하면 그 사실을 이 단계의 commit 설명에 적어라.
 
 셸 침범 규칙은 묻지 말고 고치고, 고친 위치를 알려라.
 
@@ -239,26 +254,33 @@ addopts = "--import-mode=importlib"
 | 화면 크기에 고정한 크기 | `w-screen`, `h-screen`, `100vw`, `100vh` |
 | 화면에 고정한 위치 | `position: fixed` |
 
+이 단계의 변경을 저장 명령 `--intake` 로 commit 하라.
+
 ## 7. 설명 문서
 
-현행 규칙은 메뉴에 붙인 기능마다 설명 문서를 두게 하고, 설명 문서는 사람이 쓴다. 개발자에게 설명 문서 파일을 물어라. 받으면 `docs/<기능 이름>.pdf` 나 `.docx` 로 두어라. 10MiB 를 넘으면 줄여 달라고 안내하라. 없으면 그 사실을 이전 commit 설명에 적고, 나중에 kw-github 로 추가하라고 안내하라. 내용을 지어내지 마라.
+현행 규칙은 메뉴에 붙인 기능마다 설명 문서를 두게 하고, 설명 문서는 사람이 쓴다. 개발자에게 설명 문서 파일을 물어라. 받으면 `docs/<기능 이름>.pdf` 나 `.docx` 로 두어라. 10MiB 를 넘으면 줄여 달라고 안내하라. 문서를 두었으면 저장 명령 `--intake` 로 commit 하라. 없으면 그 사실을 다음 commit 설명에 적고, 나중에 kw-github 로 추가하라고 안내하라. 내용을 지어내지 마라.
 
 ## 8. PC 확인
 
-개발자 PC 에서 이전 branch 를 실행해 확인하라. 백엔드를 실행할 때 기능 레포의 `.env` 경로를 환경 파일로만 넘기고, 그 파일을 열거나 중앙 레포로 복사하지 마라. `.env` 가 없으면 `--env-file` 을 빼라.
+개발자 PC 에서 이전 branch 를 실행해 확인하라. 중앙 레포 폴더에서 시험과 빌드를 먼저 하라.
 
 ```powershell
 uv sync
 uv run pytest
+npm --prefix src/frontend ci
+npm --prefix src/frontend test
+npm --prefix src/frontend run build
+```
+
+백엔드와 화면 개발 서버는 끝나지 않는 명령이므로 각각 백그라운드로 실행하고, 확인을 마치면 꺼라. 백엔드를 실행할 때 기능 레포의 `.env` 경로를 환경 파일로만 넘기고, 그 파일을 열거나 중앙 레포로 복사하지 마라. `.env` 가 없으면 `--env-file` 을 빼라.
+
+```powershell
 uv run --env-file "<기능 레포 폴더>\.env" uvicorn src.backend.main:app --port 8000
+npm --prefix src/frontend run dev
 ```
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/api/health
-```
-
-```powershell
-cd src/frontend; npm ci; npm test; npm run build; npm run dev
 ```
 
 | 확인 항목 | 통과 기준 |
@@ -283,7 +305,7 @@ Remove-Item -Recurse -Force "$env:TEMP\kw-intake-chrome" -ErrorAction SilentlyCo
 & $chrome --headless=new --disable-gpu --user-data-dir="$env:TEMP\kw-intake-chrome" --blink-settings=preferredColorScheme=0 --window-size=1600,1000 --screenshot="$env:TEMP\kw-intake-dark.png" "http://localhost:3000/<화면 주소>"
 ```
 
-찾는 문제는 배경과 같은 색이라 읽을 수 없는 글씨와 밤 화면에 남은 흰 배경이다. 문제가 있으면 위치를 보여 주고 고칠지는 개발자가 정하게 하라. 고치지 않기로 하면 그 사실을 이전 commit 설명에 적어라.
+찾는 문제는 배경과 같은 색이라 읽을 수 없는 글씨와 밤 화면에 남은 흰 배경이다. 문제가 있으면 위치를 보여 주고 고칠지는 개발자가 정하게 하라. 고치지 않기로 하면 그 사실을 다음 commit 설명에 적어라. 고쳤으면 저장 명령 `--intake` 로 commit 하라.
 
 셸에는 오류 경계(React Error Boundary)가 없어, 기능 화면 하나가 렌더 중 오류를 내면 그 화면을 연 동안 대시보드 전체가 빈 화면이 된다. 기능 화면 확인을 건너뛰지 마라.
 
@@ -303,7 +325,7 @@ Remove-Item -Recurse -Force "$env:TEMP\kw-intake-chrome" -ErrorAction SilentlyCo
 
 업로드 전에 원격 최신 `main` 을 합친 상태에서 확인한다. 직접 `git push` 하거나 검토 요청을 병합하지 마라.
 
-1. 중앙 레포를 fetch 하라. 이전 branch 를 만든 뒤 `main` 에 새 commit 이 있으면 `git merge --no-commit origin/main` 으로 합치고 저장 명령 `--intake` 로 끝내라. 충돌이 나면 AX팀 문의로 멈춰라.
+1. 중앙 레포에 commit 하지 않은 변경이 없는지 확인하라. 있으면 그 변경을 다룬 단계로 돌아가 commit 하라. 이어서 중앙 레포를 fetch 하라. 이전 branch 를 만든 뒤 `main` 에 새 commit 이 있으면 `git merge --no-commit origin/main` 으로 합치고 저장 명령 `--intake` 로 끝내라. 충돌이 나면 AX팀 문의로 멈춰라.
 2. 최신 `main` 을 합쳤으면 `uv lock --check` 와 `src/frontend` 의 `npm ci` 로 잠금 파일이 맞는지 확인하라. 맞지 않으면 멈춰라.
 3. kw-github `saving-work` 의 공유 레포 「올리기 흐름」에 따라 작업 이슈 제목을 정하고, `check-boundary --intake` 를 실행하고, 셀프 리뷰를 서브에이전트로 실행하고, 지적을 개발자와 논의하라. 셀프 리뷰어가 `docker-compose.yml`·`Jenkinsfile` 의 허용되지 않은 줄을 지적하고 개발자가 되돌리기로 하면, 그 줄만 중앙 레포 `main` 의 내용으로 고쳐 저장 명령 `--intake` 로 commit 하라. kw-github 가 검토 요청(PR)으로 전환하면 멈춰라.
 4. 1번에서 `main` 을 합쳤거나 3번에서 코드가 바뀌었으면 8단계를 다시 하라. 9단계는 다시 하지 마라. 8단계가 4~7단계로 돌려보내면 고친 뒤 3번부터 다시 하라.
@@ -352,7 +374,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/cleanup_check.py" --central "<중앙 레포 
 | `issues` | 이슈마다 `body` 를 읽어 「이미 끝났는데 닫지 않은 일」과 「앞으로 할 일」로 나눠 보여 주고 처분을 받아라 |
 | `prs` | 목록을 보여 주고, 합쳐지지 않은 작업은 삭제하면 사라진다고 알려라 |
 
-`status` 가 `failed` 이면 조회가 실패한 점검을 통과로 보지 말고 멈춰라.
+`status` 가 `failed` 이면 조회가 실패한 점검을 통과로 보지 말고 멈춰라. `intake` 가 비어 있으면(`null`) `main` 에서 이전 commit 을 찾지 못한 상태다. `detail` 을 알리고 멈춰라.
 
 **남은 배포 항목.** 기능 레포의 `docker-compose.yml` 에서 `container_name` 을 읽고 포트 등록부를 조회하라.
 

@@ -91,7 +91,11 @@ def run(central: Path, feature_repo: Path, repo_name: str, feature: str) -> dict
         return base + path[len(entry):] if entry.endswith("/") else base
 
     tracked = _tracked(feature_repo, intake["head"])
-    data = [p for p in pc_only if not p.endswith("/") and common.is_data(p, (feature_repo / p).stat().st_size)]
+    def size_of(path: str) -> int:  # commit 하지 않고 지운 추적 파일은 크기 없이 확장자로만 판정한다
+        target = feature_repo / path
+        return target.stat().st_size if target.is_file() else 0
+
+    data = [p for p in pc_only if not p.endswith("/") and common.is_data(p, size_of(p))]
     data += [p for p, size in tracked if common.is_data(p, size) and moved_to(p) not in central_tree]
     checks.append({"name": "data-files", "action": _action(data, "confirm"), "items": data})
 
@@ -256,7 +260,19 @@ def check_gh_failure(tmp: Path) -> None:
     assert _check(result, "issues")["action"] == "stop" and result["status"] == "failed", result
 
 
+def check_deleted_tracked_file(tmp: Path) -> None:
+    central, feature = _fixture(tmp, {**BASE_FILES, "backend/sample.xlsx": "엑셀\n"})
+    (feature / "backend/router.py").unlink()
+    (feature / "backend/sample.xlsx").unlink()
+    result = _run(central, feature)
+    assert result["status"] == "ok" or result["status"] == "stop", result
+    pc_only = _check(result, "pc-only")["items"]
+    assert "backend/router.py" in pc_only and "backend/sample.xlsx" in pc_only, result
+    assert "backend/sample.xlsx" in _check(result, "data-files")["items"], result
+
+
 CHECKS = [
+    check_deleted_tracked_file,
     check_clean_state, check_new_commit, check_unpushed, check_pc_only, check_data_files,
     check_big_json, check_not_moved_no, check_not_moved_yes, check_feature_name_differs, check_gh_failure,
 ]

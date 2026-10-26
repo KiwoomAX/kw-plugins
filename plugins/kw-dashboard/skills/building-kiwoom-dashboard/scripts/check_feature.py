@@ -27,26 +27,46 @@ def _dirty(repo: Path) -> list[str]:
 
 
 def check(repo: Path) -> dict:
-    result = {"status": "ok", "default_branch": None, "dirty": [], "entry": {"frontend": False, "backend": False},
-              "other_branches": []}
+    result = {"status": "ok", "default_branch": None, "sync": {"ahead": 0, "behind": 0}, "dirty": [],
+              "entry": {"frontend": False, "backend": False}, "other_branches": []}
     branch = common.default_branch(repo)
     if branch is None:
         return {**result, "status": "failed", "detail": "원격의 기본 branch 를 알 수 없다"}
     result["default_branch"] = branch
-    ref = branch if common.git(repo, "rev-parse", "--verify", "--quiet", branch, check=False).strip() else f"origin/{branch}"
+    common.git(repo, "fetch", "-q", "origin")
+    local = common.git(repo, "rev-parse", "--verify", "--quiet", branch, check=False).strip()
+    remote = common.git(repo, "rev-parse", "--verify", "--quiet", f"origin/{branch}", check=False).strip()
+    ref = f"origin/{branch}" if remote else branch
+    if local and remote:  # 로컬 기본 branch 가 원격과 다르면 이전할 commit 이 어긋난다
+        result["sync"] = {"ahead": _count(repo, f"{remote}..{local}"), "behind": _count(repo, f"{local}..{remote}")}
     result["dirty"] = _dirty(repo)
     result["entry"] = {"frontend": common.blob(repo, ref, "frontend/index.tsx") is not None,
                        "backend": common.blob(repo, ref, "backend/router.py") is not None}
-    for name in common.git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").split():
+    locals_ = common.git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").split()
+    for name in locals_:
         if name in (branch, "local-history"):
             continue
-        ahead = int(common.git(repo, "rev-list", "--count", f"{ref}..{name}").strip())
-        if ahead:
-            subject = common.git(repo, "log", "-1", "--format=%s", name).strip()
-            result["other_branches"].append({"name": name, "ahead": ahead, "last_subject": subject})
-    if result["dirty"] or not any(result["entry"].values()):
+        _add_branch(repo, result, name, f"{ref}..{name}")
+    for name in common.git(repo, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin").split():
+        short = name.removeprefix("origin/")
+        if short in (branch, "HEAD", "local-history") or name == "origin":
+            continue
+        # 같은 이름의 로컬 branch 가 있으면 그 branch 에 없는 원격 commit 만 센다
+        _add_branch(repo, result, name, f"{ref}..{name}" + (f" ^{short}" if short in locals_ else ""))
+    if result["dirty"] or not any(result["entry"].values()) or any(result.get("sync", {}).values()):
         result["status"] = "stop"
     return result
+
+
+def _count(repo: Path, spec: str) -> int:
+    return int(common.git(repo, "rev-list", "--count", *spec.split()).strip())
+
+
+def _add_branch(repo: Path, result: dict, name: str, spec: str) -> None:
+    ahead = _count(repo, spec)
+    if ahead:
+        subject = common.git(repo, "log", "-1", "--format=%s", name).strip()
+        result["other_branches"].append({"name": name, "ahead": ahead, "last_subject": subject})
 
 
 FEATURE_FILES = {
@@ -135,9 +155,45 @@ def check_other_branch(tmp: Path) -> None:
     assert result["other_branches"] == [{"name": "feat/x", "ahead": 1, "last_subject": "추가 기능"}], result
 
 
+def _other_clone(tmp: Path, repo: Path) -> Path:
+    """같은 원격을 받은 두 번째 작업 폴더(다른 PC 를 흉내 낸다)."""
+    url = common.git(repo, "config", "--get", "remote.origin.url").strip()
+    other = tmp / "다른 PC"
+    common.git(tmp, "clone", "-q", url, str(other))
+    return other
+
+
+def check_remote_only_branch(tmp: Path) -> None:
+    repo = _pushed(tmp, FEATURE_FILES)
+    other = _other_clone(tmp, repo)
+    common.git(other, "switch", "-q", "-c", "feat/web")
+    common.commit_files(other, {"backend/web.py": "w = 1\n"}, "웹에서 만든 작업")
+    common.git(other, "push", "-q", "origin", "feat/web")
+    result = check(repo)
+    assert result["other_branches"] == [{"name": "origin/feat/web", "ahead": 1, "last_subject": "웹에서 만든 작업"}], result
+
+
+def check_behind_remote(tmp: Path) -> None:
+    repo = _pushed(tmp, FEATURE_FILES)
+    other = _other_clone(tmp, repo)
+    common.commit_files(other, {"backend/later.py": "x = 1\n"}, "다른 PC 의 수정")
+    common.git(other, "push", "-q", "origin", "main")
+    result = check(repo)
+    assert result["sync"] == {"ahead": 0, "behind": 1} and result["status"] == "stop", result
+
+
+def check_ahead_remote(tmp: Path) -> None:
+    repo = _pushed(tmp, FEATURE_FILES)
+    common.commit_files(repo, {"backend/later.py": "x = 1\n"}, "올리지 않은 수정")
+    result = check(repo)
+    assert result["sync"] == {"ahead": 1, "behind": 0} and result["status"] == "stop", result
+    assert result["dirty"] == [], result
+
+
 CHECKS = [
     check_clone_master, check_no_origin_head, check_no_remote_branch, check_dirty_tracked,
     check_dirty_untracked, check_ignored_not_dirty, check_entry, check_other_branch,
+    check_remote_only_branch, check_behind_remote, check_ahead_remote,
 ]
 
 
