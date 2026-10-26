@@ -99,7 +99,7 @@ PC가 다시 설치해야 한다. 그래서 이름을 바꾸지 않는다.
 | `plugins/kw-control-tower/scripts/git-identity.ps1` | git 명의를 GitHub 계정의 사내 메일로 제안하고, 사용자가 승인한 값을 저장한다. 세션 점검 훅의 안내를 받은 클로드가 실행한다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 6개. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
-| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document` |
+| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document`, 샌드박스 표 관리 스킬 `managing-sandbox`와 그 스킬이 호출하는 `scripts/sandbox.py`·`scripts/record.py` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워가 지킬 조건을 확인하는 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬이 지킬 조건을 확인하는 검사 |
 | `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `migrating-existing-dashboard.md` |

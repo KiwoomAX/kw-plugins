@@ -358,6 +358,40 @@ Assert 'fetch_manifest.py defines no Korean identifiers' (-not ($fetText -match 
 # The stale-copy warning carries an em dash that cp949 lacks; without these two lines the fallback dies while printing it.
 Assert 'fetch_manifest.py pins its output to UTF-8' ($fetText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $fetText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
 
+Write-Host '--- managing-sandbox ---'
+# Reads and writes the user's own tables in kw_sandbox through DBGateway /sandbox/*. Unlike
+# searching-winus it writes, keeps a record under the Claude config dir, and ships two scripts,
+# so the read-only checks above do not carry over.
+$sbDir  = Join-Path $PluginDir 'skills/managing-sandbox'
+$sbMd   = Join-Path $sbDir 'SKILL.md'
+$sbBack = Join-Path $sbDir 'backend.md'
+$sbPy   = Join-Path $sbDir 'scripts/sandbox.py'
+$sbRec  = Join-Path $sbDir 'scripts/record.py'
+Assert 'managing-sandbox ships SKILL.md, backend.md, sandbox.py and record.py' (@($sbMd, $sbBack, $sbPy, $sbRec | Where-Object { Test-Path $_ }).Count -eq 4)
+$sbText = if (Test-Path $sbMd) { [IO.File]::ReadAllText($sbMd) } else { '' }
+$sbBackText = if (Test-Path $sbBack) { [IO.File]::ReadAllText($sbBack) } else { '' }
+$sbPyText = if (Test-Path $sbPy) { [IO.File]::ReadAllText($sbPy) } else { '' }
+$sbRecText = if (Test-Path $sbRec) { [IO.File]::ReadAllText($sbRec) } else { '' }
+$sbAll = $sbText + "`n" + $sbBackText + "`n" + $sbPyText + "`n" + $sbRecText
+Assert 'managing-sandbox frontmatter name matches the folder' (([regex]::Match($sbText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'managing-sandbox')
+Assert 'managing-sandbox files point at no personal skills folder' (-not ($sbAll -match '~/\.claude/skills'))
+Assert 'managing-sandbox files call no python3' (-not ($sbAll -match '\bpython3\b'))
+Assert 'managing-sandbox files carry no build-history notes' (-not ($sbAll -match '\b20\d\d-\d\d-\d\d\b|실측'))
+Assert 'managing-sandbox pulls nothing from the private Kiwoom-Manager repo' (-not ($sbAll -match 'Kiwoom-Manager|mdb[-_]manager'))
+Assert 'managing-sandbox scripts declare no script dependencies' (-not ($sbAll -match '(?m)^# /// script'))
+$sbCalls = [regex]::Matches($sbText, '(?m)^python\b.*sandbox\.py.*$')
+Assert 'sandbox.py is called through CLAUDE_SKILL_DIR' ($sbCalls.Count -gt 0 -and @($sbCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
+Assert 'sandbox.py pins its output to UTF-8' ($sbPyText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $sbPyText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
+# The record is the only copy of who made which table, so it lives outside the cache folder.
+Assert 'record.py keeps the record under the Claude config dir, outside the cache' ($sbRecText -match 'CLAUDE_CONFIG_DIR' -and $sbRecText -match '"managing-sandbox"' -and -not ($sbRecText -match '"cache"'))
+# The access-key handling is shared with searching-winus; both skills ship in this one plugin.
+Assert 'sandbox.py imports fetch_manifest from searching-winus' ($sbPyText -match 'searching-winus' -and $sbPyText -match 'import fetch_manifest' -and (Test-Path $dbFetch))
+Assert 'managing-sandbox docs use no em dash' (-not (($sbText + $sbBackText) -match '—'))
+# Offline self-check: fake DBGateway, refusal codes, the confirm step, and the record. It replaces
+# the registry reader and the browser opener, so a Windows run touches neither.
+$sbSelf = & python $sbPy --selfcheck 2>&1 | Out-String
+Assert 'sandbox.py --selfcheck passes' ($LASTEXITCODE -eq 0 -and $sbSelf -match 'selfcheck ok')
+
 Write-Host '--- searching-document ---'
 # A reference skill: one SKILL.md and no scripts. The user's own Claude calls vdb-handler with it.
 $sdDir  = Join-Path $PluginDir 'skills/searching-document'
