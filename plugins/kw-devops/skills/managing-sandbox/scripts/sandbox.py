@@ -15,6 +15,7 @@
 사용: python scripts/sandbox.py <하위 명령> ...
 """
 import argparse
+import http.client
 import io
 import json
 import os
@@ -48,6 +49,7 @@ NEXT_BY_CODE = {
     "body_too_large": "행을 나눠 여러 번 요청",
     "sandbox_schema_full": "스키마 용량이 참. 쓰지 않는 표를 정리하거나 AX팀에 문의",
     "invalid_request": "문제 칸을 고쳐 다시 요청",
+    "no_answer": "쓰기였으면 반영 여부 모름. 같은 요청을 다시 보내지 않고 조회로 확인",
 }
 NEXT_BY_KIND = {
     "범위 초과 거절": "detail 대로 요청을 고침",
@@ -102,6 +104,9 @@ def call(method: str, path: str, body: dict | None = None) -> dict | None:
                         for d in answer["detail"]]
             raise Refused("invalid_request", "형식 오류", "; ".join(problems))
         raise Refused(f"http_{e.code}", "", f"{e.code} {raw[:200]}")
+    except (http.client.HTTPException, ConnectionError, TimeoutError) as e:
+        # 요청을 보낸 뒤 응답을 받는 중에 끊긴 것이다. urllib 는 보내기 전 단계만 URLError 로 감싼다.
+        raise Refused("no_answer", "판정 불능", f"응답을 받지 못함: {type(e).__name__}: {e}")
 
 
 def order_for_paging(schema: str, table: str) -> list[dict]:
@@ -113,8 +118,12 @@ def order_for_paging(schema: str, table: str) -> list[dict]:
 
 def _paged(request: dict) -> dict:
     request = dict(request)
-    if not request.get("order_by") and (request.get("offset", 0) > 0 or request.pop("_all", False)):
-        request["order_by"] = order_for_paging(request["schema"], request["table"])
+    if request.pop("_all", False) or request.get("offset", 0) > 0:
+        # 사용자 정렬에 같은 값이 있으면 페이지마다 그 행들의 순서가 달라질 수 있어, 남은 정렬 컬럼으로 동점을 가른다.
+        order = list(request.get("order_by") or [])
+        used = {o["column"] for o in order}
+        order += [o for o in order_for_paging(request["schema"], request["table"]) if o["column"] not in used]
+        request["order_by"] = order
     return request
 
 
@@ -460,6 +469,7 @@ class Fake:
         self.sent: list[tuple[str, dict | None]] = []
         self.tables = _fake_tables()
         self.fail: dict[str, tuple[str, str]] = {}
+        self.hangup: set[str] = set()
         fake = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -472,6 +482,10 @@ class Fake:
             def _route(self, body: dict | None) -> None:
                 path = urllib.parse.unquote(self.path)
                 fake.sent.append((path, body))
+                if path in fake.hangup:
+                    fake.hangup.discard(path)
+                    self.close_connection = True
+                    return
                 if path in fake.fail:
                     code, kind = fake.fail.pop(path)
                     return self._answer(503 if kind == "판정 불능" else 400, {"kind": kind, "code": code, "detail": "가짜 거절"})
@@ -634,6 +648,12 @@ def _selfcheck() -> None:
         assert len(rows["rows"]) == 5, rows
         last = bodies_for("/sandbox/rows/select")[-1]
         assert last["order_by"] == [{"column": "가"}, {"column": "나"}] and last["offset"] == 4, last
+        rows = select_all({"schema": "BS", "table": "무키표", "limit": 2, "order_by": [{"column": "가"}]})
+        last = bodies_for("/sandbox/rows/select")[-1]
+        assert len(rows["rows"]) == 5 and last["order_by"] == [{"column": "가"}, {"column": "나"}], "동점은 남은 컬럼으로 가른다"
+        fake.hangup.add("/sandbox/rows/insert")  # 요청을 받고 응답 없이 끊는다
+        code, out = run_cli(["insert", "--request", json_file({"schema": "BS", "table": "무키표", "rows": [{"가": 9}]})])
+        assert code == 1 and "반영 여부 모름" in out and "다시 보내지 않" in out, out
         code, out = run_cli(["select", "--request", json_file({"schema": "BS", "table": "무키표"}), "--all"])
         assert code == 2, "--all 은 --out 없이 받지 않는다(argparse 오류)"
         code, out = run_cli(["tables", "BS"])

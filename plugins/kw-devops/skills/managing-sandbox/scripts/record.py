@@ -19,7 +19,7 @@ RECORD = CONFIG_DIR / "managing-sandbox" / "tables.json"
 def entries() -> list[dict]:
     """기록의 표 목록. 파일이 없으면 빈 목록이고, 읽지 못하면 덮어쓰지 않도록 멈춘다."""
     try:
-        saved = json.loads(RECORD.read_text(encoding="utf-8"))
+        saved = json.loads(RECORD.read_text(encoding="utf-8-sig"))  # PowerShell 5.1 로 고치면 BOM 이 붙는다
     except FileNotFoundError:
         return []
     except ValueError:
@@ -109,6 +109,8 @@ def _selfcheck() -> None:
         else:
             raise AssertionError("깨진 기록은 덮어쓰지 않고 멈춘다")
         assert RECORD.read_text(encoding="utf-8") == "{깨짐", "깨진 파일은 그대로 남는다"
+        RECORD.write_bytes('﻿{"tables": []}'.encode("utf-8"))  # PowerShell 5.1 로 고친 파일
+        assert entries() == [], "BOM 이 붙은 기록도 읽는다"
     finally:
         shutil.rmtree(root, ignore_errors=True)
         RECORD = saved

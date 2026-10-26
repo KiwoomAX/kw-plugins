@@ -64,5 +64,5 @@ def monthly_sales(since: str) -> list[dict]:
 ```
 
 - `async def` 안에서는 `httpx.AsyncClient` 를 쓰고 앱이 끝날 때 닫는다. 동기 호출은 이벤트 루프를 차단한다.
-- 결과가 1,000행을 넘으면 응답의 `truncated` 가 참이다. 그때는 `order_by` 를 그대로 두고 `offset` 을 늘려 다음 페이지를 받는다.
+- 결과가 1,000행을 넘으면 응답의 `truncated` 가 참이다. 그때는 `order_by` 를 그대로 두고 `offset` 을 늘려 다음 페이지를 받는다. `order_by` 에는 primary key 컬럼을 끝에 넣어 행의 순서가 하나로 정해지게 한다. 같은 값이 있는 컬럼으로만 정렬하면 페이지 사이에 행이 겹치거나 빠진다.
 - 표의 컬럼과 primary key 는 `POST /sandbox/table/describe` 로 확인한다.
