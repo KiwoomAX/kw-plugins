@@ -411,8 +411,10 @@ function finish(my) { if (my === run) { busy = false; showPlay(); } }
   const show = () => out.textContent = (Number.isInteger(SPEED) ? SPEED : SPEED.toFixed(2).replace(/0$/, '')) + '배';
   el.value = SPEED; show();
   el.oninput = () => {
+    // 진행 중인 움직임은 이미 이전 속도로 나눈 시간으로 만들어졌으므로, 바뀐 비율만 곱한다. 새 속도를 그대로 곱하면 두 번 빨라진다
+    const ratio = +el.value / SPEED;
     SPEED = +el.value; show();
-    document.getAnimations().forEach(a => a.playbackRate = SPEED);
+    document.getAnimations().forEach(a => a.playbackRate *= ratio);
     try { localStorage.setItem('flow-speed-v2', SPEED); } catch (e) {}
   };
 })();
