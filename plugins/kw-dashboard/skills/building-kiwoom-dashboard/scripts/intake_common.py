@@ -43,6 +43,20 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return r.stdout
 
 
+def git_bytes(repo: Path, *args: str) -> bytes:
+    """파일 내용처럼 글자로 바꾸면 안 되는 출력을 받는다."""
+    r = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=repo, capture_output=True)
+    if r.returncode != 0:
+        raise GitError(f"git {' '.join(args)}: {r.stderr.decode('utf-8', 'replace').strip()}")
+    return r.stdout
+
+
+def write_file(path: Path, data: bytes) -> None:
+    """레포 작업 트리에 파일을 쓴다. 자체 시험이 실패 상황을 만들려고 이 함수를 바꾼다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
 def git_z(repo: Path, *args: str) -> list[str]:
     """`-z` 를 붙인 git 명령의 출력을 NUL 로 나눈 목록으로 돌려준다."""
     return [part for part in git(repo, *args).split("\0") if part]
