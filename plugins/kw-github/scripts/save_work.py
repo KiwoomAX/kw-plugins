@@ -272,8 +272,13 @@ def ensure_gitignore(top):
         handle.write(prefix + DESIGN_DOCS + "\n")
 
 
-def stage(top, data, deadline=None):
-    """인덱스를 HEAD 로 되돌린 뒤 검사를 통과한 변경만 스테이징한다. excluded 목록을 돌려준다."""
+def stage(top, data, deadline=None, scope=None):
+    """인덱스를 HEAD 로 되돌린 뒤 검사를 통과한 변경만 스테이징한다. excluded 목록을 돌려준다.
+
+    scope 가 (기능, 기능 이전 여부) 이면 공유 레포 규칙으로 stage 하고 (excluded, other_features) 를 돌려준다.
+    """
+    if scope is not None:
+        return _stage_shared(top, data, scope[0], scope[1], deadline)
     reset_index(top, deadline)
     ensure_gitignore(top)
     # 인덱스를 HEAD 로 되돌렸으므로 ls-files 는 이미 올라간 파일 목록이다.
@@ -473,13 +478,16 @@ def restore_upload_stash(top, deadline=None, timeout=None):
     return None
 
 
-def commit_work(repo, message, branch=None, catch_up=False):
+def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False):
     """로컬에서만 커밋하고 결과 JSON 을 돌려준다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     if catch_up:
         message = CATCH_UP_TEMPLATE.format(stamp=datetime.now().strftime("%Y-%m-%d %H:%M"))
     deadline = gitcmd.Deadline(CATCH_UP_SECONDS if catch_up else SAVE_SECONDS)
     progress = {"committed": False, "excluded": [], "branch": None}
     try:
+        top = locate(Path(repo))
+        if top is not None and shared_repo.repo_kind(top) == "shared":
+            return _commit_shared(top, message, feature, intake, deadline, progress)
         return _commit_work(Path(repo), message, branch, catch_up, deadline, progress)
     except BranchChoiceError as exc:
         return _failed(progress, MSG_FAILED, str(exc))
@@ -497,8 +505,11 @@ def commit_work(repo, message, branch=None, catch_up=False):
 
 
 def _failed(progress, message, detail):
-    return commit_result("failed", message, detail, excluded=progress["excluded"],
-                         committed=progress["committed"], branch=progress["branch"])
+    payload = commit_result("failed", message, detail, excluded=progress["excluded"],
+                            committed=progress["committed"], branch=progress["branch"])
+    if "other_features" in progress:
+        payload["other_features"] = progress["other_features"]
+    return payload
 
 
 def _commit_work(repo, message, wanted, catch_up, deadline, progress):
@@ -656,6 +667,178 @@ def revert_outside(repo, feature, paths):
         return {"status": "committed", "reason": "", "message": MSG_COMMITTED, "detail": ""}
     except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+SECRET_DETAIL = "검사에서 빠질 파일이 merge 결과에 있어 commit 하지 않았다: {files}"
+CONFLICT_MARK = ("<<<<<<< ", ">>>>>>> ")
+
+
+def _exclude_path(top, deadline):
+    out = gitcmd.git(top, "rev-parse", "--git-path", "info/exclude", deadline=deadline).strip()
+    path = Path(out)
+    return path if path.is_absolute() else top / path
+
+
+def add_to_exclude(top, lines, deadline=None):
+    """이 PC 에서만 가린다. 공유 레포의 최상위 .gitignore 는 고치지 않는다."""
+    target = _exclude_path(top, deadline)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
+    existing = set(text.splitlines())
+    new = [line for line in dict.fromkeys(lines) if line not in existing]
+    if new:
+        prefix = "" if not text or text.endswith("\n") else "\n"
+        with open(target, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(prefix + "\n".join(new) + "\n")
+
+
+def _same_as_main(top, path, deadline):
+    main = shared_repo._blob(top, REMOTE_REF, path, deadline)
+    return main is not None and main == shared_repo.final_blob(top, "HEAD", path, {path}, deadline)
+
+
+def _shared_judge(top, data, path, feature, intake, deadline):
+    """공유 레포 판정이다. 설명 문서 예외와, 기능 이전의 origin/main 과 같은 파일 제외를 적용한다."""
+    full = top / path
+    if shared_repo.is_feature_doc(path, feature) and _size(full) <= rules_max_bytes(data):
+        return None
+    if intake and _same_as_main(top, path, deadline):
+        return None
+    return _judge(top, data, path)
+
+
+def rules_max_bytes(data):
+    return int(data["data"]["file_max_mib"] * 1024 * 1024)
+
+
+def _stage_shared(top, data, feature, intake, deadline):
+    reset_index(top, deadline)
+    tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
+    changed = changed_paths(top, deadline)
+    staged, excluded, untrack, others = [], [], [], []
+    for path in changed:
+        owner = shared_repo.feature_of(path)
+        if owner and owner != feature:
+            others.append(owner)
+            continue
+        if path.startswith(DESIGN_DOCS):
+            continue
+        verdict = _shared_judge(top, data, path, feature, intake, deadline)
+        if verdict is None:
+            staged.append(path)
+            continue
+        found, rule = verdict
+        reason = f"{found}-tracked" if found == "secret-filename" and path in tracked else found
+        excluded.append(_excluded(path, reason, rule))
+        if found != "secret-content" and shared_repo.allowed(path, feature):
+            untrack.append(path)
+    for path in sorted(tracked - set(changed)):
+        if path.startswith(DESIGN_DOCS):
+            continue
+        verdict = _shared_judge(top, data, path, feature, intake, deadline)
+        if verdict is None:
+            continue
+        found, rule = verdict
+        reason = "secret-filename-tracked" if found == "secret-filename" else (
+            "secret-content-tracked" if found == "secret-content" else found)
+        excluded.append(_excluded(path, reason, rule))
+        # 추적 끊기는 내 기능 폴더 안 파일에만 한다. 남의 파일을 지우는 commit 을 만들지 않기 위해서다.
+        if found != "secret-content" and shared_repo.allowed(path, feature):
+            untrack.append(path)
+    add_to_exclude(top, [DESIGN_DOCS] + [ignore_line(path) for path in untrack], deadline)
+    if untrack:
+        _pathspec(top, ("rm", "-q", "--cached", "--ignore-unmatch"), untrack, deadline)
+    if staged:
+        _pathspec(top, ("add", "-A"), staged, deadline)
+    return excluded, sorted(set(others))
+
+
+def _shared_commit_result(status, message, detail="", excluded=None, committed=False, branch=None, others=()):
+    payload = commit_result(status, message, detail, excluded, committed, branch)
+    payload["other_features"] = list(others)
+    return payload
+
+
+def _commit_shared(top, message, feature, intake, deadline, progress):
+    progress["other_features"] = []
+    branch = current_branch(top, deadline)
+    if not shared_repo.supported(top):
+        return _shared_commit_result("unsupported", MSG_UNSUPPORTED, branch=branch)
+    status = shared_repo.feature_status(top, feature) if feature else "invalid"
+    if status == "invalid" or (intake and status != "new"):
+        return _shared_commit_result("invalid-feature", MSG_INVALID_FEATURE, branch=branch)
+    if not branch or _kw_feature(top, branch, deadline) != feature:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"지금 branch 가 {feature} 기능의 작업 branch 가 아니다. "
+                                     f"switch-feature --feature {feature} 로 먼저 옮겨라.", branch=branch)
+    progress["branch"] = branch
+    data = rules.load(RULES_PATH)
+    if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        if not intake:
+            return _shared_commit_result("failed", MSG_FAILED, MERGE_DETAIL, branch=branch)
+        return _commit_intake_merge(top, message, feature, data, deadline, progress)
+    excluded, others = stage(top, data, deadline, scope=(feature, intake))
+    progress["excluded"], progress["other_features"] = excluded, others
+    if not has_staged_changes(top, deadline):
+        return _shared_commit_result("nothing", with_notes(MSG_NOTHING, excluded), "", excluded, branch=branch,
+                                     others=others)
+    ensure_author(top, deadline)
+    commit(top, message, excluded, deadline)
+    progress["committed"] = True
+    return _shared_commit_result("committed", with_notes(MSG_COMMITTED, excluded), "", excluded, True, branch,
+                                 others)
+
+
+def _has_conflict_mark(full):
+    try:
+        lines = full.read_bytes().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return False
+    return any(line.startswith(CONFLICT_MARK) for line in lines)
+
+
+def _commit_intake_merge(top, message, feature, data, deadline, progress):
+    """기능 이전의 진행 중 merge 를 검사한 뒤 부모가 둘인 commit 으로 끝낸다. index 를 되돌리지 않는다."""
+    branch = progress["branch"]
+    unmerged = _unmerged(top, deadline)
+    if unmerged:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"아직 풀지 않은 충돌이 있다: {', '.join(unmerged)}", branch=branch)
+    notes = []
+    if (top / MARKER).exists() or MARKER in gitcmd.git_z(top, "ls-files", "-z", deadline=deadline):
+        gitcmd.git(top, "rm", "-q", "-f", "--cached", "--ignore-unmatch", "--", MARKER, deadline=deadline)
+        (top / MARKER).unlink(missing_ok=True)
+        notes.append(f"기능 레포의 표식 파일 {MARKER} 를 지웠다.")
+    paths = changed_paths(top, deadline)
+    marked = [p for p in paths if (top / p).is_file() and _has_conflict_mark(top / p)]
+    if marked:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"충돌 표시 줄이 남은 파일이 있다: {', '.join(marked)}", branch=branch)
+    result = shared_repo.boundary(top, feature, paths, "HEAD", set(paths), intake=True, deadline=deadline)
+    if result["status"] != "inside":
+        payload = _shared_commit_result(result["status"] if result["status"] != "outside" else "failed",
+                                        _boundary_payload(result)["message"] or MSG_FAILED,
+                                        f"기능 이전 merge 결과가 경계 검사를 통과하지 못했다: {result}", branch=branch)
+        payload["outside"] = result["outside"]
+        payload["reason"] = result["reason"]
+        return payload
+    found = []
+    for path in paths:
+        if not (top / path).is_file():
+            continue
+        verdict = _shared_judge(top, data, path, feature, True, deadline)
+        if verdict is not None:
+            found.append(_excluded(path, *verdict))
+    if found:
+        progress["excluded"] = found
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     SECRET_DETAIL.format(files=", ".join(item["path"] for item in found)), found,
+                                     branch=branch)
+    _pathspec(top, ("add", "-A"), paths, deadline)
+    ensure_author(top, deadline)
+    gitcmd.git(top, "commit", "-q", "-F", "-", deadline=deadline, stdin=(message + "\n").encode("utf-8"))
+    progress["committed"] = True
+    return _shared_commit_result("committed", MSG_COMMITTED, " ".join(notes), [], True, branch)
 
 
 class UploadStop(Exception):
@@ -1144,6 +1327,8 @@ def main(argv=None):
     mode.add_argument("--message")
     mode.add_argument("--catch-up", action="store_true")
     commit_cmd.add_argument("--branch")
+    commit_cmd.add_argument("--feature", help="공유 대시보드 레포에서 고친 기능 이름")
+    commit_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
     prepare_cmd = sub.add_parser("prepare-upload", help="원격 레포와 기능 이슈를 맞춘다")
     prepare_cmd.add_argument("--repo", required=True)
     prepare_cmd.add_argument("--allow-other-owner", action="store_true")
@@ -1181,7 +1366,8 @@ def main(argv=None):
         return _print(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
                              allow_other_owner=args.allow_other_owner))
     if args.command == "commit":
-        return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up))
+        return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
+                                  feature=args.feature, intake=args.intake))
     if args.command == "prepare-upload":
         return _print(prepare_upload(args.repo, allow_other_owner=args.allow_other_owner, body_file=args.body_file))
     return 2
