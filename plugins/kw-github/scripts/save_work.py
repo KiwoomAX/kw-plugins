@@ -524,6 +524,140 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
                          committed=True, branch=target, state=local_state(top, deadline))
 
 
+# ---- 공유 대시보드 레포 ----
+MSG_UNSUPPORTED = "이 대시보드는 아직 기능별 폴더로 나뉘지 않아 공유 코드에 반영할 수 없습니다. AX팀에 문의해 주세요."
+MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
+MSG_OUTSIDE = "이번 수정 중 {files} 은 내 기능 폴더 밖의 파일이라 공유 코드에 바로 반영할 수 없습니다."
+SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
+BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
+COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 뒤 다시 실행하라. {exc}"
+
+
+def _login(top, deadline):
+    out = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
+    if not out:
+        raise gitcmd.GitError("gh api user 가 로그인을 돌려주지 않았다")
+    return out
+
+
+def _kw_feature(top, branch, deadline=None):
+    code, out, _ = gitcmd.git_try(top, "config", "--get", f"branch.{branch}.kwFeature", deadline=deadline)
+    return out.strip() if code == 0 else ""
+
+
+def feature_branch(top, feature, exclude=(), deadline=None):
+    found = [b for b in _branches(top, deadline) if b not in exclude and _kw_feature(top, b, deadline) == feature]
+    if len(found) > 1:
+        raise BranchChoiceError(f"{feature} 기능의 작업 branch 가 둘 이상이다: {', '.join(found)}. 하나를 정리하라.")
+    return found[0] if found else None
+
+
+def _feature_dirty(top, feature, deadline):
+    return [p for p in shared_repo.worktree_paths(top, deadline) if shared_repo.allowed(p, feature)]
+
+
+def _shared_failed(message, detail, **extra):
+    return {"status": "failed", "reason": "", "message": message, "detail": detail, **extra}
+
+
+def switch_feature(repo, feature, summary=None):
+    """그 기능의 작업 branch 로 옮긴다. 없으면 최신 origin/main 에서 원격 추적 설정 없이 만든다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        if shared_repo.feature_status(top, feature) == "invalid":
+            return {"status": "invalid-feature", "reason": "", "message": MSG_INVALID_FEATURE, "detail": ""}
+        current = current_branch(top, deadline)
+        now = _kw_feature(top, current, deadline) if current else ""
+        if now and now != feature and _feature_dirty(top, now, deadline):
+            return _shared_failed(MSG_FAILED, f"{now} 기능에 commit 하지 않은 변경이 있다. 지금 기능을 먼저 commit 하라.")
+        branch = feature_branch(top, feature, deadline=deadline)
+        if branch is None:
+            if not summary:
+                return _shared_failed(MSG_FAILED, "새 작업 branch 가 필요하다. 영문 요약을 --summary 로 넘겨라.")
+            try:
+                login = _login(top, deadline)
+            except gitcmd.GitError:
+                return _shared_failed(MSG_FAILED, "GitHub 로그인을 확인하지 못했다. gh auth status 로 확인하라.")
+            gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+            branch = SHARED_BRANCH.format(feature=feature, login=login, summary=summary)
+            gitcmd.git(top, "switch", "-q", "--no-track", "-c", branch, REMOTE_REF, deadline=deadline)
+            gitcmd.git(top, "config", f"branch.{branch}.kwFeature", feature, deadline=deadline)
+        elif branch != current:
+            gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+        new = shared_repo.feature_status(top, feature) == "new"
+        return {"status": "switched", "branch": branch, "new_feature": new, "reason": "", "message": "",
+                "detail": ""}
+    except BranchChoiceError as exc:
+        return _shared_failed(MSG_FAILED, str(exc))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+def _boundary_payload(result, commits=()):
+    status = result["status"]
+    if status == "outside":
+        message = MSG_OUTSIDE.format(files=", ".join(result["outside"]))
+    elif status == "failed":
+        message = MSG_FAILED
+    else:
+        message = BOUNDARY_MESSAGES.get(status, "")
+    return {**result, "commits": list(commits), "message": message}
+
+
+def _boundary_of(top, feature, head, intake, deadline):
+    """merge-base 기준 내 변경과, head 가 지금 branch 이면 commit 하지 않은 변경을 판정한다."""
+    base = gitcmd.git(top, "merge-base", REMOTE_REF, head, deadline=deadline).strip()
+    on_head = head == "HEAD" or head == current_branch(top, deadline)
+    dirty = shared_repo.worktree_paths(top, deadline) if on_head else []
+    paths = shared_repo.changed_paths(top, base, head, deadline) + dirty
+    return shared_repo.boundary(top, feature, paths, head, set(dirty), intake=intake, deadline=deadline)
+
+
+def check_boundary(repo, feature, intake=False):
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            # 설계자 판단: 기능 레포에서 잘못 실행했을 때 Claude 가 알아보게 하는 값이다.
+            return {"status": "not-shared-repo", "reason": "", "message": "", "detail": "공유 대시보드 레포가 아니다."}
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        head = feature_branch(top, feature, deadline=deadline) or "HEAD"
+        result = _boundary_of(top, feature, head, intake, deadline)
+        commits = gitcmd.git(top, "log", f"{REMOTE_REF}..{head}", "--format=%s", deadline=deadline).splitlines()
+        return _boundary_payload(result, commits)
+    except BranchChoiceError as exc:
+        return _shared_failed(MSG_FAILED, str(exc))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+def revert_outside(repo, feature, paths):
+    """지정한 경로를 GitHub main 의 상태로 되돌리는 새 commit 을 만든다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        if shared_repo.worktree_paths(top, deadline):
+            return _shared_failed(MSG_FAILED, "commit 하지 않은 변경이 있어 되돌리지 않았다. 먼저 commit 하라.")
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        for path in paths:
+            if shared_repo._blob(top, REMOTE_REF, path, deadline):
+                gitcmd.git(top, "checkout", REMOTE_REF, "--", path, deadline=deadline)
+            elif (top / path).exists():
+                gitcmd.git(top, "rm", "-q", "--", path, deadline=deadline)
+        if not has_staged_changes(top, deadline):
+            return {"status": "nothing", "reason": "", "message": MSG_NOTHING, "detail": ""}
+        ensure_author(top, deadline)
+        gitcmd.git(top, "commit", "-q", "-m", "기능 폴더 밖 수정 되돌림: " + ", ".join(paths), deadline=deadline)
+        return {"status": "committed", "reason": "", "message": MSG_COMMITTED, "detail": ""}
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
 class UploadStop(Exception):
     """업로드 준비나 업로드를 멈춰야 할 때 올린다. 메시지가 그대로 detail 이 된다."""
 
@@ -1022,7 +1156,25 @@ def main(argv=None):
     upload_cmd.add_argument("--close", type=int, action="append", default=[])
     upload_cmd.add_argument("--allow-other-owner", action="store_true")
     sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다").add_argument("--repo", required=True)
+    boundary_cmd = sub.add_parser("check-boundary", help="공유 대시보드 레포에서 기능 폴더 경계를 검사한다")
+    boundary_cmd.add_argument("--repo", required=True)
+    boundary_cmd.add_argument("--feature", required=True)
+    boundary_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    switch_cmd = sub.add_parser("switch-feature", help="그 기능의 작업 branch 로 옮긴다")
+    switch_cmd.add_argument("--repo", required=True)
+    switch_cmd.add_argument("--feature", required=True)
+    switch_cmd.add_argument("--summary")
+    revert_cmd = sub.add_parser("revert-outside", help="기능 폴더 밖 수정을 GitHub main 상태로 되돌린다")
+    revert_cmd.add_argument("--repo", required=True)
+    revert_cmd.add_argument("--feature", required=True)
+    revert_cmd.add_argument("--paths", nargs="+", required=True)
     args = parser.parse_args(argv)
+    if args.command == "check-boundary":
+        return _print(check_boundary(args.repo, args.feature, intake=args.intake))
+    if args.command == "switch-feature":
+        return _print(switch_feature(args.repo, args.feature, summary=args.summary))
+    if args.command == "revert-outside":
+        return _print(revert_outside(args.repo, args.feature, args.paths))
     if args.command == "review-upload":
         return _print(review_upload(args.repo))
     if args.command == "upload":
