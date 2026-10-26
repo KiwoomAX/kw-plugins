@@ -335,6 +335,26 @@ def cmd_index_drop(args) -> int:
     return 0
 
 
+def cmd_record(args) -> int:
+    if args.action == "list":
+        names: dict[str, set[str]] = {}
+        for t in record.entries():
+            if t["schema"] not in names:
+                names[t["schema"]] = {e["table"] for e in call("GET", f"/sandbox/schemas/{t['schema']}")["tables"]}
+            gone = "" if t["table"] in names[t["schema"]] else "  · DBGateway 목록에 없음"
+            print(f"{t['schema']}.{t['table']}  {t['created']}  {t['purpose']}{gone}")
+        return 0
+    if args.action == "add":
+        _table_entry(args.schema, args.table)  # 없는 표는 기록하지 않는다
+        record.add(args.schema, args.table, args.purpose)
+        print(f"기록함: {args.schema}.{args.table}")
+        return 0
+    done = (record.remove(args.schema, args.table) if args.action == "remove"
+            else record.rename(args.schema, args.table, args.to))
+    print(f"{'기록 수정' if done else '기록에 없음'}: {args.schema}.{args.table}")
+    return 0 if done else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="DBGateway 샌드박스 경로를 접근 키로 호출한다.")
     parser.add_argument("--selfcheck", action="store_true", help=argparse.SUPPRESS)
@@ -377,6 +397,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--table", required=True)
     p.add_argument("--name", required=True)
     p.set_defaults(func=cmd_index_drop)
+    p = sub.add_parser("record", help="내 표 기록 보기·고치기")
+    actions = p.add_subparsers(dest="action", required=True)
+    actions.add_parser("list", help="기록의 표와 DBGateway 목록 대조")
+    for name, text in (("add", "DBGateway 에 있는 표를 기록에 추가"), ("remove", "기록에서 뺌"), ("rename", "기록의 표 이름 수정")):
+        a = actions.add_parser(name, help=text)
+        a.add_argument("--schema", required=True)
+        a.add_argument("--table", required=True)
+        if name == "add":
+            a.add_argument("--purpose", required=True)
+        if name == "rename":
+            a.add_argument("--to", required=True)
+    p.set_defaults(func=cmd_record)
     args = parser.parse_args(argv)
     if args.selfcheck:
         record._selfcheck()
@@ -669,6 +701,22 @@ def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
     n = len(bodies_for("/sandbox/table/create"))
     code, out = run_cli(["create", "--spec", json_file(new_table | {"table": "새표3"}), "--purpose", "x"])
     assert code == 1 and "덮어쓰지 않음" in out and len(bodies_for("/sandbox/table/create")) == n, out
+    _selfcheck_record()
+
+
+def _selfcheck_record() -> None:
+    """내 표 기록 명령. 쓰기 시험이 깨뜨려 둔 기록 파일을 지우고 시작한다."""
+    record.RECORD.unlink(missing_ok=True)
+    assert run_cli(["record", "add", "--schema", "BS", "--table", "투자후보", "--purpose", "동료 표 기록"])[0] == 0
+    assert run_cli(["record", "add", "--schema", "BS", "--table", "없는표", "--purpose", "x"])[0] == 1
+    assert not record.has("BS", "없는표")
+    record.add("BS", "사라진표", "x")
+    code, out = run_cli(["record", "list"])
+    assert code == 0 and "사라진표" in out and "DBGateway 목록에 없음" in out, out
+    assert run_cli(["record", "rename", "--schema", "BS", "--table", "투자후보", "--to", "후보"])[0] == 0
+    assert record.has("BS", "후보") and not record.has("BS", "투자후보")
+    assert run_cli(["record", "remove", "--schema", "BS", "--table", "사라진표"])[0] == 0
+    assert not record.has("BS", "사라진표")
 
 
 if __name__ == "__main__":
