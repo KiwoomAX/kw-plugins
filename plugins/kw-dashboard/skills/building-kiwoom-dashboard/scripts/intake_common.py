@@ -86,6 +86,11 @@ def blob(repo: Path, ref: str, path: str) -> str | None:
     return out or None
 
 
+def merge_in_progress(repo: Path) -> bool:
+    """사본 작업 폴더(worktree)에서는 .git 이 파일이므로 MERGE_HEAD 를 git 에 묻는다."""
+    return bool(git(repo, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).strip())
+
+
 def default_branch(repo: Path) -> str | None:
     """원격의 기본 branch 이름. 로컬에서 만든 뒤 push 한 레포에는 origin/HEAD 가 없으므로 원격에 직접 묻는다."""
     local = git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", check=False).strip()

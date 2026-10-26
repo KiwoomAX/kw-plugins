@@ -118,7 +118,7 @@ def run(central: Path, feature_repo: Path, feature: str, branch: str, history: b
             common.git(central, "fetch", "-q", str(feature_repo), branch)
             source = "FETCH_HEAD"
             common.git(central, "merge", "--allow-unrelated-histories", "--no-commit", "--no-ff", "-q", source, check=False)
-            if not (central / ".git" / "MERGE_HEAD").exists():
+            if not common.merge_in_progress(central):
                 raise RuntimeError("합치기를 시작하지 못했다")
             files = common.tree_files(feature_repo, ref)
             read = lambda p: common.git_bytes(central, "show", f"{source}:{p}")
