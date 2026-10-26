@@ -72,6 +72,16 @@ def blob(repo: Path, ref: str, path: str) -> str | None:
     return out or None
 
 
+def default_branch(repo: Path) -> str | None:
+    """원격의 기본 branch 이름. 로컬에서 만든 뒤 push 한 레포에는 origin/HEAD 가 없으므로 원격에 직접 묻는다."""
+    local = git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", check=False).strip()
+    if local:
+        return local.split("/", 1)[1]
+    remote = git(repo, "ls-remote", "--symref", "origin", "HEAD", check=False)
+    m = re.search(r"^ref: refs/heads/(\S+)\tHEAD$", remote, re.M)
+    return m.group(1) if m else None
+
+
 def tree_files(repo: Path, ref: str, prefix: str = "") -> list[str]:
     args = ["ls-tree", "-r", "-z", "--name-only", ref]
     if prefix:
