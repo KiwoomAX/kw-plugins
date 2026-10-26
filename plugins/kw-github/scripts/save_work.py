@@ -15,6 +15,7 @@ from pathlib import Path
 
 import gitcmd
 import rules
+import shared_repo
 
 ORG = "KiwoomAX"
 ORG_PREFIX = f"github.com/{ORG}/"
@@ -123,8 +124,8 @@ def set_marker(top, key, value):
 
 
 def is_feature_repo(top):
-    # 원격은 첫 push 때 생기므로 표식 파일만 본다.
-    return (Path(top) / MARKER).is_file()
+    # 원격은 첫 push 때 생기므로 표식 파일만 본다. 기능 이전의 진행 중 merge 가 가져온 표식 파일은 보지 않는다.
+    return shared_repo.marker_tracked(top)
 
 
 def origin_url(top):
