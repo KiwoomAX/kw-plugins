@@ -1134,7 +1134,21 @@ def _push_branch(top, branch, state, deadline, progress):
 
 def _precheck(top, branch, state, deadline):
     """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다."""
-    return None
+    feature = state.get("feature")
+    if not feature:
+        return None
+    result = _boundary_of(top, feature, branch, state.get("intake", False), deadline)
+    if result["status"] == "inside":
+        return None
+    payload = _boundary_payload(result)
+    return {"status": result["status"], "message": payload["message"], "outside": result["outside"],
+            "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
+
+
+def _stopped(stop, progress):
+    """_precheck 가 돌려준 결과에 upload 공통 칸을 채운다."""
+    return {**_upload_result(stop["status"], stop["message"], stop["detail"], progress),
+            "outside": stop["outside"], "reason": stop["reason"]}
 
 
 def _ask_github(top, full, branch, state, deadline, progress):
@@ -1174,7 +1188,7 @@ def _after_pc_merge(top, full, branch, state, deadline, progress):
     stop = _precheck(top, branch, state, deadline)
     if stop is not None:
         github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
-        return stop
+        return _stopped(stop, progress)
     _push_branch(top, branch, state, deadline, progress)
     answer = _ask_github(top, full, branch, state, deadline, progress)
     if answer == "merged":
@@ -1190,7 +1204,7 @@ def _github_merge(top, full, branch, state, deadline, progress):
     """spec 「GitHub 에서 merge」 1~5단계다."""
     stop = _precheck(top, branch, state, deadline)
     if stop is not None:
-        return stop
+        return _stopped(stop, progress)
     _push_branch(top, branch, state, deadline, progress)
     answer = _ask_github(top, full, branch, state, deadline, progress)
     if answer == "merged":
@@ -1302,12 +1316,18 @@ def _resume(top, full, state, deadline, progress):
     return _github_merge(top, full, branch, state, deadline, progress)
 
 
-def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False):
+def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False, feature=None,
+           intake=False):
     """승인받은 작업을 GitHub 공유 코드에 올린다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     deadline = gitcmd.Deadline(SAVE_SECONDS)
     progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": []}
     try:
-        payload = _upload(Path(repo), task, title, list(close), resume, deadline, progress, allow_other_owner)
+        top = locate(Path(repo))
+        if top is not None and shared_repo.repo_kind(top) == "shared":
+            progress["shared"] = True
+            payload = _upload_shared(top, task, title, list(close), resume, feature, intake, deadline, progress)
+        else:
+            payload = _upload(Path(repo), task, title, list(close), resume, deadline, progress, allow_other_owner)
     except UploadStop as exc:
         payload = _upload_result("failed", MSG_FAILED, str(exc), progress)
     except rules.RulesError as exc:
@@ -1329,6 +1349,8 @@ def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owne
     note = " ".join(filter(None, [progress.get("note"), _restore_after_upload(progress, payload["status"] == "uploaded")]))
     if note:
         payload["detail"] = f"{payload['detail']} {note}".strip()
+    if progress.get("shared"):
+        payload.setdefault("reason", "")
     return payload
 
 
@@ -1425,6 +1447,58 @@ def _upload(repo, task, title, close, resume, deadline, progress, allow_other_ow
     return _github_merge(top, full, branch, state, deadline, progress)
 
 
+def _upload_shared(top, task, title, close, resume, feature, intake, deadline, progress):
+    """공유 레포 upload 다. 그 기능의 작업 branch 를 「GitHub 에서 merge」로 올린다."""
+    progress["top"] = top
+    full = _full_name(top)
+    state_path = _state_path(top, deadline)
+    if resume:
+        if not state_path.exists():
+            raise UploadStop("이어서 할 업로드가 없다. upload --task --title --feature 로 다시 실행하라.")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["feature"] = state.get("feature") or _kw_feature(top, state.get("branch") or "", deadline)
+        progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
+        return _resume(top, full, state, deadline, progress)
+    if task is None or not title:
+        raise UploadStop("--task 와 --title 이 필요하다.")
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline, check=False)
+    if not shared_repo.supported(top):
+        return _upload_result("unsupported", MSG_UNSUPPORTED, "", progress)
+    status = shared_repo.feature_status(top, feature) if feature else "invalid"
+    if status == "invalid" or (intake and status != "new"):
+        return _upload_result("invalid-feature", MSG_INVALID_FEATURE, "", progress)
+    if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        raise UploadStop("앞선 merge 가 진행 중이다. 풀고 git add 한 뒤 upload --continue 를 실행하라.")
+    try:
+        branch = feature_branch(top, feature, deadline=deadline)
+    except BranchChoiceError as exc:
+        raise UploadStop(str(exc)) from exc
+    current = current_branch(top, deadline)
+    now = _kw_feature(top, current, deadline) if current else ""
+    state = {"task": task, "title": title, "close": close, "feature": feature, "intake": intake}
+    if now == feature:
+        excluded, _ = stage(top, rules.load(RULES_PATH), deadline, scope=(feature, intake))
+        progress["excluded"] = excluded
+        if has_staged_changes(top, deadline):
+            ensure_author(top, deadline)
+            commit(top, title, excluded, deadline)
+    elif now:
+        left = [p for p in shared_repo.worktree_paths(top, deadline)
+                if shared_repo.allowed(p, now) or shared_repo.feature_of(p) is None]
+        if left:
+            raise UploadStop(f"{now} 기능에 commit 하지 않은 변경이 있다: {', '.join(left)}. 그 기능을 먼저 commit 하라.")
+    if branch is None:
+        raise UploadStop(f"{feature} 기능의 작업 branch 가 없어 올릴 commit 이 없다.")
+    if not _count(top, f"{REMOTE_REF}..{branch}", deadline):
+        return _upload_result("nothing", with_notes(MSG_NO_UPLOAD, progress["excluded"]), "", progress)
+    _stash_leftovers(top, deadline, progress)
+    if current_branch(top, deadline) != branch:
+        gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+    state["branch"] = progress["branch"] = branch
+    _save_state(top, state, deadline)
+    return _github_merge(top, full, branch, state, deadline, progress)
+
+
 BULLET = re.compile(r"^[-*]\s*(\[[ xX]?\]\s*)?")
 
 
@@ -1517,6 +1591,8 @@ def main(argv=None):
     upload_cmd.add_argument("--title")
     upload_cmd.add_argument("--close", type=int, action="append", default=[])
     upload_cmd.add_argument("--allow-other-owner", action="store_true")
+    upload_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
+    upload_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
     sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다").add_argument("--repo", required=True)
     boundary_cmd = sub.add_parser("check-boundary", help="공유 대시보드 레포에서 기능 폴더 경계를 검사한다")
     boundary_cmd.add_argument("--repo", required=True)
@@ -1541,7 +1617,7 @@ def main(argv=None):
         return _print(review_upload(args.repo))
     if args.command == "upload":
         return _print(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
-                             allow_other_owner=args.allow_other_owner))
+                             allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake))
     if args.command == "commit":
         return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
                                   feature=args.feature, intake=args.intake))
