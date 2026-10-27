@@ -1,20 +1,14 @@
-"""결과 시트에서 참조를 거슬러 올라가 셀을 raw 값과 수식으로 나눈다.
+"""엑셀의 셀 · 수식 · 표 · 피벗을 읽고, 결과 시트에서 참조를 거슬러 올라가 셀을 raw 값과 수식으로 나눈다.
 
-    python trace_cells.py <엑셀 경로> --result <결과 시트> [--result <결과 시트> ...] --out <html 경로>
-
-결과 시트의 모든 셀에서 시작해 수식이 참조하는 셀을 따라간다. 닿은 셀 중 값 셀은 raw,
+설명기(explain_cell.py)가 엑셀 읽기 함수를 가져다 쓴다. 결과 시트의 모든 셀에서 시작해 수식이 참조하는 셀을 따라간다. 닿은 셀 중 값 셀은 raw,
 수식 셀은 계산 코드로 옮길 대상이다. 닿지 않은 셀은 결과에 쓰이지 않는다.
 """
-import argparse
-import html
-import json
 import posixpath
 import re
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import openpyxl
 from openpyxl.formula.tokenizer import Tokenizer
@@ -399,84 +393,3 @@ def _references(formula, t, key):
         elif stack and tok.type != "WHITE-SPACE":
             stack[-1][2][-1].append((tok.subtype or tok.type, None, tok.value))
     return refs
-
-
-# ---------- HTML ----------
-
-VIEW_TEMPLATE = Path(__file__).with_name("trace_view.html")
-
-
-def _display(v):
-    if v is None:
-        return ""
-    if isinstance(v, bool):
-        return "TRUE" if v else "FALSE"
-    if isinstance(v, float):
-        return str(int(v)) if v.is_integer() and abs(v) < 1e15 else f"{v:.10g}"
-    if hasattr(v, "isoformat"):
-        text = v.isoformat(sep=" ") if hasattr(v, "date") else v.isoformat()  # datetime 만 sep 을 받는다
-        return text[:10] if text.endswith("00:00:00") else text
-    return str(v)
-
-
-def render_html(t, wb_values, title):
-    """시트마다 탭을 두고 엑셀처럼 값을 보이는 HTML 을 만든다. 수식을 누르면 참조 셀이 드러난다."""
-    used = [s for s in t.sheet_order if any(c.reached for c in t.cells[s].values())]
-    index = {s: i for i, s in enumerate(used)}
-    sheets = []
-    for s in used:
-        values = wb_values.get(s, {})
-        rows = [r for r, _ in t.cells[s]]
-        cols = [c for _, c in t.cells[s]]
-        out_cells = []
-        for (r, c), cell in sorted(t.cells[s].items()):
-            v = values.get((r, c))
-            if not cell.reached:
-                cls = "u"
-            elif cell.kind != "value":
-                cls = "f"
-            else:
-                cls = "t" if isinstance(v, str) else "r"
-            precs = [[index[ps], *(x if x is not None else -1 for x in area)]
-                     for ps, area in t.precedents.get((s, (r, c)), []) if ps in index] or None
-            out_cells.append([r, c, cls, _display(v), cell.formula, precs,
-                              t.external_refs.get((s, (r, c)))])
-        sheets.append({"name": s, "bounds": [min(rows), min(cols), max(rows), max(cols)],
-                       "cells": out_cells})
-
-    def keys(items):
-        return [[index[s], r, c] for s, (r, c) in sorted(items, key=lambda k: (t.sheet_order.index(k[0]), k[1]))
-                if s in index]
-
-    data = {"title": title, "results": t.results, "sheets": sheets,
-            "unused_sheets": [s for s in t.sheet_order if s not in index],
-            "external": keys(t.external_refs), "dynamic": keys(t.dynamic_refs), "broken": keys(t.broken_refs)}
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    page = VIEW_TEMPLATE.read_text(encoding="utf-8")
-    return page.replace("__TITLE__", html.escape(title)).replace("__DATA__", payload)
-
-
-def load_values(path, sheets):
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    values = {}
-    for s in sheets:
-        values[s] = {(c.row, c.column): c.value for row in wb[s].iter_rows()
-                     for c in row if c.value is not None and hasattr(c, "row")}
-    wb.close()
-    return values
-
-
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("xlsx")
-    ap.add_argument("--result", action="append", required=True, help="결과 시트 이름(여러 번 지정 가능)")
-    ap.add_argument("--out", required=True, help="만들 HTML 경로")
-    a = ap.parse_args()
-    t = trace(a.xlsx, a.result)
-    used = [s for s in t.sheet_order if any(c.reached for c in t.cells[s].values())]
-    Path(a.out).write_text(render_html(t, load_values(a.xlsx, used), Path(a.xlsx).name), encoding="utf-8")
-    print(a.out)
-
-
-if __name__ == "__main__":
-    main()
