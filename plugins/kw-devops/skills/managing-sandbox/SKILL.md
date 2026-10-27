@@ -30,7 +30,7 @@ description: AX팀 데이터베이스의 샌드박스(kw_sandbox)에 테이블�
 
 ```
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" schemas
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" tables <스키마>
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" tables --schema <스키마>
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" describe --schema <스키마> --table <테이블>
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" select --request <파일> [--all --out <결과 파일>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" create --spec <파일> --purpose "<자세한 용도>"
@@ -120,11 +120,11 @@ JSON 파일의 모양은 다음과 같다. `//` 줄은 설명이라 파일에 �
 
 1. 클로드는 미리보기를 그대로 사용자에게 보이고 AskUserQuestion 으로 실행할지 묻는다. "내 테이블 기록에 없음" 줄이 있으면 그 사실을 질문 머리에 적는다.
 2. 사용자가 실행을 고른 때에만 같은 명령에 `--confirm <확인값>` 을 붙여 다시 실행한다. 클로드가 스스로 확인값을 붙이지 않는다.
-3. 그사이 대상이 바뀌어 확인값이 달라졌으면 스크립트는 "대상 규모가 바뀜"으로 멈춘다. 이때는 1번부터 다시 한다.
+3. 그사이 대상이 바뀌어 확인값이 달라졌으면 스크립트는 "확인값이 지금 값과 다름"으로 멈춘다. 이때는 1번부터 다시 한다.
 
 미리보기의 규모는 동작에 따라 다르다. 조건이 있는 수정·삭제·범위 교체는 실제로 센 행 수다. 범위 교체의 미리보기에는 보낼 행 수도 나온다.
 
-테이블 전체가 대상인 동작(테이블 삭제·비우기, `"all": true`, 컬럼 삭제)은 데이터를 PC 로 가져오지 않으려고 통계의 추정 행 수를 쓴다. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있다. 이름 변경의 확인값은 새 이름이다.
+테이블 전체가 대상인 동작(테이블 삭제·비우기, `"all": true`, 컬럼 삭제)은 데이터를 PC 로 가져오지 않으려고 통계의 추정 행 수를 쓴다. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있다. 새 테이블처럼 DB 통계가 없어 추정치가 없으면 스크립트가 행 수를 직접 센다. 이름 변경의 확인값은 새 이름이다.
 
 - **확인 대상 동작은 이 스크립트로만 실행한다.** 스크립트가 실패하거나 원하는 동작이 없으면 즉석 코드나 백엔드 코드로 DBGateway 를 직접 호출하지 않고 사용자에게 알린다.
 - 인덱스 삭제와 설명 변경은 다시 만들 수 있어 확인 없이 실행한다. 컬럼을 지우면 그 컬럼이 든 인덱스도 함께 지워지고, 미리보기가 그 이름을 알린다. primary key 에 든 컬럼은 지울 수 없다.

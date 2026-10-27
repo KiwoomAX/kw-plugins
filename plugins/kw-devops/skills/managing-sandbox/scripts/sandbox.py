@@ -164,8 +164,10 @@ def cmd_schemas(args) -> int:
 
 def cmd_tables(args) -> int:
     listing = call("GET", f"/sandbox/schemas/{args.schema}")
+    if not listing["tables"]:
+        print("테이블 없음")
     for t in listing["tables"]:
-        rows = "추정 없음" if t["estimated_rows"] is None else f"추정 {t['estimated_rows']:,}행"
+        rows = "행 수 모름(DB 통계 없음)" if t["estimated_rows"] is None else f"추정 {t['estimated_rows']:,}행"
         mine = " · 내 테이블" if record.has(listing["schema"], t["table"]) else ""
         print(f"{t['table']}  {rows} · {_size(t['size_bytes'])}{mine}  {t['description'] or ''}".rstrip())
     return 0
@@ -225,29 +227,35 @@ def preview(action: str, body: dict) -> tuple[str, list[str]]:
         if empty:
             lines.append(f"비워질 컬럼: {', '.join(empty)}")
     if action in ("update", "delete", "overwrite") and not body.get("all"):
-        # 값은 받지 않을 수 없으니, 짧은 primary key 컬럼 하나만 받고 출력하지 않는다.
-        detail = _describe(schema, table)
-        column = (detail["primary_key"] or [detail["columns"][0]["name"]])[0]
-        page = call("POST", "/sandbox/rows/select", {"schema": schema, "table": table, "columns": [column],
-                                                     "where": body.get("where"), "limit": MAX_ROWS})
-        if page["truncated"]:
-            if action == "overwrite":  # 보내는 행은 상한이 있지만 지워지는 행은 없다. 모르는 수만큼 지우지 않는다
-                raise SystemExit("범위의 행: 30,000행 이상. 지워질 행 수를 셀 수 없어 실행하지 않음"
-                                 "\n- 조치: 범위를 나눠(예: 월별) 범위마다 요청")
-            lines.append("조건에 맞는 행: 30,000행 이상")
-            return f"{MAX_ROWS}+", lines
-        lines.append(f"조건에 맞는 행: {len(page['rows'])}")
-        return str(len(page["rows"])), lines
+        return _count(action, schema, table, body.get("where"), "조건에 맞는 행", lines)
     # 테이블 전체가 대상이면 행을 조회하지 않는다. 데이터가 PC 로 들어오지 않게 추정 행 수를 쓴다.
     entry = _table_entry(schema, table)
     estimated = entry["estimated_rows"]
-    shown = "없음" if estimated is None else f"{estimated:,}"
-    lines.append(f"추정 행: {shown} · 크기 {_size(entry['size_bytes'])}. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있음")
     if action == "drop_column":
         indexes = [i["name"] for i in _describe(schema, table)["indexes"] if body["drop_column"] in i["columns"]]
         if indexes:
             lines.append(f"함께 삭제됨: 인덱스 {', '.join(indexes)}")
-    return ("추정없음" if estimated is None else str(estimated)), lines
+    if estimated is None:  # 새 테이블처럼 DB 통계가 없으면 빈 테이블로 보이지 않게 실제로 센다
+        return _count(action, schema, table, None, "행", lines, f" · 크기 {_size(entry['size_bytes'])}. DB 통계가 없어 직접 셈")
+    lines.append(f"추정 행: {estimated:,} · 크기 {_size(entry['size_bytes'])}. 추정치라 동료가 방금 바꾼 행은 반영되지 않을 수 있음")
+    return str(estimated), lines
+
+
+def _count(action: str, schema: str, table: str, where: dict | None, label: str, lines: list[str],
+           note: str = "") -> tuple[str, list[str]]:
+    """대상 행 수를 세어 확인값으로 쓴다. 값은 받지 않을 수 없으니, 짧은 primary key 컬럼 하나만 받고 출력하지 않는다."""
+    detail = _describe(schema, table)
+    column = (detail["primary_key"] or [detail["columns"][0]["name"]])[0]
+    page = call("POST", "/sandbox/rows/select", {"schema": schema, "table": table, "columns": [column],
+                                                 "where": where, "limit": MAX_ROWS})
+    if page["truncated"]:
+        if action == "overwrite":  # 보내는 행은 상한이 있지만 지워지는 행은 없다. 모르는 수만큼 지우지 않는다
+            raise SystemExit("범위의 행: 30,000행 이상. 지워질 행 수를 셀 수 없어 실행하지 않음"
+                             "\n- 조치: 범위를 나눠(예: 월별) 범위마다 요청")
+        lines.append(f"{label}: 30,000행 이상{note}")
+        return f"{MAX_ROWS}+", lines
+    lines.append(f"{label}: {len(page['rows'])}{note}")
+    return str(len(page["rows"])), lines
 
 
 def guarded(action: str, body: dict, confirm: str | None, send) -> int:
@@ -259,7 +267,7 @@ def guarded(action: str, body: dict, confirm: str | None, send) -> int:
         print(f"실행하려면 --confirm {token}")
         return 3
     if confirm != token:
-        print(f"대상 규모가 바뀜: 미리보기 {confirm}, 지금 {token}. 실행하지 않음")
+        print(f"확인값이 지금 값과 다름: 받은 값 {confirm}, 지금 {token}. 실행하지 않음\n- 조치: 미리보기를 다시 실행해 지금 대상 확인")
         return 1
     return send(token)
 
@@ -397,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("schemas", help="쓸 수 있는 조직 스키마").set_defaults(func=cmd_schemas)
     p = sub.add_parser("tables", help="스키마 안의 테이블 목록")
-    p.add_argument("schema")
+    p.add_argument("--schema", required=True)
     p.set_defaults(func=cmd_tables)
     p = sub.add_parser("describe", help="테이블의 컬럼·primary key·인덱스")
     p.add_argument("--schema", required=True)
@@ -547,6 +555,8 @@ class Fake:
             return 200, {"schemas": [{"schema": "BS", "used_bytes": 12288, "cap_bytes": 10 * 1024 ** 3}]}
         if path == "/sandbox/schemas/unauth":
             return 401, {"kind": "신원 거절", "code": "unidentified", "detail": "폐기된 키"}
+        if path == "/sandbox/schemas/빈":
+            return 200, {"schema": "빈", "tables": []}
         if path == "/sandbox/schemas/BS":
             return 200, {"schema": "BS", "tables": [
                 {"table": n, "size_bytes": t["size_bytes"], "estimated_rows": t["estimated_rows"],
@@ -690,7 +700,7 @@ def _selfcheck() -> None:
         code, out = run_cli(["schemas"])
         assert code == 1 and "접근 키 없음" in out and len(fake.sent) == n, "키가 없으면 요청을 보내지 않는다"
         os.environ[gw.KEY_ENV] = "kwam_x"
-        code, out = run_cli(["tables", "unauth"])
+        code, out = run_cli(["tables", "--schema", "unauth"])
         assert code == 1 and "DBGateway 신원 거절(401)" in out and opened == [], (out, opened)
         p = json_file({})
         Path(p).write_bytes('﻿{"schema": "BS", "table": "투자후보"}'.encode("utf-8"))
@@ -707,8 +717,10 @@ def _selfcheck() -> None:
         assert code == 1 and "반영 여부 모름" in out and "다시 보내지 않" in out, out
         code, out = run_cli(["select", "--request", json_file({"schema": "BS", "table": "무키표"}), "--all"])
         assert code == 2, "--all 은 --out 없이 받지 않는다(argparse 오류)"
-        code, out = run_cli(["tables", "BS"])
+        code, out = run_cli(["tables", "--schema", "BS"])
         assert code == 0 and "투자후보" in out and "kwam_x" not in out, out
+        code, out = run_cli(["tables", "--schema", "빈"])
+        assert code == 0 and out.strip() == "테이블 없음", out
         _selfcheck_writes(fake, json_file, bodies_for)
     finally:
         fake.close()
@@ -730,7 +742,8 @@ def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
     assert count_body["columns"] == ["코드"] and count_body["limit"] == 30000 and "비밀값" not in out, count_body
     fake.tables["투자후보"]["rows"].append({"코드": "Z", "단계": "검토"})  # 동료가 행을 추가
     code, out = run_cli(["delete", "--request", del_where, "--confirm", "3"])
-    assert code == 1 and "대상 규모가 바뀜" in out and not bodies_for("/sandbox/rows/delete"), out
+    assert code == 1 and "확인값이 지금 값과 다름: 받은 값 3, 지금 4" in out and "미리보기를 다시" in out, out
+    assert not bodies_for("/sandbox/rows/delete"), out
     code, out = run_cli(["delete", "--request", del_where, "--confirm", "4"])
     assert code == 0 and bodies_for("/sandbox/rows/delete") and "4" in out, out
     inserts = len(bodies_for("/sandbox/rows/insert"))  # 조회 시험의 422 요청이 하나 남아 있다
@@ -792,8 +805,13 @@ def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
     code, out = run_cli(["alter", "--change", json_file({"schema": "BS", "table": "새표", "rename_table": "새표2"}),
                          "--confirm", "새표2"])
     assert code == 0 and "완료" in out and record.has("BS", "새표2") and not record.has("BS", "새표"), out
+    fake.tables["새표2"]["rows"] = [{"코드": "A"}, {"코드": "B"}]  # 새 테이블은 DB 통계가 없어 추정 행 수가 null 이다
+    code, out = run_cli(["tables", "--schema", "BS"])
+    assert "새표2  행 수 모름(DB 통계 없음)" in out and "추정 없음" not in out, out
+    code, out = run_cli(["drop", "--schema", "BS", "--table", "새표2"])
+    assert code == 3 and "행: 2" in out and "확인값: 2" in out and "없음" not in out, out  # 추정값이 없으면 실제로 센다
     fake.fail["/sandbox/table/drop"] = ("write_outcome_unknown", "판정 불능")
-    code, out = run_cli(["drop", "--schema", "BS", "--table", "새표2", "--confirm", "추정없음"])
+    code, out = run_cli(["drop", "--schema", "BS", "--table", "새표2", "--confirm", "2"])
     assert code == 1 and record.has("BS", "새표2") and "다시 보내지 않" in out and bodies_for("/sandbox/table/drop"), out
     record.RECORD.write_text("{깨짐", encoding="utf-8")
     n = len(bodies_for("/sandbox/table/create"))
