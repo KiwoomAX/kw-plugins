@@ -525,6 +525,8 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
         if top is not None and shared_repo.repo_kind(top) == "shared":
             payload = _commit_shared(top, message, feature, intake, deadline, progress)
             payload.setdefault("closed_prs", progress.get("closed_prs", []))
+            if payload["status"] in ("committed", "nothing"):
+                payload["unpushed"] = unpushed(top, deadline)
             return payload
         return _commit_work(Path(repo), message, branch, catch_up, deadline, progress)
     except BranchChoiceError as exc:
@@ -730,7 +732,8 @@ def check_boundary(repo, feature, intake=False):
             # 설계자 판단: 기능 레포에서 잘못 실행했을 때 Claude 가 알아보게 하는 값이다.
             return {"status": "not-shared-repo", "reason": "", "message": "", "detail": "공유 대시보드 레포가 아니다."}
         gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
-        head = feature_branch(top, feature, deadline=deadline) or "HEAD"
+        waiting = pending_filter(top, deadline)["excluded"]
+        head = feature_branch(top, feature, exclude=waiting, deadline=deadline) or "HEAD"
         result = _boundary_of(top, feature, head, intake, deadline)
         commits = gitcmd.git(top, "log", f"{REMOTE_REF}..{head}", "--format=%s", deadline=deadline).splitlines()
         return _boundary_payload(result, commits)
@@ -747,6 +750,13 @@ def revert_outside(repo, feature, paths):
         top = locate(repo)
         if top is None or shared_repo.repo_kind(top) != "shared":
             return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        current = current_branch(top, deadline)
+        if not current or _kw_feature(top, current, deadline) != feature:
+            return _shared_failed(MSG_FAILED, f"지금 branch 가 {feature} 기능의 작업 branch 가 아니라 되돌리지 않았다. "
+                                              f"switch-feature --feature {feature} 로 먼저 옮겨라.")
+        inside = [path for path in paths if shared_repo.allowed(path, feature)]
+        if inside:
+            return _shared_failed(MSG_FAILED, f"{', '.join(inside)} 는 {feature} 기능 폴더 안의 파일이라 되돌리지 않았다.")
         if shared_repo.worktree_paths(top, deadline):
             return _shared_failed(MSG_FAILED, "commit 하지 않은 변경이 있어 되돌리지 않았다. 먼저 commit 하라.")
         gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
@@ -875,10 +885,15 @@ def _commit_shared(top, message, feature, intake, deadline, progress):
                                      f"switch-feature --feature {feature} 로 먼저 옮겨라.", branch=branch)
     progress["branch"] = branch
     data = rules.load(RULES_PATH)
+    recover(top, deadline)
     if (git_dir(top, deadline) / "MERGE_HEAD").exists():
         if not intake:
             return _shared_commit_result("failed", MSG_FAILED, MERGE_DETAIL, branch=branch)
         return _commit_intake_merge(top, message, feature, data, deadline, progress)
+    # 앞선 업로드가 끊기며 남긴 이 작업 폴더의 stash 를 먼저 되돌린다.
+    restored = restore_upload_stash(top, deadline)
+    if restored:
+        return _shared_commit_result("failed", MSG_FAILED, restored, branch=branch)
     excluded, others = stage(top, data, deadline, scope=(feature, intake))
     progress["excluded"], progress["other_features"] = excluded, others
     if not has_staged_changes(top, deadline):
@@ -1211,6 +1226,11 @@ def _push_branch(top, branch, state, deadline, progress):
 def _precheck(top, branch, state, deadline):
     """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다."""
     feature = state.get("feature")
+    leaked = _branch_hits(top, branch, feature, state.get("intake", False), deadline)
+    if leaked:
+        return {"status": "failed", "message": MSG_FAILED, "outside": [], "reason": "",
+                "detail": f"올릴 commit 에 비밀값·데이터 파일이 있어 push 하지 않았다: {', '.join(leaked)}. 그 파일을 "
+                          "고치는 commit 을 저장 스크립트로 만든 뒤 다시 올려라."}
     if not feature:
         return None
     intake = state.get("intake", False)
@@ -1220,6 +1240,25 @@ def _precheck(top, branch, state, deadline):
     payload = _boundary_payload(result)
     return {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
+
+
+def _branch_hits(top, branch, feature, intake, deadline):
+    """merge-base 기준 내 변경의 최종 내용에 비밀값·데이터 파일 검사를 한다. 지워진 파일은 보지 않는다."""
+    data = rules.load(RULES_PATH)
+    base = gitcmd.git(top, "merge-base", REMOTE_REF, branch, deadline=deadline).strip()
+    found = []
+    for path in shared_repo.changed_paths(top, base, branch, deadline):
+        blob = shared_repo._blob(top, branch, path, deadline)
+        if blob is None:
+            continue
+        if intake and blob == shared_repo._blob(top, REMOTE_REF, path, deadline):
+            continue
+        raw = gitcmd.git_bytes(top, "cat-file", "blob", blob, deadline=deadline)
+        if feature and shared_repo.is_feature_doc(path, feature) and len(raw) <= rules_max_bytes(data):
+            continue
+        if rules.judge(data, path, len(raw), lambda raw=raw: raw) is not None:
+            found.append(path)
+    return found
 
 
 def _history_hits(top, branch, feature, deadline):
@@ -1582,6 +1621,9 @@ def _upload_shared(top, task, title, close, resume, feature, intake, deadline, p
     # 검토 요청 대기 branch 에는 commit 하지 않는다.
     now = _kw_feature(top, current, deadline) if current and current not in pending["excluded"] else ""
     state = {"task": task, "title": title, "close": close, "feature": feature, "intake": intake}
+    recover(top, deadline)
+    restored = restore_upload_stash(top, deadline) or ""
+    progress["note"] = " ".join(filter(None, [progress.get("note"), restored]))
     if now == feature:
         excluded, _ = stage(top, rules.load(RULES_PATH), deadline, scope=(feature, intake))
         progress["excluded"] = excluded
@@ -1611,9 +1653,17 @@ def _main_worktree(top, deadline):
     return Path(first[len("worktree "):])
 
 
+# 패키지 설치가 만드는 폴더다. 안의 파일은 다시 설치하면 생기므로 정리 판정에서 뺀다.
+DEPENDENCY_DIRS = ("node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", "dist", "build")
+
+
 def _ignored(top, deadline):
     out = gitcmd.git_z(top, "status", "--porcelain", "-z", "--ignored", "--untracked-files=all", deadline=deadline)
     return [entry[3:] for entry in out if entry.startswith("!! ")]
+
+
+def _dependency(path):
+    return any(part in DEPENDENCY_DIRS for part in path.split("/")[:-1])
 
 
 def remove_copy(top, deadline=None):
@@ -1630,7 +1680,8 @@ def remove_copy(top, deadline=None):
         return f"사본 작업 폴더 {top} 가 남긴 {UPLOAD_STASH} stash 가 있어 지우지 않았다. git stash list 로 확인하라."
     data = rules.load(RULES_PATH)
     ignored = _ignored(top, deadline)
-    risky = [path for path in ignored if (top / path).is_file() and _judge(top, data, path) is not None]
+    risky = [path for path in ignored if not _dependency(path) and (top / path).is_file()
+             and _judge(top, data, path) is not None]
     if risky:
         return f"사본 작업 폴더 {top} 에 비밀값·데이터 파일이 남아 지우지 않았다: {', '.join(risky)}"
     original = _main_worktree(top, deadline)
@@ -1638,7 +1689,7 @@ def remove_copy(top, deadline=None):
     if code != 0:
         return f"사본 작업 폴더 {top} 를 지우지 못해 폴더가 남아 있다: {(err or out).strip()}"
     gitcmd.git(original, "worktree", "prune", deadline=deadline)
-    return f"사본 작업 폴더를 지우며 무시된 파일도 함께 지웠다: {', '.join(ignored)}" if ignored else ""
+    return f"사본 작업 폴더를 지우며 무시된 파일 {len(ignored)}개도 함께 지웠다." if ignored else ""
 
 
 def _remove_copy_note(top):

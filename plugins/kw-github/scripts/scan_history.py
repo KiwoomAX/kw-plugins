@@ -21,20 +21,28 @@ def _tree(top, ref, deadline):
         yield entry.split(" ", 2)
 
 
+def _history_blobs(top, ref, deadline):
+    for line in gitcmd.git(top, "rev-list", "--objects", ref, deadline=deadline).splitlines():
+        yield line.split(" ", 1)[0]
+
+
 def scan(top, data, deadline=None, commits=None, skip_ref=None, doc_feature=None):
-    """commits 가 없으면 모든 commit 을 본다. skip_ref 트리에 같은 내용·같은 경로로 있는 파일은 보지 않는다.
+    """commits 가 없으면 모든 commit 을 본다. skip_ref 의 이력에 있는 내용(blob)은 보지 않는다.
+
+    기능 이전 merge 뒤 다른 개발자가 고친 파일의 옛 내용은 skip_ref 이력에 있으므로 검출하지 않는다.
 
     doc_feature 가 있으면 그 기능의 설명 문서(docs/<기능>.pdf·docx)는 크기 상한 안에서 보지 않는다.
     """
     if commits is None:
         commits = gitcmd.git(top, "rev-list", "--all", deadline=deadline).split()
-    seen = {(blob, path) for blob, _, path in _tree(top, skip_ref, deadline)} if skip_ref else set()
+    known = set(_history_blobs(top, skip_ref, deadline)) if skip_ref else set()
+    seen = set()
     doc_limit = data["data"]["file_max_mib"] * 1024 * 1024
     hits = []
     for commit in commits:
         for blob, size, path in _tree(top, commit, deadline):
             # 하위 모듈은 크기가 - 로 온다. 같은 내용의 같은 경로는 한 번만 본다.
-            if size == "-" or (blob, path) in seen:
+            if size == "-" or blob in known or (blob, path) in seen:
                 continue
             seen.add((blob, path))
             if doc_feature and shared_repo.is_feature_doc(path, doc_feature) and int(size) <= doc_limit:

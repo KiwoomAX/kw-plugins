@@ -122,6 +122,10 @@ SHARED_DIRTY_NOTE = (
 )
 BEHIND_NOTE = ("[kw-github] 지금 작업 branch 가 공유 코드보다 {count}개 commit 뒤처져 있다. 작업 branch 에 main 을 "
                "자동으로 합치지 않았다.")
+SHARED_UNPUSHED_NOTE = (
+    "[kw-github] GitHub 에 올리지 않은 commit 이 있다. 개발자에게 '업로드되지 않은 작업이 있습니다.' 라고 한 줄 알린 뒤 "
+    "saving-work 스킬의 「push 질문」 절에 따라 묻고, 동의하면 「공유 대시보드 레포」의 「올리기 흐름」을 하라."
+)
 LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
              "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
 
@@ -185,7 +189,10 @@ def shared_context(top, session_id=None):
         groups = _dirty_groups(top)
         if groups:
             notes.append(SHARED_DIRTY_NOTE.format(groups=groups))
-    return _with_rules("\n".join(notes))
+        if save_work.unpushed(top):
+            notes.append(SHARED_UNPUSHED_NOTE)
+    # 기능 코드 규칙은 기능 레포 구조를 정하므로 넣지 않는다. 개발자에게 하는 말의 git 용어 규칙만 넣는다.
+    return "\n".join(notes) + "\n\n" + GIT_TERMS_PATH.read_text(encoding="utf-8")
 
 
 def context_for(cwd, session_id=None):
