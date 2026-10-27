@@ -1731,10 +1731,12 @@ def template_only(title, body):
     return True
 
 
-def _leaked(top, data, deadline):
-    """GitHub 공유 코드에 올라간 파일 중 업로드 규칙에 해당하는 파일이다."""
+def _leaked(top, data, deadline, keep=None):
+    """GitHub 공유 코드에 올라간 파일 중 업로드 규칙에 해당하는 파일이다. keep 이 있으면 그 경로만 본다."""
     found = []
     for path in gitcmd.git_z(top, "ls-tree", "-r", "-z", "--name-only", REMOTE_REF, deadline=deadline):
+        if keep is not None and not keep(path):
+            continue
         raw = gitcmd.git_bytes(top, "cat-file", "blob", f"{REMOTE_REF}:{path}", deadline=deadline)
         verdict = rules.judge(data, path, len(raw), lambda raw=raw: raw)
         if verdict is not None:
@@ -1742,13 +1744,33 @@ def _leaked(top, data, deadline):
     return found
 
 
-def review_upload(repo):
-    """업로드 뒤 점검에 쓸 사실을 모은다. 판단과 처리는 saving-work 스킬의 Claude 가 한다."""
+def _contains_config(top, key, deadline):
+    """git config 에 적힌 마지막 업로드 SHA 가 GitHub main 에 들어 있는가."""
+    code, out, _ = gitcmd.git_try(top, "config", "--get", key, deadline=deadline)
+    return code == 0 and bool(out.strip()) and _contains(top, out.strip(), deadline)
+
+
+def _copies(top, deadline):
+    out = gitcmd.git(top, "worktree", "list", "--porcelain", deadline=deadline)
+    folders = [line[len("worktree "):] for line in out.splitlines() if line.startswith("worktree ")]
+    return folders[1:]  # 첫 줄은 원래 작업 폴더다
+
+
+def review_upload(repo, feature=None, intake=False):
+    """업로드 뒤 점검에 쓸 사실을 모은다. 판단과 처리는 saving-work 스킬의 Claude 가 한다.
+
+    공유 레포에서는 그 기능의 허용 경로와 [<기능>] 이슈만 본다. intake 이면 이전 허용 파일과 구조 파일도 본다.
+    """
     deadline = gitcmd.Deadline(SAVE_SECONDS)
-    payload = {"status": "failed", "uploaded": False, "leaked": [], "issues": [], "message": MSG_FAILED, "detail": ""}
+    payload = {"status": "failed", "uploaded": False, "leaked": [], "issues": [], "copies": [], "message": MSG_FAILED,
+               "detail": ""}
     try:
         top = locate(Path(repo))
-        if top is None or not is_feature_repo(top):
+        shared = top is not None and shared_repo.repo_kind(top) == "shared"
+        if shared and shared_repo.feature_status(top, feature or "") == "invalid":
+            payload.update(message=MSG_INVALID_FEATURE, detail="--feature 가 없거나 기능 이름으로 쓸 수 없다.")
+            return payload
+        if top is None or not (shared or is_feature_repo(top)):
             payload.update(message=MSG_NOT_FEATURE, detail="표식 파일이 없는 폴더다.")
             return payload
         parsed = parse_remote(origin_url(top) or "")
@@ -1756,20 +1778,29 @@ def review_upload(repo):
             payload["detail"] = "origin 주소에서 GitHub 레포 이름을 읽지 못했다."
             return payload
         gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
-        local = gitcmd.git(top, "rev-parse", BRANCH, deadline=deadline).strip()
-        remote = gitcmd.git(top, "rev-parse", REMOTE_REF, deadline=deadline).strip()
-        feature = read_marker(top).get("issue")
+        if shared:
+            uploaded = _contains_config(top, LAST_UPLOAD.format(key=feature), deadline)
+            prefix, issue = f"[{feature}] ", None
+            extra = set(shared_repo.INTAKE_FILES) | set(shared_repo.STRUCTURE_FILES) if intake else set()
+            keep = lambda path: shared_repo.allowed(path, feature) or path in extra  # noqa: E731
+        else:
+            local = gitcmd.git_try(top, "rev-parse", BRANCH, deadline=deadline)[1].strip()
+            remote = gitcmd.git(top, "rev-parse", REMOTE_REF, deadline=deadline).strip()
+            # 업로드 5단계가 PC 의 main 을 옮기지 못했으면 마지막 업로드 SHA 로 본다.
+            uploaded = local == remote or _contains_config(top, LAST_UPLOAD.format(key="_feature"), deadline)
+            prefix, issue, keep = f"[{parsed[1]}] ", read_marker(top).get("issue"), None
         me = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
         listed = json.loads(gitcmd.gh("issue", "list", "-R", "/".join(parsed), "--state", "open", "--json",
                                       "number,title,body,assignees,author", "--limit", "100", deadline=deadline) or "[]")
         payload.update(
             status="ok", message="",
-            uploaded=local == remote,
-            leaked=_leaked(top, rules.load(RULES_PATH), deadline),
-            # ours: 플러그인이 만든 이슈다. 제목이 "[<레포 이름>] " 으로 시작하고 작성자가 지금 gh 사용자다.
-            # 같은 접두어로 팀원이 만든 이슈를 지우거나 닫지 않기 위해서다.
-            issues=[{"number": item["number"], "title": item["title"], "feature": str(item["number"]) == feature,
-                     "ours": bool(me) and item["title"].startswith(f"[{parsed[1]}] ")
+            uploaded=uploaded,
+            leaked=_leaked(top, rules.load(RULES_PATH), deadline, keep),
+            copies=_copies(top, deadline),
+            # ours: 플러그인이 만든 이슈다. 제목이 "[<레포 이름>] "(공유 레포는 "[<기능>] ")으로 시작하고 작성자가
+            # 지금 gh 사용자다. 같은 접두어로 팀원이 만든 이슈를 지우거나 닫지 않기 위해서다.
+            issues=[{"number": item["number"], "title": item["title"], "feature": str(item["number"]) == issue,
+                     "ours": bool(me) and item["title"].startswith(prefix)
                              and (item.get("author") or {}).get("login") == me,
                      "template_only": template_only(item["title"], item.get("body")),
                      "no_assignee": not item.get("assignees")} for item in listed],
@@ -1810,7 +1841,10 @@ def main(argv=None):
     upload_cmd.add_argument("--allow-other-owner", action="store_true")
     upload_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
     upload_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
-    sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다").add_argument("--repo", required=True)
+    review_cmd = sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다")
+    review_cmd.add_argument("--repo", required=True)
+    review_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올린 기능 이름")
+    review_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
     boundary_cmd = sub.add_parser("check-boundary", help="공유 대시보드 레포에서 기능 폴더 경계를 검사한다")
     boundary_cmd.add_argument("--repo", required=True)
     boundary_cmd.add_argument("--feature", required=True)
@@ -1844,7 +1878,7 @@ def main(argv=None):
     if args.command == "revert-outside":
         return _print(revert_outside(args.repo, args.feature, args.paths))
     if args.command == "review-upload":
-        return _print(review_upload(args.repo))
+        return _print(review_upload(args.repo, feature=args.feature, intake=args.intake))
     if args.command == "upload":
         return _print(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
                              allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake))
