@@ -53,7 +53,7 @@ WORK_PREFIXES = ("feat/", "fix/", "refactor/", "docs/")
 SESSION_BRANCH = "feat/session-{stamp}"
 UPLOAD_STASH = "kiwoom-upload"
 REMOTE_URL = "https://github.com/{full}.git"
-TEMPLATE_API = "repos/KiwoomAM/.github/contents/.github/ISSUE_TEMPLATE/03_feature_request.md"
+TEMPLATE_API = "repos/KiwoomAX/.github/contents/.github/ISSUE_TEMPLATE/03_feature_request.md"
 FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 HTML_COMMENT = re.compile(r"<!--.*?-->\n?", re.S)
 
