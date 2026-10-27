@@ -2,7 +2,7 @@
 
 명령 문자열을 먼저 보고, 살펴볼 명령이 없으면 git 을 부르지 않고 통과시킨다. 이 훅은 보안 경계가
 아니다. Claude 가 실수로 저장 스크립트의 검사를 건너뛰지 않게 하는 장치다. 브랜치·merge 는 거부하지
-않고, 기능 레포가 아닌 폴더에서는 아무것도 거부하지 않는다.
+않는다. 기능 레포와, 기능별 폴더 구조를 갖춘 공유 대시보드 레포에서만 거부한다.
 """
 import json
 import os
@@ -182,6 +182,7 @@ def main():
             return 0
         import gitcmd
         import save_work
+        import shared_repo
 
         for reason, where in found:
             try:
@@ -190,7 +191,9 @@ def main():
                 return 0  # git 이 없으면 막으려던 명령도 실행되지 않는다
             if top is None:
                 continue  # 레포가 아닌 폴더에서는 git push 가 실행되지 않는다
-            if save_work.is_feature_repo(top):
+            # 지원 구조가 아닌 대시보드는 kw-github 로 올릴 수 없으므로 막지 않는다(사용자 결정 2026-10-21).
+            if save_work.is_feature_repo(top) or (shared_repo.repo_kind(top) == "shared"
+                                                  and shared_repo.supported(top)):
                 _deny(reason)
                 return 0
     except Exception as exc:  # noqa: BLE001 — 판단하지 못하면 통과시키지 않는다

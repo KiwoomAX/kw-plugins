@@ -1,4 +1,4 @@
-"""기능 레포에서 작업 중인 세션을 표시한다.
+"""기능 레포와 공유 대시보드 레포에서 작업 중인 세션을 표시한다.
 
 세션마다 `.git/kiwoom-sessions/<세션 ID>` 파일 하나를 두고 수정 시각을 마지막 활동 시각으로 쓴다.
 세션 시작 저장은 다른 세션이 작업 중이면 그 세션의 미완성 코드를 커밋하지 않도록 건너뛴다.
@@ -13,14 +13,26 @@ MARK_DIR = "kiwoom-sessions"
 # 이 시간 안에 활동한 세션을 작업 중으로 본다. 비정상 종료로 남은 표시도 이 시간이 지나면 무시된다.
 ACTIVE_SECONDS = 10 * 60 * 60
 _SAFE_ID = re.compile(r"[^A-Za-z0-9_-]")
+# shared_repo.repo_kind 와 같은 판정을 git 없이 .git/config 의 url 줄로 한다.
+DASHBOARD_URL = re.compile(r"github\.com[/:]kiwoomax/[^/\s]*dashboard(\.git)?\s*$", re.I)
+
+
+def _dashboard(git):
+    try:
+        text = (git / "config").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any(line.strip().startswith("url = ") and DASHBOARD_URL.search(line.strip()[len("url = "):])
+               for line in text.splitlines())
 
 
 def _mark_dir(start):
-    """기능 레포의 표시 폴더를 돌려준다. 기능 레포가 아니면 None 이다."""
+    """기능 레포나 공유 대시보드 레포의 표시 폴더를 돌려준다. 둘 다 아니면 None 이다."""
     path = Path(start).resolve()
     for folder in (path, *path.parents):
-        if (folder / MARKER).is_file() and (folder / ".git").is_dir():
-            return folder / ".git" / MARK_DIR
+        git = folder / ".git"
+        if git.is_dir() and ((folder / MARKER).is_file() or _dashboard(git)):
+            return git / MARK_DIR
     return None
 
 

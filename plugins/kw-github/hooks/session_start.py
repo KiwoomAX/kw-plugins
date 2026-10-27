@@ -16,6 +16,7 @@ import gitcmd  # noqa: E402
 import repo_setup  # noqa: E402
 import save_work  # noqa: E402
 import session_mark  # noqa: E402
+import shared_repo  # noqa: E402
 
 CODE_RULES_PATH = PLUGIN_ROOT / "feature_code_rules.md"
 GIT_TERMS_PATH = PLUGIN_ROOT / "git_terms.md"
@@ -109,8 +110,89 @@ def _guidance_for(cwd):
     return None
 
 
+# 2026-10-27 globalbond-dashboard 의 fetch 10번 실측 최댓값 3.10초의 3배를 올림했다.
+SYNC_FETCH_SECONDS = 10
+SHARED_REMINDER = (
+    "[kw-github] 이 폴더는 여러 개발자가 함께 쓰는 공유 대시보드 레포다. 세션 시작 때 commit 하지 않는다. 기능마다 "
+    "save_work.py switch-feature 와 commit --feature <기능> 으로 commit 하고, 올리기는 saving-work 스킬로 한다."
+)
+SHARED_DIRTY_NOTE = (
+    "[kw-github] 공유 대시보드 레포에 commit 하지 않은 변경이 있다: {groups}. 개발자와 기능을 확인하고 "
+    "save_work.py switch-feature 와 commit --feature <기능> 으로 기능마다 commit 하라."
+)
+BEHIND_NOTE = ("[kw-github] 지금 작업 branch 가 공유 코드보다 {count}개 commit 뒤처져 있다. 작업 branch 에 main 을 "
+               "자동으로 합치지 않았다.")
+LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
+             "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
+
+
+def _move_main(top, session_id):
+    """spec 「세션 시작 동기화」 3단계다. 조건을 모두 만족할 때만 PC 의 main 을 origin/main 으로 옮긴다."""
+    old = gitcmd.git_try(top, "rev-parse", "--verify", "-q", "refs/heads/main")[1].strip()
+    new = gitcmd.git(top, "rev-parse", save_work.REMOTE_REF).strip()
+    if not old or old == new or shared_repo.worktree_paths(top):
+        return
+    if gitcmd.git_try(top, "merge-base", "--is-ancestor", old, new)[0] != 0:
+        return
+    if not save_work._main_free(top, None):
+        return
+    if session_id and session_mark.others_active(top, session_id):
+        return
+    if save_work.current_branch(top) == save_work.BRANCH:
+        gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF)
+    else:
+        gitcmd.git(top, "update-ref", "refs/heads/main", new, old)
+
+
+def sync_shared(top, session_id=None):
+    """세션 시작 동기화다. Claude 에게 넣을 알림 문장 목록을 돌려준다."""
+    notes = []
+    try:
+        gitcmd.git(top, "fetch", "-q", "origin", timeout=SYNC_FETCH_SECONDS)
+        _move_main(top, session_id)
+    except gitcmd.CommandTimeout:
+        _, common = save_work._git_dirs(top)
+        locks = sorted(str(path) for path in common.rglob("*.lock"))
+        if locks:
+            notes.append(LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks)))
+    except gitcmd.GitError:
+        pass  # fetch 가 실패해도 세션 시작을 이어 간다
+    current = save_work.current_branch(top)
+    if current and current.startswith(save_work.WORK_PREFIXES) and save_work._ref_exists(top, save_work.REMOTE_REF,
+                                                                                       None):
+        count = save_work._count(top, f"HEAD..{save_work.REMOTE_REF}", None)
+        if count:
+            notes.append(BEHIND_NOTE.format(count=count))
+    return notes
+
+
+def _dirty_groups(top):
+    counts = {}
+    for path in shared_repo.worktree_paths(top):
+        group = shared_repo.feature_of(path) or "공용"
+        counts[group] = counts.get(group, 0) + 1
+    order = sorted(name for name in counts if name != "공용") + (["공용"] if "공용" in counts else [])
+    return ", ".join(f"{name} {counts[name]}개" for name in order)
+
+
+def shared_context(top, session_id=None):
+    # 다른 세션 확인(sync_shared)을 이 세션 표시보다 먼저 한다.
+    notes = [SHARED_REMINDER, *sync_shared(top, session_id)]
+    if session_id:
+        session_mark.touch(top, session_id)
+    # 지원 구조가 아니면 경로를 기능별로 묶을 기준이 없다.
+    if shared_repo.supported(top):
+        groups = _dirty_groups(top)
+        if groups:
+            notes.append(SHARED_DIRTY_NOTE.format(groups=groups))
+    return _with_rules("\n".join(notes))
+
+
 def context_for(cwd, session_id=None):
     try:
+        top = save_work.locate(cwd)
+        if top is not None and shared_repo.repo_kind(top) == "shared":
+            return shared_context(top, session_id)
         top = feature_top(cwd)
     except gitcmd.ToolMissing:
         return _with_rules(INSTALL_HELP.format(tool="git")) if marker_above(cwd) else None
