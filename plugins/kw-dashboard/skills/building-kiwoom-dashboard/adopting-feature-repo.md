@@ -42,7 +42,7 @@ kw-github 명령(저장 명령, 기능 전환 명령, 경계 검사, 업로드 �
 
 값을 모았으면 아래를 실행하라. 대화가 끊긴 뒤 다시 실행했는지 판정한다.
 
-중앙 레포에서 세션을 열면 kw-github 세션 시작 알림이 commit 하지 않은 변경을 기능마다 commit 하라고 할 수 있다. 지금 branch 가 이 기능의 이전 branch(`kwFeature` 가 이 기능 이름)이면 그 알림을 따르지 말고 이 판정을 먼저 하라. 알림대로 commit 하면 `Intake-From` 줄이 없는 commit 이 생겨 12단계가 이전 commit 을 찾지 못한다.
+중앙 레포에서 세션을 열 때 지금 branch 가 이전 branch 이면, kw-github 세션 시작 알림은 업로드 질문 대신 「다시 실행 판정부터 이어 가라」고 알린다. 그 알림대로 이 판정을 먼저 하라. 알림이 commit 하지 않은 변경을 기능마다 commit 하라고 하더라도, 지금 branch 가 이 기능의 이전 branch(`kwFeature` 가 이 기능 이름)이면 따르지 말고 이 판정을 먼저 하라. 그렇게 commit 하면 `Intake-From` 줄이 없는 commit 이 생겨 12단계가 이전 commit 을 찾지 못한다.
 
 ```powershell
 python "${CLAUDE_SKILL_DIR}/scripts/resume_state.py" --central "<중앙 레포 폴더>" --feature-repo-name <기능 레포 이름> --feature <기능 이름>
@@ -102,7 +102,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/check_central.py" --central "<중앙 레포 
 
 **기능 이름 정하기.** 기능 이름은 기능 레포 이름이다. kw-github 가 그 이름을 `invalid-feature` 로 거부하면(점이 든 이름, Windows 예약 이름 등) 개발자에게 다른 이름을 받아라. 그때도 `Intake-From` 에는 원래 레포 이름을 적는다.
 
-**이전 branch 만들기.** kw-github 기능 전환 명령(`switch-feature`)에 기능 이름과 영문 요약을 넘겨 이전 branch 를 만들어라.
+**이전 branch 만들기.** kw-github 기능 전환 명령(`switch-feature`)에 기능 이름과 영문 요약, 그리고 `--intake` 를 넘겨 이전 branch 를 만들어라. `--intake` 를 넘기면 kw-github 가 그 branch 에 기능 이전 표시를 남기고, 그 branch 에서는 `--intake` 없는 commit 과 업로드를 거부한다. 넘기지 않으면 3단계의 이전 commit 전에 만드는 구조 commit 이 그 보호를 받지 못한다.
 
 **구조 commit.** `structure` 판정에 `add` 나 `update` 가 있으면 아래를 실행하고, 바뀐 파일(`applied`)을 개발자에게 알린 뒤 저장 명령 `--intake` 로 commit 하라. 구조 commit 은 다른 변경과 섞지 마라.
 
