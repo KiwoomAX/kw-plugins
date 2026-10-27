@@ -24,7 +24,7 @@ kw-github 명령(저장 명령, 기능 전환 명령, 경계 검사, 업로드 �
 
 이전 branch 의 commit 은 모두 저장 명령에 `--intake` 를 붙여 만들어라. 중앙 레포에서는 kw-github 가드가 직접 `git commit`·`git push` 를 거부한다. `git merge` 를 직접 실행할 때는 늘 `--no-commit` 을 붙여라. 가드는 merge 를 거부하지 않으므로 `--no-commit` 이 없으면 저장 명령의 검사 없이 commit 이 생긴다.
 
-스킬은 기능 레포의 파일과 git 이력을 고치지 마라. 기능 레포에 필요한 일(저장, branch 합치기)은 개발자가 kw-github 로 하게 안내하라.
+스킬은 기능 레포의 파일과 git 이력을 고치지 마라. 기능 레포에 필요한 일(저장, branch 합치기)은 개발자가 kw-github 로 하게 안내하라. 예외는 하나다. 2단계에서 PC 의 기본 branch 가 GitHub 보다 뒤처지기만 했으면, 개발자 동의를 받아 fast-forward 로 GitHub 위치에 맞춘다. 이력은 바뀌지 않는다.
 
 ## 시작 전: 필요한 값 모으기
 
@@ -41,6 +41,8 @@ kw-github 명령(저장 명령, 기능 전환 명령, 경계 검사, 업로드 �
 ## 시작 전: 다시 실행 판정
 
 값을 모았으면 아래를 실행하라. 대화가 끊긴 뒤 다시 실행했는지 판정한다.
+
+중앙 레포에서 세션을 열면 kw-github 세션 시작 알림이 commit 하지 않은 변경을 기능마다 commit 하라고 할 수 있다. 지금 branch 가 이 기능의 이전 branch(`kwFeature` 가 이 기능 이름)이면 그 알림을 따르지 말고 이 판정을 먼저 하라. 알림대로 commit 하면 `Intake-From` 줄이 없는 commit 이 생겨 12단계가 이전 commit 을 찾지 못한다.
 
 ```powershell
 python "${CLAUDE_SKILL_DIR}/scripts/resume_state.py" --central "<중앙 레포 폴더>" --feature-repo-name <기능 레포 이름> --feature <기능 이름>
@@ -118,7 +120,8 @@ python "${CLAUDE_SKILL_DIR}/scripts/check_feature.py" --feature-repo "<기능 �
 |---|---|
 | `dirty` 에 경로가 있다 | commit 하지 않은 변경이다. 개발자에게 kw-github 로 먼저 저장하라고 안내하고, 저장이 끝나면 이 단계를 다시 하라 |
 | `entry` 가 둘 다 거짓 | 기능 레포 규칙을 따르지 않는다. AX팀 문의로 멈춰라 |
-| `sync` 의 `ahead` 나 `behind` 가 0 이 아니다 | PC 의 기본 branch 가 GitHub 과 다르다. `ahead` 는 GitHub 에 올리지 않은 commit, `behind` 는 PC 에 없는 GitHub commit 이다. 개발자에게 kw-github 로 맞추게 안내하고, 맞춘 뒤 이 단계를 다시 하라 |
+| `sync` 의 `ahead` 가 0 이 아니다 | PC 의 기본 branch 에 GitHub 에 올리지 않은 commit 이 있다. 개발자에게 kw-github 로 올리게 안내하고, 올린 뒤 이 단계를 다시 하라 |
+| `sync` 의 `ahead` 가 0 이고 `behind` 가 0 이 아니다 | GitHub 에만 있는 commit 이 있다(GitHub 웹에서 고쳤거나 다른 PC 에서 올렸다). `dirty` 가 비어 있으면 「GitHub 의 최신 내용을 이 PC 의 기능 레포로 받겠습니다」라고 동의를 받고, 기능 레포 폴더에서 `git merge --ff-only origin/<default_branch>` 를 실행한 뒤 이 단계를 다시 하라. 동의하지 않으면 멈춰라 |
 | `other_branches` 에 항목이 있다 | branch 이름과 마지막 commit 설명을 보여 주고 이전에 포함할지 물어라. `origin/` 으로 시작하는 이름은 GitHub 에만 있는 branch 다. 포함하려면 개발자가 kw-github 로 그 branch 를 기본 branch 에 합친 뒤 이 단계를 다시 하라. 포함하지 않으면 그 작업은 기능 레포를 지우면 사라진다고 알려라 |
 | `status` 가 `failed` | 기본 branch 를 알 수 없다. `detail` 을 알리고 멈춰라 |
 
