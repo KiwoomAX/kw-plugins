@@ -1396,7 +1396,7 @@ def _cleanup(top, branch, state, deadline, progress):
     if not _contains(top, sha, deadline):
         raise UploadStop(f"GitHub 가 merge 했다고 답했지만 GitHub main 에 {branch} 가 보이지 않는다. 작업 branch 는 "
                          "지우지 않았다. upload --continue --repo <폴더> 로 다시 실행하라.")
-    if not github_merge.delete_remote(top, branch, sha, deadline):
+    if not github_merge.delete_remote(top, branch, sha, deadline) and _remote_tip(top, branch, deadline):
         notes.append(f"GitHub 의 {branch} 를 지우지 못했다(그사이 다른 commit 이 올라왔을 수 있다).")
     gitcmd.git(top, "fetch", "-q", "--prune", "origin", deadline=deadline)
     note = _move_head(top, deadline)
@@ -1424,6 +1424,10 @@ def _abort_legacy_main_merge(top, deadline, progress):
 def _resume(top, full, state, deadline, progress):
     """--continue 판정이다. spec 차례대로 이어 갈 지점을 정한다."""
     branch = progress["branch"] = state.get("branch")
+    if branch and not _ref_exists(top, f"refs/heads/{branch}", deadline) and state.get("pushed_sha"):
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        if _contains(top, state["pushed_sha"], deadline):
+            return _cleanup(top, branch, state, deadline, progress)  # 정리 도중 끊긴 업로드다
     if not branch or not _ref_exists(top, f"refs/heads/{branch}", deadline):
         raise UploadStop("이어서 올릴 작업 브랜치를 알 수 없다. upload --task --title 로 처음부터 다시 실행하라.")
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
@@ -1520,7 +1524,8 @@ def _restore_after_upload(progress, uploaded):
         if (git_dir(top, timeout=ABORT_SECONDS) / "MERGE_HEAD").exists():
             return ""
         branch = progress.get("branch")
-        if not uploaded and branch and current_branch(top) != branch:
+        if not uploaded and branch and current_branch(top) != branch and _ref_exists(top, f"refs/heads/{branch}",
+                                                                                         None):
             # 중간에 멈추면 main 에는 작업 브랜치의 파일이 없을 수 있다. stash 를 만든 작업 브랜치로 돌아가 되돌린다.
             gitcmd.git(top, "switch", "-q", branch, timeout=ABORT_SECONDS)
         return restore_upload_stash(top, timeout=ABORT_SECONDS) or ""
@@ -1654,7 +1659,7 @@ def _main_worktree(top, deadline):
 
 
 # 패키지 설치가 만드는 폴더다. 안의 파일은 다시 설치하면 생기므로 정리 판정에서 뺀다.
-DEPENDENCY_DIRS = ("node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", "dist", "build")
+DEPENDENCY_DIRS = ("node_modules", ".venv", "venv", "__pycache__", ".pytest_cache")
 
 
 def _ignored(top, deadline):
@@ -1741,9 +1746,6 @@ def open_pr(repo, feature, title, body_file):
             # 풀지 못한 충돌은 PR 에서 AX팀이 푼다.
             gitcmd.git(top, "merge", "--abort", deadline=deadline)
             notes.append("진행 중이던 merge 를 취소했다.")
-        restored = restore_upload_stash(top, deadline)
-        if restored:
-            notes.append(restored)
         branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"], deadline=deadline)
         if branch is None:
             return _shared_failed(MSG_FAILED, f"{feature} 기능의 작업 branch 가 없어 검토 요청을 올리지 않았다.")
@@ -1756,8 +1758,16 @@ def open_pr(repo, feature, title, body_file):
             args += ["--reviewer", PR_REVIEWER]
         out = gitcmd.gh(*args, deadline=deadline)
         url = (out.strip().splitlines() or [""])[-1]
+        # PR 은 이미 열렸으므로 아래 단계가 실패해도 결과는 pr-opened 로 두고 detail 에 적는다.
+        gitcmd.git_try(top, "fetch", "-q", "origin", deadline=deadline)
         # 같은 기능의 다음 수정이 PR branch 에 쌓이지 않게 한다.
-        gitcmd.git(top, "switch", "-q", "--detach", REMOTE_REF, deadline=deadline)
+        code, out, err = gitcmd.git_try(top, "switch", "-q", "--detach", REMOTE_REF, deadline=deadline)
+        if code != 0:
+            notes.append(f"HEAD 를 GitHub main 으로 떼어 두지 못해 {branch} 에 남아 있다. 다음 수정 전에 "
+                         f"switch-feature 로 새 작업 branch 를 만들어라. {(err or out).strip()}")
+        restored = restore_upload_stash(top, deadline)
+        if restored:
+            notes.append(restored)
         notes.append(_remove_copy_note(top))
         return {"status": "pr-opened", "url": url, "reason": "", "message": MSG_PR_OPENED,
                 "detail": " ".join(filter(None, notes))}
