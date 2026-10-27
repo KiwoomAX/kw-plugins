@@ -16,7 +16,7 @@ description: AX팀 데이터베이스의 샌드박스(kw_sandbox)에 표를 만�
 - 지운 데이터를 되돌리는 기능은 없다. 누가 무엇을 했는지는 DBGateway 의 작업 기록에만 남는다.
 - 평문 SQL 은 보내지 못한다. 요청은 정해진 모양의 JSON 이고, DBGateway 가 문장을 만든다.
 
-> DBGateway 의 샌드박스 경로는 시험 단계다. 이 문서에 적힌 것과 실제 응답이 다르면 맞춰 넘기지 말고 사용자에게 알린다.
+> 이 문서에 적힌 것과 DBGateway 의 실제 응답이 다르면 맞춰 넘기지 말고 사용자에게 알린다.
 
 ## 접근 키
 
@@ -30,8 +30,8 @@ description: AX팀 데이터베이스의 샌드박스(kw_sandbox)에 표를 만�
 
 ```
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" schemas
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" tables BS
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" describe --schema BS --table 투자후보
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" tables <스키마>
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" describe --schema <스키마> --table <표>
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" select --request <파일> [--all --out <결과 파일>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" create --spec <파일> --purpose "<자세한 용도>"
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" insert --request <파일> [--confirm <확인값>]
@@ -39,21 +39,21 @@ python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" update --request <파일> [--con
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" delete --request <파일> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" overwrite --request <파일> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" alter --change <파일> [--confirm <확인값>]
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" drop --schema BS --table 투자후보 [--confirm <확인값>]
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" truncate --schema BS --table 투자후보 [--confirm <확인값>]
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" drop --schema <스키마> --table <표> [--confirm <확인값>]
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" truncate --schema <스키마> --table <표> [--confirm <확인값>]
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" index-create --spec <파일>
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" index-drop --schema BS --table 투자후보 --name <인덱스>
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" index-drop --schema <스키마> --table <표> --name <인덱스>
 python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record list
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record add --schema BS --table 투자후보 --purpose "<용도>"
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record remove --schema BS --table 투자후보
-python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record rename --schema BS --table 투자후보 --to <새 이름>
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record add --schema <스키마> --table <표> --purpose "<용도>"
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record remove --schema <스키마> --table <표>
+python "${CLAUDE_SKILL_DIR}/scripts/sandbox.py" record rename --schema <스키마> --table <표> --to <새 이름>
 ```
 
-- `schemas` 는 이 키로 쓸 수 있는 스키마와 사용량·상한(10 GB)을 낸다. "쓸 수 있는 스키마 없음"이 나오면 그 사람의 조직에는 샌드박스가 없으니, 클로드는 AX팀에 문의하라고 알린다.
+- `schemas` 는 이 키로 쓸 수 있는 스키마와 사용량·상한을 낸다. "쓸 수 있는 스키마 없음"이 나오면 그 사람의 조직에는 샌드박스가 없으니, 클로드는 AX팀에 문의하라고 알린다.
 - `tables` 는 표마다 추정 행 수·크기·설명을 내고, 내 표 기록에 있는 표에는 "내 표"를 붙인다.
 - `select` 한 번은 기본 1,000행, 최대 30,000행을 받는다. 더 많으면 `--all --out <결과 파일>` 로 모든 페이지를 파일에 받는다. 표 전체가 대화로 들어오지 않게 `--all` 은 `--out` 없이 쓰지 못한다.
 - `insert` 의 `upsert` 는 새로 삽입한 행 수와 수정한 행 수를 따로 낸다. 고치기만 하려고 보냈는데 새로 삽입한 행이 있으면 primary key 를 잘못 적은 것이니, 클로드는 그 사실을 사용자에게 알린다.
-- `overwrite` 는 `where` 범위(전부면 `"all": true`)의 행을 모두 지우고 보낸 행을 넣는다. 보내는 행이 그 범위의 전부일 때 쓴다(예: 10월분을 다시 조회해 올리기). 보내지 않은 컬럼은 비워지고, 미리보기가 그 컬럼 이름을 알린다. 범위 밖 행이 섞이면 DBGateway 가 아무것도 반영하지 않고 거절한다. 범위의 행이 30,000행 이상이면 스크립트는 지워질 행 수를 셀 수 없어 실행하지 않으니, 범위를 나눠(예: 월별) 요청한다. 바뀐 일부 행만 고치려면 `upsert` 를 쓴다.
+- `overwrite` 는 `where` 범위(전부면 `"all": true`)의 행을 모두 지우고 보낸 행을 넣는다. 보내는 행이 그 범위의 전부일 때 쓴다(예: 한 달분을 원본에서 다시 받아 올리기). 보내지 않은 컬럼은 비워지고, 미리보기가 그 컬럼 이름을 알린다. 범위 밖 행이 섞이면 DBGateway 가 아무것도 반영하지 않고 거절한다. 범위의 행이 30,000행 이상이면 스크립트는 지워질 행 수를 셀 수 없어 실행하지 않으니, 범위를 나눠(예: 월별) 요청한다. 바뀐 일부 행만 고치려면 `upsert` 를 쓴다.
 - `truncate` 는 컬럼·primary key·인덱스·설명을 남기고 행만 모두 지운다. `delete` 는 `where` 가 반드시 있어야 하고, 모든 행 삭제는 `truncate` 로 한다.
 - 종료 코드는 0 성공, 1 거절·중단, 3 확인 필요다.
 

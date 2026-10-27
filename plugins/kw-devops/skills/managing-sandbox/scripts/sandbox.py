@@ -192,7 +192,7 @@ MAX_ROWS = 30_000
 """조회 한 번의 상한(계약 request.MAX_LIMIT). 행 수를 셀 때 이보다 많으면 "30,000행 이상"으로 보인다."""
 
 CHANGES = ("add_column", "drop_column", "rename_column", "rename_table", "set_description")
-"""표 변경 요청의 다섯 모양(계약 changes.TableChange). 요청 하나에 하나만 든다."""
+"""표 변경 요청의 다섯 모양(DBGateway /sandbox/table/alter 의 요청). 요청 하나에 하나만 든다."""
 
 
 def _table_entry(schema: str, table: str) -> dict:
