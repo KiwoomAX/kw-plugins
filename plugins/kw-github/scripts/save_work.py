@@ -659,6 +659,22 @@ def pending_filter(top, deadline=None, strict=False):
     return result
 
 
+INTAKE_TRAILER = "Intake-From:"
+INTAKE_ONLY_DETAIL = ("{branch} 는 kw-dashboard 기능 이전 중인 branch 다. 기능 이전 절차가 --intake 와 함께 실행할 때만 "
+                      "commit·upload 한다. 기능 이전 절차로 이어 가라.")
+
+
+def is_intake_branch(top, branch, deadline=None):
+    """kw-dashboard 기능 이전 branch 인가. switch-feature --intake 의 표시나 commit 의 Intake-From 줄로 본다."""
+    code, out, _ = gitcmd.git_try(top, "config", "--get", f"branch.{branch}.kwIntake", deadline=deadline)
+    if code == 0 and out.strip() == "true":
+        return True
+    if not _ref_exists(top, REMOTE_REF, deadline):
+        return False
+    log = gitcmd.git(top, "log", "--format=%B", f"{REMOTE_REF}..{branch}", deadline=deadline)
+    return any(line.strip().startswith(INTAKE_TRAILER) for line in log.splitlines())
+
+
 def _feature_dirty(top, feature, deadline):
     return [p for p in shared_repo.worktree_paths(top, deadline) if shared_repo.allowed(p, feature)]
 
@@ -667,8 +683,11 @@ def _shared_failed(message, detail, **extra):
     return {"status": "failed", "reason": "", "message": message, "detail": detail, **extra}
 
 
-def switch_feature(repo, feature, summary=None):
-    """그 기능의 작업 branch 로 옮긴다. 없으면 최신 origin/main 에서 원격 추적 설정 없이 만든다."""
+def switch_feature(repo, feature, summary=None, intake=False):
+    """그 기능의 작업 branch 로 옮긴다. 없으면 최신 origin/main 에서 원격 추적 설정 없이 만든다.
+
+    intake 이면 그 branch 에 기능 이전 표시(kwIntake)를 남긴다. 표시가 있는 branch 는 --intake 로만 올린다.
+    """
     deadline = gitcmd.Deadline(SAVE_SECONDS)
     try:
         top = locate(repo)
@@ -695,6 +714,8 @@ def switch_feature(repo, feature, summary=None):
             gitcmd.git(top, "config", f"branch.{branch}.kwFeature", feature, deadline=deadline)
         elif branch != current:
             gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+        if intake:
+            gitcmd.git(top, "config", f"branch.{branch}.kwIntake", "true", deadline=deadline)
         new = shared_repo.feature_status(top, feature) == "new"
         return {"status": "switched", "branch": branch, "new_feature": new, "reason": "", "message": "",
                 "detail": "", "closed_prs": pending["closed_prs"]}
@@ -797,17 +818,33 @@ def add_to_exclude(top, lines, deadline=None):
             handle.write(prefix + "\n".join(new) + "\n")
 
 
-def _same_as_main(top, path, deadline):
-    main = shared_repo._blob(top, REMOTE_REF, path, deadline)
-    return main is not None and main == shared_repo.final_blob(top, "HEAD", path, {path}, deadline)
+def _tree_blobs(top, ref, deadline):
+    """ref 트리의 {경로: blob} 이다. 파일마다 git 을 실행하지 않도록 한 번에 읽는다."""
+    entries = gitcmd.git_z(top, "ls-tree", "-r", "-z", ref, deadline=deadline)
+    return {entry.split("\t", 1)[1]: entry.split()[2] for entry in entries if "\t" in entry}
 
 
-def _shared_judge(top, data, path, feature, intake, deadline):
+def _intake_trees(top, deadline):
+    return _tree_blobs(top, REMOTE_REF, deadline), _tree_blobs(top, "HEAD", deadline)
+
+
+def _same_as_main(top, path, deadline, trees, dirty=True):
+    """경로의 최종 내용이 origin/main 과 같은가. dirty 가 아니면 HEAD 의 blob 을 그대로 쓴다."""
+    main_blobs, head_blobs = trees
+    main = main_blobs.get(path)
+    if main is None:
+        return False
+    if not dirty:
+        return head_blobs.get(path) == main
+    return main == shared_repo.final_blob(top, "HEAD", path, {path}, deadline)
+
+
+def _shared_judge(top, data, path, feature, intake, deadline, trees=None, dirty=True):
     """공유 레포 판정이다. 설명 문서 예외와, 기능 이전의 origin/main 과 같은 파일 제외를 적용한다."""
     full = top / path
     if shared_repo.is_feature_doc(path, feature) and _size(full) <= rules_max_bytes(data):
         return None
-    if intake and _same_as_main(top, path, deadline):
+    if intake and _same_as_main(top, path, deadline, trees or _intake_trees(top, deadline), dirty):
         return None
     return _judge(top, data, path)
 
@@ -820,6 +857,7 @@ def _stage_shared(top, data, feature, intake, deadline):
     reset_index(top, deadline)
     tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
     changed = changed_paths(top, deadline)
+    trees = _intake_trees(top, deadline) if intake else None
     staged, excluded, untrack, others = [], [], [], []
     for path in changed:
         owner = shared_repo.feature_of(path)
@@ -828,7 +866,7 @@ def _stage_shared(top, data, feature, intake, deadline):
             continue
         if path.startswith(DESIGN_DOCS):
             continue
-        verdict = _shared_judge(top, data, path, feature, intake, deadline)
+        verdict = _shared_judge(top, data, path, feature, intake, deadline, trees)
         if verdict is None:
             staged.append(path)
             continue
@@ -840,7 +878,7 @@ def _stage_shared(top, data, feature, intake, deadline):
     for path in sorted(tracked - set(changed)):
         if path.startswith(DESIGN_DOCS):
             continue
-        verdict = _shared_judge(top, data, path, feature, intake, deadline)
+        verdict = _shared_judge(top, data, path, feature, intake, deadline, trees, dirty=False)
         if verdict is None:
             continue
         found, rule = verdict
@@ -884,6 +922,8 @@ def _commit_shared(top, message, feature, intake, deadline, progress):
                                      f"지금 branch 가 {feature} 기능의 작업 branch 가 아니다. "
                                      f"switch-feature --feature {feature} 로 먼저 옮겨라.", branch=branch)
     progress["branch"] = branch
+    if not intake and is_intake_branch(top, branch, deadline):
+        return _shared_commit_result("failed", MSG_FAILED, INTAKE_ONLY_DETAIL.format(branch=branch), branch=branch)
     data = rules.load(RULES_PATH)
     recover(top, deadline)
     if (git_dir(top, deadline) / "MERGE_HEAD").exists():
@@ -939,11 +979,11 @@ def _commit_intake_merge(top, message, feature, data, deadline, progress):
         payload["outside"] = result["outside"]
         payload["reason"] = result["reason"]
         return payload
-    found = []
+    found, trees = [], _intake_trees(top, deadline)
     for path in paths:
         if not (top / path).is_file():
             continue
-        verdict = _shared_judge(top, data, path, feature, True, deadline)
+        verdict = _shared_judge(top, data, path, feature, True, deadline, trees)
         if verdict is not None:
             found.append(_excluded(path, *verdict))
     if found:
@@ -1622,6 +1662,8 @@ def _upload_shared(top, task, title, close, resume, feature, intake, deadline, p
         branch = feature_branch(top, feature, exclude=pending["excluded"], deadline=deadline)
     except BranchChoiceError as exc:
         raise UploadStop(str(exc)) from exc
+    if branch and not intake and is_intake_branch(top, branch, deadline):
+        raise UploadStop(INTAKE_ONLY_DETAIL.format(branch=branch))
     current = current_branch(top, deadline)
     # 검토 요청 대기 branch 에는 commit 하지 않는다.
     now = _kw_feature(top, current, deadline) if current and current not in pending["excluded"] else ""
@@ -1914,6 +1956,7 @@ def main(argv=None):
     switch_cmd.add_argument("--repo", required=True)
     switch_cmd.add_argument("--feature", required=True)
     switch_cmd.add_argument("--summary")
+    switch_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 branch 로 표시한다")
     revert_cmd = sub.add_parser("revert-outside", help="기능 폴더 밖 수정을 GitHub main 상태로 되돌린다")
     revert_cmd.add_argument("--repo", required=True)
     revert_cmd.add_argument("--feature", required=True)
@@ -1935,7 +1978,7 @@ def main(argv=None):
     if args.command == "check-boundary":
         return _print(check_boundary(args.repo, args.feature, intake=args.intake))
     if args.command == "switch-feature":
-        return _print(switch_feature(args.repo, args.feature, summary=args.summary))
+        return _print(switch_feature(args.repo, args.feature, summary=args.summary, intake=args.intake))
     if args.command == "revert-outside":
         return _print(revert_outside(args.repo, args.feature, args.paths))
     if args.command == "review-upload":

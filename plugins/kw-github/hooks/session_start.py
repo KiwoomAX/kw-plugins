@@ -126,6 +126,10 @@ SHARED_UNPUSHED_NOTE = (
     "[kw-github] GitHub 에 올리지 않은 commit 이 있다. 개발자에게 '업로드되지 않은 작업이 있습니다.' 라고 한 줄 알린 뒤 "
     "saving-work 스킬의 「push 질문」 절에 따라 묻고, 동의하면 「공유 대시보드 레포」의 「올리기 흐름」을 하라."
 )
+INTAKE_BRANCH_NOTE = (
+    "[kw-github] 지금 branch 는 kw-dashboard 기능 이전 중인 branch 다. 개발자에게 올릴지 묻지 말고, commit 하지 않은 "
+    "변경도 기능별로 commit 하지 마라. kw-dashboard 기능 이전 절차의 「다시 실행 판정」부터 이어 가라."
+)
 LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
              "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
 
@@ -184,8 +188,12 @@ def shared_context(top, session_id=None):
     notes = [SHARED_REMINDER, *sync_shared(top, session_id)]
     if session_id:
         session_mark.touch(top, session_id)
+    current = save_work.current_branch(top)
+    if current and save_work.is_intake_branch(top, current):
+        # 기능 이전 중에는 이전 절차만 commit·업로드한다.
+        notes.append(INTAKE_BRANCH_NOTE)
     # 지원 구조가 아니면 경로를 기능별로 묶을 기준이 없다.
-    if shared_repo.supported(top):
+    elif shared_repo.supported(top):
         groups = _dirty_groups(top)
         if groups:
             notes.append(SHARED_DIRTY_NOTE.format(groups=groups))
