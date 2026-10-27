@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<!-- trace_cells.py 가 __TITLE__ 과 __DATA__ 를 채운다. -->
+<style>
+:root {
+  --ink:#1f2328; --sub:#5c636b; --line:#d9dce0; --grid:#e8eaed; --bg:#f6f7f9; --panel:#ffffff;
+  --raw:#dce8f8; --rawtext:#eef3fa; --calc:#fde6cc; --unused-bg:#f3f4f6; --unused-ink:#a0a5ab;
+  --prec:#1f7a3a; --prec-bg:#d6f2dd; --dep:#a15c00; --dep-bg:#ffefc2; --sel:#111111;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.4 "Malgun Gothic",system-ui,sans-serif; color:var(--ink); background:var(--bg);
+       display:flex; flex-direction:column; height:100vh; }
+header { padding:12px 16px 8px; background:var(--panel); border-bottom:1px solid var(--line); }
+h1 { font-size:17px; margin:0 0 2px; }
+.sub { color:var(--sub); }
+.legend { margin-top:6px; }
+.legend span { display:inline-flex; align-items:center; gap:4px; margin-right:14px; }
+.legend i { width:14px; height:12px; border:1px solid var(--line); display:inline-block; }
+#info { padding:8px 16px; background:var(--panel); border-bottom:1px solid var(--line); min-height:52px; }
+#info .f { font-family:Consolas,monospace; word-break:break-all; }
+#info a { color:var(--prec); cursor:pointer; text-decoration:underline; margin-right:8px; }
+#info a.dep { color:var(--dep); }
+main { flex:1; overflow:auto; background:var(--panel); }
+table.grid { border-collapse:collapse; font-size:12px; }
+table.grid td, table.grid th { border:1px solid var(--grid); height:20px; padding:0 4px; white-space:nowrap;
+       max-width:180px; overflow:hidden; text-overflow:ellipsis; }
+table.grid thead th { position:sticky; top:0; background:#f0f1f3; color:var(--sub); font-weight:normal; z-index:2; }
+table.grid tbody th { position:sticky; left:0; background:#f0f1f3; color:var(--sub); font-weight:normal;
+       text-align:right; z-index:1; }
+td.r { background:var(--raw); text-align:right; }
+td.t { background:var(--rawtext); }
+td.f { background:var(--calc); text-align:right; cursor:pointer; }
+td.u { background:var(--unused-bg); color:var(--unused-ink); }
+td.r, td.t { cursor:pointer; }
+td.prec { background:var(--prec-bg); outline:2px solid var(--prec); outline-offset:-2px; }
+td.dep { background:var(--dep-bg); outline:2px solid var(--dep); outline-offset:-2px; }
+td.sel { outline:2px solid var(--sel); outline-offset:-2px; }
+nav { display:flex; gap:2px; overflow-x:auto; padding:0 8px; background:#e9ebee; border-top:1px solid var(--line); }
+nav button { border:1px solid var(--line); border-top:none; background:#f6f7f9; padding:5px 12px; font:inherit;
+       cursor:pointer; white-space:nowrap; color:var(--ink); }
+nav button.on { background:var(--panel); font-weight:bold; }
+nav button b { display:inline-block; margin-left:6px; padding:0 6px; border-radius:8px; font-size:11px; color:#fff; }
+nav button b.p { background:var(--prec); } nav button b.d { background:var(--dep); }
+.summary { padding:16px; }
+.summary table { border-collapse:collapse; margin:8px 0 16px; }
+.summary th, .summary td { border:1px solid var(--line); padding:4px 10px; text-align:right; }
+.summary th:first-child, .summary td:first-child { text-align:left; }
+.summary h2 { font-size:15px; margin:16px 0 4px; }
+.summary a { color:var(--prec); cursor:pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="sub" id="results"></div>
+  <div class="legend">
+    <span><i style="background:var(--raw)"></i>raw 값(숫자 · 날짜)</span>
+    <span><i style="background:var(--rawtext)"></i>raw 값(글자)</span>
+    <span><i style="background:var(--calc)"></i>수식 · 피벗(계산 코드 대상)</span>
+    <span><i style="background:var(--unused-bg)"></i>결과에 쓰이지 않는 셀</span>
+    <span><i style="background:var(--prec-bg);border-color:var(--prec)"></i>고른 수식이 참조하는 셀</span>
+    <span><i style="background:var(--dep-bg);border-color:var(--dep)"></i>고른 셀을 쓰는 수식</span>
+  </div>
+</header>
+<div id="info"><span class="sub">셀을 누르면 수식과 연결이 보입니다. 수식 셀은 참조하는 셀을, 값 셀은 그 값을 쓰는 수식을 표시합니다.</span></div>
+<main id="main"></main>
+<nav id="tabs"></nav>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const S = D.sheets;
+let current = -1, selected = null, precAreas = [], deps = [], depSet = new Set();
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const col = n => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const addr = (si, r, c) => `${S[si].name}!${col(c)}${r}`;
+const areaText = a => {
+  const [si, r1, c1, r2, c2] = a, n = S[si].name;
+  const p = (r, c) => (c < 0 ? '' : col(c)) + (r < 0 ? '' : r);
+  return r1 === r2 && c1 === c2 ? `${n}!${p(r1, c1)}` : `${n}!${p(r1, c1)}:${p(r2, c2)}`;
+};
+const inArea = (a, si, r, c) => a[0] === si &&
+  (a[1] < 0 || (r >= Math.min(a[1], a[3]) && r <= Math.max(a[1], a[3]))) &&
+  (a[2] < 0 || (c >= Math.min(a[2], a[4]) && c <= Math.max(a[2], a[4])));
+const cellMaps = S.map(s => { const m = new Map(); s.cells.forEach(x => m.set(x[0] + ',' + x[1], x)); return m; });
+
+document.getElementById('title').textContent = D.title;
+document.getElementById('results').textContent = '결과 시트: ' + D.results.join(', ');
+
+function renderTabs() {
+  const nav = document.getElementById('tabs');
+  const counts = S.map((_, si) => ({
+    p: precAreas.filter(a => a[0] === si).length, d: deps.filter(x => x[0] === si).length }));
+  nav.innerHTML = `<button class="${current < 0 ? 'on' : ''}" data-i="-1">요약</button>` +
+    S.map((s, si) => `<button class="${si === current ? 'on' : ''}" data-i="${si}">${esc(s.name)}` +
+      (counts[si].p ? `<b class="p">${counts[si].p}</b>` : '') + (counts[si].d ? `<b class="d">${counts[si].d}</b>` : '') +
+      `</button>`).join('');
+  nav.querySelectorAll('button').forEach(b => b.onclick = () => show(+b.dataset.i));
+}
+
+function show(si, focus) {
+  current = si;
+  const main = document.getElementById('main');
+  if (si < 0) { main.innerHTML = summary(); bindJumps(main); renderTabs(); return; }
+  const s = S[si], [r1, c1, r2, c2] = s.bounds, m = cellMaps[si];
+  let h = '<table class="grid"><thead><tr><th></th>';
+  for (let c = c1; c <= c2; c++) h += `<th>${col(c)}</th>`;
+  h += '</tr></thead><tbody>';
+  for (let r = r1; r <= r2; r++) {
+    h += `<tr><th>${r}</th>`;
+    for (let c = c1; c <= c2; c++) {
+      const x = m.get(r + ',' + c);
+      if (!x) { h += '<td></td>'; continue; }
+      let cls = x[2];
+      if (precAreas.some(a => inArea(a, si, r, c))) cls += ' prec';
+      if (depSet.has(si + ',' + r + ',' + c)) cls += ' dep';
+      if (selected && selected[0] === si && selected[1] === r && selected[2] === c) cls += ' sel';
+      h += `<td class="${cls}" data-r="${r}" data-c="${c}" title="${esc(col(c) + r + (x[4] ? ' ' + x[4] : ''))}">${esc(x[3])}</td>`;
+    }
+    h += '</tr>';
+  }
+  main.innerHTML = h + '</tbody></table>';
+  main.querySelectorAll('td[data-r]').forEach(td => td.onclick = () => select(si, +td.dataset.r, +td.dataset.c));
+  renderTabs();
+  if (focus) {
+    const td = main.querySelector(`td[data-r="${focus[0]}"][data-c="${focus[1]}"]`);
+    if (td) td.scrollIntoView({block: 'center', inline: 'center'});
+  }
+}
+
+function select(si, r, c) {
+  const x = cellMaps[si].get(r + ',' + c);
+  selected = [si, r, c];
+  precAreas = x[5] || [];
+  deps = [];
+  if (!x[4]) {
+    S.forEach((s, ti) => s.cells.forEach(y => {
+      if (y[5] && y[5].some(a => inArea(a, si, r, c))) deps.push([ti, y[0], y[1]]);
+    }));
+  }
+  depSet = new Set(deps.map(d => d.join(',')));
+  const info = document.getElementById('info');
+  let h = `<b>${esc(addr(si, r, c))}</b> 값: ${esc(x[3])}`;
+  if (x[4]) {
+    h += `<div class="f">${esc(x[4])}</div>`;
+    if (precAreas.length) h += '<div>참조하는 셀: ' + precAreas.map((a, i) =>
+      `<a data-k="p${i}">${esc(areaText(a))}</a>`).join('') + '</div>';
+    if (x[6]) h += '<div>외부 파일 참조: ' + esc(x[6].join(', ')) + '</div>';
+  } else {
+    h += deps.length ? `<div>이 값을 쓰는 수식 ${deps.length}개: ` + deps.slice(0, 30).map((d, i) =>
+      `<a class="dep" data-k="d${i}">${esc(addr(...d))}</a>`).join('') + (deps.length > 30 ? ' …' : '') + '</div>'
+      : '<div class="sub">이 값을 쓰는 수식이 없습니다.</div>';
+  }
+  info.innerHTML = h;
+  info.querySelectorAll('a[data-k]').forEach(a => a.onclick = () => {
+    const k = a.dataset.k, i = +k.slice(1);
+    if (k[0] === 'p') { const ar = precAreas[i]; show(ar[0], [Math.max(ar[1], S[ar[0]].bounds[0]), Math.max(ar[2], S[ar[0]].bounds[1])]); }
+    else { const d = deps[i]; show(d[0], [d[1], d[2]]); }
+  });
+  show(si);
+}
+
+function summary() {
+  const count = (s, k) => s.cells.filter(x => k === 'raw' ? 'rt'.includes(x[2]) : x[2] === k).length;
+  let h = '<div class="summary"><table><tr><th>시트</th><th>raw 값</th><th>수식 · 피벗</th><th>쓰이지 않음</th></tr>';
+  S.forEach(s => h += `<tr><td>${esc(s.name)}</td><td>${count(s, 'raw').toLocaleString()}</td>` +
+    `<td>${count(s, 'f').toLocaleString()}</td><td>${count(s, 'u').toLocaleString()}</td></tr>`);
+  h += '</table>';
+  if (D.unused_sheets.length) h += `<p>결과에 쓰이지 않는 시트(${D.unused_sheets.length}개): ${esc(D.unused_sheets.join(', '))}</p>`;
+  [['외부 파일 참조', D.external], ['동적 참조(INDIRECT · OFFSET)', D.dynamic], ['깨진 참조', D.broken]].forEach(([label, list]) => {
+    if (!list.length) return;
+    h += `<h2>${label} ${list.length.toLocaleString()}개</h2><div>` + list.slice(0, 50).map(k =>
+      `<a data-j="${k.join(',')}">${esc(addr(...k))}</a>`).join(', ') + (list.length > 50 ? ' …' : '') + '</div>';
+  });
+  return h + '</div>';
+}
+
+function bindJumps(root) {
+  root.querySelectorAll('a[data-j]').forEach(a => a.onclick = () => {
+    const [si, r, c] = a.dataset.j.split(',').map(Number);
+    select(si, r, c);
+  });
+}
+
+show(-1);
+</script>
+</body>
+</html>
