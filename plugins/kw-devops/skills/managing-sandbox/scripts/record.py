@@ -1,6 +1,6 @@
-"""내 표 기록. 이 PC 의 사용자가 클로드 코드로 만든 샌드박스 테이블을 적어 둔다.
+"""내 테이블 기록. 이 PC 의 사용자가 클로드 코드로 만든 샌드박스 테이블을 적어 둔다.
 
-DBGateway 는 누가 테이블을 만들었는지 모른다. 그래서 "내가 만든 표인지"와 자세한 용도는 여기에만 있는 원본이다.
+DBGateway 는 누가 테이블을 만들었는지 모른다. 그래서 "내가 만든 테이블인지"와 자세한 용도는 여기에만 있는 원본이다.
 다시 받을 수 있는 복사본이 아니므로 cache 밖에 두고, 읽지 못하는 파일은 덮어쓰지 않는다.
 컬럼은 적지 않는다. DBGateway 의 describe 로 언제나 최신을 받는다.
 
@@ -17,7 +17,7 @@ RECORD = CONFIG_DIR / "managing-sandbox" / "tables.json"
 
 
 def entries() -> list[dict]:
-    """기록의 표 목록. 파일이 없으면 빈 목록이고, 읽지 못하면 덮어쓰지 않도록 멈춘다."""
+    """기록의 테이블 목록. 파일이 없으면 빈 목록이고, 읽지 못하면 덮어쓰지 않도록 멈춘다."""
     try:
         saved = json.loads(RECORD.read_text(encoding="utf-8-sig"))  # PowerShell 5.1 로 고치면 BOM 이 붙는다
     except FileNotFoundError:
@@ -25,7 +25,7 @@ def entries() -> list[dict]:
     except ValueError:
         saved = None
     if not isinstance(saved, dict) or not isinstance(saved.get("tables"), list):
-        raise SystemExit(f"내 표 기록을 읽지 못함: {RECORD}. 파일을 덮어쓰지 않음"
+        raise SystemExit(f"내 테이블 기록을 읽지 못함: {RECORD}. 파일을 덮어쓰지 않음"
                          "\n- 조치: 파일을 열어 고치거나 다른 이름으로 옮긴 뒤 다시 실행")
     return saved["tables"]
 
@@ -53,7 +53,7 @@ def has(schema: str, table: str) -> bool:
 
 
 def add(schema: str, table: str, purpose: str) -> None:
-    """표를 기록한다. 이미 있으면 용도만 바꾼다."""
+    """테이블을 기록한다. 이미 있으면 용도만 바꾼다."""
     tables = entries()
     for t in tables:
         if _same(t, schema, table):
@@ -96,7 +96,7 @@ def _selfcheck() -> None:
         assert has("BS", "투자후보") and entries()[0]["purpose"] == "리테일 대시보드 월별 집계"
         assert set(entries()[0]) == {"schema", "table", "purpose", "created"}, "항목은 넷뿐"
         add("BS", "투자후보", "용도 변경")
-        assert len(entries()) == 1 and entries()[0]["purpose"] == "용도 변경", "같은 표는 한 줄"
+        assert len(entries()) == 1 and entries()[0]["purpose"] == "용도 변경", "같은 테이블은 한 줄"
         assert rename("BS", "투자후보", "후보") and has("BS", "후보") and not has("BS", "투자후보")
         assert remove("BS", "후보") and entries() == []
         assert not remove("BS", "없는표")

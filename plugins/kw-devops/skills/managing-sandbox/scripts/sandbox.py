@@ -1,6 +1,6 @@
 """DBGateway 샌드박스 경로(/sandbox/*)를 접근 키로 호출한다.
 
-하위 명령마다 DBGateway 경로 하나를 부른다. 표·컬럼 이름이 한글이라 요청은 JSON 파일로 받는다. PowerShell 5.1 은
+하위 명령마다 DBGateway 경로 하나를 부른다. 테이블·컬럼 이름이 한글이라 요청은 JSON 파일로 받는다. PowerShell 5.1 은
 명령 인자의 큰따옴표를 지우고 파이프로 넘긴 한글을 깨뜨리므로, 명령 인자나 표준 입력으로는 받지 않는다.
 
 접근 키 확인과 401·리다이렉트 처리는 같은 플러그인의 searching-winus 스크립트(fetch_manifest)를 그대로 쓴다.
@@ -36,18 +36,18 @@ import record  # noqa: E402
 # 같은 코드는 같은 다음 행동이다. 계약에 없는 코드는 kind 로 고른다(Kiwoom-DBgateway ADR-0042).
 NEXT_BY_CODE = {
     "write_outcome_unknown": "반영 여부 모름. 같은 요청을 다시 보내지 않고 조회로 확인."
-                             " primary key 없는 표의 append 였으면 조회로도 확인할 수 없으니 다시 보낼지 사용자에게 물음",
+                             " primary key 없는 테이블의 append 였으면 조회로도 확인할 수 없으니 다시 보낼지 사용자에게 물음",
     "sandbox_undecided": "반영 여부 모름. 같은 요청을 다시 보내지 않고 조회로 확인."
-                         " primary key 없는 표의 append 였으면 조회로도 확인할 수 없으니 다시 보낼지 사용자에게 물음",
+                         " primary key 없는 테이블의 append 였으면 조회로도 확인할 수 없으니 다시 보낼지 사용자에게 물음",
     "sandbox_unreachable": "다시 시도하지 않고 사용자에게 알림. 설정 오류일 수 있음",
     "sandbox_busy": "잠시 뒤 사용자가 다시 요청",
-    "sandbox_table_busy": "잠시 뒤 사용자가 다시 요청. 다른 사람이 같은 표를 고치는 중",
+    "sandbox_table_busy": "잠시 뒤 사용자가 다시 요청. 다른 사람이 같은 테이블을 고치는 중",
     "sandbox_schema_not_permitted": "이 키로 쓸 수 있는 스키마를 schemas 명령으로 확인",
     "sandbox_privilege_mismatch": "DBGateway 설정 문제. AX팀에 문의",
     "query_timeout": "조건을 좁혀 다시 요청",
     "sandbox_too_large": "조건이나 값을 줄여 다시 요청",
     "body_too_large": "행을 나눠 여러 번 요청",
-    "sandbox_schema_full": "스키마 용량이 참. 쓰지 않는 표를 정리하거나 AX팀에 문의",
+    "sandbox_schema_full": "스키마 용량이 참. 쓰지 않는 테이블을 정리하거나 AX팀에 문의",
     "invalid_request": "문제 칸을 고쳐 다시 요청",
     "no_answer": "쓰기였으면 반영 여부 모름. 같은 요청을 다시 보내지 않고 조회로 확인",
 }
@@ -166,7 +166,7 @@ def cmd_tables(args) -> int:
     listing = call("GET", f"/sandbox/schemas/{args.schema}")
     for t in listing["tables"]:
         rows = "추정 없음" if t["estimated_rows"] is None else f"추정 {t['estimated_rows']:,}행"
-        mine = " · 내 표" if record.has(listing["schema"], t["table"]) else ""
+        mine = " · 내 테이블" if record.has(listing["schema"], t["table"]) else ""
         print(f"{t['table']}  {rows} · {_size(t['size_bytes'])}{mine}  {t['description'] or ''}".rstrip())
     return 0
 
@@ -192,7 +192,7 @@ MAX_ROWS = 30_000
 """조회 한 번의 상한(계약 request.MAX_LIMIT). 행 수를 셀 때 이보다 많으면 "30,000행 이상"으로 보인다."""
 
 CHANGES = ("add_column", "drop_column", "rename_column", "rename_table", "set_description")
-"""표 변경 요청의 다섯 모양(DBGateway /sandbox/table/alter 의 요청). 요청 하나에 하나만 든다."""
+"""테이블 변경 요청의 다섯 모양(DBGateway /sandbox/table/alter 의 요청). 요청 하나에 하나만 든다."""
 
 
 def _table_entry(schema: str, table: str) -> dict:
@@ -211,7 +211,7 @@ def preview(action: str, body: dict) -> tuple[str, list[str]]:
     schema, table = body["schema"], body["table"]
     lines = [f"대상: {schema}.{table}"]
     if not record.has(schema, table):
-        lines.append("내 표 기록에 없음: 다른 사람이 만들었을 수 있는 표")
+        lines.append("내 테이블 기록에 없음: 다른 사람이 만들었을 수 있는 테이블")
     if action in ("rename_table", "rename_column"):
         lines.append("이 이름을 쓰는 다른 사람의 서비스가 깨질 수 있음")
         return (body["rename_table"] if action == "rename_table" else body["rename_column"]["to"]), lines
@@ -238,7 +238,7 @@ def preview(action: str, body: dict) -> tuple[str, list[str]]:
             return f"{MAX_ROWS}+", lines
         lines.append(f"조건에 맞는 행: {len(page['rows'])}")
         return str(len(page["rows"])), lines
-    # 표 전체가 대상이면 행을 조회하지 않는다. 데이터가 PC 로 들어오지 않게 추정 행 수를 쓴다.
+    # 테이블 전체가 대상이면 행을 조회하지 않는다. 데이터가 PC 로 들어오지 않게 추정 행 수를 쓴다.
     entry = _table_entry(schema, table)
     estimated = entry["estimated_rows"]
     shown = "없음" if estimated is None else f"{estimated:,}"
@@ -269,7 +269,7 @@ def _record(update) -> int:
     try:
         update()
     except OSError as e:
-        print(f"변경은 반영됨. 내 표 기록만 고치지 못함: {e}\n- 조치: 같은 요청을 다시 보내지 않고 record 명령으로 기록 수정")
+        print(f"변경은 반영됨. 내 테이블 기록만 고치지 못함: {e}\n- 조치: 같은 요청을 다시 보내지 않고 record 명령으로 기록 수정")
         return 1
     return 0
 
@@ -299,7 +299,7 @@ def cmd_insert(args) -> int:
 def _cmd_target(kind: str):
     def run(args) -> int:
         body = read_json(args.request)
-        whole = body.get("all") and kind != "delete"  # 행 삭제는 all 을 받지 않는다. 표를 비우는 일은 truncate 가 맡는다
+        whole = body.get("all") and kind != "delete"  # 행 삭제는 all 을 받지 않는다. 테이블을 비우는 일은 truncate 가 맡는다
         if body.get("where") is None and not whole:
             return _rows(kind, body, None)  # DBGateway 가 조건 없는 요청을 거절한다
         return guarded(kind, body, args.confirm, lambda token: _rows(kind, body, token))
@@ -354,7 +354,7 @@ def cmd_create(args) -> int:
         raise SystemExit("DB 설명(description) 없음: 동료가 알아볼 짧은 요약 필요")
     record.entries()
     call("POST", "/sandbox/table/create", spec)
-    print(f"완료: {spec['schema']}.{spec['table']} 생성, 내 표 기록에 추가")
+    print(f"완료: {spec['schema']}.{spec['table']} 생성, 내 테이블 기록에 추가")
     return _record(lambda: record.add(spec["schema"], spec["table"], args.purpose))
 
 
@@ -381,7 +381,7 @@ def cmd_record(args) -> int:
             print(f"{t['schema']}.{t['table']}  {t['created']}  {t['purpose']}{gone}")
         return 0
     if args.action == "add":
-        _table_entry(args.schema, args.table)  # 없는 표는 기록하지 않는다
+        _table_entry(args.schema, args.table)  # 없는 테이블은 기록하지 않는다
         record.add(args.schema, args.table, args.purpose)
         print(f"기록함: {args.schema}.{args.table}")
         return 0
@@ -396,10 +396,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--selfcheck", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("schemas", help="쓸 수 있는 조직 스키마").set_defaults(func=cmd_schemas)
-    p = sub.add_parser("tables", help="스키마 안의 표 목록")
+    p = sub.add_parser("tables", help="스키마 안의 테이블 목록")
     p.add_argument("schema")
     p.set_defaults(func=cmd_tables)
-    p = sub.add_parser("describe", help="표의 컬럼·primary key·인덱스")
+    p = sub.add_parser("describe", help="테이블의 컬럼·primary key·인덱스")
     p.add_argument("--schema", required=True)
     p.add_argument("--table", required=True)
     p.set_defaults(func=cmd_describe)
@@ -408,20 +408,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--all", action="store_true", help="모든 페이지를 받는다. --out 이 필요하다")
     p.add_argument("--out", metavar="FILE", help="결과를 이 파일에 쓴다")
     p.set_defaults(func=cmd_select)
-    p = sub.add_parser("create", help="표 생성. 스펙은 JSON 파일, description 필수")
+    p = sub.add_parser("create", help="테이블 생성. 스펙은 JSON 파일, description 필수")
     p.add_argument("--spec", required=True, metavar="FILE")
-    p.add_argument("--purpose", required=True, help="내 표 기록에 남길 자세한 용도")
+    p.add_argument("--purpose", required=True, help="내 테이블 기록에 남길 자세한 용도")
     p.set_defaults(func=cmd_create)
     for name, func, file_arg, text in (("insert", cmd_insert, "--request", "행 삽입. upsert 는 확인 필요"),
                                        ("update", _cmd_target("update"), "--request", "행 수정. 확인 필요"),
                                        ("delete", _cmd_target("delete"), "--request", "행 삭제. 확인 필요"),
                                        ("overwrite", _cmd_target("overwrite"), "--request", "범위 교체. 확인 필요"),
-                                       ("alter", cmd_alter, "--change", "표 변경. 컬럼 삭제·이름 변경은 확인 필요")):
+                                       ("alter", cmd_alter, "--change", "테이블 변경. 컬럼 삭제·이름 변경은 확인 필요")):
         p = sub.add_parser(name, help=text)
         p.add_argument(file_arg, required=True, metavar="FILE")
         p.add_argument("--confirm", metavar="확인값")
         p.set_defaults(func=func)
-    for name, func, text in (("drop", cmd_drop, "표 삭제. 확인 필요"), ("truncate", cmd_truncate, "표의 행을 모두 삭제. 확인 필요")):
+    for name, func, text in (("drop", cmd_drop, "테이블 삭제. 확인 필요"), ("truncate", cmd_truncate, "테이블의 행을 모두 삭제. 확인 필요")):
         p = sub.add_parser(name, help=text)
         p.add_argument("--schema", required=True)
         p.add_argument("--table", required=True)
@@ -435,10 +435,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--table", required=True)
     p.add_argument("--name", required=True)
     p.set_defaults(func=cmd_index_drop)
-    p = sub.add_parser("record", help="내 표 기록 보기·고치기")
+    p = sub.add_parser("record", help="내 테이블 기록 보기·고치기")
     actions = p.add_subparsers(dest="action", required=True)
-    actions.add_parser("list", help="기록의 표와 DBGateway 목록 대조")
-    for name, text in (("add", "DBGateway 에 있는 표를 기록에 추가"), ("remove", "기록에서 뺌"), ("rename", "기록의 표 이름 수정")):
+    actions.add_parser("list", help="기록의 테이블과 DBGateway 목록 대조")
+    for name, text in (("add", "DBGateway 에 있는 테이블을 기록에 추가"), ("remove", "기록에서 뺌"), ("rename", "기록의 테이블 이름 수정")):
         a = actions.add_parser(name, help=text)
         a.add_argument("--schema", required=True)
         a.add_argument("--table", required=True)
@@ -456,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.cmd:
         parser.error("하위 명령 필요")
     if args.cmd == "select" and args.all and not args.out:
-        parser.error("--all 은 --out 과 함께 써야 함: 표 전체가 화면으로 나오지 않게 파일로 받음")
+        parser.error("--all 은 --out 과 함께 써야 함: 테이블 전체가 화면으로 나오지 않게 파일로 받음")
     try:
         return args.func(args)
     except Refused as r:
@@ -721,11 +721,11 @@ def _selfcheck() -> None:
 
 
 def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
-    """쓰기 명령과 확인 절차. 조회 시험이 남긴 가짜 서버와 내 표 기록을 이어받는다."""
+    """쓰기 명령과 확인 절차. 조회 시험이 남긴 가짜 서버와 내 테이블 기록을 이어받는다."""
     del_where = json_file({"schema": "BS", "table": "투자후보", "where": {"단계": "검토"}})
     code, out = run_cli(["delete", "--request", del_where])
     assert code == 3 and "대상: BS.투자후보" in out and "확인값: 3" in out and "--confirm 3" in out, out
-    assert "내 표 기록에 없음" in out and not bodies_for("/sandbox/rows/delete"), out
+    assert "내 테이블 기록에 없음" in out and not bodies_for("/sandbox/rows/delete"), out
     count_body = bodies_for("/sandbox/rows/select")[-1]
     assert count_body["columns"] == ["코드"] and count_body["limit"] == 30000 and "비밀값" not in out, count_body
     fake.tables["투자후보"]["rows"].append({"코드": "Z", "단계": "검토"})  # 동료가 행을 추가
@@ -803,9 +803,9 @@ def _selfcheck_writes(fake: Fake, json_file, bodies_for) -> None:
 
 
 def _selfcheck_record() -> None:
-    """내 표 기록 명령. 쓰기 시험이 깨뜨려 둔 기록 파일을 지우고 시작한다."""
+    """내 테이블 기록 명령. 쓰기 시험이 깨뜨려 둔 기록 파일을 지우고 시작한다."""
     record.RECORD.unlink(missing_ok=True)
-    assert run_cli(["record", "add", "--schema", "BS", "--table", "투자후보", "--purpose", "동료 표 기록"])[0] == 0
+    assert run_cli(["record", "add", "--schema", "BS", "--table", "투자후보", "--purpose", "동료 테이블 기록"])[0] == 0
     assert run_cli(["record", "add", "--schema", "BS", "--table", "없는표", "--purpose", "x"])[0] == 1
     assert not record.has("BS", "없는표")
     record.add("BS", "사라진표", "x")
