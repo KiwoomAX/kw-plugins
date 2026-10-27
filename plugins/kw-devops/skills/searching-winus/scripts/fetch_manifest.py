@@ -116,6 +116,23 @@ def refusal_detail(e: urllib.error.HTTPError) -> str:
         return body
 
 
+def http_refusal(e: urllib.error.HTTPError, key: str) -> SystemExit | None:
+    """401·3xx 응답의 종료. 그 밖의 상태면 None 이라 호출한 쪽이 처리한다. managing-sandbox 도 이 판정을 쓴다."""
+    if e.code == 401:
+        registry = registry_key()
+        # 재발급한 새 키가 레지스트리에 있는데 이 창에는 이전 키가 남은 상태로 본다. 다만 이 창의 키가 레지스트리가 아닌
+        # 곳(클로드 코드 설정의 env 등)에서 오면 창을 다시 열어도 같으므로, 그때 재발급으로 빠져나갈 길을 함께 적는다.
+        if registry and registry != key:
+            return not_applied("새 접근 키가 설정됨: 이 창에는 이전 키가 남아 DBGateway 신원 거절(401)",
+                               f"다시 연 뒤에도 같은 거절이면 이 창의 키는 레지스트리가 아닌 곳(클로드 코드 설정의 env 등)에서"
+                               f" 오는 것: 접근 키 화면 {KEY_PAGE}에서 재발급해 그곳의 키 교체")
+        return key_refused(f"DBGateway 신원 거절(401): {refusal_detail(e)}")
+    if 300 <= e.code < 400:
+        return SystemExit(f"다른 호스트로의 리다이렉트 거절: {e.headers.get('Location')}"
+                          "\n- 접근 키를 그 주소로 보내지 않음\n- 조치: QUERY_GATEWAY_URL 확인")
+    return None
+
+
 def get(path: str) -> dict:
     """DBGateway GET. 400·401·3xx 는 DBGateway 앞에서 판정이 끝난 응답이라 오래된 복사본으로 건너뛰지 않고 멈춘다."""
     key = access_key()
@@ -124,18 +141,9 @@ def get(path: str) -> dict:
         with OPENER.open(request, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        if e.code == 401:
-            registry = registry_key()
-            # 재발급한 새 키가 레지스트리에 있는데 이 창에는 이전 키가 남은 상태로 본다. 다만 이 창의 키가 레지스트리가 아닌
-            # 곳(클로드 코드 설정의 env 등)에서 오면 창을 다시 열어도 같으므로, 그때 재발급으로 빠져나갈 길을 함께 적는다.
-            if registry and registry != key:
-                raise not_applied("새 접근 키가 설정됨: 이 창에는 이전 키가 남아 DBGateway 신원 거절(401)",
-                                  f"다시 연 뒤에도 같은 거절이면 이 창의 키는 레지스트리가 아닌 곳(클로드 코드 설정의 env 등)에서"
-                                  f" 오는 것: 접근 키 화면 {KEY_PAGE}에서 재발급해 그곳의 키 교체")
-            raise key_refused(f"DBGateway 신원 거절(401): {refusal_detail(e)}")
-        if 300 <= e.code < 400:
-            raise SystemExit(f"다른 호스트로의 리다이렉트 거절: {e.headers.get('Location')}"
-                             "\n- 접근 키를 그 주소로 보내지 않음\n- 조치: QUERY_GATEWAY_URL 확인")
+        refused = http_refusal(e, key)
+        if refused:
+            raise refused
         if e.code != 400:
             raise
         raise SystemExit(f"DBGateway 가 거절했다: {refusal_detail(e)}")
@@ -370,6 +378,9 @@ def _selfcheck_key_and_http() -> None:
         CACHE.write_text(json.dumps({"key": key_tag("kwam_x"), "queries": [{"query_id": 1}]}), encoding="utf-8")
         os.utime(CACHE, (0, 0))
         stops(lambda: manifest("kwam_x", lambda: get("/unauth")), "신원 거절(401)")
+        import io
+        plain = urllib.error.HTTPError(GATEWAY, 500, "x", {}, io.BytesIO(b"{}"))
+        assert http_refusal(plain, "kwam_x") is None, "401·3xx 밖의 상태는 호출한 쪽이 처리한다"
     finally:
         server.shutdown()
         server.server_close()
