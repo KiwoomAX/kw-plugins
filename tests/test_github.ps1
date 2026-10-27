@@ -52,6 +52,52 @@ function Invoke-Git([string]$Dir, [string[]]$ArgList) {
     return ($out -join "`n")
 }
 
+# upload merges on GitHub through the branch merge API. This harness replaces gh inside Python so the merge
+# runs against the local bare remote and no real GitHub call is made. Arguments: <scripts> <bare remote> <save_work args>.
+$GhHarness = @'
+import subprocess, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+remote = sys.argv[2]
+import gitcmd, save_work
+def value(args, key):
+    for i, a in enumerate(args):
+        if a == "-f" and i + 1 < len(args) and args[i + 1].startswith(key + "="):
+            return args[i + 1][len(key) + 1:]
+def git(*args, **kwargs):
+    return subprocess.run(["git", *args], capture_output=True, **kwargs).returncode
+def merge(head, message):
+    work = str(Path(tempfile.mkdtemp(prefix="kwgh-merge-")) / "w")
+    git("clone", "-q", "-c", "core.autocrlf=false", remote, work)
+    git("-C", work, "config", "user.email", "t@example.com"); git("-C", work, "config", "user.name", "t")
+    if git("-C", work, "merge-base", "--is-ancestor", head, "main") == 0:
+        return 0, "HTTP/2.0 204 No Content\r\n\r\n", ""
+    if git("-C", work, "merge", "--no-ff", "-q", "-m", message, head) != 0:
+        return 1, 'HTTP/2.0 409 Conflict\r\n\r\n{"message": "Merge conflict"}', "gh: Merge conflict (HTTP 409)"
+    git("-C", work, "push", "-q", "origin", "main")
+    return 0, "HTTP/2.0 201 Created\r\n\r\n{}", ""
+def gh_try(*args, **kwargs):
+    if args[:2] == ("api", "user"):
+        return 0, "tester\n", ""
+    if args[:2] == ("pr", "list"):
+        return 0, "[]", ""
+    if args[:1] == ("api",) and any(str(a).endswith("/merges") for a in args):
+        return merge(value(args, "head"), value(args, "commit_message"))
+    return 1, "", "gh: not faked: " + " ".join(map(str, args))
+def gh(*args, **kwargs):
+    code, out, err = gh_try(*args, **kwargs)
+    if code:
+        raise gitcmd.GitError(err)
+    return out
+gitcmd.gh_try, gitcmd.gh = gh_try, gh
+sys.exit(save_work.main(sys.argv[3:]))
+'@
+$GhHarnessFile = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-harness-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.py')
+[IO.File]::WriteAllText($GhHarnessFile, $GhHarness)
+function Invoke-SaveWork([string]$Remote, [string[]]$ArgList) {
+    return Invoke-Py (@($GhHarnessFile, $Scripts, $Remote) + $ArgList)
+}
+
 $PluginName = 'kw-github'
 $PluginId   = 'kw-github@kiwoom-ax'
 
@@ -141,7 +187,7 @@ try {
     Assert 'later commits go to a work branch' ($second.status -eq 'committed' -and $second.branch -eq 'feat/x' -and $second.unpushed)
     Assert 'commit does not push' (-not ((Invoke-Git $remote @('for-each-ref', '--format=%(refname)')) -match 'refs/heads'))
 
-    $up = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'upload', '--repo', $repoDir, '--task', '7', '--title', '화면 추가') | ConvertFrom-Json
+    $up = Invoke-SaveWork $remote @('upload', '--repo', $repoDir, '--task', '7', '--title', '화면 추가') | ConvertFrom-Json
     Assert 'upload finishes' ($up.status -eq 'uploaded')
     $parents = (Invoke-Git $remote @('log', '-1', '--format=%P', 'main')).Trim().Split(' ')
     $body = Invoke-Git $remote @('log', '-1', '--format=%B', 'main')
@@ -192,11 +238,52 @@ try {
     $prep = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'prepare-upload', '--repo', $repo2) | ConvertFrom-Json
     $listed = @($prep.commits | ForEach-Object { $_.Split(' ', 2)[1] })
     Assert 'prepare-upload lists only the commits of the branch being uploaded' (($listed -join '|') -eq 'feat/a work')
-    $up2 = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'upload', '--repo', $repo2, '--task', '7', '--title', 'a 올리기') | ConvertFrom-Json
+    $up2 = Invoke-SaveWork $remote2 @('upload', '--repo', $repo2, '--task', '7', '--title', 'a 올리기') | ConvertFrom-Json
     $log2 = Invoke-Git $remote2 @('log', '--format=%s', 'main')
     Assert 'upload sends the current work branch only' ($up2.status -eq 'uploaded' -and $log2 -match 'feat/a work' -and $log2 -notmatch 'feat/b work')
     Assert 'the other work branch stays on this PC' ((Invoke-Git $repo2 @('branch', '--list')) -match 'feat/b')
 } finally { Remove-Item -LiteralPath $work2 -Recurse -Force -ErrorAction SilentlyContinue }
+
+Write-Host '--- shared dashboard repo ---'
+# A KiwoomAX repo whose name ends in "dashboard" is shared by several developers, one feature folder each.
+$work3   = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$repo3   = Join-Path $work3 'repo'
+$remote3 = Join-Path $work3 'remote.git'
+New-Item -ItemType Directory -Path $repo3 | Out-Null
+try {
+    $null = Invoke-Git $work3 @('init', '-q', '--bare', '-b', 'main', $remote3)
+    $null = Invoke-Git $repo3 @('init', '-q', '-b', 'main')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $repo3 (@('config') + $kv) }
+    $url3 = 'https://github.com/KiwoomAX/sample-dashboard.git'
+    $null = Invoke-Git $repo3 @('remote', 'add', 'origin', $url3)
+    $null = Invoke-Git $repo3 @('config', "url.$($remote3.Replace('\', '/')).insteadOf", $url3)
+    foreach ($rel in @('src/frontend/src/features/fund/menu.ts', 'src/backend/features/fund/router.py', 'src/frontend/src/routes.tsx')) {
+        $path = Join-Path $repo3 $rel
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        [IO.File]::WriteAllText($path, "// $rel`n")
+    }
+    $null = Invoke-Git $repo3 @('add', '-A')
+    $null = Invoke-Git $repo3 @('commit', '-q', '-m', 'dashboard start')
+    $null = Invoke-Git $repo3 @('push', '-q', '-u', 'origin', 'main')
+
+    $sw = Invoke-SaveWork $remote3 @('switch-feature', '--repo', $repo3, '--feature', 'fund', '--summary', 'list')
+    Assert 'switch-feature makes the fund work branch' (($sw | ConvertFrom-Json).branch -eq 'feat/fund-tester-list')
+    [IO.File]::AppendAllText((Join-Path $repo3 'src/frontend/src/features/fund/menu.ts'), "// fund change`n")
+    $cb = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'check-boundary', '--repo', $repo3, '--feature', 'fund')
+    Assert 'a change inside the fund folder is inside' (($cb | ConvertFrom-Json).status -eq 'inside')
+    Assert 'check-boundary prints ASCII JSON' ($cb.Trim() -and ($cb -cmatch '^[\x00-\x7F]*$'))
+
+    [IO.File]::AppendAllText((Join-Path $repo3 'src/frontend/src/routes.tsx'), "// shared change`n")
+    $null = Invoke-SaveWork $remote3 @('commit', '--repo', $repo3, '--feature', 'fund', '--message', 'fund 목록')
+    $before3 = (Invoke-Git $remote3 @('rev-parse', 'main')).Trim()
+    $up3 = Invoke-SaveWork $remote3 @('upload', '--repo', $repo3, '--feature', 'fund', '--task', '1', '--title', 'x')
+    Assert 'upload stops as outside when a shared file changed' (($up3 | ConvertFrom-Json).status -eq 'outside')
+    Assert 'upload prints ASCII JSON' ($up3.Trim() -and ($up3 -cmatch '^[\x00-\x7F]*$'))
+    Assert 'an outside upload leaves GitHub main as it was' ((Invoke-Git $remote3 @('rev-parse', 'main')).Trim() -eq $before3)
+} finally { Remove-Item -LiteralPath $work3 -Recurse -Force -ErrorAction SilentlyContinue }
+$help = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'upload', '--help')
+Assert 'upload --help lists --intake' ($help -match '--intake')
+Assert 'the shared repo self reviewer ships' (Test-Path (Join-Path $PluginDir 'agents/shared-repo-reviewer.md'))
 
 Write-Host '--- issue ownership ---'
 # review-upload may delete issues it marks "ours", so only issues written by the current gh user count (PR #63 review).
@@ -236,6 +323,7 @@ print(json.dumps({str(i["number"]): i["ours"] for i in r["issues"]}))
     Assert 'no issue is ours when the current user is unknown' (($nobody.'1' -eq $false) -and ($nobody.'2' -eq $false))
 } finally { Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue }
 
+Remove-Item -LiteralPath $GhHarnessFile -Force -ErrorAction SilentlyContinue
 Write-Host ''
 Write-Host ("PASS={0} FAIL={1}" -f $script:Pass, $script:Fail)
 if ($script:Fail -gt 0) { exit 1 }
