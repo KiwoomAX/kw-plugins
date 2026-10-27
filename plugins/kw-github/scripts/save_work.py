@@ -16,6 +16,7 @@ from pathlib import Path
 import github_merge
 import gitcmd
 import rules
+import scan_history
 import shared_repo
 
 ORG = "KiwoomAX"
@@ -26,6 +27,8 @@ TOPIC = "kiwoom-feature"
 RULES_PATH = Path(__file__).resolve().parent / "upload_rules.json"
 
 SAVE_SECONDS = 120
+# 기능 이전 업로드는 기능 레포 이력 전체를 읽으므로 평소 상한에 이력 검사 상한을 추가한다.
+INTAKE_UPLOAD_SECONDS = SAVE_SECONDS + scan_history.SCAN_SECONDS
 CATCH_UP_SECONDS = 45
 ABORT_SECONDS = 15
 CATCH_UP_TEMPLATE = "이전 세션에서 저장하지 못한 변경 ({stamp})"
@@ -1137,12 +1140,25 @@ def _precheck(top, branch, state, deadline):
     feature = state.get("feature")
     if not feature:
         return None
-    result = _boundary_of(top, feature, branch, state.get("intake", False), deadline)
+    intake = state.get("intake", False)
+    result = _boundary_of(top, feature, branch, intake, deadline)
     if result["status"] == "inside":
-        return None
+        return _history_hits(top, branch, feature, deadline) if intake else None
     payload = _boundary_payload(result)
     return {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
+
+
+def _history_hits(top, branch, feature, deadline):
+    """기능 이전 branch 에만 있는 commit 전체를 검사한다. 기능 레포 중간 commit 의 비밀값을 잡기 위해서다."""
+    commits = gitcmd.git(top, "rev-list", f"{REMOTE_REF}..{branch}", deadline=deadline).split()
+    hits = scan_history.scan(top, rules.load(RULES_PATH), deadline, commits=commits, skip_ref=REMOTE_REF,
+                             doc_feature=feature)
+    if not hits:
+        return None
+    files = ", ".join(sorted({f"{hit['path']}({hit['commit']})" for hit in hits}))
+    return {"status": "failed", "message": MSG_FAILED, "outside": [], "reason": "history-hits",
+            "detail": f"기능 이전 이력에 올리면 안 되는 파일이 있어 push 하지 않았다: {files}"}
 
 
 def _stopped(stop, progress):
@@ -1215,6 +1231,13 @@ def _github_merge(top, full, branch, state, deadline, progress):
 
 
 def _on_conflict(top, full, branch, state, deadline, progress):
+    """4단계다. 기능 이전은 PC 에서 합치지 않고 원격 branch 를 지운 뒤 멈춘다. 이전 절차가 최신 main 부터 다시 한다."""
+    if state.get("intake"):
+        github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
+        return {**_upload_result("failed", MSG_NOT_MERGED_SHARED,
+                                 f"기능 이전 중 GitHub 가 충돌(409)로 거부했다. PC 에서 합치지 않고 원격 {branch} 를 "
+                                 "지웠다. 최신 main 을 진행 중 merge 로 합쳐 commit --intake 로 끝낸 뒤 다시 올려라.",
+                                 progress), "reason": "intake-conflict"}
     stopped = _pc_merge(top, branch, state, deadline, progress)
     if stopped is not None:
         return stopped
@@ -1319,7 +1342,7 @@ def _resume(top, full, state, deadline, progress):
 def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False, feature=None,
            intake=False):
     """승인받은 작업을 GitHub 공유 코드에 올린다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
-    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    deadline = gitcmd.Deadline(INTAKE_UPLOAD_SECONDS if intake else SAVE_SECONDS)
     progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": []}
     try:
         top = locate(Path(repo))
@@ -1457,6 +1480,8 @@ def _upload_shared(top, task, title, close, resume, feature, intake, deadline, p
             raise UploadStop("이어서 할 업로드가 없다. upload --task --title --feature 로 다시 실행하라.")
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["feature"] = state.get("feature") or _kw_feature(top, state.get("branch") or "", deadline)
+        if state.get("intake"):
+            deadline.seconds = INTAKE_UPLOAD_SECONDS
         progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
         return _resume(top, full, state, deadline, progress)
     if task is None or not title:
