@@ -34,6 +34,10 @@ OTHER_OWNER_NOTE = (
     "이 폴더의 origin 은 회사 GitHub(KiwoomAX) 밖이다. 올릴지 물을 때 그 주소를 함께 알리고, 회사 GitHub 이 아닌 "
     "곳에 올려도 되는지 확인하라."
 )
+NEEDS_AUTHOR_NOTE = (
+    "[kw-github] commit 명의가 없어 commit 하지 않았다. saving-work 스킬의 「commit 명의」 절에 따라 개발자에게 이름과 "
+    "메일을 물어 설정한 뒤 saving-work 로 commit 하라."
+)
 INSTALL_HELP = (
     "{tool} 를 찾지 못해 이 기능 레포를 commit 하지 못했다. 개발자에게 사내 설치기 kw_install 을 다시 "
     "실행하라고 알려라. 설치한 뒤에는 saving-work 로 commit 하라."
@@ -61,6 +65,8 @@ def build_context(result, elsewhere=False):
         lines.append("빠진 파일(excluded): " + json.dumps(result["excluded"], ensure_ascii=False))
     if result["status"] == "failed":
         lines.append("saving-work 스킬의 「결과 처리」 절에 따라 처리하라.")
+    if result["status"] == "needs-author":
+        lines.append(NEEDS_AUTHOR_NOTE)
     if result.get("unpushed"):
         lines.append(UNPUSHED_NOTE)
         lines.append(f"first_push: {str(bool(result.get('first_push'))).lower()}, "
@@ -104,7 +110,8 @@ def _guidance_for(cwd):
     """기능 레포가 아닌 폴더에 넣을 안내다. 회사의 다른 레포에는 넣지 않는다."""
     state = repo_setup.inspect(cwd).get("state")
     if state in ("not-git", "local-only"):
-        return _with_rules(START_NOTE)
+        # 사용자 결정(2026-10-28): 기능 코드 규칙과 git 용어표는 starting-feature-repo 가 준비할 때 읽는다.
+        return START_NOTE
     if state == "other-remote":
         return ELSEWHERE_NOTE
     return None

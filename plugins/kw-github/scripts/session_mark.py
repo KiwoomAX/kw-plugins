@@ -3,8 +3,11 @@
 세션마다 `.git/kiwoom-sessions/<세션 ID>` 파일 하나를 두고 수정 시각을 마지막 활동 시각으로 쓴다.
 세션 시작 저장은 다른 세션이 작업 중이면 그 세션의 미완성 코드를 커밋하지 않도록 건너뛴다.
 가드 훅이 셸 명령마다 부르므로 git 을 부르지 않고 폴더만 거슬러 올라가 레포를 찾는다.
+
+세션이 도중에 다른 폴더로 옮겨도 끝날 때 모두 지우도록, 이 PC 의 임시 폴더에 세션마다 표시한 폴더 목록을 적는다.
 """
 import re
+import tempfile
 import time
 from pathlib import Path
 
@@ -12,6 +15,8 @@ MARKER = ".kiwoom-feature"
 MARK_DIR = "kiwoom-sessions"
 # 이 시간 안에 활동한 세션을 작업 중으로 본다. 비정상 종료로 남은 표시도 이 시간이 지나면 무시된다.
 ACTIVE_SECONDS = 10 * 60 * 60
+# 세션 ID 파일마다 그 세션이 표시를 남긴 표시 폴더를 한 줄에 하나씩 적는다.
+REGISTRY_DIR = Path(tempfile.gettempdir()) / "kiwoom-sessions"
 _SAFE_ID = re.compile(r"[^A-Za-z0-9_-]")
 # shared_repo.repo_kind 와 같은 판정을 git 없이 .git/config 의 url 줄로 한다.
 DASHBOARD_URL = re.compile(r"github\.com[/:]kiwoomax/[^/\s]*dashboard(\.git)?\s*$", re.I)
@@ -47,6 +52,22 @@ def touch(start, session_id):
         return
     marks.mkdir(exist_ok=True)
     (marks / name).write_text(str(time.time()), encoding="utf-8")
+    _register(marks, name)
+
+
+def _registered(name):
+    try:
+        return (REGISTRY_DIR / name).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+
+def _register(marks, name):
+    if str(marks) in _registered(name):
+        return
+    REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(REGISTRY_DIR / name, "a", encoding="utf-8") as handle:
+        handle.write(f"{marks}\n")
 
 
 def others_active(start, session_id, now=None):
@@ -60,6 +81,12 @@ def others_active(start, session_id, now=None):
 
 
 def clear(start, session_id):
-    marks, name = _mark_dir(start), _name(session_id)
-    if marks is not None and name is not None:
-        (marks / name).unlink(missing_ok=True)
+    """이 세션이 이 PC 에 남긴 표시를 모두 지운다. start 의 레포 표시도 함께 지운다. git 은 실행하지 않는다."""
+    name = _name(session_id)
+    if name is None:
+        return
+    marks = _mark_dir(start)
+    folders = set(_registered(name)) | ({str(marks)} if marks is not None else set())
+    for folder in folders:
+        (Path(folder) / name).unlink(missing_ok=True)
+    (REGISTRY_DIR / name).unlink(missing_ok=True)

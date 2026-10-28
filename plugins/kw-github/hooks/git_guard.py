@@ -9,7 +9,7 @@ import os
 import re
 import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -75,6 +75,12 @@ def _resolve(base, target):
     return Path(base) / Path(target).expanduser()
 
 
+def _program(word):
+    """git.exe·Git·전체 경로의 git.exe 를 모두 git 으로 읽는다. PowerShell 의 호출 연산자 & 는 구분자로 이미 빠졌다."""
+    name = PureWindowsPath(word).name.lower()
+    return name[:-len(".exe")] if name.endswith(".exe") else name
+
+
 def _git_reason(words):
     """git 명령 한 조각을 본다. (기능 레포에서 막을 이유, -C 로 준 폴더) 를 돌려준다."""
     index, workdir = 1, None
@@ -103,6 +109,8 @@ def _gh_reason(words):
             method = word.split("=", 1)[1]
         elif word.startswith("-X") and len(word) > 2:
             method = word[2:]
+        elif "=" in word and word.split("=", 1)[0] in GH_API_BODY_OPTS:
+            has_body = True  # --field=type=x 와 -f=x 처럼 값을 = 로 붙인 본문 옵션이다
         elif word in GH_API_VALUE_OPTS:
             # 옵션 값을 경로로 집지 않도록 값까지 건너뛴다.
             if word in ("-X", "--method") and index + 1 < len(words):
@@ -134,10 +142,11 @@ def blocked_commands(command, cwd):
         if target is not None:
             here = _resolve(here, target)
             continue
-        if words[0] == "git":
+        program = _program(words[0])
+        if program == "git":
             reason, workdir = _git_reason(words)
             where = _resolve(here, workdir) if workdir else here
-        elif words[0] == "gh":
+        elif program == "gh":
             reason, where = _gh_reason(words), here
         else:
             continue

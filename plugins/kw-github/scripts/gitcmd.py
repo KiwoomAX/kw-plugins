@@ -115,11 +115,49 @@ def git(repo, *args, deadline=None, timeout=None, stdin=None, check=True):
     return out
 
 
-def git_bytes(repo, *args, deadline=None, timeout=None):
-    code, out, err = run(_git_args(args), cwd=str(repo), deadline=deadline, timeout=timeout)
+def git_bytes(repo, *args, deadline=None, timeout=None, stdin=None):
+    code, out, err = run(_git_args(args), cwd=str(repo), deadline=deadline, timeout=timeout, stdin=stdin)
     if code != 0:
         raise _fail(_git_args(args), code, "", err)
     return out
+
+
+def _batch_input(blobs):
+    return "".join(f"{blob}\n" for blob in blobs).encode("ascii")
+
+
+def blob_sizes(repo, blobs, deadline=None):
+    """blob 마다 크기를 git cat-file --batch-check 프로세스 하나로 읽는다. blob 이 아닌 객체는 빠진다."""
+    blobs = list(dict.fromkeys(blobs))
+    if not blobs:
+        return {}
+    out = git(repo, "cat-file", "--batch-check", deadline=deadline, stdin=_batch_input(blobs))
+    sizes = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] == "blob":
+            sizes[parts[0]] = int(parts[2])
+    return sizes
+
+
+def blob_contents(repo, blobs, deadline=None):
+    """blob 내용을 git cat-file --batch 프로세스 하나로 읽는다. blob 이 아닌 객체는 빠진다."""
+    blobs = list(dict.fromkeys(blobs))
+    if not blobs:
+        return {}
+    out = git_bytes(repo, "cat-file", "--batch", deadline=deadline, stdin=_batch_input(blobs))
+    contents, index = {}, 0
+    while index < len(out):
+        end = out.index(b"\n", index)
+        parts = out[index:end].decode("ascii", "replace").split()
+        index = end + 1
+        if len(parts) != 3:
+            continue  # "<sha> missing" 줄이다
+        size = int(parts[2])
+        if parts[1] == "blob":
+            contents[parts[0]] = out[index:index + size]
+        index += size + 1  # 내용 뒤에 줄바꿈 하나가 붙는다
+    return contents
 
 
 def git_z(repo, *args, deadline=None):
