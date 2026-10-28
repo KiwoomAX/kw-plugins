@@ -254,7 +254,7 @@ kw-dashboard 의 기능 이전 절차는 `switch-feature --intake` 로 이전 br
 
 `upload --intake` 가 `failed` 이면 `reason` 을 기능 이전 절차에 넘긴다. 처분은 기능 이전 절차가 정한다. 각 값의 뜻은 다음과 같다.
 
-- `intake-conflict`: 그사이 공유 코드가 바뀌어 GitHub 가 충돌로 거부했다. PC 에서 합치지 않았고, 저장 스크립트가 GitHub 의 작업 branch 를 지웠다(지우지 못했으면 `detail` 에 적는다).
+- `intake-conflict`: 그사이 공유 코드가 바뀌어 GitHub 가 충돌로 거부했다. PC 에서 합치지 않았고, GitHub 의 작업 branch 는 남겨 두었다. 다시 올릴 때 그 branch 위에 이어서 push 한다.
 - `history-hits`: 기능 레포의 예전 commit 이나 올릴 내용에 올리면 안 되는 파일이 있다. 아무것도 올리지 않았다. 파일은 `detail` 에 있다.
 - `template-unavailable`: `KiwoomAX/dashboard-template` 을 읽지 못해 구조 파일을 확인하지 못했다.
 

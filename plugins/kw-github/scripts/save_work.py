@@ -1391,13 +1391,14 @@ def _github_merge(top, full, branch, state, deadline, progress):
 
 
 def _on_conflict(top, full, branch, state, deadline, progress):
-    """4단계다. 기능 이전은 PC 에서 합치지 않고 원격 branch 를 지운 뒤 멈춘다. 이전 절차가 최신 main 부터 다시 한다."""
+    """4단계다. 기능 이전은 PC 에서 합치지 않고 멈춘다. 이전 절차가 최신 main 부터 다시 한다.
+
+    원격 branch 는 남긴다. 세션이 끊겨도 이전 절차의 다시 실행 판정이 업로드한 작업으로 알아보게 하기 위해서다.
+    """
     if state.get("intake"):
-        deleted = github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
-        remote = f"원격 {branch} 를 지웠다" if deleted else f"원격 {branch} 를 지우지 못해 남아 있다"
         return {**_upload_result("failed", MSG_NOT_MERGED_SHARED,
-                                 f"기능 이전 중 GitHub 가 충돌(409)로 거부했다. PC 에서 합치지 않았고 {remote}. "
-                                 "기능 이전 절차의 업로드 단계를 처음(최신 main 합치기)부터 다시 하라.",
+                                 f"기능 이전 중 GitHub 가 충돌(409)로 거부했다. PC 에서 합치지 않았고 원격 {branch} 는 "
+                                 "남겨 두었다. 기능 이전 절차의 업로드 단계를 처음(최신 main 합치기)부터 다시 하라.",
                                  progress), "reason": "intake-conflict"}
     stopped = _pc_merge(top, branch, state, deadline, progress)
     if stopped is not None:
