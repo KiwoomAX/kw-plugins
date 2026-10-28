@@ -1,0 +1,13 @@
+# extracting-excel-queries 스크립트가 쓰는 파이썬 라이브러리
+#
+# 버전 제약은 반드시 이유와 함께 적는다. 이유 없는 제약은 두지 않는다.
+# 실행: uv run --no-project --with-requirements <이 파일> python <스크립트>
+
+# 옛 .xls 와 VBA 프로젝트(OLE 복합 문서)를 읽는다
+olefile
+
+# VBA 매크로 소스를 읽는다(olevba). 프로젝트 암호와 무관하게 읽힌다
+oletools
+
+# index.xlsx 를 쓰고 .xlsx · .xlsm 을 읽는다
+openpyxl

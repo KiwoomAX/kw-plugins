@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>결과표 계산 흐름</title>
+<!-- explain_cell.py 가 아래 data 스크립트에 JSON 을 채운다. 색은 explain_view.html 과 같은 dashboard-template 셸 토큰 값이다. -->
+<style>
+:root { color-scheme:light;
+  --accent:#3F5A80; --on-accent:#FFFFFF; --accent-weak:#E8EBF0; --app:#FFFFFF; --surface:#FFFFFF; --sunken:#F4F6FA; --hover:#F0F0F1;
+  --ink:#1A1A1A; --ink2:#5D5D5D; --ink3:#8E8E8E; --line:#E5E5E5; --line2:#D1D1D1; --blink:#9DB4D8; --wave:#F3F5F9; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme:dark;
+  --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; } }
+:root[data-theme="dark"] { color-scheme:dark;
+  --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--app); color:var(--ink); font:14px/1.5 "Malgun Gothic","맑은 고딕",sans-serif; }
+header { padding:14px 24px 10px; border-bottom:1px solid var(--line); }
+.crumb { font-size:12px; color:var(--ink3); }
+h1 { font-size:17px; margin:2px 0 0; }
+nav { display:flex; flex-wrap:wrap; gap:8px; padding:10px 24px; border-bottom:1px solid var(--line); background:var(--sunken); }
+nav button { font:inherit; padding:8px 16px; border:1px solid var(--line2); border-radius:6px; background:var(--surface); color:var(--ink); cursor:pointer; }
+nav button.on { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+.notice { padding:9px 24px; background:var(--accent-weak); border-bottom:1px solid var(--line); font-size:13px; color:var(--ink2); }
+.notice b { color:var(--ink); font-weight:600; }
+main { padding:16px 24px; max-width:1280px; }
+section { display:none; } section.on { display:block; }
+.lead { font-size:13px; color:var(--ink2); }
+.flow { margin:0 0 14px; padding:12px 16px; background:var(--sunken); border-radius:8px; }
+.flow ol { margin:6px 0; padding-left:20px; }
+.sub { display:block; font-size:12px; color:var(--ink3); margin:2px 0; }
+.card { border:1px solid var(--line); border-radius:10px; margin:0 0 12px; background:var(--surface); }
+.card > summary, .card > .head { padding:10px 14px; cursor:pointer; display:block; }
+.tag { font-size:11px; color:var(--ink2); border:1px solid var(--line2); border-radius:10px; padding:0 8px; margin-left:6px; }
+.ord { font-size:11px; color:var(--accent); border:1px solid var(--blink); border-radius:10px; padding:0 8px; margin-left:6px; }
+.body { padding:0 14px 14px; overflow:auto; }
+.lines { margin:0 0 8px; padding-left:18px; }
+.lines li { margin:6px 0; }
+.sen { color:var(--ink); }
+.exm { font-size:13px; color:var(--ink2); margin:2px 0 4px; }
+code { background:var(--sunken); padding:1px 5px; font-size:12px; overflow-wrap:anywhere; }
+.chip { display:inline-block; font-size:12px; background:var(--accent); color:var(--on-accent); border-radius:10px; padding:0 9px; }
+.go { font-size:12px; color:var(--accent); border:1px solid var(--accent); border-radius:10px; padding:0 8px; text-decoration:none; }
+details.more > summary { font-size:12px; color:var(--accent); cursor:pointer; }
+details.more .mb { margin:4px 0 8px; font-size:12px; }
+table.g { border-collapse:collapse; font-size:12px; }
+.g th { background:var(--sunken); color:var(--ink3); font-weight:normal; border:1px solid var(--line); padding:2px 6px; }
+.g td { border:1px solid var(--line); padding:2px 8px; white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+.g td.f { background:var(--accent-weak); }
+table.list td { white-space:normal; max-width:none; }
+</style>
+</head>
+<body>
+<header><div class="crumb" id="crumb"></div><h1 id="title"></h1></header>
+<nav id="nav"></nav>
+<div class="notice"><b>아래 화면은 엑셀을 그대로 분석해 설명합니다.</b> 파란 바탕 셀은 수식 셀입니다. 「클로드가 유추한 이름」 표시가 있는 이름은 고칠 수 있습니다. 같은 모양으로 반복되는 표는 한 묶음으로 보입니다.</div>
+<main id="main"></main>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const col = n => { let s = ""; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const TABS = [["source", "1. 원천 데이터"], ["calc", "2. 계산된 표"], ["result", "3. 결과표"], ["origin", "원천 데이터 출처"], ["checks", "확인 필요한 사항"]];
+const LEAD = { source: "결과표가 읽는 값 중 값이 직접 들어 있는 표입니다.",
+  calc: "원천 표의 값으로 채워지는 중간 표입니다. 원천에 가까운 표부터 보입니다. 수식과 계산 순서 단계는 「자세히 보기」에 접어 두었습니다.",
+  result: "사용자가 고른 결과표입니다." };
+
+function line(l) {
+  const k = l.step[0] + "!" + l.step[1], link = (D.links || {})[k] || {};
+  const go = link.file ? `<a class="go" href="${esc(link.file)}" target="_blank">계산 순서 단계로 보기 ▶</a>`
+    : link.command ? `<div class="sub">단계 화면은 크기 제한으로 만들지 않았습니다. 이 명령으로 만들 수 있습니다.</div><code>${esc(link.command)}</code>` : "";
+  return `<li><div class="sen">${esc(l.sentence)}</div><div class="exm">${esc(l.example)}</div>
+    <div class="exm">이 방식을 쓰는 표: ${esc(l.where)}</div>
+    <details class="more"><summary>자세히 보기</summary><div class="mb">${l.roles.map(r => `<span class="chip">${esc(r)}</span>`).join(" → ")}
+    <br><code>${esc(l.formula)}</code> <span class="sub">대표 셀 ${esc(l.step[0])}!${esc(l.cell)}</span>${go}</div></details></li>`;
+}
+
+function preview(p) {
+  const [r1, c1, r2, c2] = p.area;
+  let h = `<tr><th></th>${Array.from({ length: c2 - c1 + 1 }, (_, i) => `<th>${col(c1 + i)}</th>`).join("")}</tr>`;
+  p.rows.forEach((row, i) => { h += `<tr><th>${r1 + i}</th>${row.map(c => `<td class="${c.formula ? "f" : ""}" title="${esc(c.v)}">${esc(c.v)}</td>`).join("")}</tr>`; });
+  const cut = r2 - r1 + 1 > p.rows.length ? `<div class="sub">표 전체 ${r2 - r1 + 1}행 중 위쪽 ${p.rows.length}행을 보입니다.</div>` : "";
+  return `<details class="more" open><summary>엑셀 모양</summary>${p.note ? `<div class="sub">${esc(p.note)}</div>` : ""}<table class="g">${h}</table>${cut}</details>`;
+}
+
+function card(c) {
+  const lines = c.lines.length ? `<ul class="lines">${c.lines.map(line).join("")}</ul>` : "";
+  const more = c.more ? `<div class="sub">그 밖의 계산 ${c.more}가지</div>` : "";
+  return `<details class="card" open><summary><b>${esc(c.name)}</b>${c.guessed ? '<span class="tag">클로드가 유추한 이름</span>' : ""}${c.row_order ? `<span class="ord">행 순서: ${esc(c.row_order)}</span>` : ""}
+    <span class="sub">${esc(c.text)}</span></summary><div class="body">${lines}${more}${preview(c.preview)}</div></details>`;
+}
+
+function listCard(title, intro, items, more, text) {
+  if (!items.length) return "";
+  return `<div class="card"><div class="head"><b>${esc(title)}</b></div><div class="body"><p>${esc(intro)}</p>
+    <ul class="lines">${items.map(i => `<li><div class="sen">${text(i)}</div></li>`).join("")}</ul>${more ? `<div class="sub">그 밖에 ${more}건이 더 있습니다.</div>` : ""}</div></div>`;
+}
+
+function checks() {
+  const c = D.checks;
+  const odd = listCard("계산 묶음에서 벗어나는 행", "같은 열의 계산을 하나로 묶었습니다. 아래 셀은 그 묶음에서 벗어납니다. 의도한 예외인지, 고쳐야 할 셀인지 확인해 주세요.",
+    c.odd.items, c.odd.more, i => `「${esc(i.sheet)}」 시트 「${esc(i.column)}」 열은 다른 행이 <code>${esc(i.usual)}</code> 로 계산하는데, ${esc(i.cell)} 셀은 ${i.got.startsWith("값 ") ? esc(i.got) + " 이(가) 직접 적혀 있습니다" : "<code>" + esc(i.got) + "</code> 로 계산합니다"}.`);
+  const same = listCard("수식 없이 값이 같은 열", "분석은 수식 연결을 기준으로 했습니다. 아래 열은 수식 연결이 없지만 값이 같아, 손으로 옮겨 붙이는 연결일 수 있습니다.",
+    c.same.items, c.same.more, i => esc(i.text));
+  const amb = listCard("분석이 모호했던 상황", "분석기가 판단하지 못한 셀입니다.",
+    c.ambiguous.items, c.ambiguous.more, i => `<b>${esc(i.kind)}</b> · ${esc(i.where)}: ${esc(i.text)}`);
+  const empty = odd || same || amb ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
+  return empty + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
+}
+
+function origin() {
+  if (!D.sources.length) return '<p class="lead">이 결과표가 읽는 원천 표가 없습니다.</p>';
+  const rows = D.sources.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(Object.keys(s.kinds).join(", "))}</td><td>${esc(s.reason)}</td></tr>`).join("");
+  return `<p class="lead">원천 데이터가 어디서 왔는지 분석기가 엑셀 안의 연결 정보로 판정한 결과입니다.</p>
+    <p class="sub">출처 대응표: ${esc(D.source_rules)}</p>
+    <table class="g list"><tr><th>원천 표</th><th>분석기 판정</th><th>판정 근거</th></tr>${rows}</table>`;
+}
+
+document.getElementById("crumb").textContent = `${D.excel} · 엑셀 저장값`;
+document.getElementById("title").textContent = D.title;
+document.title = D.title;
+const nav = document.getElementById("nav"), main = document.getElementById("main");
+main.innerHTML = `<div class="flow"><b>이 결과표는 이렇게 만들어집니다</b><ol>${D.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ol>${D.date_note ? `<span class="sub">${esc(D.date_note)}</span>` : ""}</div>`
+  + TABS.map(([k], i) => {
+    const body = k === "origin" ? origin() : k === "checks" ? checks()
+      : `<p class="lead">${LEAD[k]}</p>` + (D.screens[k].length ? D.screens[k].map(card).join("") : '<p class="lead">해당하는 표가 없습니다.</p>');
+    return `<section id="s-${k}" class="${i ? "" : "on"}">${body}</section>`;
+  }).join("");
+nav.innerHTML = TABS.map(([k, t], i) => `<button data-t="${k}" class="${i ? "" : "on"}">${t}</button>`).join("");
+nav.querySelectorAll("button").forEach(b => b.onclick = () => {
+  nav.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  main.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === "s-" + b.dataset.t));
+});
+</script>
+</body>
+</html>

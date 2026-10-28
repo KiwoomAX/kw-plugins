@@ -122,6 +122,45 @@ Assert 'the flow skill reviews the tips' ($flowText -match '\| 알아 둘 점 �
 $tpl = Read-TextOrEmpty (Join-Path $FlowDir 'scripts/movie_template.html')
 Assert 'the template shows chatbot features as in development' ($tpl -match '챗봇 기능 안내는 개발 중입니다')
 
+Write-Host '--- explaining-excel-cell ---'
+# The explainer runs its own scripts with uv; every file SKILL.md runs must ship.
+$ExDir  = Join-Path $PluginDir 'skills/explaining-excel-cell'
+$exText = Read-TextOrEmpty (Join-Path $ExDir 'SKILL.md')
+Assert 'explainer SKILL.md ships' ($exText -ne '')
+Assert 'explainer frontmatter name matches the folder' (([regex]::Match($exText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'explaining-excel-cell')
+$exDesc = ([regex]::Match($exText, '(?m)^description:\s*(.+)$')).Groups[1].Value
+Assert 'explainer description says when to open the skill' ($exDesc -match '^Use when ')
+Assert 'explainer description is a safe plain scalar' (-not ($exDesc -match ': | #'))
+# Claude does not open the explainer on its own; a person runs it as a slash command.
+Assert 'explainer opens only as a slash command' ($exText -match '(?m)^disable-model-invocation:\s*true\s*$')
+foreach ($f in @('scripts/explain_cell.py', 'scripts/formula_segments.py', 'scripts/query_sources.py',
+                 'scripts/trace_cells.py', 'scripts/capture_views.py', 'scripts/tables.py', 'scripts/plain_text.py', 'scripts/sources.py',
+                 'scripts/checks.py', 'scripts/requirements.txt', 'assets/explain_view.html', 'assets/three_stage_view.html')) {
+    Assert "explainer ships $f" (Test-Path (Join-Path $ExDir $f))
+}
+Assert 'explainer runs scripts through uv, not python3' (($exText -match 'uv run') -and -not ($exText -match '\bpython3\b'))
+Assert 'explainer carries no build-history notes' (-not ($exText -match '\b20\d\d-\d\d-\d\d\b|~/\.claude'))
+Assert 'the plugin description names the explainer' ($pluginJson.description -match 'explaining-excel-cell')
+
+Write-Host '--- extracting-excel-queries ---'
+# The query extractor ships every script SKILL.md runs, and not the macro rebuild tool.
+$QxDir  = Join-Path $PluginDir 'skills/extracting-excel-queries'
+$qxText = Read-TextOrEmpty (Join-Path $QxDir 'SKILL.md')
+Assert 'extractor SKILL.md ships' ($qxText -ne '')
+Assert 'extractor frontmatter name matches the folder' (([regex]::Match($qxText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'extracting-excel-queries')
+$qxDesc = ([regex]::Match($qxText, '(?m)^description:\s*(.+)$')).Groups[1].Value
+Assert 'extractor description says when to open the skill' ($qxDesc -match '^Use when ')
+Assert 'extractor description is a safe plain scalar' (-not ($qxDesc -match ': | #'))
+Assert 'extractor opens only as a slash command' ($qxText -match '(?m)^disable-model-invocation:\s*true\s*$')
+foreach ($f in @('scripts/extract_queries.py', 'scripts/source_rules.py', 'scripts/_classify.py', 'scripts/_index.py',
+                 'scripts/_model.py', 'scripts/_mquery.py', 'scripts/_ooxml.py', 'scripts/_secrets.py', 'scripts/_vba.py',
+                 'scripts/_vba_scan.py', 'scripts/_vba_sql.py', 'scripts/_xls.py', 'scripts/requirements.txt')) {
+    Assert "extractor ships $f" (Test-Path (Join-Path $QxDir $f))
+}
+Assert 'extractor does not ship the macro rebuild tool' (-not (Test-Path (Join-Path $QxDir 'scripts/rebuild_unlocked.py')) -and -not (Test-Path (Join-Path $QxDir 'scripts/rebuild.ps1')))
+Assert 'extractor runs scripts through uv, not python3' (($qxText -match 'uv run') -and -not ($qxText -match '\bpython3\b'))
+Assert 'the plugin description names the extractor' ($pluginJson.description -match 'extracting-excel-queries')
+
 # 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''

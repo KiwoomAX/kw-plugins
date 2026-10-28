@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>계산 흐름 검토</title>
+<!-- explain_cell.py 가 아래 data 스크립트에 JSON 을 채운다. 색은 dashboard-template 셸 토큰 값이다. -->
+<style>
+:root { color-scheme:light;
+  --accent:#3F5A80; --on-accent:#FFFFFF; --accent-weak:#E8EBF0; --app:#FFFFFF; --surface:#FFFFFF; --sunken:#F4F6FA; --hover:#F0F0F1;
+  --ink:#1A1A1A; --ink2:#5D5D5D; --ink3:#8E8E8E; --line:#E5E5E5; --line2:#D1D1D1; --blink:#9DB4D8; --wave:#F3F5F9; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme:dark;
+  --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; } }
+:root[data-theme="dark"] { color-scheme:dark;
+  --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--app); color:var(--ink); font:14px/1.5 "Malgun Gothic","맑은 고딕",sans-serif; display:flex; flex-direction:column; height:100vh; }
+header { padding:14px 24px 10px; border-bottom:1px solid var(--line); }
+.crumb { font-size:12px; color:var(--ink3); }
+h1 { font-size:17px; margin:2px 0 0; }
+/* 안내 문구는 제목 바로 아래 띠에 둔다. 모든 단계에 같은 문장이 있고, 단계마다 덧붙일 문장이 있으면 그 줄에 이어 적는다 */
+.notice { display:flex; gap:10px; align-items:flex-start; padding:9px 24px; background:var(--accent-weak); border-bottom:1px solid var(--line); font-size:13px; color:var(--ink2); }
+.notice .i { flex:none; width:16px; height:16px; margin-top:2px; border:1.5px solid var(--accent); border-radius:50%; color:var(--accent); font-size:11px; font-weight:bold; line-height:13px; text-align:center; }
+.notice b { color:var(--ink); font-weight:600; } .notice em { font-style:normal; font-size:11px; color:var(--ink3); margin:0 2px; }
+main { flex:1; min-height:0; display:grid; grid-template-columns:340px minmax(0,1fr); gap:20px; padding:16px 24px; }
+/* 왼쪽: 단계 목록. 줄바꿈해서 보이고 번호를 누르면 그 단계로 간다 */
+.steps { min-height:0; overflow:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); padding:8px; }
+.steps h2 { font-size:12px; font-weight:normal; color:var(--ink3); margin:4px 8px 8px; }
+.steps ol { margin:0; padding:0; list-style:none; }
+.steps li { display:grid; grid-template-columns:22px 1fr; gap:6px; padding:9px 8px; border-radius:8px; cursor:pointer; color:var(--ink3); }
+.steps li:hover { background:var(--hover); }
+.steps li.done { color:var(--ink2); }
+.steps li.on { background:var(--accent-weak); color:var(--ink); }
+.steps .n { font-weight:bold; }
+.steps .t { overflow-wrap:anywhere; font-size:13px; }
+.steps .m { display:block; margin-top:3px; font-size:11px; color:var(--ink3); overflow-wrap:anywhere; }
+.steps li.on .t { font-weight:bold; }
+.steps li.rep .t { font-style:italic; }
+/* 오른쪽: 엑셀 캡처. 크기는 어느 덩어리나 같고, 줌 없이 색으로만 가리킨다 */
+.right { min-width:0; min-height:0; display:flex; flex-direction:column; gap:10px; overflow:hidden; }
+.capbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.capbar .blk { font-size:13px; font-weight:bold; }
+.capbar .chip { font-size:12px; color:var(--ink2); border:1px dashed var(--accent); border-radius:14px; padding:2px 10px; cursor:pointer; background:transparent; font-family:inherit; }
+.capbar .chip:hover { background:var(--accent-weak); }
+.cap { position:relative; flex:1 1 0; min-height:240px; border:1px solid var(--line2); border-radius:8px; overflow:hidden; background:var(--surface); }
+table.grid { border-collapse:collapse; table-layout:fixed; width:100%; font-size:14px; }
+.grid th { background:var(--sunken); color:var(--ink3); font-weight:normal; border:1px solid var(--line); height:26px; padding:0 4px; font-size:12px; }
+.grid th.rh { width:44px; text-align:right; }
+.grid td { height:var(--rh, 32px); border:1px solid var(--line); padding:0 8px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:right; }
+.grid td.t { text-align:left; }
+.grid td.wc, .grid th.wc { width:26px; padding:0; text-align:center; background:var(--wave); color:var(--ink3); }
+.grid tr.wr td { height:22px; text-align:center; background:var(--wave); color:var(--ink3); font-size:11px; letter-spacing:2px; }
+.grid td.cur { outline:3px solid var(--accent); outline-offset:-3px; font-weight:bold; animation:blink 1s ease-in-out infinite; }
+.grid td.inp { outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-weak); }
+.grid td.earlier { outline:1px dotted var(--ink3); outline-offset:-3px; }
+@keyframes blink { 0%,100% { background:var(--accent-weak); } 50% { background:var(--blink); } }
+svg.links { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
+svg.links path { fill:none; stroke:var(--accent); stroke-width:2; stroke-dasharray:5 4; }
+.legend { display:flex; flex-wrap:wrap; gap:16px; font-size:12px; color:var(--ink2); align-items:center; }
+.legend i { display:inline-block; width:18px; height:12px; vertical-align:-2px; margin-right:6px; border-radius:2px; }
+.legend .l-cur { outline:3px solid var(--accent); outline-offset:-3px; }
+.legend .l-inp { outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-weak); }
+.legend .l-earlier { outline:1px dotted var(--ink3); outline-offset:-3px; }
+.cap-note { font-size:13px; color:var(--ink2); }
+/* 출처 확인 페이지: 버튼이 아니라 글자를 눌러 그 출처를 쓴 단계로 간다 */
+.src { padding:18px 24px; overflow:auto; height:100%; }
+.src h3 { margin:0 0 14px; font-size:15px; }
+.src section { margin:0 0 20px; } .src h4 { margin:0 0 6px; font-size:14px; }
+.src .names { display:flex; flex-wrap:wrap; gap:12px 28px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
+.src .nm { display:flex; flex-direction:column; gap:3px; min-width:80px; }
+.src .nm .v { color:var(--ink3); font-size:12px; overflow-wrap:anywhere; }
+.src em { font-style:normal; font-size:11px; color:var(--ink3); margin-right:4px; }
+.src a { color:var(--accent); cursor:pointer; text-decoration:underline; text-underline-offset:3px; margin-right:8px; white-space:nowrap; }
+.src a:hover { background:var(--accent-weak); }
+
+.cap-note b { color:var(--ink); }
+/* 재생 막대: explaining-code-flow 의 모양을 따른다 */
+footer { display:flex; gap:8px; align-items:center; padding:12px 24px; border-top:1px solid var(--line); background:var(--app); }
+.btn { font:inherit; font-size:13px; font-weight:600; border:1px solid var(--line2); background:var(--surface); border-radius:6px; padding:8px 14px; cursor:pointer; color:var(--ink); }
+.btn:hover { background:var(--hover); } .btn:disabled { opacity:.4; cursor:default; }
+.btn.primary { background:var(--ink); color:var(--app); border-color:var(--ink); }
+.btn.ib { width:38px; height:36px; padding:0; display:inline-grid; place-items:center; }
+.btn svg { width:15px; height:15px; fill:currentColor; display:block; }
+.btn .ic { display:inline-block; vertical-align:-2px; margin-right:6px; } .btn .ic svg { width:12px; height:12px; }
+.ctl { display:inline-flex; gap:4px; }
+.speed { display:flex; align-items:center; gap:8px; margin-left:16px; font-size:12px; color:var(--ink2); }
+.speed input { width:140px; accent-color:var(--accent); } .speed b { min-width:40px; color:var(--ink); }
+footer .sp { flex:1; } .pos { font-size:12px; color:var(--ink3); margin-left:12px; }
+/* 낮 · 밤: 대시보드 셸의 화면 모드 단추와 같다. 해 · 달 중 고른 쪽에만 면이 깔린다 */
+footer .mode { display:inline-flex; gap:2px; }
+footer .mode button { width:28px; height:26px; padding:0; display:grid; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--ink3); cursor:pointer; transition:background .15s, color .15s; }
+footer .mode button:hover { color:var(--ink2); }
+footer .mode button.is-on { background:var(--accent-weak); color:var(--ink); }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header><div class="crumb" id="crumb"></div><h1 id="title"></h1></header>
+<div class="notice" id="notice"><span class="i">i</span><div id="noticeText"></div></div>
+<main>
+  <section class="steps" aria-label="계산 단계"><h2 id="stepsHead">이 값이 만들어지는 순서 · 번호를 누르면 그 단계로 갑니다</h2><ol id="steps"></ol></section>
+  <section class="right">
+    <div class="capbar" id="capbar"></div>
+    <div class="cap" id="cap"></div>
+    <div class="legend"><span><i class="l-cur"></i>이 단계가 가리키는 칸(깜빡임)</span><span><i class="l-inp"></i>이 계산에 쓴 칸(점선)</span><span><i class="l-earlier"></i>앞 단계에서 본 칸</span><span>〰 사이 행 · 열을 줄여 이은 곳</span></div>
+    <div class="cap-note" id="note"></div>
+  </section>
+</main>
+<footer>
+  <button class="btn primary" id="play" type="button"><span class="ic" id="playIc"></span>전체 재생</button>
+  <span class="ctl">
+    <button class="btn ib" id="prev" type="button" title="이전 단계 (←)" aria-label="이전 단계"><svg viewBox="0 0 24 24"><path d="M11 6 3 12l8 6zM21 6l-8 6 8 6z"/></svg></button>
+    <button class="btn ib" id="pp" type="button"></button>
+    <button class="btn ib" id="next" type="button" title="다음 단계 (→)" aria-label="다음 단계"><svg viewBox="0 0 24 24"><path d="M3 6l8 6-8 6zM13 6l8 6-8 6z"/></svg></button>
+  </span>
+  <button class="btn" id="first" type="button">처음부터</button>
+  <label class="speed" for="speed">재생 속도 <input type="range" id="speed" min="1" max="2.5" step="0.25" value="1.5"><b id="speedVal">1.5배</b></label>
+  <span class="sp"></span>
+  <div class="mode" role="group" aria-label="화면 모드">
+    <button type="button" data-t="light" aria-label="낮" title="낮"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></button>
+    <button type="button" data-t="dark" aria-label="밤" title="밤"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+  </div>
+  <span class="pos" id="pos"></span>
+</footer>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const RAW = JSON.parse(document.getElementById('data').textContent), $ = id => document.getElementById(id);
+let D = RAW;   // 지금 보는 데이터
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const colName = n => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+
+let cur = 0, timer = null, playing = false, due = 0, left = 0;
+let items = [], itemOf = {}, repAt = {};
+/* 단계 목록 항목 만들기: 접힌 구간은 한 줄이고, 구간 안의 단계(views 가 null)는 그 줄로 모은다. */
+function load(data) {
+  stop(); D = data; items = []; itemOf = {}; repAt = {}; cur = 0;
+  D.repeats.forEach(r => { repAt[r.first] = r; });
+  D.steps.forEach((s, i) => {
+    const v = D.views[i], r = repAt[i];
+    if (!v) return;
+    if (r) {
+      const [ra, rb] = r.rows, col = colName(r.col), values = r.kind === 'values';
+      items.push({ kind: 'rep', view: v, addr: `${r.sheet}!${col}${ra}~${col}${rb}`,
+        text: values ? `${r.name} 값 ${r.count}개를 ${r.source}에서 가져옵니다` : `같은 계산을 ${r.count}번 반복합니다`,
+        note: values ? `같은 열의 값 ${r.count}개(행 ${ra}부터 ${rb}까지)를 ${r.source}에서 가져옵니다. 앞 3개는 위 단계에서 보였습니다.`
+                     : `같은 계산을 행 ${ra}부터 ${rb}까지 ${r.count}번 반복합니다. 위 행의 값에 같은 식을 적용합니다.` });
+    } else {
+      items.push({ kind: s.kind, view: v, addr: s.addr, text: s.text, value: s.value, source: s.source || '', note: s.note || '' });
+    }
+    itemOf[i] = items.length - 1;
+  });
+  D.repeats.forEach(r => { for (let k = r.first; k <= r.last; k++) itemOf[k] = itemOf[r.first]; });
+  D.views.forEach(v => v && v.far.forEach(f => { f.j = itemOf[f.j]; }));   // 칩이 가리키는 단계 번호를 목록 번호로 바꾼다
+  items.push({ kind: 'summary', text: '출처 확인: 값이 어디서 왔는지 맞는지 봅니다', addr: '',
+    sections: D.sources.map(sec => ({ name: sec.name, items: sec.items.map(it => ({ j: itemOf[it.j], name: it.name, value: it.value })) })) });
+  $('steps').innerHTML = items.map((s, i) => `<li data-i="${i}"><span class="n">${i + 1}.</span><span><span class="t">${esc(s.text)}</span><span class="m">${esc(s.addr)}</span></span></li>`).join('');
+}
+$('steps').onclick = e => { const li = e.target.closest('li'); if (li) { stop(); show(+li.dataset.i); } };
+
+/* 보일 행 · 열 고르기: 이 단계가 가리키는 칸은 반드시 넣고, 그 둘레와 덩어리 왼쪽 위(머리)를 번갈아 늘려 가며
+   limit 개(물결 포함)까지 채운다. 고르지 않은 구간은 물결로 줄인다. cand 는 파이썬이 실어 보낸 후보뿐이다 */
+function choose(lo, hi, cand, focus, limit) {
+  const ok = new Set(cand), keep = new Set([lo, focus[0]]);
+  const list = () => {
+    const ks = [...keep].sort((a, b) => a - b), out = []; let prev = null;
+    for (const k of ks) { if (prev !== null && k > prev + 1) out.push({ w: [prev + 1, k - 1] }); out.push(k); prev = k; }
+    if (ks[ks.length - 1] < hi) out.push({ w: [ks[ks.length - 1] + 1, hi] });
+    return out;
+  };
+  const add = k => { if (k < lo || k > hi || !ok.has(k) || keep.has(k)) return; keep.add(k); if (list().length > limit) keep.delete(k); };
+  focus.slice(1).sort((a, b) => Math.abs(a - focus[0]) - Math.abs(b - focus[0])).forEach(add);   // 입력이 많으면 현재 칸에서 가까운 것부터 넣는다
+  for (let step = 1; step <= 8; step++) {
+    focus.forEach(f => { add(f - step); add(f + step); });
+    for (let k = lo + 3 * (step - 1) + 1; k <= lo + 3 * step; k++) add(k);
+  }
+  return list();
+}
+const isNum = t => /^-?[\d,]*\.?\d+(e[+-]?\d+)?%?$/i.test(t);
+
+/* 출처 확인 단계: 출처 종류마다 값의 이름을 적는다. 이름은 버튼이 아니라 글자이고, 누르면 그 값이 나오는 단계로 간다 */
+function renderSummary(s) {
+  const cap = $('cap');
+  cap.innerHTML = '<div class="src"><h3>이 값이 어디서 왔는지 모아 봤습니다</h3>' + s.sections.map(sec =>
+    `<section><h4>${esc(sec.name)}</h4><div class="names">` + sec.items.map(it =>
+      `<span class="nm"><a data-j="${it.j}">${esc(it.name)}</a><span class="v" title="이 칸을 계산할 때 쓴 값 하나입니다"><em>예</em> ${esc(it.value)}</span></span>`).join('') + '</div></section>').join('') + '</div>';
+  cap.querySelectorAll('a').forEach(a => a.onclick = () => { stop(); show(+a.dataset.j); });
+}
+
+function renderCapture(v) {
+  const cap = $('cap'), W = cap.clientWidth, H = cap.clientHeight;
+  const [r1, c1, r2, c2] = v.rect, spans = [v.cur_span, ...v.input_spans].filter(Boolean);
+  const focusRows = [v.cur[0], ...v.inputs.map(p => p[0]), ...spans.flatMap(x => [x[0], x[2]])], focusCols = [v.cur[1], ...v.inputs.map(p => p[1]), ...spans.flatMap(x => [x[1], x[3]])];
+  /* 칸 하나는 가로 112px, 세로 34px 이상으로 두고 들어가는 만큼만 보인다. 남는 높이는 행이 나눠 갖는다 */
+  const maxC = Math.max(4, Math.floor((W - 44) / 112)), maxR = Math.max(5, Math.floor((H - 26) / 34));
+  const rows = choose(r1, r2, v.rows, focusRows, maxR), cols = choose(c1, c2, v.cols, focusCols, maxC);
+  const waveRows = rows.filter(x => typeof x !== 'number').length, dataRows = rows.length - waveRows;
+  cap.style.setProperty('--rh', Math.max(30, Math.min(64, Math.floor((H - 28 - waveRows * 23 - dataRows) / Math.max(1, dataRows)))) + 'px');
+  const key = (r, c) => r + ',' + c, mark = new Map();
+  v.earlier.forEach(p => mark.set(key(...p), 'earlier')); v.inputs.forEach(p => mark.set(key(...p), 'inp')); mark.set(key(...v.cur), 'cur');
+  /* 캡처 폭은 어느 단계나 같다: 행 번호 칸과 물결 칸은 고정 폭, 나머지 칸이 남는 폭을 똑같이 나눠 쓴다 */
+  let h = '<table class="grid"><colgroup><col style="width:44px">' + cols.map(c => typeof c === 'number' ? '<col>' : '<col style="width:26px">').join('') + '</colgroup><tr><th class="rh"></th>' + cols.map(c => typeof c === 'number' ? `<th>${colName(c)}</th>` : '<th class="wc" title="열 ' + colName(c.w[0]) + '–' + colName(c.w[1]) + ' 생략">〰</th>').join('') + '</tr>';
+  rows.forEach(r => {
+    if (typeof r !== 'number') { h += `<tr class="wr"><th class="rh">〰</th><td colspan="${cols.length}">〰〰〰 행 ${r.w[0]}–${r.w[1]} 생략 〰〰〰</td></tr>`; return; }
+    h += `<tr><th class="rh">${r}</th>` + cols.map(c => {
+      if (typeof c !== 'number') return '<td class="wc">〰</td>';
+      const inSpan = x => x && r >= x[0] && r <= x[2] && c >= x[1] && c <= x[3];
+      const t = v.cells[key(r, c)] ?? '', m = mark.get(key(r, c)) || (inSpan(v.cur_span) ? 'cur sp' : v.input_spans.some(inSpan) ? 'inp sp' : '');
+      return `<td data-k="${key(r, c)}" class="${(isNum(t) ? '' : 't') + (m ? ' ' + m : '')}" title="${esc(colName(c) + r)}">${esc(t)}</td>`;
+    }).join('') + '</tr>';
+  });
+  cap.innerHTML = h + '</table><svg class="links" id="links"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 1 10 5 0 9z" fill="var(--accent)" style="stroke:none;stroke-dasharray:none"/></marker></defs></svg>';
+  requestAnimationFrame(() => {
+    const to = cap.querySelector('td.cur'); if (!to) return;
+    const box = cap.getBoundingClientRect(), center = el => { const r = el.getBoundingClientRect(); return [r.left - box.left + r.width / 2, r.top - box.top + r.height / 2]; };
+    const [tx, ty] = center(to);
+    cap.querySelectorAll('td.inp:not(.sp)').forEach(el => {
+      const [fx, fy] = center(el), mx = (fx + tx) / 2;
+      $('links').insertAdjacentHTML('beforeend', `<path d="M${fx},${fy} C${mx},${fy} ${mx},${ty} ${tx - (tx > fx ? 18 : -18)},${ty}" marker-end="url(#ah)"/>`);
+    });
+  });
+}
+const render = it => it.kind === 'summary' ? renderSummary(it) : renderCapture(it.view);
+
+const NOTICE = '<b>아래 보이는 화면은 엑셀을 그대로 분석하여 설명하는 화면입니다.</b>';
+const NOTICE_SUMMARY = '<br>값의 이름을 누르면 그 값이 나오는 단계로 갑니다. 이름 아래의 값(<em>예</em>)은 이 칸을 계산할 때 쓴 값 하나를 보인 것이고, 같은 이름의 다른 행은 값이 다를 수 있습니다.';
+function show(i) {
+  cur = Math.max(0, Math.min(items.length - 1, i));
+  const s = items[cur], summary = s.kind === 'summary';
+  $('noticeText').innerHTML = NOTICE + (summary ? NOTICE_SUMMARY : '');
+  $('steps').querySelectorAll('li').forEach((li, j) => { li.classList.toggle('on', j === cur); li.classList.toggle('done', j < cur); li.classList.toggle('rep', items[j].kind === 'rep'); });
+  $('steps').querySelector('li.on')?.scrollIntoView({ block: 'nearest' });
+  $('capbar').innerHTML = summary ? '<span class="blk">출처 확인</span>' : `<span class="blk">${esc(s.view.label)}</span>` + s.view.far.map(f => `<button class="chip" data-j="${f.j}" type="button" title="그 단계로 가기">← ${esc(f.label)} ${esc(f.addr.slice(f.addr.lastIndexOf('!') + 1))} = ${esc(f.value)}</button>`).join('');
+  $('capbar').querySelectorAll('.chip').forEach(b => b.onclick = () => { stop(); show(+b.dataset.j); });
+  render(s);
+  document.querySelector('.legend').style.visibility = summary ? 'hidden' : 'visible';
+  $('note').innerHTML = summary ? '' : s.kind === 'rep' ? `<b>${esc(s.addr)}</b><br>${esc(s.note)}` : `<b>${esc(s.addr)}</b> 값 <b>${esc(s.value)}</b>${s.source ? ' · 출처 ' + esc(s.source) : ''}${s.note ? '<br>' + esc(s.note) : ''}`;
+  $('pos').textContent = `단계 ${cur + 1} / ${items.length}`;
+  $('prev').disabled = cur === 0; $('next').disabled = cur === items.length - 1;
+}
+
+/* 재생: 단계마다 같은 시간을 쉬고 속도로 나눈다. 정지하면 남은 시간을 기억했다가 이어 간다 */
+const speed = () => +$('speed').value;
+try { const saved = localStorage.getItem('explainSpeed'); if (saved) { $('speed').value = saved; } } catch (e) { /* 저장소를 못 쓰면 기본 속도를 쓴다 */ }
+$('speedVal').textContent = speed() + '배';
+const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+function showPlay() {
+  $('playIc').innerHTML = playing ? ICON_PAUSE : ICON_PLAY; $('pp').innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+  $('pp').title = (playing ? '정지' : '재생') + ' (스페이스)';
+}
+function stop() { clearTimeout(timer); timer = null; playing = false; left = 0; showPlay(); }
+function pause() { left = Math.max(0, due - Date.now()); clearTimeout(timer); timer = null; playing = false; showPlay(); }
+function wait(ms) { due = Date.now() + ms; timer = setTimeout(tick, ms); }
+function tick() { if (cur >= items.length - 1) return stop(); show(cur + 1); wait(2600 / speed()); }
+function play() {
+  if (playing) return pause();
+  playing = true; showPlay();
+  if (cur >= items.length - 1) show(0);
+  wait(left || 1200 / speed()); left = 0;
+}
+$('play').onclick = play; $('pp').onclick = play;
+$('prev').onclick = () => { stop(); show(cur - 1); }; $('next').onclick = () => { stop(); show(cur + 1); }; $('first').onclick = () => { stop(); show(0); };
+$('speed').oninput = () => {
+  $('speedVal').textContent = speed() + '배';
+  try { localStorage.setItem('explainSpeed', $('speed').value); } catch (e) { /* 저장하지 못해도 이번 화면에서는 적용된다 */ }
+};
+addEventListener('keydown', e => {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
+  if (e.code === 'Space') { e.preventDefault(); if (e.target.blur) e.target.blur(); play(); }
+  else if (e.target.tagName !== 'INPUT' && e.key === 'ArrowLeft') $('prev').click();
+  else if (e.target.tagName !== 'INPUT' && e.key === 'ArrowRight') $('next').click();
+});
+/* 낮 · 밤: 처음엔 시스템 설정을 따르고, 누르면 고른 쪽으로 고정한다 */
+const modeBtns = document.querySelectorAll('.mode button');
+function showMode() {
+  const m = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  modeBtns.forEach(b => { b.classList.toggle('is-on', b.dataset.t === m); b.setAttribute('aria-pressed', b.dataset.t === m); });
+}
+modeBtns.forEach(b => b.onclick = () => { document.documentElement.dataset.theme = b.dataset.t; showMode(); });
+showMode();
+addEventListener('resize', () => { if (items[cur] && !document.querySelector('main').hidden) render(items[cur]); });
+showPlay();
+$('crumb').textContent = RAW.excel + ' · 엑셀 저장값';
+$('title').textContent = (RAW.title || RAW.target) + ' 값은 이렇게 계산됩니다';
+load(RAW); show(0);
+</script>
+</body>
+</html>
