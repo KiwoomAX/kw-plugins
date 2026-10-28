@@ -84,6 +84,14 @@ foreach ($s in @('check_central.py', 'check_feature.py', 'import_feature.py', 'r
     $null = & python $py --check 2>&1 | Out-String
     Assert "$s --check passes" ($LASTEXITCODE -eq 0)
 }
+# kw-github keeps its own copy of the dashboard structure; a drift makes its boundary check reject what this skill aligned.
+$sharedRepo = Join-Path $Repo 'plugins/kw-github/scripts/shared_repo.py'
+if (Test-Path $sharedRepo) {
+    $same = 'import sys; sys.path[:0] = sys.argv[1:3]; import intake_common as a, shared_repo as b; ' +
+            'sys.exit(0 if list(a.STRUCTURE_FILES) == list(b.STRUCTURE_FILES) and (a.FE_FEATURES, a.BE_FEATURES) == (b.FRONT, b.BACK) else 1)'
+    $null = & python -c $same (Join-Path $SkillDir 'scripts') (Split-Path -Parent $sharedRepo) 2>&1 | Out-String
+    Assert 'kw-github shares the structure files and feature folders' ($LASTEXITCODE -eq 0)
+}
 # Menu entries no longer need a division sign-off; the auto-register template took that step away.
 Assert 'SKILL.md no longer asks for a division sign-off on menu entries' (-not ($text -match '본부 승인'))
 

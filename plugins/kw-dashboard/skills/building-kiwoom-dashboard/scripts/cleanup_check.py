@@ -107,7 +107,7 @@ def run(central: Path, feature_repo: Path, repo_name: str, feature: str) -> dict
                 continue
             if moved_to(path) not in central_tree:
                 not_moved.append(path)
-    checks.append({"name": "not-moved", "action": _action(not_moved, "stop"), "items": not_moved})
+    checks.append({"name": "not-moved", "action": _action(not_moved, "confirm"), "items": not_moved})
 
     for name, fields in (("issues", "number,title,body"), ("prs", "number,title")):
         kind = "issue" if name == "issues" else "pr"
@@ -240,7 +240,7 @@ def check_not_moved_no(tmp: Path) -> None:
     files = {**BASE_FILES, "notes.txt": "메모\n"}
     result = _run(*_fixture(tmp, files, history="no"))
     moved = _check(result, "not-moved")
-    assert moved["items"] == ["notes.txt"] and moved["action"] == "stop" and result["status"] == "stop", result
+    assert moved["items"] == ["notes.txt"] and moved["action"] == "confirm" and result["status"] == "ok", result
 
 
 def check_not_moved_yes(tmp: Path) -> None:

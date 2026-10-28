@@ -74,6 +74,14 @@ def _targets(files: list[str], moves: list[str], feature: str, has_backend: bool
     return pairs
 
 
+def _collisions(pairs: list[tuple[str, str]]) -> list[dict]:
+    """같은 중앙 레포 경로로 가는 기능 레포 파일들. Windows 는 대소문자를 가리지 않으므로 소문자로 비교한다."""
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for src, dst in pairs:
+        groups.setdefault(dst.lower(), []).append((src, dst))
+    return [{"to": items[0][1], "from": [src for src, _ in items]} for items in groups.values() if len(items) > 1]
+
+
 def _in_feature(path: str, feature: str) -> bool:
     return path.startswith((f"{common.FE_FEATURES}{feature}/", f"{common.BE_FEATURES}{feature}/"))
 
@@ -117,8 +125,11 @@ def run(central: Path, feature_repo: Path, feature: str, branch: str, history: b
     if unknown:
         return {**result, "status": "stop",
                 "detail": f"--extra 값이 옮길지 물을 항목(ask)에 없다: {', '.join(unknown)}. ask: {', '.join(groups['ask'])}"}
-    moves = groups["move"] + chosen
-    excluded = set(exclude or [])
+    pairs = _targets(common.tree_files(feature_repo, ref), groups["move"] + chosen, feature, has_backend, set(exclude or []))
+    collisions = _collisions(pairs)
+    if collisions:
+        return {**result, "status": "stop", "collisions": collisions,
+                "detail": "기능 레포의 파일 둘 이상이 기능 폴더의 같은 파일로 옮겨진다"}
     written: list[str] = []
     try:
         if history:
@@ -127,12 +138,10 @@ def run(central: Path, feature_repo: Path, feature: str, branch: str, history: b
             common.git(central, "merge", "--allow-unrelated-histories", "--no-commit", "--no-ff", "-q", source, check=False)
             if not common.merge_in_progress(central):
                 raise RuntimeError("합치기를 시작하지 못했다")
-            files = common.tree_files(feature_repo, ref)
             read = lambda p: common.git_bytes(central, "show", f"{source}:{p}")
         else:
-            files = common.tree_files(feature_repo, ref)
             read = lambda p: common.git_bytes(feature_repo, "show", f"{ref}:{p}")
-        for src, dst in _targets(files, moves, feature, has_backend, excluded):
+        for src, dst in pairs:
             common.write_file(central / dst, read(src))
             written.append(dst)
             common.git(central, "add", "--", dst)
@@ -307,8 +316,24 @@ def check_extra_unknown(tmp: Path) -> None:
     assert common.git_z(central, "status", "--porcelain", "-z") == []
 
 
+def check_collision(tmp: Path) -> None:
+    files = {**FEATURE_FILES, "backend/README.md": "API 실행 방법\n", "backend/tests/TEST_A.py": "x = 1\n"}
+    central, feature = _fixture(tmp, files)
+    result = run(central, feature, "fund-aum", "main", True)
+    assert result["status"] == "stop", result
+    assert sorted(result["collisions"], key=lambda c: c["to"]) == [
+        {"to": BE + "README.md", "from": ["README.md", "backend/README.md"]},
+        {"to": BE + "tests/TEST_A.py", "from": ["backend/tests/TEST_A.py", "tests/test_a.py"]},
+    ], result
+    assert not common.merge_in_progress(central)
+    assert common.git_z(central, "status", "--porcelain", "-z", "--untracked-files=all") == []
+    result = run(central, feature, "fund-aum", "main", True, exclude=["backend/README.md", "tests/test_a.py"])
+    assert result["status"] == "ok", result
+    assert _read(central, BE + "README.md") == FEATURE_FILES["README.md"]
+
+
 CHECKS = [
-    check_extra_without_slash, check_extra_unknown,
+    check_collision, check_extra_without_slash, check_extra_unknown,
     check_plan, check_history_yes, check_history_no, check_frontend_only_with_tests,
     check_existing_feature, check_dirty_central, check_history_no_failure_rollback,
 ]

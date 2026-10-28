@@ -20,6 +20,8 @@ SKILL.md 의 「기능 레포를 대시보드로 옮길 때」에서 연다.
 
 이 스킬의 스크립트는 `python "${CLAUDE_SKILL_DIR}/scripts/<이름>.py"` 로 실행하라. 스크립트는 JSON 하나를 낸다. `status` 가 `ok` 이면 다음으로 가고, `stop` 이면 이 문서가 정한 대로 멈추고, `failed` 이면 `detail` 을 개발자에게 알리고 멈춰라.
 
+스크립트는 한글을 UTF-8 로 출력한다. 한국어 Windows 의 PowerShell 은 출력을 cp949 로 읽으므로, 결과를 변수에 담거나 `ConvertFrom-Json` 으로 넘기면 한글 경로가 깨진다. 그래서 PowerShell 에서는 스크립트를 실행하는 명령마다 앞에 `[Console]::OutputEncoding = [Text.Encoding]::UTF8;` 을 붙여라(예: `[Console]::OutputEncoding = [Text.Encoding]::UTF8; python "${CLAUDE_SKILL_DIR}/scripts/check_central.py" ...`).
+
 kw-github 명령(저장 명령, 기능 전환 명령, 경계 검사, 업로드 명령, 이력 검사)은 Skill 도구로 kw-github 의 `saving-work` 스킬을 연 뒤, 그 스킬이 보여 주는 `save_work.py`·`scan_history.py` 경로와 인자 형식으로 실행하라. 이 문서에는 kw-github 의 경로를 적지 않는다.
 
 이전 branch 의 commit 은 모두 저장 명령에 `--intake` 를 붙여 만들어라. 중앙 레포에서는 kw-github 가드가 직접 `git commit`·`git push` 를 거부한다. `git merge` 를 직접 실행할 때는 늘 `--no-commit` 을 붙여라. 가드는 merge 를 거부하지 않으므로 `--no-commit` 이 없으면 저장 명령의 검사 없이 commit 이 생긴다.
@@ -165,6 +167,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/import_feature.py" --central "<중앙 레포
 |---|---|
 | `status` 가 `ok` 이고 `outside_clean` 이 참 | 저장 명령 `--intake --message` 로 commit 하라. 메시지 끝에 아래 세 줄을 둬라. `Intake-Head` 는 출력의 `head` 다 |
 | `status` 가 `stop` 이고 `detail` 이 `--extra` 값 문제 | 넘긴 값이 `ask` 목록에 없다. `--plan` 의 `ask` 에 있는 이름 그대로 다시 실행하라 |
+| `status` 가 `stop` 이고 `collisions` 가 있음 | 아래 「같은 파일로 겹칠 때」대로 처분을 받고 다시 실행하라 |
 | `status` 가 `stop` | 중앙 레포에 commit 하지 않은 변경이 있거나 같은 이름의 기능 폴더가 이미 있다. `detail` 을 알리고 AX팀 문의로 멈춰라 |
 | `status` 가 `failed` | 스크립트가 들여온 것을 되돌렸다. 이전 branch 를 지우고(「다시 실행 판정」의 `--clean`) 멈춰라 |
 
@@ -173,6 +176,16 @@ Intake-From: KiwoomAX/<기능 레포 이름>
 Intake-Head: <head>
 Intake-History: yes | no
 ```
+
+**같은 파일로 겹칠 때.** 기능 레포의 최상위 `README.md` 와 `backend/README.md` 처럼 두 파일이 기능 폴더의 같은 파일로 옮겨지면 스크립트가 아무것도 들여오지 않고 멈춘다. `collisions` 의 짝마다 `from` 에 든 파일들을 기능 레포에서 읽어라. 그리고 개발자가 예전에 쓴 내용을 잊었어도 알아보게, 경로 대신 각 파일의 목적으로 설명하라(예: 「기능 전체 사용법을 적은 설명서와 API 실행 방법을 적은 설명서가 대시보드에서는 같은 이름의 파일이 되어, 그대로 두면 하나가 사라집니다」). 이어서 아래 처분 중 하나를 고르게 하라.
+
+| 처분 | 할 일 |
+|---|---|
+| 하나로 합치기 | 한쪽을 `--exclude` 로 빼고 다시 실행한 뒤, 뺀 파일 내용을 남은 파일에 이어 붙여 개발자에게 보여 주고 stage 하라 |
+| 둘 다 따로 두기 | 한쪽을 `--exclude` 로 빼고 다시 실행한 뒤, 뺀 파일을 개발자와 정한 새 이름으로 같은 기능 폴더에 쓰고 stage 하라 |
+| 하나만 남기기 | 버릴 쪽을 `--exclude` 로 빼고 다시 실행하라 |
+
+합치거나 새 이름으로 둔 파일에는 기능 레포 시절 이력이 이어지지 않는다. 이 사실을 처분을 고르기 전에 알려라.
 
 이력을 가져왔으면 기능 폴더의 파일 하나를 `git log -m --follow -- <경로>` 로 조회해 기능 레포 시절 commit 이 보이는지 확인하라. `-m` 이 없으면 merge commit 너머의 이력이 보이지 않는다.
 

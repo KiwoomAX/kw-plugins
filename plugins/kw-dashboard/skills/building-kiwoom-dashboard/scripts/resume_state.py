@@ -38,8 +38,12 @@ def _uncommitted(central: Path, feature: str, merging: bool) -> list[str]:
         base = common.git(central, "merge-base", "HEAD", "MERGE_HEAD", check=False).strip()
         merged = set(common.git_z(central, "diff", "--name-only", "-z", base, "MERGE_HEAD")) if base \
             else set(common.tree_files(central, "MERGE_HEAD"))
-    paths = []
+    paths, skip = [], False
     for entry in common.git_z(central, "status", "--porcelain", "-z", "--untracked-files=all"):
+        if skip:  # 이름 바꾸기·복사 항목 뒤에 오는 옛 경로
+            skip = False
+            continue
+        skip = entry[0] in "RC"
         path = entry[3:]
         if path in merged or path.startswith((f"{common.FE_FEATURES}{feature}/", f"{common.BE_FEATURES}{feature}/")):
             continue
@@ -238,8 +242,17 @@ def check_row1_leftover_branch(tmp: Path) -> None:
     assert result["row"] == 1 and result["branch"] == BRANCH, result
 
 
+def check_clean_renamed_in_feature(tmp: Path) -> None:
+    central = _fixture(tmp)
+    _intake_branch(central)
+    common.commit_files(central, {"src/frontend/src/features/fund-aum/old.tsx": "x\n"}, "기능 파일")
+    common.git(central, "mv", "src/frontend/src/features/fund-aum/old.tsx", "src/frontend/src/features/fund-aum/new.tsx")
+    result = _with_gh([], lambda: run(central, "fund-aum", "fund-aum", clean=True))
+    assert result["row"] == 3 and result["uncommitted"] == [] and result["cleaned"], result
+
+
 CHECKS = [
-    check_row1_leftover_branch,
+    check_clean_renamed_in_feature, check_row1_leftover_branch,
     check_non_intake_branch_ignored, check_clean_other_checkout,
     check_row1, check_row2_remote, check_row2_closed_pr, check_row3_merge,
     check_clean, check_clean_refused, check_row4, check_lookup_failure,
