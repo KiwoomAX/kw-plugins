@@ -62,6 +62,7 @@ MSG_NOT_FEATURE = "이 폴더는 작업 폴더로 준비되지 않았습니다."
 MSG_NOTHING = "새로 저장할 변경이 없습니다."
 MSG_COMMITTED = "작업을 commit 해 두었습니다. 이 시점으로 코드를 되돌릴 수 있습니다."
 MSG_UPLOADED = "작업을 GitHub 에 push(업로드)해 팀이 함께 보는 main 에 반영했습니다."
+MSG_UPLOADED_SHARED = "작업을 GitHub 에 push(업로드)해 공유 코드에 반영했습니다."
 MSG_CONFLICT = "GitHub에 올라온 것과 지금 PC에 저장된 것이 달라 올리기를 멈췄습니다. 이어서 확인하겠습니다."
 MSG_NO_UPLOAD = "GitHub에 올릴 새 작업이 없습니다."
 MSG_OTHER_OWNER = "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다."
@@ -402,7 +403,7 @@ def unpushed(top, deadline=None):
             waiting = set(pending_filter(top, deadline, strict=True)["excluded"])
         except gitcmd.GitError:
             waiting = set()  # GitHub 를 확인하지 못하면 모든 작업 branch 를 센다
-        refs = [ref for ref in refs if ref not in waiting]
+        refs = [ref for ref in refs if ref not in waiting and not is_intake_branch(top, ref, deadline)]
     return any(_ahead(top, ref, deadline) for ref in refs)
 
 
@@ -693,8 +694,12 @@ def switch_feature(repo, feature, summary=None, intake=False):
         top = locate(repo)
         if top is None or shared_repo.repo_kind(top) != "shared":
             return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
-        if shared_repo.feature_status(top, feature) == "invalid":
+        status = shared_repo.feature_status(top, feature)
+        if status == "invalid":
             return {"status": "invalid-feature", "reason": "", "message": MSG_INVALID_FEATURE, "detail": ""}
+        if intake and status != "new":
+            return {"status": "invalid-feature", "reason": "", "message": MSG_INVALID_FEATURE,
+                    "detail": f"{feature} 는 이미 공유 코드에 있는 기능이다. 기능 이전은 새 기능에만 한다."}
         current = current_branch(top, deadline)
         now = _kw_feature(top, current, deadline) if current else ""
         if now and now != feature and _feature_dirty(top, now, deadline):
@@ -858,7 +863,7 @@ def _stage_shared(top, data, feature, intake, deadline):
     tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
     changed = changed_paths(top, deadline)
     trees = _intake_trees(top, deadline) if intake else None
-    staged, excluded, untrack, others = [], [], [], []
+    staged, excluded, untrack, hide, others = [], [], [], [], []
     for path in changed:
         owner = shared_repo.feature_of(path)
         if owner and owner != feature:
@@ -875,6 +880,8 @@ def _stage_shared(top, data, feature, intake, deadline):
         excluded.append(_excluded(path, reason, rule))
         if found != "secret-content" and shared_repo.allowed(path, feature):
             untrack.append(path)
+        elif found != "secret-content" and path not in tracked:
+            hide.append(path)
     for path in sorted(tracked - set(changed)):
         if path.startswith(DESIGN_DOCS):
             continue
@@ -888,7 +895,7 @@ def _stage_shared(top, data, feature, intake, deadline):
         # 추적 끊기는 내 기능 폴더 안 파일에만 한다. 남의 파일을 지우는 commit 을 만들지 않기 위해서다.
         if found != "secret-content" and shared_repo.allowed(path, feature):
             untrack.append(path)
-    add_to_exclude(top, [DESIGN_DOCS] + [ignore_line(path) for path in untrack], deadline)
+    add_to_exclude(top, [DESIGN_DOCS] + [ignore_line(path) for path in untrack + hide], deadline)
     if untrack:
         _pathspec(top, ("rm", "-q", "--cached", "--ignore-unmatch"), untrack, deadline)
     if staged:
@@ -1268,7 +1275,8 @@ def _precheck(top, branch, state, deadline):
     feature = state.get("feature")
     leaked = _branch_hits(top, branch, feature, state.get("intake", False), deadline)
     if leaked:
-        return {"status": "failed", "message": MSG_FAILED, "outside": [], "reason": "",
+        return {"status": "failed", "message": MSG_FAILED, "outside": [],
+                "reason": "history-hits" if state.get("intake") else "",
                 "detail": f"올릴 commit 에 비밀값·데이터 파일이 있어 push 하지 않았다: {', '.join(leaked)}. 그 파일을 "
                           "고치는 commit 을 저장 스크립트로 만든 뒤 다시 올려라."}
     if not feature:
@@ -1385,10 +1393,11 @@ def _github_merge(top, full, branch, state, deadline, progress):
 def _on_conflict(top, full, branch, state, deadline, progress):
     """4단계다. 기능 이전은 PC 에서 합치지 않고 원격 branch 를 지운 뒤 멈춘다. 이전 절차가 최신 main 부터 다시 한다."""
     if state.get("intake"):
-        github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
+        deleted = github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
+        remote = f"원격 {branch} 를 지웠다" if deleted else f"원격 {branch} 를 지우지 못해 남아 있다"
         return {**_upload_result("failed", MSG_NOT_MERGED_SHARED,
-                                 f"기능 이전 중 GitHub 가 충돌(409)로 거부했다. PC 에서 합치지 않고 원격 {branch} 를 "
-                                 "지웠다. 최신 main 을 진행 중 merge 로 합쳐 commit --intake 로 끝낸 뒤 다시 올려라.",
+                                 f"기능 이전 중 GitHub 가 충돌(409)로 거부했다. PC 에서 합치지 않았고 {remote}. "
+                                 "기능 이전 절차의 업로드 단계를 처음(최신 main 합치기)부터 다시 하라.",
                                  progress), "reason": "intake-conflict"}
     stopped = _pc_merge(top, branch, state, deadline, progress)
     if stopped is not None:
@@ -1449,7 +1458,8 @@ def _cleanup(top, branch, state, deadline, progress):
     gitcmd.git(top, "config", "--local", LAST_UPLOAD.format(key=key), sha, deadline=deadline)
     _state_path(top, deadline).unlink(missing_ok=True)
     progress["pushed"] = True
-    return _upload_result("uploaded", with_notes(MSG_UPLOADED, progress["excluded"]), " ".join(notes), progress)
+    done = MSG_UPLOADED_SHARED if state.get("feature") else MSG_UPLOADED
+    return _upload_result("uploaded", with_notes(done, progress["excluded"]), " ".join(notes), progress)
 
 
 def _abort_legacy_main_merge(top, deadline, progress):
@@ -1475,6 +1485,9 @@ def _resume(top, full, state, deadline, progress):
     if _contains(top, branch, deadline):
         return _cleanup(top, branch, state, deadline, progress)
     if current_branch(top, deadline) == branch and (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        if state.get("intake"):
+            raise UploadStop("기능 이전 branch 에 진행 중인 merge 가 있다. 이어 하기는 이 merge 를 commit 하지 않는다. "
+                             "commit --intake 로 merge 를 끝낸 뒤 upload --continue 로 다시 실행하라.")
         files = _unmerged(top, deadline)
         if files:
             raise UploadStop(f"아직 풀리지 않은 충돌이 있다: {', '.join(files)}. 풀고 git add 한 뒤 다시 실행하라.")

@@ -25,7 +25,7 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 
 - superpowers 플러그인의 `skills/requesting-code-review/code-reviewer.md` 파일을 Read 로 열어 그 검토 항목만 적용하라. 그 스킬은 호출하지 마라. 그 스킬은 다른 서브에이전트를 실행하기 때문이다.
 - kw-dashboard 의 `building-kiwoom-dashboard` 스킬을 Skill 도구로 열어 「강제」 절과 「내보내기 전 확인」 절을 적용하라.
-- kw-github 의 `feature_code_rules.md` 를 적용하라.
+- kw-github 의 `feature_code_rules.md` 는 「기술 구성」 절만 적용하라. 「진입점」과 「PC에서 띄워 확인하기」 절은 기능 레포의 구조를 정하므로 대시보드에는 적용하지 마라. 대시보드의 구조는 kw-dashboard 스킬이 정한다.
 
 ## 고치는 범위
 

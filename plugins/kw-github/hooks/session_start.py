@@ -130,6 +130,10 @@ INTAKE_BRANCH_NOTE = (
     "[kw-github] 지금 branch 는 kw-dashboard 기능 이전 중인 branch 다. 개발자에게 올릴지 묻지 말고, commit 하지 않은 "
     "변경도 기능별로 commit 하지 마라. kw-dashboard 기능 이전 절차의 「다시 실행 판정」부터 이어 가라."
 )
+UNSUPPORTED_NOTE = (
+    "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "
+    "개발자가 올리기를 원하면 AX팀에 문의하라고 안내하라."
+)
 LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
              "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
 
@@ -185,15 +189,18 @@ def _dirty_groups(top):
 
 def shared_context(top, session_id=None):
     # 다른 세션 확인(sync_shared)을 이 세션 표시보다 먼저 한다.
-    notes = [SHARED_REMINDER, *sync_shared(top, session_id)]
+    notes = sync_shared(top, session_id)
     if session_id:
         session_mark.touch(top, session_id)
     current = save_work.current_branch(top)
     if current and save_work.is_intake_branch(top, current):
-        # 기능 이전 중에는 이전 절차만 commit·업로드한다.
+        # 기능 이전 중에는 이전 절차만 commit·업로드하므로 기능별 commit 안내를 넣지 않는다.
         notes.append(INTAKE_BRANCH_NOTE)
-    # 지원 구조가 아니면 경로를 기능별로 묶을 기준이 없다.
-    elif shared_repo.supported(top):
+    # 지원 구조가 아니면 경로를 기능별로 묶을 기준이 없고, commit 도 하지 않는다.
+    elif not shared_repo.supported(top):
+        notes.insert(0, UNSUPPORTED_NOTE)
+    else:
+        notes.insert(0, SHARED_REMINDER)
         groups = _dirty_groups(top)
         if groups:
             notes.append(SHARED_DIRTY_NOTE.format(groups=groups))

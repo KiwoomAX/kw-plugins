@@ -81,11 +81,9 @@ def feature_status(top, feature, ref=REMOTE_REF):
             rest = path[len(prefix):] if path.startswith(prefix) else ""
             if "/" in rest:
                 folders.add(rest.split("/", 1)[0])
-    if feature in folders:
-        return "existing"
-    if any(name.casefold() == feature.casefold() for name in folders):
+    if any(name != feature and name.casefold() == feature.casefold() for name in folders):
         return "invalid"
-    return "new"
+    return "existing" if feature in folders else "new"
 
 
 def is_feature_doc(path, feature):

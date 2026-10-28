@@ -206,7 +206,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
    - `findings` 가 없으면 "검토를 마쳤습니다. 공유 코드에 반영합니다." 라고 알리고 5단계로 간다.
    - `findings` 가 있으면 "검토를 마쳤습니다. 반영하기 전에 확인할 점이 N개 있습니다." 라고 알린다(N 은 지적 수). 지적마다 무엇이 문제인지와 권장안을 적고, 설명이 필요한 항목은 하나씩 논의한다. 정한 수정을 commit 한다. `outside` 지적은 아래 「기능 폴더 밖 수정」 대로 처리한다.
    - 셀프 리뷰어가 끝나지 않거나 JSON 을 돌려주지 않으면 "검토를 끝내지 못해 공유 코드에 반영하지 않았습니다. 잠시 뒤 다시 올려 주세요." 라고 알리고 멈춘다.
-5. 올린다. 위 「작업 이슈」 절에 따라 작업 이슈를 정해 번호를 넘긴다.
+5. 올린다. 위 「작업 이슈」 절에 따라 작업 이슈를 정해 번호를 넘긴다. 공유 레포에서는 `prepare-upload` 를 실행하지 않으므로 그 절의 값을 이렇게 바꿔 쓴다. `<레포>` 는 `git remote get-url origin` 의 `KiwoomAX/<이름>` 이고, 제목 앞머리는 `[<기능>] ` 이고, commit 목록은 2단계 `check-boundary` 결과의 `commits` 다. 본문에 `기능 이슈:` 줄은 쓰지 않는다. 공유 레포에는 기능 이슈가 없다.
 
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" upload --repo "<작업 폴더>" --feature <기능> --task <작업 이슈 번호> --title "[<기능>] <한 줄>"
@@ -252,8 +252,14 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" open-pr --repo "<작업 폴�
 
 kw-dashboard 의 기능 이전 절차는 `switch-feature --intake` 로 이전 branch 를 만들고, `commit`·`check-boundary`·`upload`·`review-upload` 에 모두 `--intake` 를 넘긴다. 이전 branch 에서는 `--intake` 없는 `commit`·`upload` 가 `failed` 로 멈춘다. 이때는 개발자에게 올릴지 묻지 않고 기능 이전 절차로 이어 간다. `upload --continue` 에는 넘기지 않는다. 진행 기록대로 기능 이전 규칙을 쓴다.
 
-`upload --intake` 가 `failed` 이면 `reason` 에 따라 처리한다. 기능 이전 절차가 이 처분을 정한다.
+`upload --intake` 가 `failed` 이면 `reason` 을 기능 이전 절차에 넘긴다. 처분은 기능 이전 절차가 정한다. 각 값의 뜻은 다음과 같다.
 
-- `intake-conflict`: 그사이 공유 코드가 바뀌어 충돌했다. 저장 스크립트가 GitHub 의 작업 branch 를 지웠다. 기능 이전 절차가 최신 main 을 다시 합친 뒤 올린다.
-- `history-hits`: 기능 레포의 예전 commit 에 올리면 안 되는 파일이 있다. 아무것도 올리지 않았다. `detail` 의 파일을 기능 이전 절차에 넘긴다.
-- `template-unavailable`: `KiwoomAX/dashboard-template` 을 읽지 못해 구조 파일을 확인하지 못했다. 잠시 뒤 다시 실행한다.
+- `intake-conflict`: 그사이 공유 코드가 바뀌어 GitHub 가 충돌로 거부했다. PC 에서 합치지 않았고, 저장 스크립트가 GitHub 의 작업 branch 를 지웠다(지우지 못했으면 `detail` 에 적는다).
+- `history-hits`: 기능 레포의 예전 commit 이나 올릴 내용에 올리면 안 되는 파일이 있다. 아무것도 올리지 않았다. 파일은 `detail` 에 있다.
+- `template-unavailable`: `KiwoomAX/dashboard-template` 을 읽지 못해 구조 파일을 확인하지 못했다.
+
+기능 이전 절차가 기능 레포의 예전 commit 을 검사할 때는 아래 명령을 쓴다. `<branch>` 는 검사할 기능 레포 branch 다.
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/scan_history.py" --repo "<폴더>" --ref <branch>
+```
