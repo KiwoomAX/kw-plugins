@@ -170,10 +170,18 @@ def _move_main(top, session_id):
         gitcmd.git(top, "update-ref", "refs/heads/main", new, old)
 
 
-def _main_notes(top):
-    """기본 branch 를 main 으로 맞춘다(spec 「기본 branch 를 main 으로 맞추기」). 지원 구조 판정보다 먼저 한다."""
+def _main_notes(top, session_id=None, deadline=None):
+    """기본 branch 를 main 으로 맞춘다(spec 「기본 branch 를 main 으로 맞추기」). 지원 구조 판정보다 먼저 한다.
+
+    이미 main 으로 맞춘 레포는 GitHub 를 부르지 않는다. 다른 세션이 같은 폴더에서 작업 중이면 그 세션의
+    branch 를 바꾸지 않도록 _move_main 과 같은 조건으로 건너뛴다.
+    """
+    if session_id and session_mark.others_active(top, session_id):
+        return []
     try:
-        fixed = main_branch.normalize(top, save_work._full_name(top), gitcmd.Deadline(SYNC_FETCH_SECONDS))
+        if main_branch.settled(top, deadline):
+            return []
+        fixed = main_branch.normalize(top, save_work._full_name(top), deadline)
     except save_work.GH_ERRORS:
         return []  # 다음 세션에 다시 맞춘다
     if fixed["status"] == "needs-decision":
@@ -187,8 +195,10 @@ def sync_shared(top, session_id=None):
     """세션 시작 동기화다. Claude 에게 넣을 알림 문장 목록을 돌려준다."""
     notes = []
     try:
-        gitcmd.git(top, "fetch", "-q", "origin", timeout=SYNC_FETCH_SECONDS)
-        notes += _main_notes(top)
+        # fetch 와 기본 branch 맞추기가 한 제한 시간을 함께 쓴다. 세션 시작의 최대 대기 시간이 늘지 않게 하기 위해서다.
+        deadline = gitcmd.Deadline(SYNC_FETCH_SECONDS)
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        notes += _main_notes(top, session_id, deadline)
         _move_main(top, session_id)
     except gitcmd.CommandTimeout:
         _, common = save_work._git_dirs(top)

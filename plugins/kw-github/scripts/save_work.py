@@ -1184,7 +1184,8 @@ def unpushed_commits(top, deadline=None):
 
 MSG_MAIN_FAILED = "GitHub 코드 저장소의 기본 branch 를 main 으로 바꾸지 못했습니다. AX팀에 문의해 주세요."
 MSG_MAIN_CONFLICT = "예전 기본 branch 의 작업을 main 에 자동으로 반영하지 못했습니다."
-MAIN_BRANCH_MESSAGES = {"failed": MSG_MAIN_FAILED, "conflict": MSG_MAIN_CONFLICT}
+MSG_MAIN_DECISION = "예전 기본 branch 에 main 에 없는 작업이 있어 반영할지 정해야 합니다."
+MAIN_BRANCH_MESSAGES = {"failed": MSG_MAIN_FAILED, "conflict": MSG_MAIN_CONFLICT, "needs-decision": MSG_MAIN_DECISION}
 
 
 def normalize_main(repo, merge_old=None, discard_old=None):
