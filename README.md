@@ -55,10 +55,10 @@ PC가 다시 설치해야 한다. 그래서 이름을 바꾸지 않는다.
 **클로드 코드를 시작할 때 점검한다.** 이 PC가 목록과 다른 곳이 있는지 14가지를 확인한다. 파일을
 읽고, GitHub 의 최신 버전 번호 하나만 `curl.exe`로 읽는다. 다른 곳이 하나도 없으면 아무것도 알리지 않고 종료한다.
 
-**다른 곳이 있으면 즉시 동기화한다.** 단계는 8개이고 저마다 독립이라 하나가 실패해도 나머지는
+**다른 곳이 있으면 즉시 동기화한다.** 단계는 9개이고 저마다 독립이라 하나가 실패해도 나머지는
 실행된다. 마켓플레이스 등록과 업데이트, 필수 플러그인 설치와 다시 활성화와 업데이트,
 더 이상 쓰지 않는 것 정리, 파이썬 라이브러리, `PYTHONUTF8`, `CLAUDE.md`의 사내 지침, 이전에
-복사해 둔 스킬과 훅 연결 정리, 전역 설정의 출력 스타일(`outputStyle` 항목이 없을 때만 `"Concise"`)이다. 점검에서 다른 곳이 나온 단계만 실행하고, 제한 시간 60초에 이르면 남은 단계를 다음 세션으로 미룬다. 같은 원인으로 실패한 단계는 그날 다시 호출하지 않는다.
+복사해 둔 스킬과 훅 연결 정리, 전역 설정의 출력 스타일(`outputStyle` 항목이 없을 때만 `"Concise"`), 전역 설정의 모델 허용 목록(`availableModels` 를 목록의 값으로 맞춰 Fable 을 고를 수 없게 함)이다. 점검에서 다른 곳이 나온 단계만 실행하고, 제한 시간 60초에 이르면 남은 단계를 다음 세션으로 미룬다. 같은 원인으로 실패한 단계는 그날 다시 호출하지 않는다.
 
 **동기화를 호출하는 명령을 따로 두지 않는다.** 예전에는 세션이 시작할 때 `/kw-sync` 를 입력하라는 안내만 표시했는데,
 안내를 읽고 명령을 입력하는 사람이 없으면 점검이 정확해도 아무것도 바뀌지 않았다. 목록에
@@ -99,7 +99,7 @@ PC가 다시 설치해야 한다. 그래서 이름을 바꾸지 않는다.
 | `plugins/kw-control-tower/scripts/git-identity.ps1` | git 명의를 GitHub 계정의 사내 메일로 제안하고, 사용자가 승인한 값을 저장한다. 세션 점검 훅의 안내를 받은 클로드가 실행한다 |
 | `plugins/kw-control-tower/skills/` | 사내 인증서 스킬 |
 | `plugins/kw-doc-formats/skills/` | 문서 형식 스킬 6개. `common`·`hwp`·`pdf`·`pptx`·`xlsx`·`docx` |
-| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document` |
+| `plugins/kw-devops/skills/` | 배포 스킬 `deploying-kiwoom-service`와 그 스킬이 호출하는 `scripts/pick_port.py`·`scripts/request-ax.ps1`, DBGateway 클라이언트 스킬 `searching-winus`와 그 스킬이 호출하는 `scripts/fetch_manifest.py`, fnguide 리포트 검색 스킬 `searching-document`, 샌드박스 테이블 관리 스킬 `managing-sandbox`와 그 스킬이 호출하는 `scripts/sandbox.py`·`scripts/record.py` |
 | `tests/test_control_tower.ps1` | 컨트롤 타워가 지킬 조건을 확인하는 검사 |
 | `tests/test_doc_formats.ps1` | 문서 형식 스킬이 지킬 조건을 확인하는 검사 |
 | `plugins/kw-dashboard/skills/` | 대시보드 스킬 `building-kiwoom-dashboard`와 그 스킬이 여는 `migrating-existing-dashboard.md` |

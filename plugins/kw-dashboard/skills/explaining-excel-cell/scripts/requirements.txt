@@ -1,0 +1,13 @@
+# explaining-excel-cell 스크립트가 쓰는 파이썬 라이브러리
+#
+# 버전 제약은 반드시 이유와 함께 적는다. 이유 없는 제약은 두지 않는다.
+# 실행: uv run --no-project --with-requirements <이 파일> python <스크립트>
+
+# 엑셀의 셀 · 수식 · 저장된 계산 결과를 읽는다
+openpyxl
+
+# 같은 플러그인의 extracting-excel-queries 로 쿼리 · 매크로 연결을 찾을 때 옛 .xls 와 VBA 프로젝트를 읽는다
+olefile
+
+# 같은 extracting-excel-queries 가 VBA 매크로 소스를 읽을 때 쓴다(olevba)
+oletools
