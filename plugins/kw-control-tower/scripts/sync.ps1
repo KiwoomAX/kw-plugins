@@ -997,14 +997,14 @@ try {
     # 파일이 없거나 형식 오류가 있으면 쓰지 않는다. 형식 오류면 Read-Json 이 오류로 멈춰 실패로 남는다.
     $models = @($manifest.availableModels)
     $settings = Read-Json $settingsPath
-    if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 둡니다.' }
-    elseif ((@(Get-Prop $settings 'availableModels') -join ',') -ceq ($models -join ',')) { Say '이미 목록과 같습니다. 그대로 둡니다.' }
+    if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 유자.' }
+    elseif ((@(Get-Prop $settings 'availableModels') -join ',') -ceq ($models -join ',')) { Say '이미 목록과 같습니다. 그대로 유지.' }
     else {
         if (-not $WhatIfOnly) {
             $settings | Add-Member -NotePropertyName 'availableModels' -NotePropertyValue $models -Force
             Save-Json $settings $settingsPath
         }
-        Note "전역 설정의 `"availableModels`" 를 $($models -join ', ') 로 맞췄습니다(백업: $settingsPath.kw.bak). 이 목록에 없는 모델은 고를 수 없습니다."
+        Note "전역 설정의 `"availableModels`" 를 $($models -join ', ') 로 동기화(백업: $settingsPath.kw.bak). 이 목록에 없는 모델은 고를 수 없습니다."
     }
 } catch { Fail '9' $_.Exception.Message }
 } else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }

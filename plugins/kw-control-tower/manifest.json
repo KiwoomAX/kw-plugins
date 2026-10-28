@@ -27,7 +27,7 @@
     "frontend-design@claude-plugins-official"
   ],
 
-  "_availableModels_comment": "사내에서 클로드 코드로 쓸 수 있는 모델의 허용 목록이다. 사내 업무에 맞는 표준 모델(Opus·Sonnet·Haiku)만 허용하고 Fable 은 제외한다(2026-10-28 결정). 동기화가 이 값을 전역 설정의 availableModels 에 적고, 목록과 다르면 다음 세션에서 다시 맞춘다.",
+  "_availableModels_comment": "사내에서 클로드 코드로 쓸 수 있는 모델의 허용 목록이다. 사내 업무에 맞는 표준 모델(Opus·Sonnet·Haiku)만 허용하고 Fable 은 제외한다. 동기화가 이 값을 전역 설정의 availableModels 에 적고, 목록과 다르면 다음 세션에서 다시 맞춘다.",
 
   "availableModels": ["opus", "sonnet", "haiku"],
 
