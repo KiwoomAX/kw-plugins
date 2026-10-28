@@ -236,7 +236,7 @@ try {
     # 조용히 사라져, 목록과 다른 PC 를 정상으로 본다. 동기화는 이때 멈추고 알리지만, 이 훅은
     # 세션을 어지럽히지 않도록 기록만 남기고 종료한다.
     foreach ($k in @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks')) {
+                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')) {
         if ($null -eq $manifest.PSObject.Properties[$k]) { throw "목록에 항목 없음: $k ($root\manifest.json)" }
     }
 
@@ -575,6 +575,14 @@ try {
     })
     if ($leftover.Count -gt 0) {
         Add-Note 1 "마켓플레이스 교체에 실패해 남은 폴더가 있습니다: $(($leftover | ForEach-Object Name) -join ', ')"
+    }
+
+    # --- 질문 17. 전역 설정의 모델 허용 목록이 목록과 같은가 ----------------
+    # 질문 15 와 달리 값이 달라도 알린다. 동기화 단계 9 가 사용자가 바꾼 값도 목록의 값으로 되돌리기 때문이다.
+    # settings.json 이 없으면 고칠 대상이 없으므로 말하지 않는다. 이미 읽은 파일이라 읽는 파일 수가 늘지 않는다.
+    if ($null -ne $settings -and
+        (@(Get-Prop $settings 'availableModels') -join ',') -cne (@($manifest.availableModels) -join ',')) {
+        Add-Note 9 '전역 설정의 모델 허용 목록이 목록과 다릅니다.'
     }
 }
 catch {

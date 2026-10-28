@@ -471,7 +471,7 @@ Check '폐기한 훅은 이름과 경로를 함께 적는다' {
 }
 # JSON 형식이 맞는 것과 목록의 형식이 맞는 것은 다르다. 항목 이름을 하나 잘못 적으면 JSON 형식
 # 오류는 없고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다.
-$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks')
+$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','availableModels')
 Check '목록에 있어야 할 항목이 모두 있다' {
     @($manifestKeys | Where-Object { $null -eq $mf.PSObject.Properties[$_] }).Count -eq 0
 }
@@ -1706,8 +1706,8 @@ Remove-Item -LiteralPath $sy -Recurse -Force -ErrorAction SilentlyContinue
 # --- 출력 스타일 -------------------------------------------------------------
 Write-Host ''
 Write-Host '출력 스타일'
-# 동기화의 앞머리와 단계 8 과 마무리만 떼어 가짜 홈에서 실행한다. 클로드를 다루는 단계가 없어
-# 테스트용 가짜 프로그램이 필요 없다.
+# 동기화의 앞머리와 단계 8 부터 마무리까지만 떼어 가짜 홈에서 실행한다. 클로드를 다루는 단계가 없어
+# 테스트용 가짜 프로그램이 필요 없다. 아래 모델 허용 목록 검사도 같은 복사본으로 단계 9 를 실행한다.
 $os = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-os-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path $os | Out-Null
 $cut1 = $syncText.IndexOf('# ---------------------------------------------------------------- 단계 1')
@@ -1717,12 +1717,12 @@ $osCut = Join-Path $os 'sync-os.ps1'
 
 function Invoke-OutputStyle {
     # $Settings 가 $null 이면 settings.json 을 만들지 않는다. 문자열이면 그대로 쓴다.
-    param($Settings)
+    param($Settings, [string]$Step = '8')
     $h = Join-Path $os ("h-" + [guid]::NewGuid().ToString('n').Substring(0,6))
     New-Item -ItemType Directory -Force -Path (Join-Path $h '.claude') | Out-Null
     $sp = Join-Path $h '.claude\settings.json'
     if ($null -ne $Settings) { [System.IO.File]::WriteAllText($sp, $Settings, (New-Object System.Text.UTF8Encoding($false))) }
-    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$osCut' -Brief -Steps '8'; exit `$LASTEXITCODE" 2>&1
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; & '$osCut' -Brief -Steps '$Step'; exit `$LASTEXITCODE" 2>&1
     @{
         Code = $LASTEXITCODE
         Out  = ($out | ForEach-Object { "$_" }) -join "`n"
@@ -1763,6 +1763,33 @@ function Invoke-HookWith([string]$Settings) {
 }
 Check '점검이 outputStyle 항목이 없으면 알린다' { (Invoke-HookWith '{}') -match 'outputStyle 이 없습니다' }
 Check '점검이 outputStyle 항목이 있으면 말하지 않는다' { (Invoke-HookWith '{ "outputStyle": "default" }') -notmatch 'outputStyle' }
+
+# --- 모델 허용 목록 -----------------------------------------------------------
+Write-Host ''
+Write-Host '모델 허용 목록'
+Check '목록의 모델 허용 목록에 Fable 이 없다' { @($mf.availableModels | Where-Object { $_ -match 'fable' }).Count -eq 0 }
+$models = @($mf.availableModels)
+$modelsJson = ($models | ForEach-Object { "`"$_`"" }) -join ', '
+$r = Invoke-OutputStyle '{ "model": "opus", "enabledPlugins": { "a@b": true } }' -Step '9'
+Check '항목이 없으면 목록의 값을 넣고 다른 항목은 그대로 둔다' {
+    $j = $r.Text | ConvertFrom-Json
+    ((@($j.availableModels) -join ',') -ceq ($models -join ',')) -and ($j.model -eq 'opus') -and ($j.enabledPlugins.'a@b' -eq $true)
+}
+Check '넣기 전에 백업을 남기고 한 줄로 알린다' {
+    $r.Bak -and ($r.Out -match '(?m)^  - 전역 설정의 "availableModels" 를 .+ 로 맞췄습니다\(백업: .+settings\.json\.kw\.bak\)\.')
+}
+# 단계 8 과 달리 사용자가 바꾼 값도 되돌린다. Fable 을 넣은 사람에게 제한이 사라지지 않게 하기 위해서다.
+$r = Invoke-OutputStyle '{ "availableModels": ["opus", "fable"] }' -Step '9'
+Check '사용자가 바꾼 값을 목록의 값으로 되돌린다' { (@(($r.Text | ConvertFrom-Json).availableModels) -join ',') -ceq ($models -join ',') }
+$r = Invoke-OutputStyle "{ `"availableModels`": [$modelsJson] }" -Step '9'
+Check '이미 목록과 같으면 그대로 두고 말하지 않는다' { -not $r.Bak -and [string]::IsNullOrWhiteSpace($r.Out) }
+$r = Invoke-OutputStyle '{ "availableModels": ' -Step '9'
+Check '모델 허용 목록 단계는 JSON 이 깨져 있으면 고치지 않는다' { ($r.Text -eq '{ "availableModels": ') -and -not $r.Bak -and ($r.Code -ne 0) }
+$r = Invoke-OutputStyle $null -Step '9'
+Check '모델 허용 목록 단계는 settings.json 이 없으면 만들지 않는다' { ($null -eq $r.Text) -and [string]::IsNullOrWhiteSpace($r.Out) }
+Check '점검이 모델 허용 목록이 없으면 알린다' { (Invoke-HookWith '{}') -match '모델 허용 목록이 목록과 다릅니다' }
+Check '점검이 모델 허용 목록이 다르면 알린다' { (Invoke-HookWith '{ "availableModels": ["fable"] }') -match '모델 허용 목록이 목록과 다릅니다' }
+Check '점검이 모델 허용 목록이 같으면 말하지 않는다' { (Invoke-HookWith "{ `"availableModels`": [$modelsJson] }") -notmatch '모델 허용 목록' }
 Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 동기화가 끝까지 간다 ---------------------------------------------------

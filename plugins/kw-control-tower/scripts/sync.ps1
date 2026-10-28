@@ -357,7 +357,7 @@ if ($null -eq $manifest) { Write-Error "목록 없음: $root\manifest.json"; exi
 # 읽을 수 있고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다. 있어야 할 항목이
 # 다 있는지 확인하고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 확인하지 않는다.
 $required = @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-              'retiredMarketplaces', 'retiredSkills', 'retiredHooks')
+              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')
 $missing = @($required | Where-Object { $null -eq $manifest.PSObject.Properties[$_] })
 if ($missing.Count -gt 0) {
     Write-Error "목록에 항목 없음: $($missing -join ', ') ($root\manifest.json)"
@@ -985,6 +985,28 @@ try {
         Note "전역 설정에 `"outputStyle`": `"Concise`" 를 적용했습니다(백업: $settingsPath.kw.bak). 되돌리려면 값을 `"default`" 로 바꾸십시오."
     }
 } catch { Fail '8' $_.Exception.Message }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
+Save-State
+
+# ---------------------------------------------------------------- 단계 9
+Show '9. 전역 설정의 모델 허용 목록을 확인합니다.'
+if (Want 9) {
+try {
+    # 단계 8 과 달리 사용자가 바꾼 값도 목록의 값으로 되돌린다. 사내 표준 모델만 허용하는 설정이라
+    # 사용자 값을 그대로 두면 표준 밖의 모델을 넣은 사람에게 허용 목록이 적용되지 않는다(2026-10-28 결정).
+    # 파일이 없거나 형식 오류가 있으면 쓰지 않는다. 형식 오류면 Read-Json 이 오류로 멈춰 실패로 남는다.
+    $models = @($manifest.availableModels)
+    $settings = Read-Json $settingsPath
+    if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 유자.' }
+    elseif ((@(Get-Prop $settings 'availableModels') -join ',') -ceq ($models -join ',')) { Say '이미 목록과 같습니다. 그대로 유지.' }
+    else {
+        if (-not $WhatIfOnly) {
+            $settings | Add-Member -NotePropertyName 'availableModels' -NotePropertyValue $models -Force
+            Save-Json $settings $settingsPath
+        }
+        Note "전역 설정의 `"availableModels`" 를 $($models -join ', ') 로 동기화(백업: $settingsPath.kw.bak). 이 목록에 없는 모델은 고를 수 없습니다."
+    }
+} catch { Fail '9' $_.Exception.Message }
 } else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
