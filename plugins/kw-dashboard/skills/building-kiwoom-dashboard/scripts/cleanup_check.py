@@ -142,7 +142,7 @@ def _fixture(tmp: Path, files: dict, history: str = "yes", not_moved: tuple = ()
     tmp.mkdir(parents=True, exist_ok=True)
     remote = tmp / "feature.git"
     common.git(tmp, "init", "-q", "--bare", "-b", "main", str(remote))
-    feature = tmp / "김연수 작업" / "fund-aum"
+    feature = tmp / "홍길동 작업" / "fund-aum"
     feature.mkdir(parents=True)
     common.git(feature, "init", "-q", "-b", "main")
     common.commit_files(feature, files, "init")

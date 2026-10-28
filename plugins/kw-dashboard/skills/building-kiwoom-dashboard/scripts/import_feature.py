@@ -187,7 +187,7 @@ def _fixture(tmp: Path, feature_files: dict | None = None, central_extra: dict |
     central = tmp / "중앙 레포"
     common.git(tmp, "clone", "-q", str(bare), str(central))
     common.git(central, "switch", "-q", "-c", "feat/fund-aum-x")
-    feature = tmp / "김연수 작업" / "fund-aum"
+    feature = tmp / "홍길동 작업" / "fund-aum"
     feature.mkdir(parents=True)
     common.make_repo(feature, feature_files or FEATURE_FILES)
     return central, feature

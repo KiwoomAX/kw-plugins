@@ -81,7 +81,7 @@ def _pushed(tmp: Path, files: dict, branch: str = "main") -> Path:
     tmp.mkdir(parents=True, exist_ok=True)
     bare = tmp / "remote.git"
     common.git(tmp, "init", "-q", "--bare", "-b", branch, str(bare))
-    repo = tmp / "김연수 작업" / "fund-aum"
+    repo = tmp / "홍길동 작업" / "fund-aum"
     repo.mkdir(parents=True)
     common.git(repo, "init", "-q", "-b", branch)
     common.commit_files(repo, files, "init")
@@ -95,7 +95,7 @@ def check_clone_master(tmp: Path) -> None:
     common.git(source, "branch", "-m", "master")
     bare = tmp / "remote.git"
     common.git(tmp, "clone", "-q", "--bare", str(source), str(bare))
-    repo = tmp / "김연수 작업" / "fund-aum"
+    repo = tmp / "홍길동 작업" / "fund-aum"
     common.git(tmp, "clone", "-q", str(bare), str(repo))
     assert check(repo)["default_branch"] == "master"
 

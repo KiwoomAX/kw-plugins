@@ -88,7 +88,7 @@ def run(central: Path, repo_name: str, feature: str, clean: bool = False) -> dic
 
 
 CENTRAL_URL = "https://github.com/KiwoomAX/x-dashboard.git"
-BRANCH = "feat/fund-aum-isarah-intake"
+BRANCH = "feat/fund-aum-tester-intake"
 
 
 def _fixture(tmp: Path, message: str | None = None) -> Path:
