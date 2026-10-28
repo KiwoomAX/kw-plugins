@@ -157,6 +157,8 @@ def analyzed_sheets(book, base_override=None):
     for g in groups:
         if base_override.get(g["pattern"]) in g["sheets"]:
             g["base"] = base_override[g["pattern"]]
+            i = g["sheets"].index(g["base"])  # sheets 는 이름 속 숫자 순서다
+            g["previous"] = g["sheets"][i - 1] if i > 0 else None
     skipped = {s for g in groups for s in g["sheets"] if s != g["base"]}
     return [s for s in book.order if s not in skipped], groups
 

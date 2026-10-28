@@ -130,6 +130,16 @@ def _vlookup(book, sheet, pos, m, found, names, groups):
     return text, f"예: 「{show(vals.get(key, ''))}」 → 「{show(vals.get(pos, ''))}」"
 
 
+def _rank_is_plain(m, pos):
+    """_rank 문장이 수식과 맞는가. 순위 범위가 같은 시트이고, +MAX 가 있으면 그 범위가 이 셀보다 아래에서 시작해야 한다."""
+    if "!" in m.group("rng"):
+        return False
+    if m.group("max"):
+        rows = re.findall(r"\$?[A-Z]{1,3}\$?(\d+)", m.group("max"))
+        return bool(rows) and int(rows[0]) > pos[0]
+    return True
+
+
 def _rank(book, sheet, pos, m, found):
     own = _header(found, sheet, pos) or f"{col_name(pos[1])}열"
     x = _pos(m.group("x"))
@@ -160,7 +170,7 @@ def sentence(book, sheet, cell, found, names, groups):
         if got:
             return got
     rk = RANK.match(formula)
-    if rk:
+    if rk and _rank_is_plain(rk, pos):
         return _rank(book, sheet, pos, rk, found)
     own = _header(found, sheet, pos) or f"{col_name(pos[1])}열"
     return FALLBACK.format(col=own), f"예: {show(book.sheet_values(sheet).get(pos, ''))}"

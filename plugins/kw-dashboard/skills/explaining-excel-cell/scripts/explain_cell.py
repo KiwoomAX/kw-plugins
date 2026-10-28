@@ -731,7 +731,7 @@ def load_results(path, book, candidates_path):
     try:
         expected = json.loads(Path(candidates_path).read_text(encoding="utf-8-sig")).get("base_sheets", {})
     except (OSError, ValueError):
-        expected = None
+        sys.exit(f"후보 파일 읽기 실패: {candidates_path}(1번째 실행과 같은 --out 폴더로 실행)")
     if data["base_sheets"] != expected:
         sys.exit("기준 시트가 후보 파일과 다름(--base 로 1번째 실행부터 다시)")
     return data

@@ -7,7 +7,6 @@ import posixpath
 import re
 import zipfile
 import xml.etree.ElementTree as ET
-from collections import deque
 from dataclasses import dataclass, field
 
 import openpyxl
@@ -22,7 +21,6 @@ _PART = re.compile(r"^\$?([A-Za-z]{1,3})?\$?(\d+)?$")
 class Cell:
     kind: str  # "value", "formula", "pivot"(피벗 결과. 원본 범위에서 계산된다)
     formula: str | None = None
-    reached: bool = False
 
 
 @dataclass
@@ -45,19 +43,6 @@ class Pivot:
     cols: list = field(default_factory=list)  # 열 필드 번호
     data: list = field(default_factory=list)  # [(값 필드 번호, 묶는 방식 subtotal)]
     first: tuple = (0, 0, 0)  # location 의 firstHeaderRow · firstDataRow · firstDataCol
-
-
-@dataclass
-class Trace:
-    cells: dict  # 시트 이름 -> {(행, 열): Cell}
-    sheet_order: list
-    results: list
-    external_refs: dict = field(default_factory=dict)  # (시트, (행, 열)) -> [참조 문자열]
-    dynamic_refs: set = field(default_factory=set)
-    broken_refs: set = field(default_factory=set)
-    precedents: dict = field(default_factory=dict)  # (시트, (행, 열)) -> [(시트, 영역)]
-    ref_tokens: dict = field(default_factory=dict)  # (시트, (행, 열)) -> [(수식 속 참조 글자, [(시트, 영역)] 또는 None)]
-    tables: dict = field(default_factory=dict)  # 표 이름 -> Table
 
 
 def _formula_text(value):
@@ -254,91 +239,6 @@ def make_resolver(cells, tables, names):
                 out.append((n_sheet, parsed))
         return out or "broken"
     return resolve
-
-
-def trace(path, results):
-    cells, order, names = load_cells(path)
-    missing = [r for r in results if r not in cells]
-    if missing:
-        raise ValueError(f"엑셀에 없는 결과 시트: {', '.join(missing)}")
-    t = Trace(cells=cells, sheet_order=order, results=list(results))
-    tables, pivots = load_package_parts(path)
-    t.tables = tables
-    pivot_source = {}
-    for pv in pivots:
-        if pv.sheet in cells and pv.area:
-            for pos, cell in cells[pv.sheet].items():
-                if _inside(pos, pv.area):
-                    cell.kind, cell.formula = "pivot", f"피벗 원본: {pv.source}"
-                    pivot_source[(pv.sheet, pos)] = pv.source
-    cache = {}
-
-    resolve = make_resolver(cells, tables, names)
-
-    def expand(sheet, area):
-        key = (sheet, area)
-        if key not in cache:
-            r1, c1, r2, c2 = area
-            cache[key] = [
-                (r, c) for (r, c) in cells[sheet]
-                if (r1 is None or min(r1, r2) <= r <= max(r1, r2))
-                and (c1 is None or min(c1, c2) <= c <= max(c1, c2))
-            ]
-        return cache[key]
-
-    queue = deque()
-
-    def reach(sheet, pos):
-        cell = cells[sheet][pos]
-        if not cell.reached:
-            cell.reached = True
-            if cell.kind != "value":
-                queue.append((sheet, pos))
-
-    for sheet in results:
-        for pos in list(cells[sheet]):
-            reach(sheet, pos)
-
-    while queue:
-        sheet, pos = queue.popleft()
-        key = (sheet, pos)
-        if key in pivot_source:
-            refs = [pivot_source[key]]
-        else:
-            refs = _references(cells[sheet][pos].formula, t, key)
-        for item in refs:
-            ref, narrow = (item[0], item[1:]) if isinstance(item, tuple) else (item, None)
-            found = resolve(ref, sheet, pos)
-            if narrow and isinstance(found, list):
-                found = [(s, a) for s, area in found for a in _narrow(area, *narrow)]
-            t.ref_tokens.setdefault(key, []).append((ref, found if isinstance(found, list) else None))
-            if found == "external":
-                t.external_refs.setdefault(key, []).append(ref)
-            elif found == "broken":
-                t.broken_refs.add(key)
-            else:
-                for target, area in found:
-                    t.precedents.setdefault(key, []).append((target, area))
-                    for p in expand(target, area):
-                        reach(target, p)
-    return t
-
-
-def formula_cells(t, sheets):
-    """시트들에서 결과에 쓰이는 계산 셀(수식 · 피벗)마다 (시트, 행, 열, 수식, 참조 범위 목록)을 돌려준다.
-
-    참조 범위는 (시트, r1, c1, r2, c2) 이고 열린 끝은 None 이다. 외부 파일 참조는 시트 자리에 "외부:<참조>" 를 둔다.
-    """
-    out = []
-    for sheet in sheets:
-        for (r, c), cell in sorted(t.cells.get(sheet, {}).items()):
-            if not cell.reached or cell.kind == "value":
-                continue
-            key = (sheet, (r, c))
-            refs = [(s, *area) for s, area in t.precedents.get(key, [])]
-            refs += [(f"외부:{ref}", None, None, None, None) for ref in t.external_refs.get(key, [])]
-            out.append((sheet, r, c, cell.formula, refs))
-    return out
 
 
 LOOKUP_AXIS = {"VLOOKUP(": "col", "HLOOKUP(": "row"}  # 표 범위 중 키와 돌려줄 열(행)만 읽는 함수

@@ -17,8 +17,9 @@ import trace_cells
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 EXTRACTOR = Path(__file__).resolve().parents[2] / "extracting-excel-queries/scripts"
-FILE_STATES = {"엑셀 형식 아님", "열기 암호", "처리 오류"}
-DB_KINDS = {"ODBC 쿼리 테이블", "OLE DB 쿼리 테이블", "VBA ADODB SQL", "VBA 쿼리 테이블 생성", ".xls 연결 레코드", "Power Query"}
+if str(EXTRACTOR) not in sys.path:
+    sys.path.insert(0, str(EXTRACTOR))
+from _model import DB_KINDS, READ_FAILURE_KINDS  # noqa: E402  연결 종류는 쿼리 분리 스킬 한 곳에서 정한다
 FROM_NAME = re.compile(r"(?i)\b(?:from|join)\s+([\w$#가-힣]+(?:\.[\w$#가-힣]+)?(?:@[\w.]+)?)")
 CELL = re.compile(r"^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$")
 COLUMNS = re.compile(r"^열 ([\d·~]+)$")
@@ -30,12 +31,11 @@ def file_name(target):
 
 
 def _scan_file(path):
-    """(쿼리 분리 스킬이 찾은 연결 목록, 출처 대응표 상태)."""
-    if str(EXTRACTOR) not in sys.path:
-        sys.path.insert(0, str(EXTRACTOR))
+    """(쿼리 분리 스킬이 찾은 연결 목록, 출처 대응표 상태). 대응표는 공용 폴더에서 한 번만 읽어 분류와 상태에 함께 쓴다."""
     from extract_queries import scan_file
     from source_rules import load_rules
-    return scan_file(Path(path)), load_rules()[1]
+    rules, state = load_rules()
+    return scan_file(Path(path), rules), state
 
 
 def source_name(kind, origin):
@@ -96,7 +96,7 @@ def load_connections(path, sheet_values):
     conns, state = _scan_file(path)
     loaded, unplaced = [], []
     for c in conns:
-        if c.kind in FILE_STATES:  # 엑셀 전체를 읽지 못했다는 행. 출처 판정이 틀릴 수 있음을 알린다
+        if c.kind in READ_FAILURE_KINDS:  # 엑셀이나 VBA 프로젝트를 읽지 못했다는 행. 출처 판정이 틀릴 수 있음을 알린다
             unplaced.append({"kind": c.kind, "location": c.location, "why": "처리 오류"})
             continue
         if not c.output_range:

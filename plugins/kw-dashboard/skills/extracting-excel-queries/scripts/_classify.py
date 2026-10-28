@@ -4,7 +4,7 @@
 """
 import re
 
-from _model import FILE_STATE_KINDS, Connection
+from _model import READ_FAILURE_KINDS, Connection
 
 DB_LINK = re.compile(r"\b[\w$#]+(?:\.[\w$#]+)?@([A-Za-z][\w.]*)")
 SCHEMA = re.compile(r"\b([A-Za-z][\w$#]*)\.[A-Za-z_가-힣]")
@@ -15,7 +15,7 @@ def classify(c: Connection, win_path: str, rules: dict | None = None) -> str:
     if rules is None:
         from source_rules import load_rules
         rules = load_rules()[0]
-    if c.kind in FILE_STATE_KINDS:
+    if c.kind in READ_FAILURE_KINDS:
         return ""
     links = [m.upper() for m in DB_LINK.findall(c.sql or "")]
     if any(rules["links"].get(name) == "WFS" for link in links for name in rules["links"] if link.startswith(name)):

@@ -20,16 +20,20 @@ def _paths(root: list[str]) -> tuple[str, str, str]:
     return base, base + "PROJECT", base + "/".join([root[-1], "dir"])
 
 
+class VbaReadError(Exception):
+    """VBA 프로젝트가 있는데 소스를 읽지 못했다. 호출한 쪽은 「VBA 읽기 실패」 행을 남기고 추출을 이어 간다."""
+
+
 def modules(ole, root: list[str]) -> list[Module]:
-    """olefile 로 연 VBA 프로젝트의 모듈 목록. 읽지 못하면 빈 목록이다."""
+    """olefile 로 연 VBA 프로젝트의 모듈 목록. 읽지 못하면 VbaReadError 를 낸다."""
     from oletools.olevba import VBA_Project
     base, project, dir_path = _paths(root)
     try:
         vba = VBA_Project(ole, base, project, dir_path, relaxed=True)
         vba.parse_project_stream()
         found = list(vba.parse_modules())
-    except Exception:  # olevba 는 깨진 프로젝트에서 여러 종류의 예외를 낸다. 연결 추출은 매크로 없이도 이어 간다
-        return []
+    except Exception as e:  # olevba 는 깨진 프로젝트에서 여러 종류의 예외를 낸다
+        raise VbaReadError(type(e).__name__) from e
     out = []
     for _, filename, code in found:
         source = code.decode("cp949", "replace") if isinstance(code, bytes) else code
@@ -66,7 +70,11 @@ def _selfcheck() -> None:
             return io.BytesIO(self.data)
 
     assert not has_project_password(Fake("A" * 18), ["VBA"]) and has_project_password(Fake("A" * 78), ["VBA"])
-    assert modules(Fake("A" * 18), ["VBA"]) == []  # dir 스트림이 없으면 빈 목록
+    try:  # dir 스트림이 없으면 읽기 실패다
+        modules(Fake("A" * 18), ["VBA"])
+        raise AssertionError("VbaReadError 를 내야 한다")
+    except VbaReadError:
+        pass
 
 
 if __name__ == "__main__":

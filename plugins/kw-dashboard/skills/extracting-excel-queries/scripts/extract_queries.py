@@ -104,15 +104,16 @@ def _analyze(path: pathlib.Path, win_path: str, rules: dict):
     return conns, secrets
 
 
-def scan_file(path: pathlib.Path) -> list:
+def scan_file(path: pathlib.Path, rules: dict | None = None) -> list:
     """설명기가 호출하는 함수. 결과 파일을 쓰지 않고 가림 · 합치기 · 분류를 마친 연결 목록을 돌려준다.
 
     결과 파일 단계의 누출 검사를 메모리에서 한다. 모은 비밀값이 연결 칸에 남으면 그 원본은 「처리 오류」 한 행이다.
+    rules 는 출처 대응표다. 호출한 쪽이 이미 읽었으면 넘겨서 공용 폴더를 다시 읽지 않게 한다.
     """
     from _index import windows_path
     from _model import Connection
     from _secrets import _contains
-    conns, secrets = _analyze(path, windows_path(str(path)), load_rules()[0])
+    conns, secrets = _analyze(path, windows_path(str(path)), rules if rules is not None else load_rules()[0])
     if any(_contains(getattr(c, k) or "", s) for c in conns for k in TEXT_FIELDS for s in secrets):
         return [Connection(kind="처리 오류", location="", notes=["비밀번호 누출 검사 실패"])]
     return conns

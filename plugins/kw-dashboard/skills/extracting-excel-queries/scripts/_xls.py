@@ -3,7 +3,7 @@ import pathlib
 import struct
 
 from _model import Connection
-from _vba import Module, has_project_password, modules
+from _vba import Module, VbaReadError, has_project_password, modules
 from _vba_scan import scan_modules
 
 # MS-XLS 레코드 번호. 연결 레코드는 원본 하나에 종류마다 행 하나를 만든다.
@@ -108,8 +108,11 @@ def scan_ole(path: pathlib.Path) -> tuple[list[Connection], list[Module]]:
         out = scan_biff(_workbook_stream(ole))
         mods: list[Module] = []
         if ole.exists("/".join(VBA_ROOT)):
-            mods = modules(ole, VBA_ROOT)
-            out += scan_modules(mods)
+            try:
+                mods = modules(ole, VBA_ROOT)
+                out += scan_modules(mods)
+            except VbaReadError as e:  # 매크로 연결이 빠졌다는 사실을 결과에 남긴다
+                out.append(Connection(kind="VBA 읽기 실패", location="VBA 프로젝트", notes=[str(e)]))
             if has_project_password(ole, VBA_ROOT):
                 for c in out:
                     c.notes.append("VBA 프로젝트 암호")

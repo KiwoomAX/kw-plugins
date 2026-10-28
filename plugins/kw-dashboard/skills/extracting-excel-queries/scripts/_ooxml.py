@@ -9,7 +9,7 @@ import zipfile
 
 from _model import Connection
 from _mquery import decode_mashup, scan_m
-from _vba import Module, has_project_password, modules
+from _vba import Module, VbaReadError, has_project_password, modules
 from _vba_scan import scan_modules
 from _vba_sql import _target
 
@@ -157,8 +157,11 @@ def scan_zip(path: pathlib.Path) -> tuple[list[Connection], list[Module]]:
         if "xl/vbaProject.bin" in names:
             import olefile
             ole = olefile.OleFileIO(io.BytesIO(z.read("xl/vbaProject.bin")))
-            mods = modules(ole, ["VBA"])
-            vba = scan_modules(mods)
+            try:
+                mods = modules(ole, ["VBA"])
+                vba = scan_modules(mods)
+            except VbaReadError as e:  # 매크로 연결이 빠졌다는 사실을 결과에 남긴다
+                vba = [Connection(kind="VBA 읽기 실패", location="VBA 프로젝트", notes=[str(e)])]
             if has_project_password(ole, ["VBA"]):
                 for c in out + vba:
                     c.notes.append("VBA 프로젝트 암호")
