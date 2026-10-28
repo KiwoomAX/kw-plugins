@@ -36,12 +36,6 @@ def check(central: Path, apply_structure: bool = False) -> dict:
     missing = [d for d in (common.FE_FEATURES, common.BE_FEATURES) if not any(p.startswith(d) for p in tree)]
     checks.append({"name": "feature-dirs", "ok": not missing, "detail": ", ".join(missing)})
 
-    shell_paths = set(common.tree_files(central, "origin/main", common.SHELL_DIR))
-    shell_paths |= set(common.tree_files(central, common.TEMPLATE_REF, common.SHELL_DIR))
-    differ = sorted(p for p in shell_paths
-                    if common.blob(central, "origin/main", p) != common.blob(central, common.TEMPLATE_REF, p))
-    checks.append({"name": "shell", "ok": not differ, "detail": ", ".join(differ)})
-
     verdicts = common.structure_verdicts(central)
     modified = [v["path"] for v in verdicts if v["verdict"] == "modified"]
     checks.append({"name": "structure", "ok": not modified, "detail": ", ".join(modified)})
@@ -123,7 +117,7 @@ def check_all_ok(tmp: Path) -> None:
     result = _run(_fixture(tmp))
     assert result["status"] == "ok", result
     assert all(c["ok"] for c in result["checks"]), result
-    assert set(_by_name(result)) == {"push", "jenkinsfile", "feature-dirs", "shell", "structure"}
+    assert set(_by_name(result)) == {"push", "jenkinsfile", "feature-dirs", "structure"}
 
 
 def check_no_jenkinsfile(tmp: Path) -> None:
@@ -139,16 +133,15 @@ def check_one_features_dir(tmp: Path) -> None:
 
 
 def check_shell_changed(tmp: Path) -> None:
+    # 이전 절차는 셸을 읽거나 고치지 않으므로, 상태바·사이드바를 고친 대시보드도 멈추지 않는다
     result = _run(_fixture(tmp, {SHELL_CSS: ".shell { color: red }\n"}))
-    shell = _by_name(result)["shell"]
-    assert not shell["ok"] and SHELL_CSS in shell["detail"], result
+    assert result["status"] == "ok" and "shell" not in _by_name(result), result
 
 
 def check_shell_extra_file(tmp: Path) -> None:
     extra = "src/frontend/src/shell/Extra.tsx"
     result = _run(_fixture(tmp, {extra: "export {}\n"}))
-    shell = _by_name(result)["shell"]
-    assert not shell["ok"] and extra in shell["detail"], result
+    assert result["status"] == "ok" and "shell" not in _by_name(result), result
 
 
 def check_no_push(tmp: Path) -> None:

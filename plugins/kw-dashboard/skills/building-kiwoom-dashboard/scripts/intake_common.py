@@ -22,7 +22,6 @@ STRUCTURE_FILES = [
     "src/frontend/src/feature-menu.ts",
     "src/frontend/src/routes.tsx",
 ]
-SHELL_DIR = "src/frontend/src/shell/"
 FE_FEATURES = "src/frontend/src/features/"
 BE_FEATURES = "src/backend/features/"
 TEMPLATE_URL = "https://github.com/KiwoomAX/dashboard-template.git"
