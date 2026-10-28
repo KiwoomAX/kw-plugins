@@ -1,6 +1,7 @@
 ---
 name: extracting-excel-queries
 description: Use when someone wants the queries and external data connections an Excel workbook uses (SQL inside VBA macros, ODBC query tables, Power Query, external workbook links) listed per file as index.xlsx and .sql files, or wants to know where an Excel workbook gets its data before moving the work to code or a dashboard. Reads VBA source even when the macro project is password-locked, and masks DB accounts and passwords in the results. Triggers on 엑셀 쿼리 뽑아 줘 · 엑셀에 연결된 쿼리 정리 · 매크로 안 SQL 보여 줘 · 엑셀 외부 연결 확인.
+disable-model-invocation: true
 ---
 
 # extracting-excel-queries

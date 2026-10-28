@@ -131,6 +131,8 @@ Assert 'explainer frontmatter name matches the folder' (([regex]::Match($exText,
 $exDesc = ([regex]::Match($exText, '(?m)^description:\s*(.+)$')).Groups[1].Value
 Assert 'explainer description says when to open the skill' ($exDesc -match '^Use when ')
 Assert 'explainer description is a safe plain scalar' (-not ($exDesc -match ': | #'))
+# Claude does not open the explainer on its own; a person runs it as a slash command.
+Assert 'explainer opens only as a slash command' ($exText -match '(?m)^disable-model-invocation:\s*true\s*$')
 foreach ($f in @('scripts/explain_cell.py', 'scripts/formula_segments.py', 'scripts/query_sources.py',
                  'scripts/trace_cells.py', 'scripts/capture_views.py', 'scripts/tables.py', 'scripts/plain_text.py', 'scripts/sources.py',
                  'scripts/checks.py', 'scripts/requirements.txt', 'assets/explain_view.html', 'assets/three_stage_view.html')) {
@@ -149,6 +151,7 @@ Assert 'extractor frontmatter name matches the folder' (([regex]::Match($qxText,
 $qxDesc = ([regex]::Match($qxText, '(?m)^description:\s*(.+)$')).Groups[1].Value
 Assert 'extractor description says when to open the skill' ($qxDesc -match '^Use when ')
 Assert 'extractor description is a safe plain scalar' (-not ($qxDesc -match ': | #'))
+Assert 'extractor opens only as a slash command' ($qxText -match '(?m)^disable-model-invocation:\s*true\s*$')
 foreach ($f in @('scripts/extract_queries.py', 'scripts/source_rules.py', 'scripts/_classify.py', 'scripts/_index.py',
                  'scripts/_model.py', 'scripts/_mquery.py', 'scripts/_ooxml.py', 'scripts/_secrets.py', 'scripts/_vba.py',
                  'scripts/_vba_scan.py', 'scripts/_vba_sql.py', 'scripts/_xls.py', 'scripts/requirements.txt')) {

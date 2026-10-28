@@ -1,6 +1,7 @@
 ---
 name: explaining-excel-cell
 description: Use when someone wants to see how one value in an Excel workbook is calculated (which source cells, formulas, VLOOKUPs, sheets, and WINUS query connections it comes from), or wants the whole workbook explained from source data through calculated tables to the result tables they monitor, or when reviewing an Excel analysis before building a dashboard from it. Produces HTML pages that replay the calculation in reading order. Triggers on 엑셀 값 계산 과정 · 이 셀 어떻게 계산돼 · 엑셀 전체 분석 · 결과표 흐름 · 엑셀 분석 검토 · 검토 화면 · 엑셀 설명기.
+disable-model-invocation: true
 ---
 
 # explaining-excel-cell
