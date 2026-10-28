@@ -127,8 +127,9 @@ SHARED_UNPUSHED_NOTE = (
     "saving-work 스킬의 「push 질문」 절에 따라 묻고, 동의하면 「공유 대시보드 레포」의 「올리기 흐름」을 하라."
 )
 INTAKE_BRANCH_NOTE = (
-    "[kw-github] 지금 branch 는 kw-dashboard 기능 이전 중인 branch 다. 개발자에게 올릴지 묻지 말고, commit 하지 않은 "
-    "변경도 기능별로 commit 하지 마라. kw-dashboard 기능 이전 절차의 「다시 실행 판정」부터 이어 가라."
+    "[kw-github] 지금 branch 는 kw-dashboard 기능 이전 중인 branch 다. saving-work 의 「push 질문」을 하지 말고, "
+    "commit 하지 않은 변경도 기능별로 commit 하지 마라. kw-dashboard 기능 이전 절차의 「다시 실행 판정」부터 이어 가고, "
+    "업로드 승인은 그 절차가 공유 코드 반영 직전에 하는 질문으로 받아라."
 )
 UNSUPPORTED_NOTE = (
     "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "

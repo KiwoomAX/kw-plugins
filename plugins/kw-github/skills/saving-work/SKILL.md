@@ -250,7 +250,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" open-pr --repo "<작업 폴�
 
 ### 기능 이전 업로드
 
-kw-dashboard 의 기능 이전 절차는 `switch-feature --intake` 로 이전 branch 를 만들고, `commit`·`check-boundary`·`upload`·`review-upload` 에 모두 `--intake` 를 넘긴다. 이전 branch 에서는 `--intake` 없는 `commit`·`upload` 가 `failed` 로 멈춘다. 이때는 개발자에게 올릴지 묻지 않고 기능 이전 절차로 이어 간다. `upload --continue` 에는 넘기지 않는다. 진행 기록대로 기능 이전 규칙을 쓴다.
+kw-dashboard 의 기능 이전 절차는 `switch-feature --intake` 로 이전 branch 를 만들고, `commit`·`check-boundary`·`upload`·`review-upload` 에 모두 `--intake` 를 넘긴다. 이전 branch 에서는 `--intake` 없는 `commit`·`upload` 가 `failed` 로 멈춘다. 이때는 「push 질문」을 하지 않고 기능 이전 절차로 이어 간다. 업로드 승인은 기능 이전 절차가 공유 코드에 반영하기 직전에 하는 질문으로 받는다. 승인 없이 `upload --intake` 를 실행하지 않는다. `upload --continue` 에는 넘기지 않는다. 진행 기록대로 기능 이전 규칙을 쓴다.
 
 `upload --intake` 가 `failed` 이면 `reason` 을 기능 이전 절차에 넘긴다. 처분은 기능 이전 절차가 정한다. 각 값의 뜻은 다음과 같다.
 
