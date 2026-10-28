@@ -112,7 +112,8 @@ def run(central: Path, feature_repo: Path, repo_name: str, feature: str) -> dict
     for name, fields in (("issues", "number,title,body"), ("prs", "number,title")):
         kind = "issue" if name == "issues" else "pr"
         try:
-            items = common.gh_json(kind, "list", "-R", f"KiwoomAX/{repo_name}", "--state", "open", "--json", fields) or []
+            items = common.gh_json(kind, "list", "-R", f"KiwoomAX/{repo_name}", "--state", "open", "--limit", "1000",
+                                   "--json", fields) or []  # gh 기본값은 30건이라 31번째부터 점검에서 빠진다
             checks.append({"name": name, "action": _action(items, "confirm"), "items": items})
         except Exception as exc:
             lookup_failed(name, exc)
@@ -271,7 +272,26 @@ def check_deleted_tracked_file(tmp: Path) -> None:
     assert "backend/sample.xlsx" in _check(result, "data-files")["items"], result
 
 
+def check_gh_limit(tmp: Path) -> None:
+    central, feature = _fixture(tmp, BASE_FILES)
+    calls = []
+    real = common.gh_json
+
+    def fake(*args):
+        calls.append(args)
+        return []
+
+    common.gh_json = fake
+    try:
+        run(central, feature, "fund-aum", "fund_aum")
+    finally:
+        common.gh_json = real
+    lists = [c for c in calls if "list" in c]
+    assert lists and all("--limit" in c for c in lists), calls
+
+
 CHECKS = [
+    check_gh_limit,
     check_deleted_tracked_file,
     check_clean_state, check_new_commit, check_unpushed, check_pc_only, check_data_files,
     check_big_json, check_not_moved_no, check_not_moved_yes, check_feature_name_differs, check_gh_failure,

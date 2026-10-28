@@ -110,7 +110,14 @@ def run(central: Path, feature_repo: Path, feature: str, branch: str, history: b
     if existing:
         return {**result, "status": "stop", "detail": f"main 에 같은 이름의 기능 폴더가 있다: {existing[0]}"}
 
-    moves = groups["move"] + [e for e in (extra or []) if e in groups["ask"]]
+    chosen, unknown = [], []
+    for item in extra or []:  # 끝의 / 가 빠진 폴더 이름도 받는다. 목록에 없는 값은 조용히 버리지 않는다
+        name = item if item in groups["ask"] else item.rstrip("/") + "/"
+        (chosen if name in groups["ask"] else unknown).append(name if name in groups["ask"] else item)
+    if unknown:
+        return {**result, "status": "stop",
+                "detail": f"--extra 값이 옮길지 물을 항목(ask)에 없다: {', '.join(unknown)}. ask: {', '.join(groups['ask'])}"}
+    moves = groups["move"] + chosen
     excluded = set(exclude or [])
     written: list[str] = []
     try:
@@ -285,7 +292,23 @@ def check_history_no_failure_rollback(tmp: Path) -> None:
     assert not (central / FE).exists() and not (central / BE).exists()
 
 
+def check_extra_without_slash(tmp: Path) -> None:
+    central, feature = _fixture(tmp, {**FEATURE_FILES, "docs/guide.md": "안내\n"})
+    result = run(central, feature, "fund-aum", "main", True, extra=["docs"])
+    assert result["status"] == "ok", result
+    assert _read(central, BE + "docs/guide.md") == "안내\n"
+
+
+def check_extra_unknown(tmp: Path) -> None:
+    central, feature = _fixture(tmp)
+    result = run(central, feature, "fund-aum", "main", True, extra=["없는파일.txt"])
+    assert result["status"] == "stop" and "없는파일.txt" in result["detail"], result
+    assert not common.merge_in_progress(central)
+    assert common.git_z(central, "status", "--porcelain", "-z") == []
+
+
 CHECKS = [
+    check_extra_without_slash, check_extra_unknown,
     check_plan, check_history_yes, check_history_no, check_frontend_only_with_tests,
     check_existing_feature, check_dirty_central, check_history_no_failure_rollback,
 ]

@@ -19,11 +19,15 @@ import intake_common as common
 
 
 def _feature_branch(central: Path, feature: str) -> str | None:
+    """이 기능의 이전 branch. kw-github switch-feature --intake 가 남긴 kwIntake 표시가 있는 branch 만 본다."""
     out = common.git(central, "config", "--get-regexp", r"^branch\..*\.kwfeature$", check=False)
     for line in out.splitlines():
         key, _, value = line.partition(" ")
-        if value.strip() == feature:
-            return key[len("branch."):-len(".kwfeature")]
+        if value.strip() != feature:
+            continue
+        branch = key[len("branch."):-len(".kwfeature")]
+        if common.git(central, "config", "--get", f"branch.{branch}.kwIntake", check=False).strip() == "true":
+            return branch
     return None
 
 
@@ -68,7 +72,10 @@ def run(central: Path, repo_name: str, feature: str, clean: bool = False) -> dic
 
     merging = common.merge_in_progress(central)
     result.update(row=3, merge_in_progress=merging, uncommitted=_uncommitted(central, feature, merging))
-    if clean and not result["uncommitted"]:
+    on_branch = common.git(central, "branch", "--show-current").strip() == branch
+    if clean and not on_branch:  # 다른 branch 의 작업 트리를 되돌리지 않는다
+        result["detail"] = f"지금 열린 branch 가 이전 branch({branch})가 아니라 정리하지 않았다"
+    if clean and on_branch and not result["uncommitted"]:
         if merging:
             common.git(central, "merge", "--abort")
         common.git(central, "reset", "-q", "--hard", "HEAD")
@@ -101,6 +108,7 @@ def _fixture(tmp: Path, message: str | None = None) -> Path:
 def _intake_branch(central: Path) -> None:
     common.git(central, "switch", "-q", "-c", BRANCH)
     common.git(central, "config", f"branch.{BRANCH}.kwFeature", "fund-aum")
+    common.git(central, "config", f"branch.{BRANCH}.kwIntake", "true")
     common.commit_files(central, {"src/backend/feature_loader.py": "loader\n"}, "구조 파일 맞추기")
 
 
@@ -203,7 +211,28 @@ def check_lookup_failure(tmp: Path) -> None:
     assert result["status"] == "failed" and result["row"] is None, result
 
 
+def check_non_intake_branch_ignored(tmp: Path) -> None:
+    central = _fixture(tmp)
+    common.git(central, "switch", "-q", "-c", "feat/fund-aum-plain")
+    common.git(central, "config", "branch.feat/fund-aum-plain.kwFeature", "fund-aum")
+    common.commit_files(central, {"src/backend/features/fund-aum/router.py": "router = None\n"}, "일반 작업")
+    result = _with_gh([], lambda: run(central, "fund-aum", "fund-aum", clean=True))
+    assert result["row"] == 4 and not result["cleaned"], result
+    assert common.git(central, "branch", "--list", "feat/fund-aum-plain").strip()
+
+
+def check_clean_other_checkout(tmp: Path) -> None:
+    central = _fixture(tmp)
+    _intake_branch(central)
+    common.git(central, "switch", "-q", "main")
+    result = _with_gh([], lambda: run(central, "fund-aum", "fund-aum", clean=True))
+    assert result["row"] == 3 and not result["cleaned"], result
+    assert common.git(central, "branch", "--list", BRANCH).strip()
+    assert common.git(central, "branch", "--show-current").strip() == "main"
+
+
 CHECKS = [
+    check_non_intake_branch_ignored, check_clean_other_checkout,
     check_row1, check_row2_remote, check_row2_closed_pr, check_row3_merge,
     check_clean, check_clean_refused, check_row4, check_lookup_failure,
 ]
