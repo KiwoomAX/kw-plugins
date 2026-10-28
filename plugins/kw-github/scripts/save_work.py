@@ -15,6 +15,7 @@ from pathlib import Path
 
 import github_merge
 import gitcmd
+import main_branch
 import rules
 import scan_history
 import shared_repo
@@ -563,6 +564,7 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
     top = locate(repo)
     if top is None or not is_feature_repo(top):
         return commit_result("not-feature-repo", MSG_NOT_FEATURE)
+    main_branch.local_rename(top, deadline)
     recover(top, deadline)
     if (git_dir(top, deadline) / "MERGE_HEAD").exists():
         return commit_result("failed", MSG_FAILED, MERGE_DETAIL, branch=current_branch(top, deadline))
@@ -1139,6 +1141,29 @@ def unpushed_commits(top, deadline=None):
     return [line for line in out.splitlines() if line.strip()]
 
 
+MSG_MAIN_FAILED = "GitHub 코드 저장소의 기본 branch 를 main 으로 바꾸지 못했습니다. AX팀에 문의해 주세요."
+MSG_MAIN_CONFLICT = "예전 기본 branch 의 작업을 main 에 자동으로 반영하지 못했습니다."
+MAIN_BRANCH_MESSAGES = {"failed": MSG_MAIN_FAILED, "conflict": MSG_MAIN_CONFLICT}
+
+
+def normalize_main(repo, merge_old=None, discard_old=None):
+    """기본 branch 를 main 으로 맞춘다. 옛 branch 를 반영하거나 버리는 일은 개발자가 정한 뒤에만 한다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(Path(repo))
+        if top is None:
+            return {"status": "failed", "old_branch": None, "commits": [], "reason": "", "detail": "git 폴더가 아니다."}
+        full = _full_name(top) if origin_url(top) else None
+        if discard_old:
+            return main_branch.discard_old(top, discard_old, deadline)
+        if merge_old:
+            return main_branch.merge_old(top, full, merge_old, deadline)
+        return main_branch.normalize(top, full, deadline)
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return {"status": "failed", "old_branch": merge_old or discard_old, "commits": [], "reason": "",
+                "detail": COMMAND_DETAIL.format(exc=exc)}
+
+
 def _ready_result(status, message, detail="", repo=None, feature_issue=None, team_shared=None):
     return {"status": status, "repo": repo, "feature_issue": feature_issue, "team_shared": team_shared,
             "excluded": [], "message": message, "detail": detail}
@@ -1159,6 +1184,10 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
         other = other_owner_url(top, deadline)
         if other and not allow_other_owner:
             return _ready_result("other-owner", MSG_OTHER_OWNER, OTHER_OWNER_DETAIL.format(url=other))
+        fixed = main_branch.normalize(top, f"{owner}/{name}", deadline)
+        if fixed["status"] not in ("ok", "normalized"):
+            return {**_ready_result("main-branch", MAIN_BRANCH_MESSAGES.get(fixed["status"], ""), fixed["detail"],
+                                    repo=f"{owner}/{name}"), "main_branch": fixed}
     elif not marker.get("name"):
         raise UploadStop("표식 파일에 name 이 없다. 영문 레포 이름을 정해 name=<이름> 줄을 넣고 다시 실행하라.")
     else:
@@ -1993,11 +2022,18 @@ def main(argv=None):
     pr_cmd.add_argument("--feature", required=True)
     pr_cmd.add_argument("--title", required=True)
     pr_cmd.add_argument("--body-file", required=True)
+    main_cmd = sub.add_parser("normalize-main", help="기본 branch 를 main 으로 맞춘다")
+    main_cmd.add_argument("--repo", required=True)
+    choice = main_cmd.add_mutually_exclusive_group()
+    choice.add_argument("--merge-old", metavar="BRANCH", help="개발자가 반영하기로 한 옛 기본 branch")
+    choice.add_argument("--discard-old", metavar="BRANCH", help="개발자가 버리기로 한 옛 기본 branch")
     copy_cmd = sub.add_parser("add-copy", help="두 번째 기능용 사본 작업 폴더를 만든다")
     copy_cmd.add_argument("--repo", required=True)
     copy_cmd.add_argument("--feature", required=True)
     copy_cmd.add_argument("--summary", required=True)
     args = parser.parse_args(argv)
+    if args.command == "normalize-main":
+        return _print(normalize_main(args.repo, merge_old=args.merge_old, discard_old=args.discard_old))
     if args.command == "open-pr":
         return _print(open_pr(args.repo, args.feature, args.title, args.body_file))
     if args.command == "add-copy":

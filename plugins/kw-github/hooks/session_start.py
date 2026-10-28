@@ -13,6 +13,7 @@ SCRIPTS = PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import gitcmd  # noqa: E402
+import main_branch  # noqa: E402
 import repo_setup  # noqa: E402
 import save_work  # noqa: E402
 import session_mark  # noqa: E402
@@ -135,6 +136,11 @@ UNSUPPORTED_NOTE = (
     "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "
     "개발자가 올리기를 원하면 AX팀에 문의하라고 안내하라."
 )
+MAIN_DECISION_NOTE = (
+    "[kw-github] 예전 기본 branch {old} 에 main 에 없는 commit 이 있다: {commits}. saving-work 스킬의 「기본 branch "
+    "맞추기」 절에 따라 개발자에게 반영할지 버릴지 물어라."
+)
+MAIN_FAILED_NOTE = "[kw-github] GitHub 의 기본 branch 를 main 으로 바꾸지 못했다. {detail}"
 LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
              "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
 
@@ -157,11 +163,25 @@ def _move_main(top, session_id):
         gitcmd.git(top, "update-ref", "refs/heads/main", new, old)
 
 
+def _main_notes(top):
+    """기본 branch 를 main 으로 맞춘다(spec 「기본 branch 를 main 으로 맞추기」). 지원 구조 판정보다 먼저 한다."""
+    try:
+        fixed = main_branch.normalize(top, save_work._full_name(top), gitcmd.Deadline(SYNC_FETCH_SECONDS))
+    except save_work.GH_ERRORS:
+        return []  # 다음 세션에 다시 맞춘다
+    if fixed["status"] == "needs-decision":
+        return [MAIN_DECISION_NOTE.format(old=fixed["old_branch"], commits=", ".join(fixed["commits"]))]
+    if fixed["status"] == "failed":
+        return [MAIN_FAILED_NOTE.format(detail=fixed["detail"])]
+    return []
+
+
 def sync_shared(top, session_id=None):
     """세션 시작 동기화다. Claude 에게 넣을 알림 문장 목록을 돌려준다."""
     notes = []
     try:
         gitcmd.git(top, "fetch", "-q", "origin", timeout=SYNC_FETCH_SECONDS)
+        notes += _main_notes(top)
         _move_main(top, session_id)
     except gitcmd.CommandTimeout:
         _, common = save_work._git_dirs(top)

@@ -77,6 +77,8 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
 
    `team_shared` 가 거짓이면 개발자에게 "팀 공유는 설정하지 못했습니다. AX팀에 요청해 주세요." 라고 알린다. 같은 이름의 레포가 이미 있어 `failed` 면 개발자에게 "같은 이름의 GitHub 코드 저장소가 이미 있어 이 이름은 쓸 수 없습니다." 라고 알리고, 다른 이름을 정해 표식 파일의 `name` 을 고친 뒤 다시 실행한다. 결과의 `feature_issue` 가 기능 이슈 번호다.
 
+   `status` 가 `main-branch` 면 아래 「기본 branch 맞추기」 절에 따라 처리한 뒤 `prepare-upload` 를 다시 실행한다.
+
    `status` 가 `other-owner` 면 올리려는 곳이 회사 GitHub(KiwoomAX)가 아니다. 개발자에게 `detail` 의 주소를 보여 주고 "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다. `<주소>` 에 올려도 될까요?" 라고 묻는다. 개발자가 동의하면 `prepare-upload` 와 4단계의 `upload` 에 모두 `--allow-other-owner` 를 붙여 실행한다. 이 동의는 그 push 한 번에만 유효하다. 동의하지 않으면 올리지 않고 멈춘다. `upload` 가 `other-owner` 를 내도 같은 방법으로 묻는다.
 
 3. 작업 이슈를 정한다. 「작업 이슈」 절에 따라 한다.
@@ -115,6 +117,20 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
 - 개발자가 일부만 하고 나머지는 하지 않겠다고 하면 위와 같이 닫고, 하지 않기로 한 기능을 기능 이슈에 댓글로 남긴다.
 - 개발자가 중단하겠다고 하면 남은 작업을 올린 뒤 `gh issue close <기능 이슈 번호> -R <레포> --reason "not planned" --comment "<중단 사유>"` 로 닫는다. `--close` 는 쓰지 않는다. 완료로 닫히기 때문이다.
 - 닫은 뒤 같은 기능에 작업이 이어지면 다시 열지 않는다.
+
+## 기본 branch 맞추기
+
+회사 레포의 기본 branch 는 `main` 이다(사용자 결정, 2026-10-28). 저장 스크립트가 개발자에게 묻지 않고 맞춘다. 기능 레포에서는 `commit` 이 이 PC 의 `master` 를 `main` 으로 바꾸고, `prepare-upload` 가 GitHub 의 기본 branch 까지 바꾼다. 공유 대시보드 레포에서는 세션 시작 훅이 맞춘다.
+
+Claude 는 아래 상황에서만 할 일이 있다. 이 절의 결과는 `prepare-upload` 결과의 `main_branch` 칸이나 아래 명령의 결과다.
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" normalize-main --repo "<작업 폴더>"
+```
+
+- `needs-decision`: 예전 기본 branch(`old_branch`)에 `main` 에 없는 commit 이 있다. AskUserQuestion 으로 묻는다. 질문 문장은 "예전 기본 branch `<old_branch>` 에 main 에 없는 작업이 있습니다: `<commits 를 쉼표로>`. 이 작업을 main 에 반영할까요?" 이고, 선택지는 "반영" 과 "버리기" 다. 반영이면 `--merge-old <old_branch>`, 버리기면 `--discard-old <old_branch>` 를 붙여 위 명령을 실행한다. 버린 작업은 되살릴 수 없다고 선택지 설명에 적는다.
+- `conflict`: 반영하다 충돌했다. 아무것도 지우지 않았다. 개발자에게 "예전 기본 branch 의 작업이 main 과 충돌해 자동으로 반영하지 못했습니다." 라고 알리고, 버릴지 그대로 두고 AX팀에 문의할지 묻는다. 버리기면 `--discard-old <old_branch>` 로 실행한다.
+- `failed` 이고 `reason` 이 `no-permission`: "GitHub 코드 저장소의 기본 branch 를 main 으로 바꾸지 못했습니다. AX팀에 문의해 주세요." 라고 알리고 올리지 않는다. 그 밖의 `failed` 는 「결과 처리」 절의 「그 밖의 오류」대로 한다.
 
 ## 작업 이슈
 
