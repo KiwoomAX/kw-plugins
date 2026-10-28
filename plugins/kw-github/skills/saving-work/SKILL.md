@@ -31,6 +31,8 @@ description: 사내 개발자용 기능 레포(최상위 폴더에 .kiwoom-featu
 
 결과 JSON 의 `message` 를 개발자에게 그대로 전한다. `detail` 은 전하지 않는다. `detail` 은 Claude 가 읽고 처리할 설명이다.
 
+`status` 가 `needs-author` 면 「commit 명의」 절에 따라 처리한다.
+
 `excluded` 에 든 파일은 `reason` 에 따라 처리한다.
 - `secret-content` 는 코드에 비밀번호나 키 같은 값이 적힌 파일이다. 이번 commit 에서만 빠졌다. 그 값을 `.env` 파일로 옮기고 코드에서는 환경 변수로 읽게 고치자고 개발자에게 제안한다. 개발자가 동의하면 고친 뒤 다시 commit 한다. `.env` 는 올라가지 않는다.
 - `secret-content-tracked` 는 이미 GitHub 에 올라간 코드에 비밀값이 든 파일이다. 위와 같이 `.env` 로 옮기자고 제안하고, 그 비밀값은 이미 밖에 나갔으므로 폐기하고 새로 발급받으라고 알린다.
@@ -46,6 +48,17 @@ description: 사내 개발자용 기능 레포(최상위 폴더에 .kiwoom-featu
 - **규칙 파일 오류다.** 고치지 않는다. `message` 만 전한다. AX팀이 고칠 일이다.
 - **git 이나 gh 를 찾지 못했거나 GitHub 로그인이 필요하다.** 개발자에게 사내 설치기 `kw_install` 을 다시 실행하거나, 터미널에서 `gh auth login --web --git-protocol https --skip-ssh-key --clipboard` 를 한 번 실행하라고 안내한다.
 - **그 밖의 오류다.** `detail` 에 포함된 명령 출력을 읽고 원인을 고친 뒤 다시 실행한다. 두 번 고쳐도 실패하면 멈추고 `message` 만 전한다.
+
+## commit 명의
+
+결과의 `status` 가 `needs-author` 면 git 설정에 commit 에 남길 이름과 메일이 없어 commit 하지 않은 것이다. `message` 를 그대로 전하고, 선택 창(AskUserQuestion)을 열지 않고 글로 이름과 메일을 묻는다. 개발자가 답한 값으로 아래 두 명령을 실행한 뒤 멈춘 명령을 다시 실행한다.
+
+```
+git config --global user.name "<이름>"
+git config --global user.email "<메일>"
+```
+
+대화 맥락이나 GitHub 계정에서 이름과 메일을 추정해 채우지 않는다. 개발자가 답한 값만 쓴다.
 
 ## push 질문
 

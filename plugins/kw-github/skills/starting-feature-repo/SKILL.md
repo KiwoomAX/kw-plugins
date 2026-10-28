@@ -17,6 +17,8 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
 
 ## 순서
 
+준비를 시작하기 전에 `${CLAUDE_PLUGIN_ROOT}/feature_code_rules.md` 와 `${CLAUDE_PLUGIN_ROOT}/git_terms.md` 를 Read 한다. 세션 시작 안내는 기능 레포가 아닌 폴더에 이 두 문서를 넣지 않으므로, 코드를 쓰는 동안 지킬 규칙과 개발자에게 하는 말의 용어 규칙을 여기서 읽는다.
+
 1. **저장 규칙과 폴더를 확인한다.** 먼저 저장 규칙을 읽을 수 있는지 본다.
 
    ```
@@ -85,7 +87,7 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
 
    `name=` 과 `title=` 줄은 언제나 적는다. `team=` 줄은 4단계에서 공유하기로 했을 때만 적는다. `history-reset=` 줄은 5단계에서 `reset_history.py` 를 실행했을 때만 적는다. 검사가 `hits` 였으면 `hit`, `timeout` 이었으면 `timeout` 이다.
 
-   `.gitignore` 는 만들지 않는다. 첫 commit 때 저장 스크립트가 없으면 만들고, 있으면 설계 문서 줄(`docs/superpowers/`)만 보충한다.
+   `.gitignore` 는 만들지 않는다. 첫 commit 때 저장 스크립트가 없으면 만들고, 있으면 기본 줄 중 빠진 줄을 보충한다.
 
 7. **첫 commit 을 한다.** `main` 에 commit 이 아직 없으면 이 commit 은 `main` 에 들어간다.
 

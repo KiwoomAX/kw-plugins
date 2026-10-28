@@ -13,17 +13,70 @@ import shared_repo
 
 RULES_PATH = Path(__file__).resolve().parent / "upload_rules.json"
 SCAN_SECONDS = 120
-LS_TREE_FORMAT = "--format=%(objectname) %(objectsize) %(path)"
+ZERO_OID = set("0")
+SUBMODULE_MODE = "160000"
 
 
-def _tree(top, ref, deadline):
-    for entry in gitcmd.git_z(top, "ls-tree", "-r", "-z", LS_TREE_FORMAT, ref, deadline=deadline):
-        yield entry.split(" ", 2)
+class _NeedContent(Exception):
+    """rules.judge 가 내용을 읽으려 할 때 올린다. 내용은 모아서 한 번에 읽는다."""
+
+
+def _need_content():
+    raise _NeedContent
+
+
+def judge_blobs(top, data, entries, deadline=None):
+    """(blob, path) 목록을 판정해 (blob, path, size, 판정) 을 돌려준다. git 프로세스는 둘까지만 띄운다.
+
+    크기는 cat-file --batch-check 로, 내용은 이름과 크기로 판정이 끝나지 않은 텍스트 파일만 cat-file --batch 로 읽는다.
+    """
+    sizes = gitcmd.blob_sizes(top, [blob for blob, _ in entries], deadline)
+    judged, waiting = [], []
+    for blob, path in entries:
+        if blob not in sizes:
+            continue
+        try:
+            judged.append((blob, path, sizes[blob], rules.judge(data, path, sizes[blob], _need_content)))
+        except _NeedContent:
+            waiting.append((blob, path))
+    contents = gitcmd.blob_contents(top, [blob for blob, _ in waiting], deadline)
+    for blob, path in waiting:
+        raw = contents.get(blob, b"")
+        judged.append((blob, path, sizes[blob], rules.judge(data, path, sizes[blob], lambda raw=raw: raw)))
+    return judged
 
 
 def _history_blobs(top, ref, deadline):
     for line in gitcmd.git(top, "rev-list", "--objects", ref, deadline=deadline).splitlines():
         yield line.split(" ", 1)[0]
+
+
+def _changed_blobs(top, commits, deadline):
+    """commit 마다 부모와 비교해 새로 들어온 (blob, path) 와 그 commit 을 git log 프로세스 하나로 모은다.
+
+    부모와 같은 파일은 부모 commit 에서 이미 나온다. 부모가 검사 대상 밖이면 그 내용은 skip_ref 이력에 있다.
+    """
+    args = ["log", "--raw", "-z", "-m", "--root", "--no-renames", "--no-abbrev", "--format=%x00%H"]
+    if commits is None:
+        out = gitcmd.git(top, *args, "--all", deadline=deadline)
+    else:
+        out = gitcmd.git(top, *args, "--no-walk", "--stdin", deadline=deadline,
+                         stdin="".join(f"{commit}\n" for commit in commits).encode("ascii"))
+    tokens, commit, found, index = out.split("\0"), "", {}, 0
+    while index < len(tokens):
+        token = tokens[index].lstrip("\n")
+        index += 1
+        if not token.startswith(":"):
+            if token:
+                commit = token
+            continue
+        # :<옛 mode> <새 mode> <옛 blob> <새 blob> <상태> 다음 토큰이 경로다.
+        meta, path = token[1:].split(), tokens[index] if index < len(tokens) else ""
+        index += 1
+        if set(meta[3]) == ZERO_OID or meta[1] == SUBMODULE_MODE:
+            continue  # 지운 파일과 하위 모듈이다
+        found.setdefault((meta[3], path), commit)
+    return found
 
 
 def scan(top, data, deadline=None, commits=None, skip_ref=None, doc_feature=None):
@@ -33,26 +86,18 @@ def scan(top, data, deadline=None, commits=None, skip_ref=None, doc_feature=None
 
     doc_feature 가 있으면 그 기능의 설명 문서(docs/<기능>.pdf·docx)는 크기 상한 안에서 보지 않는다.
     """
-    if commits is None:
-        commits = gitcmd.git(top, "rev-list", "--all", deadline=deadline).split()
+    if commits is not None and not commits:
+        return []
     known = set(_history_blobs(top, skip_ref, deadline)) if skip_ref else set()
-    seen = set()
+    found = _changed_blobs(top, commits, deadline)
+    entries = [(blob, path) for blob, path in found if blob not in known]
     doc_limit = data["data"]["file_max_mib"] * 1024 * 1024
     hits = []
-    for commit in commits:
-        for blob, size, path in _tree(top, commit, deadline):
-            # 하위 모듈은 크기가 - 로 온다. 같은 내용의 같은 경로는 한 번만 본다.
-            if size == "-" or blob in known or (blob, path) in seen:
-                continue
-            seen.add((blob, path))
-            if doc_feature and shared_repo.is_feature_doc(path, doc_feature) and int(size) <= doc_limit:
-                continue
-            verdict = rules.judge(
-                data, path, int(size),
-                lambda blob=blob: gitcmd.git_bytes(top, "cat-file", "blob", blob, deadline=deadline),
-            )
-            if verdict is not None:
-                hits.append({"path": path, "reason": verdict[0], "rule": verdict[1], "commit": commit[:8]})
+    for blob, path, size, verdict in judge_blobs(top, data, entries, deadline):
+        if doc_feature and shared_repo.is_feature_doc(path, doc_feature) and size <= doc_limit:
+            continue
+        if verdict is not None:
+            hits.append({"path": path, "reason": verdict[0], "rule": verdict[1], "commit": found[(blob, path)][:8]})
     return hits
 
 

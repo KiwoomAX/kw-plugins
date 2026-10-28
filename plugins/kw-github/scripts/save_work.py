@@ -4,6 +4,7 @@ commit 은 로컬에서만 작업 브랜치에 커밋한다. push 는 개발자�
 스킬과 훅은 이 파일만 부른다.
 """
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -70,6 +71,12 @@ MSG_OTHER_OWNER = "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다."
 MSG_RULES = "저장 규칙을 읽지 못해 저장을 멈췄습니다. AX팀에 알려 주세요."
 MSG_TIMEOUT = "저장이 오래 걸려 멈췄습니다. 다음에 다시 저장합니다."
 MSG_FAILED = "저장하지 못했습니다. 원인을 확인해 이어서 처리합니다."
+MSG_NEEDS_AUTHOR = "commit 에 남길 이름과 메일을 알려 주세요. 한 번만 설정하면 됩니다."
+AUTHOR_DETAIL = (
+    "git 설정에 commit 명의(user.name·user.email)가 없어 commit 하지 않았다. saving-work 스킬의 「commit 명의」 절에 "
+    '따라 개발자에게 이름과 메일을 글로 물은 뒤 git config --global user.name "<이름>" 와 '
+    'git config --global user.email "<메일>" 를 실행하고 같은 명령을 다시 실행하라. 대화 맥락의 이름·메일로 채우지 마라.'
+)
 
 MERGE_DETAIL = (
     "앞선 upload 의 merge 가 충돌로 멈춘 채 남아 있다. 충돌한 파일을 saving-work 의 충돌 규칙대로 풀고 "
@@ -171,20 +178,20 @@ def recover(top, deadline=None):
         gitcmd.git(top, "rebase", "--abort", deadline=deadline, check=False)
 
 
-def _local_config(top, key, deadline):
-    # --local 을 빼면 전역 설정까지 읽어, 이 레포에 작성자가 없는데도 있다고 본다.
-    code, out, _ = gitcmd.git_try(top, "config", "--local", "--get", key, deadline=deadline)
+class AuthorMissing(Exception):
+    """git 설정에 commit 명의(이름·메일)가 없을 때 올린다. commit 하지 않고 needs-author 로 멈춘다."""
+
+
+def _config(top, key, deadline):
+    # 모든 범위(레포·전역·시스템)의 설정을 읽는다.
+    code, out, _ = gitcmd.git_try(top, "config", "--get", key, deadline=deadline)
     return out.strip() if code == 0 else ""
 
 
 def ensure_author(top, deadline=None):
-    """커밋 작성자 정보가 이 레포에 없으면 GitHub 계정에서 받아 이 레포에만 적는다."""
-    if _local_config(top, "user.name", deadline) and _local_config(top, "user.email", deadline):
-        return
-    user = json.loads(gitcmd.gh("api", "user", deadline=deadline))
-    gitcmd.git(top, "config", "--local", "user.name", user["login"], deadline=deadline)
-    gitcmd.git(top, "config", "--local", "user.email",
-               f"{user['id']}+{user['login']}@users.noreply.github.com", deadline=deadline)
+    """commit 명의가 git 설정에 없으면 AuthorMissing 을 올린다. 사용자 결정(2026-10-28): gh 계정으로 채우지 않는다."""
+    if not (_config(top, "user.name", deadline) and _config(top, "user.email", deadline)):
+        raise AuthorMissing("git 설정에 user.name 이나 user.email 이 없다")
 
 
 def has_head(top, deadline=None):
@@ -252,9 +259,29 @@ def _excluded(path, reason, rule):
     return {"path": path, "reason": reason, "rule": rule}
 
 
-def _judge(top, data, path):
+def _judge(top, data, path, content=True):
+    """content 가 거짓이면 이름과 크기로만 판정하고 내용은 읽지 않는다."""
     full = top / path
+    if not content:
+        return rules.classify(data, path, _size(full), None)
     return rules.judge(data, path, _size(full), lambda: _read(full))
+
+
+CONTENT_HASH_KEY = "kwRules.contentHash"
+
+
+def _rules_hash(data):
+    return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def content_check_due(top, data, deadline=None):
+    """바뀌지 않은 추적 파일의 내용 검사가 필요한가. 사용자 결정(2026-10-28): 규칙이 바뀌었거나 첫 commit 일 때만 한다."""
+    return _config(top, CONTENT_HASH_KEY, deadline) != _rules_hash(data)
+
+
+def record_content_check(top, data, deadline=None):
+    """추적 파일 전체 내용 검사를 끝까지 마쳤을 때만 호출한다."""
+    gitcmd.git(top, "config", "--local", CONTENT_HASH_KEY, _rules_hash(data), deadline=deadline)
 
 
 def _pushed_has_secret(top, data, path, deadline):
@@ -265,17 +292,20 @@ def _pushed_has_secret(top, data, path, deadline):
 
 
 def ensure_gitignore(top):
-    """.gitignore 가 없으면 기본값으로 만들고, 있으면 설계 문서를 가리는 줄이 빠졌을 때만 더한다."""
+    """.gitignore 가 없으면 기본값으로 만들고, 있으면 기본값 중 빠진 줄을 모두 보충한다."""
     ignore = top / ".gitignore"
     if not ignore.exists():
         ignore.write_text("\n".join(DEFAULT_GITIGNORE) + "\n", encoding="utf-8", newline="\n")
         return
     text = ignore.read_text(encoding="utf-8", errors="replace")
-    if {DESIGN_DOCS, "/" + DESIGN_DOCS} & {line.strip() for line in text.splitlines()}:
+    # /.venv/ 와 .venv 처럼 앞뒤 / 만 다른 줄은 같은 뜻으로 본다.
+    existing = {line.strip().strip("/") for line in text.splitlines()}
+    missing = [line for line in DEFAULT_GITIGNORE if line.strip("/") not in existing]
+    if not missing:
         return
     prefix = "" if not text or text.endswith("\n") else "\n"
     with open(ignore, "a", encoding="utf-8", newline="\n") as handle:
-        handle.write(prefix + DESIGN_DOCS + "\n")
+        handle.write(prefix + "\n".join(missing) + "\n")
 
 
 def stage(top, data, deadline=None, scope=None):
@@ -295,6 +325,7 @@ def stage(top, data, deadline=None, scope=None):
         _pathspec(top, ("rm", "-q", "--cached", "--ignore-unmatch"), design_docs, deadline)
         tracked -= set(design_docs)
     changed = [path for path in changed_paths(top, deadline) if not path.startswith(DESIGN_DOCS)]
+    full_check = content_check_due(top, data, deadline)
     staged, excluded, ignore = [], [], []
     for path in changed:
         verdict = _judge(top, data, path)
@@ -314,8 +345,9 @@ def stage(top, data, deadline=None, scope=None):
             ignore.append(path)
     # git status 는 이번에 바뀌지 않은 파일을 보여 주지 않는다. 이미 올라간 파일은 따로 본다.
     # 예전에 잘못 올라간 파일과 .gitignore 없이 올라가기 시작한 파일을 저장할 때마다 바로잡는다.
+    # 이름과 크기는 매번 보고, 내용은 규칙이 바뀌었거나 첫 commit 일 때만 본다.
     for path in sorted(tracked - set(changed)):
-        verdict = _judge(top, data, path)
+        verdict = _judge(top, data, path, content=full_check)
         if verdict is None:
             continue
         reason, rule = verdict
@@ -334,6 +366,8 @@ def stage(top, data, deadline=None, scope=None):
         staged.append(".gitignore")
     if staged:
         _pathspec(top, ("add",), staged, deadline)
+    if full_check:
+        record_content_check(top, data, deadline)
     return excluded
 
 
@@ -539,6 +573,8 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
         return _commit_work(Path(repo), message, branch, catch_up, deadline, progress)
     except BranchChoiceError as exc:
         return _failed(progress, MSG_FAILED, str(exc))
+    except AuthorMissing:
+        return _failed(progress, MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, status="needs-author")
     except rules.RulesError as exc:
         return _failed(progress, MSG_RULES,
                        f"규칙 파일 오류다. upload_rules.json 을 고쳐야 하며 개발자가 풀 일이 아니다. {exc}")
@@ -552,8 +588,8 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
         return _failed(progress, MSG_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
 
 
-def _failed(progress, message, detail):
-    payload = commit_result("failed", message, detail, excluded=progress["excluded"],
+def _failed(progress, message, detail, status="failed"):
+    payload = commit_result(status, message, detail, excluded=progress["excluded"],
                             committed=progress["committed"], branch=progress["branch"])
     if "other_features" in progress:
         payload["other_features"] = progress["other_features"]
@@ -811,6 +847,8 @@ def revert_outside(repo, feature, paths):
         ensure_author(top, deadline)
         gitcmd.git(top, "commit", "-q", "-m", "기능 폴더 밖 수정 되돌림: " + ", ".join(paths), deadline=deadline)
         return {"status": "committed", "reason": "", "message": MSG_COMMITTED, "detail": ""}
+    except AuthorMissing:
+        return {"status": "needs-author", "reason": "", "message": MSG_NEEDS_AUTHOR, "detail": AUTHOR_DETAIL}
     except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
@@ -853,14 +891,14 @@ def _same_as_main(top, path, deadline, trees, dirty=True):
     return main == shared_repo.final_blob(top, "HEAD", path, {path}, deadline)
 
 
-def _shared_judge(top, data, path, feature, intake, deadline, trees=None, dirty=True):
+def _shared_judge(top, data, path, feature, intake, deadline, trees=None, dirty=True, content=True):
     """공유 레포 판정이다. 설명 문서 예외와, 기능 이전의 origin/main 과 같은 파일 제외를 적용한다."""
     full = top / path
     if shared_repo.is_feature_doc(path, feature) and _size(full) <= rules_max_bytes(data):
         return None
     if intake and _same_as_main(top, path, deadline, trees or _intake_trees(top, deadline), dirty):
         return None
-    return _judge(top, data, path)
+    return _judge(top, data, path, content)
 
 
 def rules_max_bytes(data):
@@ -872,6 +910,7 @@ def _stage_shared(top, data, feature, intake, deadline):
     tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
     changed = changed_paths(top, deadline)
     trees = _intake_trees(top, deadline) if intake else None
+    full_check = content_check_due(top, data, deadline)
     staged, excluded, untrack, hide, others = [], [], [], [], []
     for path in changed:
         owner = shared_repo.feature_of(path)
@@ -894,7 +933,7 @@ def _stage_shared(top, data, feature, intake, deadline):
     for path in sorted(tracked - set(changed)):
         if path.startswith(DESIGN_DOCS):
             continue
-        verdict = _shared_judge(top, data, path, feature, intake, deadline, trees, dirty=False)
+        verdict = _shared_judge(top, data, path, feature, intake, deadline, trees, dirty=False, content=full_check)
         if verdict is None:
             continue
         found, rule = verdict
@@ -909,6 +948,8 @@ def _stage_shared(top, data, feature, intake, deadline):
         _pathspec(top, ("rm", "-q", "--cached", "--ignore-unmatch"), untrack, deadline)
     if staged:
         _pathspec(top, ("add", "-A"), staged, deadline)
+    if full_check:
+        record_content_check(top, data, deadline)
     return excluded, sorted(set(others))
 
 
@@ -1565,6 +1606,8 @@ def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owne
             payload = _upload(Path(repo), task, title, list(close), resume, deadline, progress, allow_other_owner)
     except UploadStop as exc:
         payload = _upload_result("failed", MSG_FAILED, str(exc), progress)
+    except AuthorMissing:
+        payload = _upload_result("needs-author", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, progress)
     except rules.RulesError as exc:
         payload = _upload_result("failed", MSG_RULES, f"규칙 파일 오류다. upload_rules.json 을 고쳐야 한다. {exc}",
                                  progress)
@@ -1892,15 +1935,15 @@ def template_only(title, body):
 
 def _leaked(top, data, deadline, keep=None):
     """GitHub 공유 코드에 올라간 파일 중 업로드 규칙에 해당하는 파일이다. keep 이 있으면 그 경로만 본다."""
-    found = []
-    for path in gitcmd.git_z(top, "ls-tree", "-r", "-z", "--name-only", REMOTE_REF, deadline=deadline):
-        if keep is not None and not keep(path):
-            continue
-        raw = gitcmd.git_bytes(top, "cat-file", "blob", f"{REMOTE_REF}:{path}", deadline=deadline)
-        verdict = rules.judge(data, path, len(raw), lambda raw=raw: raw)
-        if verdict is not None:
-            found.append(_excluded(path, verdict[0], verdict[1]))
-    return found
+    entries = []
+    for entry in gitcmd.git_z(top, "ls-tree", "-r", "-z", "--format=%(objectname) %(path)", REMOTE_REF,
+                              deadline=deadline):
+        blob, path = entry.split(" ", 1)
+        if keep is None or keep(path):
+            entries.append((blob, path))
+    judged = scan_history.judge_blobs(top, data, entries, deadline)
+    return [_excluded(path, verdict[0], verdict[1]) for _, path, _, verdict in sorted(judged, key=lambda item: item[1])
+            if verdict is not None]
 
 
 def _contains_config(top, key, deadline):
