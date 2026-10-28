@@ -393,15 +393,21 @@ def _ahead(top, ref, deadline):
     return _count(top, f"{base}..{ref}", deadline) if base else 0
 
 
-def unpushed(top, deadline=None):
-    """origin/main 에 없는 커밋이 main 이나 작업 브랜치에 있으면 참이다. 로컬 정보로만 정한다."""
+def unpushed(top, deadline=None, pending=None):
+    """origin/main 에 없는 커밋이 main 이나 작업 브랜치에 있으면 참이다.
+
+    공유 레포에서는 검토 요청(PR) 상태로 대기 branch 를 뺀다. 같은 실행에서 이미 부른 pending_filter 결과가 있으면
+    pending 으로 받아 다시 묻지 않는다. 직접 물을 때는 닫힌 PR 알림 표시와 branch 삭제를 하지 않는다.
+    """
     if not _ref_exists(top, REMOTE_REF, deadline):
         return _ref_exists(top, f"refs/heads/{BRANCH}", deadline) or bool(work_branches(top, deadline))
     refs = [BRANCH, *work_branches(top, deadline)]
     if shared_repo.repo_kind(top) == "shared":
         try:
-            waiting = set(pending_filter(top, deadline, strict=True)["excluded"])
-        except gitcmd.GitError:
+            if pending is None:
+                pending = pending_filter(top, deadline, strict=True, record=False)
+            waiting = set(pending["excluded"])
+        except GH_ERRORS:
             waiting = set()  # GitHub 를 확인하지 못하면 모든 작업 branch 를 센다
         refs = [ref for ref in refs if ref not in waiting and not is_intake_branch(top, ref, deadline)]
     return any(_ahead(top, ref, deadline) for ref in refs)
@@ -527,7 +533,7 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
             payload = _commit_shared(top, message, feature, intake, deadline, progress)
             payload.setdefault("closed_prs", progress.get("closed_prs", []))
             if payload["status"] in ("committed", "nothing"):
-                payload["unpushed"] = unpushed(top, deadline)
+                payload["unpushed"] = unpushed(top, deadline, pending=progress.get("pending"))
             return payload
         return _commit_work(Path(repo), message, branch, catch_up, deadline, progress)
     except BranchChoiceError as exc:
@@ -626,17 +632,21 @@ def _on_github(top, branch, deadline):
     return _ref_exists(top, f"refs/remotes/origin/{branch}", deadline)
 
 
-def pending_filter(top, deadline=None, strict=False):
+GH_ERRORS = (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing)
+
+
+def pending_filter(top, deadline=None, strict=False, record=True):
     """검토 요청(PR)을 기다리거나 닫힌 작업 branch 를 후보에서 뺀다. merge 된 PR 의 branch 는 지운다.
 
     gh 가 실패하면 strict 는 예외를 올리고, 아니면 GitHub 에 같은 이름 branch 가 있는 branch 를 뺀다.
+    record 가 거짓이면 조회만 한다. merge 된 branch 를 지우지 않고 빼기만 하며, 닫힌 PR 알림 표시를 남기지 않는다.
     """
     top = Path(top)
     result = {"excluded": [], "closed_prs": [], "merged_with_extra": []}
     for branch in work_branches(top, deadline):
         try:
             pr = pr_state(top, branch, deadline)
-        except gitcmd.GitError:
+        except GH_ERRORS:
             if strict:
                 raise
             if _on_github(top, branch, deadline):
@@ -648,12 +658,15 @@ def pending_filter(top, deadline=None, strict=False):
             tip = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
             if tip != pr["head"]:
                 result["merged_with_extra"].append(branch)
+            elif not record:
+                result["excluded"].append(branch)
             elif not _checked_out(top, branch, deadline):
                 gitcmd.git(top, "branch", "-q", "-D", branch, deadline=deadline)
             continue
         if pr["state"] in ("OPEN", "CLOSED"):
             result["excluded"].append(branch)
-        if pr["state"] == "CLOSED" and gitcmd.git_try(top, "config", "--get", f"branch.{branch}.kwClosedNotified",
+        if record and pr["state"] == "CLOSED" and gitcmd.git_try(top, "config", "--get",
+                                                                   f"branch.{branch}.kwClosedNotified",
                                                         deadline=deadline)[0] != 0:
             gitcmd.git(top, "config", f"branch.{branch}.kwClosedNotified", "true", deadline=deadline)
             result["closed_prs"].append(branch)
@@ -823,14 +836,8 @@ def add_to_exclude(top, lines, deadline=None):
             handle.write(prefix + "\n".join(new) + "\n")
 
 
-def _tree_blobs(top, ref, deadline):
-    """ref 트리의 {경로: blob} 이다. 파일마다 git 을 실행하지 않도록 한 번에 읽는다."""
-    entries = gitcmd.git_z(top, "ls-tree", "-r", "-z", ref, deadline=deadline)
-    return {entry.split("\t", 1)[1]: entry.split()[2] for entry in entries if "\t" in entry}
-
-
 def _intake_trees(top, deadline):
-    return _tree_blobs(top, REMOTE_REF, deadline), _tree_blobs(top, "HEAD", deadline)
+    return shared_repo.tree_blobs(top, REMOTE_REF, deadline), shared_repo.tree_blobs(top, "HEAD", deadline)
 
 
 def _same_as_main(top, path, deadline, trees, dirty=True):
@@ -917,7 +924,7 @@ def _commit_shared(top, message, feature, intake, deadline, progress):
     status = shared_repo.feature_status(top, feature) if feature else "invalid"
     if status == "invalid" or (intake and status != "new"):
         return _shared_commit_result("invalid-feature", MSG_INVALID_FEATURE, branch=branch)
-    pending = pending_filter(top, deadline)
+    pending = progress["pending"] = pending_filter(top, deadline)
     progress["closed_prs"] = pending["closed_prs"]
     if branch in pending["excluded"]:
         return _shared_commit_result("failed", MSG_FAILED,
@@ -1263,8 +1270,12 @@ def _push_branch(top, branch, state, deadline, progress):
     """2단계다. 원격 추적 설정 없이, force 없이 push 하고 push 한 SHA 를 기록한다."""
     code, out, err = gitcmd.git_try(top, "push", "-q", "origin", branch, deadline=deadline)
     if code != 0:
-        raise UploadStop(f"GitHub 에 같은 이름의 다른 {branch} 가 있어 push 가 거부되었다. 새 영문 요약으로 "
-                         f"branch 를 만들어 다시 올려라. {(err or out).strip()}")
+        text = (err or out).strip()
+        if "non-fast-forward" in text or "(fetch first)" in text:
+            raise UploadStop(f"GitHub 에 같은 이름의 다른 {branch} 가 있어 push 가 거부되었다. 새 영문 요약으로 "
+                             f"branch 를 만들어 다시 올려라. {text}")
+        raise UploadStop(f"{branch} 를 push 하지 못했다. 아래 git 출력으로 원인(로그인·네트워크·권한·보호 규칙)을 "
+                         f"확인해 고친 뒤 upload --continue 로 이어 가라. 새 branch 는 만들지 마라. {text}")
     state["pushed_sha"] = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
     _save_state(top, state, deadline)
     progress["pushed"] = True
@@ -1295,11 +1306,13 @@ def _branch_hits(top, branch, feature, intake, deadline):
     data = rules.load(RULES_PATH)
     base = gitcmd.git(top, "merge-base", REMOTE_REF, branch, deadline=deadline).strip()
     found = []
+    head_blobs = shared_repo.tree_blobs(top, branch, deadline)
+    main_blobs = shared_repo.tree_blobs(top, REMOTE_REF, deadline) if intake else {}
     for path in shared_repo.changed_paths(top, base, branch, deadline):
-        blob = shared_repo._blob(top, branch, path, deadline)
+        blob = head_blobs.get(path)
         if blob is None:
             continue
-        if intake and blob == shared_repo._blob(top, REMOTE_REF, path, deadline):
+        if intake and blob == main_blobs.get(path):
             continue
         raw = gitcmd.git_bytes(top, "cat-file", "blob", blob, deadline=deadline)
         if feature and shared_repo.is_feature_doc(path, feature) and len(raw) <= rules_max_bytes(data):

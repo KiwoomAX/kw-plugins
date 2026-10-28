@@ -148,6 +148,12 @@ def _blob(top, ref, path, deadline=None):
     return out.strip() if code == 0 and out.strip() else None
 
 
+def tree_blobs(top, ref, deadline=None):
+    """ref 트리의 {경로: blob} 이다. 경로마다 git 을 실행하지 않도록 한 번에 읽는다."""
+    entries = gitcmd.git_z(top, "ls-tree", "-r", "-z", ref, deadline=deadline)
+    return {entry.split("\t", 1)[1]: entry.split()[2] for entry in entries if "\t" in entry}
+
+
 def final_blob(top, head, path, dirty, deadline=None):
     """경로의 최종 내용 blob. commit 하지 않은 경로는 줄바꿈 변환을 거친 작업 트리 파일로 계산한다."""
     if path in dirty:
@@ -185,9 +191,10 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
         return _result("invalid-feature")
     template = None
     outside, why = [], {}
+    main_blobs, head_blobs = tree_blobs(top, REMOTE_REF, deadline), tree_blobs(top, head, deadline)
     for path in dict.fromkeys(paths):
-        blob = final_blob(top, head, path, dirty, deadline)
-        if blob == _blob(top, REMOTE_REF, path, deadline):
+        blob = final_blob(top, head, path, dirty, deadline) if path in dirty else head_blobs.get(path)
+        if blob == main_blobs.get(path):
             continue  # origin/main 과 같으면 변경이 아니다
         if allowed(path, feature):
             continue

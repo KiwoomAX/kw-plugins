@@ -188,6 +188,18 @@ def _dirty_groups(top):
     return ", ".join(f"{name} {counts[name]}개" for name in order)
 
 
+def _unpushed_quietly(top):
+    """세션 시작의 업로드 질문 판정이다. GitHub 확인(PR 상태)만 fetch 와 같은 상한 안에서 한다."""
+    try:
+        pending = save_work.pending_filter(top, gitcmd.Deadline(SYNC_FETCH_SECONDS), strict=True, record=False)
+    except save_work.GH_ERRORS:
+        pending = {"excluded": []}  # GitHub 를 확인하지 못하면 모든 작업 branch 를 센다
+    try:
+        return save_work.unpushed(top, pending=pending)
+    except save_work.GH_ERRORS:
+        return False  # 다음 commit 결과가 다시 알린다
+
+
 def shared_context(top, session_id=None):
     # 다른 세션 확인(sync_shared)을 이 세션 표시보다 먼저 한다.
     notes = sync_shared(top, session_id)
@@ -205,7 +217,7 @@ def shared_context(top, session_id=None):
         groups = _dirty_groups(top)
         if groups:
             notes.append(SHARED_DIRTY_NOTE.format(groups=groups))
-        if save_work.unpushed(top):
+        if _unpushed_quietly(top):
             notes.append(SHARED_UNPUSHED_NOTE)
     # 기능 코드 규칙은 기능 레포 구조를 정하므로 넣지 않는다. 개발자에게 하는 말의 git 용어 규칙만 넣는다.
     return "\n".join(notes) + "\n\n" + GIT_TERMS_PATH.read_text(encoding="utf-8")
