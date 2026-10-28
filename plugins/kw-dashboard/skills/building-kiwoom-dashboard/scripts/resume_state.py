@@ -53,9 +53,9 @@ def run(central: Path, repo_name: str, feature: str, clean: bool = False) -> dic
     try:
         common.git(central, "fetch", "-q", "origin")
         intake = common.find_intake(central, repo_name)
-        if intake:
-            return {**result, "row": 1, "intake": intake}
         branch = _feature_branch(central, feature)
+        if intake:  # 반영 뒤 정리 전에 끊겼으면 이전 branch 가 남는다. 절차가 upload --continue 로 정리한다
+            return {**result, "row": 1, "intake": intake, "branch": branch}
         if branch is None:
             return {**result, "row": 4}
         remote = bool(common.git(central, "ls-remote", "--heads", "origin", branch).strip())
@@ -231,7 +231,15 @@ def check_clean_other_checkout(tmp: Path) -> None:
     assert common.git(central, "branch", "--show-current").strip() == "main"
 
 
+def check_row1_leftover_branch(tmp: Path) -> None:
+    central = _fixture(tmp, "기능 이전\n\nIntake-From: KiwoomAX/fund-aum\nIntake-Head: abc\nIntake-History: yes")
+    _intake_branch(central)
+    result = _with_gh([], lambda: run(central, "fund-aum", "fund-aum"))
+    assert result["row"] == 1 and result["branch"] == BRANCH, result
+
+
 CHECKS = [
+    check_row1_leftover_branch,
     check_non_intake_branch_ignored, check_clean_other_checkout,
     check_row1, check_row2_remote, check_row2_closed_pr, check_row3_merge,
     check_clean, check_clean_refused, check_row4, check_lookup_failure,

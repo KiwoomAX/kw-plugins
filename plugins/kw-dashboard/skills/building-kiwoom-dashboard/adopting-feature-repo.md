@@ -52,7 +52,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/resume_state.py" --central "<중앙 레포 �
 
 | `row` | 상태 | 할 일 |
 |---|---|---|
-| 1 | 이전 commit 이 이미 `main` 에 있다 | 11단계로 가라 |
+| 1 | 이전 commit 이 이미 `main` 에 있다 | `branch` 가 있으면 반영 뒤 정리 전에 끊긴 상태다. kw-github `upload --continue` 를 먼저 실행해 정리를 끝내라. 그다음 11단계로 가라. 정리하지 않으면 이 기능을 나중에 고칠 때 kw-github 가 남은 이전 branch 로 옮겨 `--intake` 없는 commit 을 거부한다 |
 | 2 | 이전 branch 가 업로드되었다 | `pr_state` 가 `closed` 이면 AX팀 문의로 멈춰라. `open` 이면 「AX팀이 검토 요청을 확인하고 있습니다」라고 알리고 멈춰라. 그 밖에는 kw-github `saving-work` 의 이어 하기(`upload --continue`)를 따르라 |
 | 3 | 로컬에만 이전 branch 가 있다 | `branch_commits` 를 개발자에게 보여 주고 「이 작업은 지우고 처음부터 다시 합니다」라고 알려라. `uncommitted` 가 비어 있으면 같은 명령에 `--clean` 을 붙여 실행하고 1단계부터 다시 하라. `uncommitted` 에 경로가 있으면 그 경로를 보여 주고 처분을 개발자와 정한 뒤 다시 판정하라 |
 | 4 | 이전 흔적이 없다 | 1단계부터 하라 |
