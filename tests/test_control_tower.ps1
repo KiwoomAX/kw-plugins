@@ -11,6 +11,10 @@ $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
 $ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기는 7 이 없으면 아무것도 설치하지 않는다.
 
+# 세션 점검 훅은 PATH 의 node 를 본다. 이 PC 의 Node.js 버전에 따라 결과가 달라지지 않게
+# node.exe 가 있는 폴더를 PATH 에서 뺀다. Node.js 검사는 가짜 node.exe 를 둔 폴더를 앞에 붙여 실행한다.
+$env:PATH = @($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'node.exe')) }) -join ';'
+
 # 훅·동기화·명의 스크립트는 UTF-8 로 출력하고, PowerShell 은 자식 프로그램의 출력을
 # [Console]::OutputEncoding 으로 읽는다. 이 값은 PC 의 코드페이지를 따르므로(한국어 윈도우는 949)
 # 맞추지 않으면 한글이 깨져 출력을 대조하는 검사가 모두 실패한다. 결과를 낸 뒤 원래 값으로 되돌린다.
@@ -471,7 +475,7 @@ Check '폐기한 훅은 이름과 경로를 함께 적는다' {
 }
 # JSON 형식이 맞는 것과 목록의 형식이 맞는 것은 다르다. 항목 이름을 하나 잘못 적으면 JSON 형식
 # 오류는 없고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다.
-$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','availableModels')
+$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','availableModels','minNodeVersion')
 Check '목록에 있어야 할 항목이 모두 있다' {
     @($manifestKeys | Where-Object { $null -eq $mf.PSObject.Properties[$_] }).Count -eq 0
 }
@@ -1791,6 +1795,112 @@ Check '모델 허용 목록 단계는 settings.json 이 없으면 만들지 않�
 Check '점검이 모델 허용 목록이 없으면 알린다' { (Invoke-HookWith '{}') -match '모델 허용 목록이 목록과 다릅니다' }
 Check '점검이 모델 허용 목록이 다르면 알린다' { (Invoke-HookWith '{ "availableModels": ["fable"] }') -match '모델 허용 목록이 목록과 다릅니다' }
 Check '점검이 모델 허용 목록이 같으면 말하지 않는다' { (Invoke-HookWith "{ `"availableModels`": [$modelsJson] }") -notmatch '모델 허용 목록' }
+
+# --- Node.js 버전 -------------------------------------------------------------
+Write-Host ''
+Write-Host 'Node.js 버전'
+$minNode = [version]$mf.minNodeVersion
+$minRe = [regex]::Escape($mf.minNodeVersion)
+Check '목록의 Node.js 기준을 버전으로 읽을 수 있다' { $null -ne $minNode }
+# 가짜 node.exe 는 윈도우에 들어 있는 .NET Framework 의 csc.exe 로 만든다. 실제 node.exe 처럼 제품 이름과
+# 버전을 파일의 버전 정보에 넣는다. 훅은 node 를 실행하지 않으므로 내용은 비어 있어도 된다.
+$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+function New-FakeNode([string]$Dir, [string]$Version, [string]$Product = 'Node.js') {
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    $src = Join-Path $Dir 'node.cs'
+    Set-Content -LiteralPath $src -Encoding ascii -Value "[assembly: System.Reflection.AssemblyProduct(`"$Product`")] [assembly: System.Reflection.AssemblyFileVersion(`"$Version`")] class P { static void Main() {} }"
+    & $csc /nologo /target:exe "/out:$(Join-Path $Dir 'node.exe')" $src | Out-Null
+}
+$pf = Join-Path $os 'pf'   # 가짜 %ProgramFiles%. winget 이 Node.js 를 설치하는 폴더가 그 아래 nodejs 다
+New-FakeNode (Join-Path $pf 'nodejs') '1.0.0'
+New-FakeNode (Join-Path $os 'nvm') '1.0.0'
+New-FakeNode (Join-Path $os 'newer') "$($minNode.Major + 1).0.0"
+New-FakeNode (Join-Path $os 'shim') '1.0.0' 'Volta'
+# 이전 nvm-windows 처럼 winget 의 폴더를 nvm 의 폴더로 가는 링크로 만든 PC 다.
+$pfLinked = Join-Path $os 'pf-linked'
+New-Item -ItemType Directory -Force -Path $pfLinked | Out-Null
+New-Item -ItemType Junction -Path (Join-Path $pfLinked 'nodejs') -Target (Join-Path $os 'nvm') | Out-Null
+# 윈도우는 새 프로그램을 시작할 때 ProgramFiles 를 다시 정하므로, 실행된 훅 프로그램 안에서 바꾼다.
+function Invoke-HookWithNode([string]$Bin, [string]$ProgramFiles = $pf, [string]$State = '') {
+    $h = Join-Path $os ("k-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path (Join-Path $h '.claude\plugins') | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $h '.claude\settings.json'), '{}', (New-Object System.Text.UTF8Encoding($false)))
+    if ($State) { [System.IO.File]::WriteAllText((Join-Path $h '.claude\kw-control-tower.state'), $State, (New-Object System.Text.UTF8Encoding($false))) }
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:ProgramFiles='$ProgramFiles'; `$env:PATH='$Bin;' + `$env:PATH; `$env:CLAUDE_PLUGIN_ROOT='$osQuiet'; & '$osQuiet\hooks\session-check.ps1'" 2>&1
+    ($out | ForEach-Object { "$_" }) -join "`n"
+}
+$today = Get-Date -Format 'yyyy-MM-dd'
+# 동기화 스크립트를 뺀 복사본이라, 동기화가 고칠 것은 "  - " 로 시작해 나열된다.
+$r = Invoke-HookWithNode (Join-Path $pf 'nodejs')
+Check '점검이 winget 이 설치한 낮은 Node.js 를 동기화 단계 10 으로 넘긴다' { $r -match "  - Node\.js 1\.0\.0 이 기준 $minRe 보다 낮습니다\." }
+$r = Invoke-HookWithNode (Join-Path $pf 'nodejs') $pf "nodeUpdate=$today"
+Check '점검이 오늘 이미 업데이트를 시작했으면 다시 넘기지 않는다' { $r -notmatch 'Node\.js \d' }
+$r = Invoke-HookWithNode (Join-Path $pf 'nodejs') $pf 'nodeUpdate=2000-01-01'
+Check '점검이 지난날 시작한 업데이트가 실패했으면 다시 넘긴다' { $r -match '  - Node\.js 1\.0\.0 이 기준' }
+$r = Invoke-HookWithNode (Join-Path $os 'nvm')
+Check '점검이 다른 곳의 낮은 Node.js 에는 winget 대신 설치한 도구를 안내한다' {
+    ($r -match "Node\.js 1\.0\.0\(.+\) 이 기준 $minRe 보다 낮습니다\. 이 Node\.js 를 설치한 도구로 업데이트하십시오") -and
+    ($r -match 'winget 으로 설치하지 마라') -and ($r -notmatch '  - Node\.js')
+}
+$r = Invoke-HookWithNode (Join-Path $pfLinked 'nodejs') $pfLinked
+Check '점검이 링크로 바뀐 winget 폴더의 Node.js 를 다른 곳의 것으로 본다' {
+    ($r -match '이 Node\.js 를 설치한 도구로 업데이트하십시오') -and ($r -notmatch '  - Node\.js')
+}
+Check '점검이 기준 이상인 Node.js 는 말하지 않는다' { (Invoke-HookWithNode (Join-Path $os 'newer')) -notmatch 'Node\.js \d' }
+Check '점검이 제품 이름이 Node.js 가 아닌 node.exe 는 판정하지 않는다' { (Invoke-HookWithNode (Join-Path $os 'shim')) -notmatch 'Node\.js \d' }
+Check '점검이 Node.js 가 없으면 말하지 않는다' { (Invoke-HookWith '{}') -notmatch 'Node\.js \d' }
+Remove-Item -LiteralPath (Join-Path $pfLinked 'nodejs') -Force
+
+# 동기화 단계 10 은 update-node.ps1 을 별도 프로그램으로 띄운다. 가짜 winget 이 받은 인자와 종료 코드를 남긴다.
+$wgBin = Join-Path $os 'wgbin'
+New-Item -ItemType Directory -Force -Path $wgBin | Out-Null
+Set-Content -LiteralPath (Join-Path $wgBin 'winget.cmd') -Encoding ascii -Value @(
+    '@echo off', 'echo %*>"%~dp0args.txt"', 'if defined KW_FAKE_SLOW ping -n 16 127.0.0.1 >nul', 'echo fake winget output',
+    'if defined KW_FAKE_RC exit /b %KW_FAKE_RC%', 'exit /b 0')
+function Invoke-NodeStep([string]$UserHome, [string]$StepArgs) {
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$UserHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$wgBin;' + `$env:PATH; & '$osCut' $StepArgs; exit `$LASTEXITCODE" 2>&1
+    ($out | ForEach-Object { "$_" }) -join "`n"
+}
+function Wait-File([string]$Path, [string]$Pattern) {
+    foreach ($i in 1..60) { if ((Test-Path -LiteralPath $Path) -and ((Get-Content -LiteralPath $Path -Raw) -match $Pattern)) { return $true }; Start-Sleep -Milliseconds 500 }
+    return $false
+}
+$nh = Join-Path $os 'node-home'
+New-Item -ItemType Directory -Force -Path (Join-Path $nh '.claude') | Out-Null
+$nodeLog = Join-Path $nh '.claude\kw-control-tower.node-update.log'
+$o = Invoke-NodeStep $nh "-Steps '10'"
+Check '동기화 단계 10 이 업데이트를 띄우고 기다리지 않고 알린다' { $o -match 'winget 을 시작했습니다\. 관리자 승인 창이 뜨면 승인해 주십시오\. 기록: ' }
+Check '띄운 업데이트가 winget 을 최신 LTS 설치 인자로 실행한다' {
+    (Wait-File (Join-Path $wgBin 'args.txt') 'install') -and
+    ((Get-Content -LiteralPath (Join-Path $wgBin 'args.txt') -Raw) -match '^install --id OpenJS\.NodeJS\.LTS --exact --source winget --silent')
+}
+Check '띄운 업데이트가 winget 의 출력과 종료 코드를 기록에 남긴다' {
+    (Wait-File $nodeLog '끝') -and ((Get-Content -LiteralPath $nodeLog -Raw) -match '(?s)fake winget output.*winget 종료 코드: 0')
+}
+Check '동기화가 오늘 날짜를 상태 파일에 적는다' { (Get-Content -LiteralPath (Join-Path $nh '.claude\kw-control-tower.state') -Raw) -match "(?m)^nodeUpdate=$today" }
+# 세션 점검 훅은 동기화의 출력을 읽으므로, 띄운 프로그램이 그 출력 파이프를 물려받으면 winget 이 끝날 때까지 기다린다.
+# 2026-10-29 에 그렇게 동기화가 24.8초를 기다렸다. 15초 걸리는 가짜 winget 이 끝나기 전에 동기화가 끝나야 한다.
+Check '동기화가 띄운 winget 을 기다리지 않는다' {
+    $nh3 = Join-Path $os 'node-home3'; New-Item -ItemType Directory -Force -Path (Join-Path $nh3 '.claude') | Out-Null
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $o3 = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:KW_FAKE_SLOW='1'; `$env:USERPROFILE='$nh3'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$wgBin;' + `$env:PATH; & '$osCut' -Brief -Steps '10'" 2>&1
+    $sw.Stop()
+    $log3 = Join-Path $nh3 '.claude\kw-control-tower.node-update.log'
+    $notYet = -not ((Test-Path -LiteralPath $log3) -and ((Get-Content -LiteralPath $log3 -Raw) -match '끝'))
+    Write-Host "       동기화가 끝난 시간: $([Math]::Round($sw.Elapsed.TotalSeconds, 1))초"
+    ($sw.Elapsed.TotalSeconds -lt 12) -and $notYet -and (Wait-File $log3 '끝')
+}
+Check '같은 날 다시 호출되면 띄우지 않는다' { (Invoke-NodeStep $nh "-Steps '10'") -match '오늘 이미 업데이트를 시작했습니다' }
+Check '설치기처럼 단계를 지정하지 않으면 띄우지 않는다' {
+    $nh2 = Join-Path $os 'node-home2'; New-Item -ItemType Directory -Force -Path (Join-Path $nh2 '.claude') | Out-Null
+    $o2 = Invoke-NodeStep $nh2 '-WhatIfOnly'
+    ($o2 -match '세션 점검 훅이 지정할 때만 실행합니다') -and ($o2 -notmatch 'winget 을 시작했습니다')
+}
+Check '업데이트 스크립트가 winget 실패의 종료 코드를 기록에 남긴다' {
+    $failLog = Join-Path $os 'fail.log'
+    & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:KW_FAKE_RC='5'; `$env:PATH='$wgBin;' + `$env:PATH; & '$(Join-Path $plugin 'scripts\update-node.ps1')' -Log '$failLog'" | Out-Null
+    (Get-Content -LiteralPath $failLog -Raw) -match 'winget 종료 코드: 5'
+}
 Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 동기화가 끝까지 간다 ---------------------------------------------------

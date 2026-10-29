@@ -357,7 +357,7 @@ if ($null -eq $manifest) { Write-Error "목록 없음: $root\manifest.json"; exi
 # 읽을 수 있고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다. 있어야 할 항목이
 # 다 있는지 확인하고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 확인하지 않는다.
 $required = @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')
+              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels', 'minNodeVersion')
 $missing = @($required | Where-Object { $null -eq $manifest.PSObject.Properties[$_] })
 if ($missing.Count -gt 0) {
     Write-Error "목록에 항목 없음: $($missing -join ', ') ($root\manifest.json)"
@@ -1007,6 +1007,40 @@ try {
         Note "전역 설정의 `"availableModels`" 를 $($models -join ', ') 로 동기화(백업: $settingsPath.kw.bak). 이 목록에 없는 모델은 고를 수 없습니다."
     }
 } catch { Fail '9' $_.Exception.Message }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
+Save-State
+
+# ---------------------------------------------------------------- 단계 10
+Show '10. Node.js 를 최신 LTS 로 업데이트합니다.'
+if (Want 10) {
+try {
+    # 세션 점검 훅이 winget 이 설치한 Node.js 가 목록의 minNodeVersion 보다 낮다고 판정해 단계를 지정했을 때만 실행한다.
+    # 판정은 훅 한 곳에만 둔다. 두 곳에 두면 판정이 달라질 때 훅은 세션마다 이 단계를 호출하고 이 단계는 할 일이 없다고
+    # 끝나 실패 기록도 남지 않는다(PR #88 리뷰). 설치기는 단계를 지정하지 않고 호출하며, 프로그램 단계에서 이미 Node.js 를 올린다.
+    # update-node.ps1 을 별도 프로그램으로 띄우고 기다리지 않는다. winget 은 내려받기와 관리자 승인을 기다려
+    # 훅의 제한 시간 90초를 넘길 수 있다. 훅이 끝나거나 강제 종료되어도 띄운 프로그램은 끝까지 실행된다
+    # (2026-10-29 Node.js 의 하위 프로그램으로 재현해 확인했다. Bun 으로 만든 클로드 코드도 같다는 것은 가정이다).
+    # 같은 날 다시 띄우지 않도록 nodeUpdate 에 날짜를 적는다. 성공했는지는 다음 세션에 훅이 버전을 다시 읽어
+    # 판정하고, 여전히 낮으면 다음 날 다시 띄운다(2026-10-29 사용자 결정).
+    $today = Get-Date -Format 'yyyy-MM-dd'
+    $updater = Join-Path $root 'scripts\update-node.ps1'
+    $nodeLog = Join-Path $cfg 'kw-control-tower.node-update.log'
+    if (-not $script:StepsGiven) { Say '세션 점검 훅이 지정할 때만 실행합니다. 설치기는 프로그램 단계에서 Node.js 를 올립니다.' }
+    elseif ($state['nodeUpdate'] -eq $today) { Say '오늘 이미 업데이트를 시작했습니다. 그대로 둡니다.' }
+    elseif (-not (Test-Path -LiteralPath $updater)) { throw "업데이트 스크립트 없음: $updater" }
+    elseif ($WhatIfOnly) { Say "[미리보기] 별도 프로그램으로 실행: $updater (기록: $nodeLog)" }
+    else {
+        # 쉘을 거쳐(Start-Process) cmd.exe 를 띄우고, cmd.exe 가 pwsh 를 실행한다. 2026-10-29 이 PC 에서 확인한 것 2가지 때문이다.
+        # - 쉘을 거치지 않으면(Process.Start) 이 프로그램의 출력 파이프를 물려받아, 출력을 읽는 세션 점검 훅이 winget 이
+        #   끝날 때까지 기다린다. 가짜 winget 이 20초 걸리면 동기화도 24.8초 뒤에 끝났다.
+        # - 쉘을 거쳐 pwsh 를 직접 띄우면 마이크로소프트 스토어판 pwsh 가 PATH 를 물려받지 못해(항목 17개가 2개로) winget 을
+        #   찾지 못한다. cmd.exe 는 pwsh 를 쉘 없이 실행하므로 PATH 가 그대로 이어진다.
+        $cmdLine = "/d /s /c `"pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$updater`" -Log `"$nodeLog`"`""
+        Start-Process -FilePath $env:ComSpec -ArgumentList $cmdLine -WindowStyle Hidden
+        $state['nodeUpdate'] = $today
+        Note "Node.js 를 최신 LTS 로 업데이트하는 winget 을 시작했습니다. 관리자 승인 창이 뜨면 승인해 주십시오. 기록: $nodeLog"
+    }
+} catch { Fail '10' $_.Exception.Message }
 } else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 
