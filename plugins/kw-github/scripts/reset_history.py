@@ -36,7 +36,16 @@ def reset(repo):
         raise ResetRefused("HEAD 가 분리되어 있다. 브랜치로 돌아간 뒤 다시 부른다.")
     if not _ok(top, "rev-parse", "--verify", "-q", "HEAD"):
         raise ResetRefused("커밋이 없어 옮길 기록이 없다.")
-    gitcmd.git(top, "branch", "-m", branch.strip(), HISTORY_BRANCH)
+    branch = branch.strip()
+    # 지금 branch 만 옮기므로, 남은 main 이 있으면 checkout --orphan main 이 실패해 중간 상태로 끝난다.
+    if branch != BRANCH and _ok(top, "rev-parse", "--verify", "-q", f"refs/heads/{BRANCH}"):
+        raise ResetRefused(f"{BRANCH} 가 따로 있다. 지금 branch {branch} 만 옮기면 새 {BRANCH} 를 열지 못해 멈췄다.")
+    # 다른 branch 의 예전 commit 은 옮겨지지 않아 나중에 함께 올라갈 수 있다.
+    others = [name for name in gitcmd.git(top, "for-each-ref", "--format=%(refname:short)", "refs/heads/").split()
+              if name != branch]
+    if others:
+        raise ResetRefused(f"다른 branch 가 있다: {', '.join(others)}. 그 기록은 옮기지 않으므로 멈췄다.")
+    gitcmd.git(top, "branch", "-m", branch, HISTORY_BRANCH)
     # checkout --orphan 은 작업 트리를 그대로 두고 부모 없는 main 을 연다. switch --orphan 은 파일을 지운다.
     gitcmd.git(top, "checkout", "-q", "--orphan", BRANCH)
     # 새 main 의 첫 저장이 모든 파일을 처음부터 검사하도록 인덱스를 비운다.

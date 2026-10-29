@@ -2,14 +2,14 @@
 
 명령 문자열을 먼저 보고, 살펴볼 명령이 없으면 git 을 부르지 않고 통과시킨다. 이 훅은 보안 경계가
 아니다. Claude 가 실수로 저장 스크립트의 검사를 건너뛰지 않게 하는 장치다. 브랜치·merge 는 거부하지
-않고, 기능 레포가 아닌 폴더에서는 아무것도 거부하지 않는다.
+않는다. 기능 레포와, 기능별 폴더 구조를 갖춘 공유 대시보드 레포에서만 거부한다.
 """
 import json
 import os
 import re
 import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -75,6 +75,12 @@ def _resolve(base, target):
     return Path(base) / Path(target).expanduser()
 
 
+def _program(word):
+    """git.exe·Git·전체 경로의 git.exe 를 모두 git 으로 읽는다. PowerShell 의 호출 연산자 & 는 구분자로 이미 빠졌다."""
+    name = PureWindowsPath(word).name.lower()
+    return name[:-len(".exe")] if name.endswith(".exe") else name
+
+
 def _git_reason(words):
     """git 명령 한 조각을 본다. (기능 레포에서 막을 이유, -C 로 준 폴더) 를 돌려준다."""
     index, workdir = 1, None
@@ -103,6 +109,8 @@ def _gh_reason(words):
             method = word.split("=", 1)[1]
         elif word.startswith("-X") and len(word) > 2:
             method = word[2:]
+        elif "=" in word and word.split("=", 1)[0] in GH_API_BODY_OPTS:
+            has_body = True  # --field=type=x 와 -f=x 처럼 값을 = 로 붙인 본문 옵션이다
         elif word in GH_API_VALUE_OPTS:
             # 옵션 값을 경로로 집지 않도록 값까지 건너뛴다.
             if word in ("-X", "--method") and index + 1 < len(words):
@@ -134,10 +142,11 @@ def blocked_commands(command, cwd):
         if target is not None:
             here = _resolve(here, target)
             continue
-        if words[0] == "git":
+        program = _program(words[0])
+        if program == "git":
             reason, workdir = _git_reason(words)
             where = _resolve(here, workdir) if workdir else here
-        elif words[0] == "gh":
+        elif program == "gh":
             reason, where = _gh_reason(words), here
         else:
             continue
@@ -182,6 +191,7 @@ def main():
             return 0
         import gitcmd
         import save_work
+        import shared_repo
 
         for reason, where in found:
             try:
@@ -190,7 +200,9 @@ def main():
                 return 0  # git 이 없으면 막으려던 명령도 실행되지 않는다
             if top is None:
                 continue  # 레포가 아닌 폴더에서는 git push 가 실행되지 않는다
-            if save_work.is_feature_repo(top):
+            # 지원 구조가 아닌 대시보드는 kw-github 로 올릴 수 없으므로 막지 않는다(사용자 결정 2026-10-21).
+            if save_work.is_feature_repo(top) or (shared_repo.repo_kind(top) == "shared"
+                                                  and shared_repo.supported(top)):
                 _deny(reason)
                 return 0
     except Exception as exc:  # noqa: BLE001 — 판단하지 못하면 통과시키지 않는다
