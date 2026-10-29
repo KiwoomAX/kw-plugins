@@ -244,6 +244,31 @@ try {
     Assert 'the other work branch stays on this PC' ((Invoke-Git $repo2 @('branch', '--list')) -match 'feat/b')
 } finally { Remove-Item -LiteralPath $work2 -Recurse -Force -ErrorAction SilentlyContinue }
 
+Write-Host '--- default branch main ---'
+# Company repos use main (decided 2026-10-28). Without origin, normalize-main renames on this PC only and calls no gh.
+$work4 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $work4 | Out-Null
+try {
+    $null = Invoke-Git $work4 @('init', '-q', '-b', 'master')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $work4 (@('config') + $kv) }
+    [IO.File]::WriteAllText((Join-Path $work4 'a.py'), "x = 1`n")
+    $null = Invoke-Git $work4 @('add', '-A'); $null = Invoke-Git $work4 @('commit', '-q', '-m', 'first')
+    $norm = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'normalize-main', '--repo', $work4) | ConvertFrom-Json
+    Assert 'normalize-main renames master to main' ($norm.status -eq 'normalized' -and (Invoke-Git $work4 @('branch', '--format=%(refname:short)')).Trim() -eq 'main')
+
+    $null = Invoke-Git $work4 @('switch', '-q', '-c', 'master')
+    [IO.File]::WriteAllText((Join-Path $work4 'b.py'), "y = 1`n")
+    $null = Invoke-Git $work4 @('add', '-A'); $null = Invoke-Git $work4 @('commit', '-q', '-m', 'master only')
+    $null = Invoke-Git $work4 @('switch', '-q', 'main')
+    $ask = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'normalize-main', '--repo', $work4) | ConvertFrom-Json
+    Assert 'normalize-main asks before touching work that main lacks' ($ask.status -eq 'needs-decision' -and $ask.old_branch -eq 'master')
+    $refused = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'normalize-main', '--repo', $work4, '--merge-old', 'feat/x') | ConvertFrom-Json
+    Assert '--merge-old refuses a work branch' ($refused.status -eq 'failed')
+    $merged = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'normalize-main', '--repo', $work4, '--merge-old', 'master') | ConvertFrom-Json
+    Assert '--merge-old brings the old work into main and deletes the old branch' (
+        $merged.status -eq 'normalized' -and (Test-Path (Join-Path $work4 'b.py')) -and (Invoke-Git $work4 @('branch', '--format=%(refname:short)')).Trim() -eq 'main')
+} finally { Remove-Item -LiteralPath $work4 -Recurse -Force -ErrorAction SilentlyContinue }
+
 Write-Host '--- shared dashboard repo ---'
 # A KiwoomAX repo whose name ends in "dashboard" is shared by several developers, one feature folder each.
 $work3   = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
