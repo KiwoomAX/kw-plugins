@@ -4,6 +4,7 @@ commit 은 로컬에서만 작업 브랜치에 커밋한다. push 는 개발자�
 스킬과 훅은 이 파일만 부른다.
 """
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -13,8 +14,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import github_merge
 import gitcmd
 import rules
+import scan_history
+import shared_repo
 
 ORG = "KiwoomAX"
 ORG_PREFIX = f"github.com/{ORG}/"
@@ -24,6 +28,8 @@ TOPIC = "kiwoom-feature"
 RULES_PATH = Path(__file__).resolve().parent / "upload_rules.json"
 
 SAVE_SECONDS = 120
+# 기능 이전 업로드는 기능 레포 이력 전체를 읽으므로 평소 상한에 이력 검사 상한을 추가한다.
+INTAKE_UPLOAD_SECONDS = SAVE_SECONDS + scan_history.SCAN_SECONDS
 CATCH_UP_SECONDS = 45
 ABORT_SECONDS = 15
 CATCH_UP_TEMPLATE = "이전 세션에서 저장하지 못한 변경 ({stamp})"
@@ -48,7 +54,7 @@ WORK_PREFIXES = ("feat/", "fix/", "refactor/", "docs/")
 SESSION_BRANCH = "feat/session-{stamp}"
 UPLOAD_STASH = "kiwoom-upload"
 REMOTE_URL = "https://github.com/{full}.git"
-TEMPLATE_API = "repos/KiwoomAM/.github/contents/.github/ISSUE_TEMPLATE/03_feature_request.md"
+TEMPLATE_API = "repos/KiwoomAX/.github/contents/.github/ISSUE_TEMPLATE/03_feature_request.md"
 FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 HTML_COMMENT = re.compile(r"<!--.*?-->\n?", re.S)
 
@@ -57,12 +63,19 @@ MSG_NOT_FEATURE = "이 폴더는 작업 폴더로 준비되지 않았습니다."
 MSG_NOTHING = "새로 저장할 변경이 없습니다."
 MSG_COMMITTED = "작업을 commit 해 두었습니다. 이 시점으로 코드를 되돌릴 수 있습니다."
 MSG_UPLOADED = "작업을 GitHub 에 push(업로드)해 팀이 함께 보는 main 에 반영했습니다."
+MSG_UPLOADED_SHARED = "작업을 GitHub 에 push(업로드)해 공유 코드에 반영했습니다."
 MSG_CONFLICT = "GitHub에 올라온 것과 지금 PC에 저장된 것이 달라 올리기를 멈췄습니다. 이어서 확인하겠습니다."
 MSG_NO_UPLOAD = "GitHub에 올릴 새 작업이 없습니다."
 MSG_OTHER_OWNER = "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다."
 MSG_RULES = "저장 규칙을 읽지 못해 저장을 멈췄습니다. AX팀에 알려 주세요."
 MSG_TIMEOUT = "저장이 오래 걸려 멈췄습니다. 다음에 다시 저장합니다."
 MSG_FAILED = "저장하지 못했습니다. 원인을 확인해 이어서 처리합니다."
+MSG_NEEDS_AUTHOR = "commit 에 남길 이름과 메일을 알려 주세요. 한 번만 설정하면 됩니다."
+AUTHOR_DETAIL = (
+    "git 설정에 commit 명의(user.name·user.email)가 없어 commit 하지 않았다. saving-work 스킬의 「commit 명의」 절에 "
+    '따라 개발자에게 이름과 메일을 글로 물은 뒤 git config --global user.name "<이름>" 와 '
+    'git config --global user.email "<메일>" 를 실행하고 같은 명령을 다시 실행하라. 대화 맥락의 이름·메일로 채우지 마라.'
+)
 
 MERGE_DETAIL = (
     "앞선 upload 의 merge 가 충돌로 멈춘 채 남아 있다. 충돌한 파일을 saving-work 의 충돌 규칙대로 풀고 "
@@ -123,8 +136,8 @@ def set_marker(top, key, value):
 
 
 def is_feature_repo(top):
-    # 원격은 첫 push 때 생기므로 표식 파일만 본다.
-    return (Path(top) / MARKER).is_file()
+    # 원격은 첫 push 때 생기므로 표식 파일만 본다. 기능 이전의 진행 중 merge 가 가져온 표식 파일은 보지 않는다.
+    return shared_repo.marker_tracked(top)
 
 
 def origin_url(top):
@@ -164,20 +177,20 @@ def recover(top, deadline=None):
         gitcmd.git(top, "rebase", "--abort", deadline=deadline, check=False)
 
 
-def _local_config(top, key, deadline):
-    # --local 을 빼면 전역 설정까지 읽어, 이 레포에 작성자가 없는데도 있다고 본다.
-    code, out, _ = gitcmd.git_try(top, "config", "--local", "--get", key, deadline=deadline)
+class AuthorMissing(Exception):
+    """git 설정에 commit 명의(이름·메일)가 없을 때 올린다. commit 하지 않고 needs-author 로 멈춘다."""
+
+
+def _config(top, key, deadline):
+    # 모든 범위(레포·전역·시스템)의 설정을 읽는다.
+    code, out, _ = gitcmd.git_try(top, "config", "--get", key, deadline=deadline)
     return out.strip() if code == 0 else ""
 
 
 def ensure_author(top, deadline=None):
-    """커밋 작성자 정보가 이 레포에 없으면 GitHub 계정에서 받아 이 레포에만 적는다."""
-    if _local_config(top, "user.name", deadline) and _local_config(top, "user.email", deadline):
-        return
-    user = json.loads(gitcmd.gh("api", "user", deadline=deadline))
-    gitcmd.git(top, "config", "--local", "user.name", user["login"], deadline=deadline)
-    gitcmd.git(top, "config", "--local", "user.email",
-               f"{user['id']}+{user['login']}@users.noreply.github.com", deadline=deadline)
+    """commit 명의가 git 설정에 없으면 AuthorMissing 을 올린다. 사용자 결정(2026-10-28): gh 계정으로 채우지 않는다."""
+    if not (_config(top, "user.name", deadline) and _config(top, "user.email", deadline)):
+        raise AuthorMissing("git 설정에 user.name 이나 user.email 이 없다")
 
 
 def has_head(top, deadline=None):
@@ -245,9 +258,29 @@ def _excluded(path, reason, rule):
     return {"path": path, "reason": reason, "rule": rule}
 
 
-def _judge(top, data, path):
+def _judge(top, data, path, content=True):
+    """content 가 거짓이면 이름과 크기로만 판정하고 내용은 읽지 않는다."""
     full = top / path
+    if not content:
+        return rules.classify(data, path, _size(full), None)
     return rules.judge(data, path, _size(full), lambda: _read(full))
+
+
+CONTENT_HASH_KEY = "kwRules.contentHash"
+
+
+def _rules_hash(data):
+    return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def content_check_due(top, data, deadline=None):
+    """바뀌지 않은 추적 파일의 내용 검사가 필요한가. 사용자 결정(2026-10-28): 규칙이 바뀌었거나 첫 commit 일 때만 한다."""
+    return _config(top, CONTENT_HASH_KEY, deadline) != _rules_hash(data)
+
+
+def record_content_check(top, data, deadline=None):
+    """추적 파일 전체 내용 검사를 끝까지 마쳤을 때만 호출한다."""
+    gitcmd.git(top, "config", "--local", CONTENT_HASH_KEY, _rules_hash(data), deadline=deadline)
 
 
 def _pushed_has_secret(top, data, path, deadline):
@@ -258,21 +291,29 @@ def _pushed_has_secret(top, data, path, deadline):
 
 
 def ensure_gitignore(top):
-    """.gitignore 가 없으면 기본값으로 만들고, 있으면 설계 문서를 가리는 줄이 빠졌을 때만 더한다."""
+    """.gitignore 가 없으면 기본값으로 만들고, 있으면 기본값 중 빠진 줄을 모두 보충한다."""
     ignore = top / ".gitignore"
     if not ignore.exists():
         ignore.write_text("\n".join(DEFAULT_GITIGNORE) + "\n", encoding="utf-8", newline="\n")
         return
     text = ignore.read_text(encoding="utf-8", errors="replace")
-    if {DESIGN_DOCS, "/" + DESIGN_DOCS} & {line.strip() for line in text.splitlines()}:
+    # /.venv/ 와 .venv 처럼 앞뒤 / 만 다른 줄은 같은 뜻으로 본다.
+    existing = {line.strip().strip("/") for line in text.splitlines()}
+    missing = [line for line in DEFAULT_GITIGNORE if line.strip("/") not in existing]
+    if not missing:
         return
     prefix = "" if not text or text.endswith("\n") else "\n"
     with open(ignore, "a", encoding="utf-8", newline="\n") as handle:
-        handle.write(prefix + DESIGN_DOCS + "\n")
+        handle.write(prefix + "\n".join(missing) + "\n")
 
 
-def stage(top, data, deadline=None):
-    """인덱스를 HEAD 로 되돌린 뒤 검사를 통과한 변경만 스테이징한다. excluded 목록을 돌려준다."""
+def stage(top, data, deadline=None, scope=None):
+    """인덱스를 HEAD 로 되돌린 뒤 검사를 통과한 변경만 스테이징한다. excluded 목록을 돌려준다.
+
+    scope 가 (기능, 기능 이전 여부) 이면 공유 레포 규칙으로 stage 하고 (excluded, other_features) 를 돌려준다.
+    """
+    if scope is not None:
+        return _stage_shared(top, data, scope[0], scope[1], deadline)
     reset_index(top, deadline)
     ensure_gitignore(top)
     # 인덱스를 HEAD 로 되돌렸으므로 ls-files 는 이미 올라간 파일 목록이다.
@@ -283,6 +324,7 @@ def stage(top, data, deadline=None):
         _pathspec(top, ("rm", "-q", "--cached", "--ignore-unmatch"), design_docs, deadline)
         tracked -= set(design_docs)
     changed = [path for path in changed_paths(top, deadline) if not path.startswith(DESIGN_DOCS)]
+    full_check = content_check_due(top, data, deadline)
     staged, excluded, ignore = [], [], []
     for path in changed:
         verdict = _judge(top, data, path)
@@ -302,8 +344,9 @@ def stage(top, data, deadline=None):
             ignore.append(path)
     # git status 는 이번에 바뀌지 않은 파일을 보여 주지 않는다. 이미 올라간 파일은 따로 본다.
     # 예전에 잘못 올라간 파일과 .gitignore 없이 올라가기 시작한 파일을 저장할 때마다 바로잡는다.
+    # 이름과 크기는 매번 보고, 내용은 규칙이 바뀌었거나 첫 commit 일 때만 본다.
     for path in sorted(tracked - set(changed)):
-        verdict = _judge(top, data, path)
+        verdict = _judge(top, data, path, content=full_check)
         if verdict is None:
             continue
         reason, rule = verdict
@@ -322,6 +365,8 @@ def stage(top, data, deadline=None):
         staged.append(".gitignore")
     if staged:
         _pathspec(top, ("add",), staged, deadline)
+    if full_check:
+        record_content_check(top, data, deadline)
     return excluded
 
 
@@ -382,11 +427,24 @@ def _ahead(top, ref, deadline):
     return _count(top, f"{base}..{ref}", deadline) if base else 0
 
 
-def unpushed(top, deadline=None):
-    """origin/main 에 없는 커밋이 main 이나 작업 브랜치에 있으면 참이다. 로컬 정보로만 정한다."""
+def unpushed(top, deadline=None, pending=None):
+    """origin/main 에 없는 커밋이 main 이나 작업 브랜치에 있으면 참이다.
+
+    공유 레포에서는 검토 요청(PR) 상태로 대기 branch 를 뺀다. 같은 실행에서 이미 부른 pending_filter 결과가 있으면
+    pending 으로 받아 다시 묻지 않는다. 직접 물을 때는 닫힌 PR 알림 표시와 branch 삭제를 하지 않는다.
+    """
     if not _ref_exists(top, REMOTE_REF, deadline):
         return _ref_exists(top, f"refs/heads/{BRANCH}", deadline) or bool(work_branches(top, deadline))
-    return any(_ahead(top, ref, deadline) for ref in [BRANCH, *work_branches(top, deadline)])
+    refs = [BRANCH, *work_branches(top, deadline)]
+    if shared_repo.repo_kind(top) == "shared":
+        try:
+            if pending is None:
+                pending = pending_filter(top, deadline, strict=True, record=False)
+            waiting = set(pending["excluded"])
+        except GH_ERRORS:
+            waiting = set()  # GitHub 를 확인하지 못하면 모든 작업 branch 를 센다
+        refs = [ref for ref in refs if ref not in waiting and not is_intake_branch(top, ref, deadline)]
+    return any(_ahead(top, ref, deadline) for ref in refs)
 
 
 def local_state(top, deadline=None):
@@ -456,12 +514,37 @@ def choose_branch(top, wanted, catch_up, deadline=None):
     return target
 
 
+def _git_dirs(top, deadline=None, timeout=None):
+    out = gitcmd.git(top, "rev-parse", "--absolute-git-dir", "--git-common-dir", deadline=deadline, timeout=timeout)
+    own, common = (out.splitlines() + ["", ""])[:2]
+    common_path = Path(common) if Path(common).is_absolute() else Path(top) / common
+    return Path(own).resolve(), common_path.resolve()
+
+
+def _stash_tag(top, deadline=None, timeout=None):
+    own, _ = _git_dirs(top, deadline, timeout)
+    return own.as_posix().casefold()
+
+
+def upload_stash_name(top, deadline=None, timeout=None):
+    """stash 는 작업 폴더 사이에 공유되므로 이름에 그 폴더의 git-dir 을 넣는다."""
+    return f"{UPLOAD_STASH}:{_stash_tag(top, deadline, timeout)}"
+
+
+def _own_upload_stash(top, subject, deadline=None, timeout=None):
+    if subject.endswith(f": {upload_stash_name(top, deadline, timeout)}"):
+        return True
+    own, common = _git_dirs(top, deadline, timeout)
+    # 옛 이름(PR #63 버전)의 stash 는 원래 작업 폴더에서만 되돌린다.
+    return own == common and subject.endswith(f": {UPLOAD_STASH}")
+
+
 def restore_upload_stash(top, deadline=None, timeout=None):
     """앞선 upload 가 남긴 kiwoom-upload stash 를 되돌린다. 되돌리지 못하면 detail 문장을 돌려준다."""
     listing = gitcmd.git(top, "stash", "list", "--format=%gd %gs", deadline=deadline, timeout=timeout)
     for line in listing.splitlines():
         ref, _, subject = line.partition(" ")
-        if subject.endswith(f": {UPLOAD_STASH}"):
+        if _own_upload_stash(top, subject, deadline, timeout):
             code, out, err = gitcmd.git_try(top, "stash", "pop", "-q", ref, deadline=deadline, timeout=timeout)
             if code != 0:
                 # 충돌 표식이 남은 파일이 다음 commit 에 들어가지 않도록 HEAD 상태로 되돌린다.
@@ -472,16 +555,25 @@ def restore_upload_stash(top, deadline=None, timeout=None):
     return None
 
 
-def commit_work(repo, message, branch=None, catch_up=False):
+def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False):
     """로컬에서만 커밋하고 결과 JSON 을 돌려준다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     if catch_up:
         message = CATCH_UP_TEMPLATE.format(stamp=datetime.now().strftime("%Y-%m-%d %H:%M"))
     deadline = gitcmd.Deadline(CATCH_UP_SECONDS if catch_up else SAVE_SECONDS)
     progress = {"committed": False, "excluded": [], "branch": None}
     try:
+        top = locate(Path(repo))
+        if top is not None and shared_repo.repo_kind(top) == "shared":
+            payload = _commit_shared(top, message, feature, intake, deadline, progress)
+            payload.setdefault("closed_prs", progress.get("closed_prs", []))
+            if payload["status"] in ("committed", "nothing"):
+                payload["unpushed"] = unpushed(top, deadline, pending=progress.get("pending"))
+            return payload
         return _commit_work(Path(repo), message, branch, catch_up, deadline, progress)
     except BranchChoiceError as exc:
         return _failed(progress, MSG_FAILED, str(exc))
+    except AuthorMissing:
+        return _failed(progress, MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, status="needs-author")
     except rules.RulesError as exc:
         return _failed(progress, MSG_RULES,
                        f"규칙 파일 오류다. upload_rules.json 을 고쳐야 하며 개발자가 풀 일이 아니다. {exc}")
@@ -495,9 +587,12 @@ def commit_work(repo, message, branch=None, catch_up=False):
         return _failed(progress, MSG_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
 
 
-def _failed(progress, message, detail):
-    return commit_result("failed", message, detail, excluded=progress["excluded"],
-                         committed=progress["committed"], branch=progress["branch"])
+def _failed(progress, message, detail, status="failed"):
+    payload = commit_result(status, message, detail, excluded=progress["excluded"],
+                            committed=progress["committed"], branch=progress["branch"])
+    if "other_features" in progress:
+        payload["other_features"] = progress["other_features"]
+    return payload
 
 
 def _commit_work(repo, message, wanted, catch_up, deadline, progress):
@@ -521,6 +616,441 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
     progress["committed"] = True
     return commit_result("committed", with_notes(MSG_COMMITTED, excluded), note, excluded,
                          committed=True, branch=target, state=local_state(top, deadline))
+
+
+# ---- 공유 대시보드 레포 ----
+MSG_UNSUPPORTED = "이 대시보드는 아직 기능별 폴더로 나뉘지 않아 공유 코드에 반영할 수 없습니다. AX팀에 문의해 주세요."
+MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
+MSG_OUTSIDE = "이번 수정 중 {files} 은 내 기능 폴더 밖의 파일이라 공유 코드에 바로 반영할 수 없습니다."
+MSG_PR_OPENED = "공유 코드에 바로 반영할 수 없어 검토 요청을 올렸습니다. AX팀에 문의해 주세요."
+PR_REVIEWER = "isarah0917"
+SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
+BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
+COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 뒤 다시 실행하라. {exc}"
+
+
+def _login(top, deadline):
+    out = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
+    if not out:
+        raise gitcmd.GitError("gh api user 가 로그인을 돌려주지 않았다")
+    return out
+
+
+def _kw_feature(top, branch, deadline=None):
+    code, out, _ = gitcmd.git_try(top, "config", "--get", f"branch.{branch}.kwFeature", deadline=deadline)
+    return out.strip() if code == 0 else ""
+
+
+def feature_branch(top, feature, exclude=(), deadline=None):
+    found = [b for b in _branches(top, deadline) if b not in exclude and _kw_feature(top, b, deadline) == feature]
+    if len(found) > 1:
+        raise BranchChoiceError(f"{feature} 기능의 작업 branch 가 둘 이상이다: {', '.join(found)}. 하나를 정리하라.")
+    return found[0] if found else None
+
+
+def pr_state(top, branch, deadline=None):
+    """그 branch 로 만든 가장 늦은 PR 의 {"state", "head"} 다. PR 이 없으면 None 이다."""
+    out = gitcmd.gh("pr", "list", "-R", _full_name(top), "--head", branch, "--state", "all", "--json",
+                    "state,createdAt,headRefOid", "--limit", "20", deadline=deadline)
+    prs = json.loads(out or "[]")
+    if not prs:
+        return None
+    last = max(prs, key=lambda pr: pr.get("createdAt", ""))
+    return {"state": last.get("state", ""), "head": last.get("headRefOid", "")}
+
+
+def _checked_out(top, branch, deadline):
+    out = gitcmd.git(top, "worktree", "list", "--porcelain", deadline=deadline)
+    return f"branch refs/heads/{branch}" in out.splitlines()
+
+
+def _on_github(top, branch, deadline):
+    return _ref_exists(top, f"refs/remotes/origin/{branch}", deadline)
+
+
+GH_ERRORS = (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing)
+
+
+def pending_filter(top, deadline=None, strict=False, record=True):
+    """검토 요청(PR)을 기다리거나 닫힌 작업 branch 를 후보에서 뺀다. merge 된 PR 의 branch 는 지운다.
+
+    gh 가 실패하면 strict 는 예외를 올리고, 아니면 GitHub 에 같은 이름 branch 가 있는 branch 를 뺀다.
+    record 가 거짓이면 조회만 한다. merge 된 branch 를 지우지 않고 빼기만 하며, 닫힌 PR 알림 표시를 남기지 않는다.
+    """
+    top = Path(top)
+    result = {"excluded": [], "closed_prs": [], "merged_with_extra": []}
+    for branch in work_branches(top, deadline):
+        try:
+            pr = pr_state(top, branch, deadline)
+        except GH_ERRORS:
+            if strict:
+                raise
+            if _on_github(top, branch, deadline):
+                result["excluded"].append(branch)
+            continue
+        if pr is None:
+            continue
+        if pr["state"] == "MERGED":
+            tip = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
+            if tip != pr["head"]:
+                result["merged_with_extra"].append(branch)
+            elif not record:
+                result["excluded"].append(branch)
+            elif not _checked_out(top, branch, deadline):
+                gitcmd.git(top, "branch", "-q", "-D", branch, deadline=deadline)
+            continue
+        if pr["state"] in ("OPEN", "CLOSED"):
+            result["excluded"].append(branch)
+        if record and pr["state"] == "CLOSED" and gitcmd.git_try(top, "config", "--get",
+                                                                   f"branch.{branch}.kwClosedNotified",
+                                                        deadline=deadline)[0] != 0:
+            gitcmd.git(top, "config", f"branch.{branch}.kwClosedNotified", "true", deadline=deadline)
+            result["closed_prs"].append(branch)
+    return result
+
+
+INTAKE_TRAILER = "Intake-From:"
+INTAKE_ONLY_DETAIL = ("{branch} 는 kw-dashboard 기능 이전 중인 branch 다. 기능 이전 절차가 --intake 와 함께 실행할 때만 "
+                      "commit·upload 한다. 기능 이전 절차로 이어 가라.")
+
+
+def is_intake_branch(top, branch, deadline=None):
+    """kw-dashboard 기능 이전 branch 인가. switch-feature --intake 의 표시나 commit 의 Intake-From 줄로 본다."""
+    code, out, _ = gitcmd.git_try(top, "config", "--get", f"branch.{branch}.kwIntake", deadline=deadline)
+    if code == 0 and out.strip() == "true":
+        return True
+    if not _ref_exists(top, REMOTE_REF, deadline):
+        return False
+    log = gitcmd.git(top, "log", "--format=%B", f"{REMOTE_REF}..{branch}", deadline=deadline)
+    return any(line.strip().startswith(INTAKE_TRAILER) for line in log.splitlines())
+
+
+def _feature_dirty(top, feature, deadline):
+    return [p for p in shared_repo.worktree_paths(top, deadline) if shared_repo.allowed(p, feature)]
+
+
+def _shared_failed(message, detail, **extra):
+    return {"status": "failed", "reason": "", "message": message, "detail": detail, **extra}
+
+
+def switch_feature(repo, feature, summary=None, intake=False):
+    """그 기능의 작업 branch 로 옮긴다. 없으면 최신 origin/main 에서 원격 추적 설정 없이 만든다.
+
+    intake 이면 그 branch 에 기능 이전 표시(kwIntake)를 남긴다. 표시가 있는 branch 는 --intake 로만 올린다.
+    """
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        status = shared_repo.feature_status(top, feature)
+        if status == "invalid":
+            return {"status": "invalid-feature", "reason": "", "message": MSG_INVALID_FEATURE, "detail": ""}
+        if intake and status != "new":
+            return {"status": "invalid-feature", "reason": "", "message": MSG_INVALID_FEATURE,
+                    "detail": f"{feature} 는 이미 공유 코드에 있는 기능이다. 기능 이전은 새 기능에만 한다."}
+        current = current_branch(top, deadline)
+        now = _kw_feature(top, current, deadline) if current else ""
+        if now and now != feature and _feature_dirty(top, now, deadline):
+            return _shared_failed(MSG_FAILED, f"{now} 기능에 commit 하지 않은 변경이 있다. 지금 기능을 먼저 commit 하라.")
+        pending = pending_filter(top, deadline)
+        branch = feature_branch(top, feature, exclude=pending["excluded"], deadline=deadline)
+        if branch is None:
+            if not summary:
+                return _shared_failed(MSG_FAILED, "새 작업 branch 가 필요하다. 영문 요약을 --summary 로 넘겨라.")
+            try:
+                login = _login(top, deadline)
+            except gitcmd.GitError:
+                return _shared_failed(MSG_FAILED, "GitHub 로그인을 확인하지 못했다. gh auth status 로 확인하라.")
+            gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+            branch = SHARED_BRANCH.format(feature=feature, login=login, summary=summary)
+            gitcmd.git(top, "switch", "-q", "--no-track", "-c", branch, REMOTE_REF, deadline=deadline)
+            gitcmd.git(top, "config", f"branch.{branch}.kwFeature", feature, deadline=deadline)
+        elif branch != current:
+            gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+        if intake:
+            gitcmd.git(top, "config", f"branch.{branch}.kwIntake", "true", deadline=deadline)
+        new = shared_repo.feature_status(top, feature) == "new"
+        return {"status": "switched", "branch": branch, "new_feature": new, "reason": "", "message": "",
+                "detail": "", "closed_prs": pending["closed_prs"]}
+    except BranchChoiceError as exc:
+        return _shared_failed(MSG_FAILED, str(exc))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+def _boundary_payload(result, commits=()):
+    status = result["status"]
+    if status == "outside":
+        message = MSG_OUTSIDE.format(files=", ".join(result["outside"]))
+    elif status == "failed":
+        message = MSG_FAILED
+    else:
+        message = BOUNDARY_MESSAGES.get(status, "")
+    return {**result, "commits": list(commits), "message": message}
+
+
+def _boundary_of(top, feature, head, intake, deadline):
+    """merge-base 기준 내 변경과, head 가 지금 branch 이면 commit 하지 않은 변경을 판정한다."""
+    base = gitcmd.git(top, "merge-base", REMOTE_REF, head, deadline=deadline).strip()
+    on_head = head == "HEAD" or head == current_branch(top, deadline)
+    dirty = shared_repo.worktree_paths(top, deadline) if on_head else []
+    paths = shared_repo.changed_paths(top, base, head, deadline) + dirty
+    return shared_repo.boundary(top, feature, paths, head, set(dirty), intake=intake, deadline=deadline)
+
+
+def check_boundary(repo, feature, intake=False):
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            # 설계자 판단: 기능 레포에서 잘못 실행했을 때 Claude 가 알아보게 하는 값이다.
+            return {"status": "not-shared-repo", "reason": "", "message": "", "detail": "공유 대시보드 레포가 아니다."}
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        waiting = pending_filter(top, deadline)["excluded"]
+        head = feature_branch(top, feature, exclude=waiting, deadline=deadline) or "HEAD"
+        result = _boundary_of(top, feature, head, intake, deadline)
+        commits = gitcmd.git(top, "log", f"{REMOTE_REF}..{head}", "--format=%s", deadline=deadline).splitlines()
+        return _boundary_payload(result, commits)
+    except BranchChoiceError as exc:
+        return _shared_failed(MSG_FAILED, str(exc))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+def revert_outside(repo, feature, paths):
+    """지정한 경로를 GitHub main 의 상태로 되돌리는 새 commit 을 만든다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        current = current_branch(top, deadline)
+        if not current or _kw_feature(top, current, deadline) != feature:
+            return _shared_failed(MSG_FAILED, f"지금 branch 가 {feature} 기능의 작업 branch 가 아니라 되돌리지 않았다. "
+                                              f"switch-feature --feature {feature} 로 먼저 옮겨라.")
+        inside = [path for path in paths if shared_repo.allowed(path, feature)]
+        if inside:
+            return _shared_failed(MSG_FAILED, f"{', '.join(inside)} 는 {feature} 기능 폴더 안의 파일이라 되돌리지 않았다.")
+        if shared_repo.worktree_paths(top, deadline):
+            return _shared_failed(MSG_FAILED, "commit 하지 않은 변경이 있어 되돌리지 않았다. 먼저 commit 하라.")
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        for path in paths:
+            if shared_repo._blob(top, REMOTE_REF, path, deadline):
+                gitcmd.git(top, "checkout", REMOTE_REF, "--", path, deadline=deadline)
+            elif (top / path).exists():
+                gitcmd.git(top, "rm", "-q", "--", path, deadline=deadline)
+        if not has_staged_changes(top, deadline):
+            return {"status": "nothing", "reason": "", "message": MSG_NOTHING, "detail": ""}
+        ensure_author(top, deadline)
+        gitcmd.git(top, "commit", "-q", "-m", "기능 폴더 밖 수정 되돌림: " + ", ".join(paths), deadline=deadline)
+        return {"status": "committed", "reason": "", "message": MSG_COMMITTED, "detail": ""}
+    except AuthorMissing:
+        return {"status": "needs-author", "reason": "", "message": MSG_NEEDS_AUTHOR, "detail": AUTHOR_DETAIL}
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+SECRET_DETAIL = "검사에서 빠질 파일이 merge 결과에 있어 commit 하지 않았다: {files}"
+CONFLICT_MARK = ("<<<<<<< ", ">>>>>>> ")
+
+
+def _exclude_path(top, deadline):
+    out = gitcmd.git(top, "rev-parse", "--git-path", "info/exclude", deadline=deadline).strip()
+    path = Path(out)
+    return path if path.is_absolute() else top / path
+
+
+def add_to_exclude(top, lines, deadline=None):
+    """이 PC 에서만 가린다. 공유 레포의 최상위 .gitignore 는 고치지 않는다."""
+    target = _exclude_path(top, deadline)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
+    existing = set(text.splitlines())
+    new = [line for line in dict.fromkeys(lines) if line not in existing]
+    if new:
+        prefix = "" if not text or text.endswith("\n") else "\n"
+        with open(target, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(prefix + "\n".join(new) + "\n")
+
+
+def _intake_trees(top, deadline):
+    return shared_repo.tree_blobs(top, REMOTE_REF, deadline), shared_repo.tree_blobs(top, "HEAD", deadline)
+
+
+def _same_as_main(top, path, deadline, trees, dirty=True):
+    """경로의 최종 내용이 origin/main 과 같은가. dirty 가 아니면 HEAD 의 blob 을 그대로 쓴다."""
+    main_blobs, head_blobs = trees
+    main = main_blobs.get(path)
+    if main is None:
+        return False
+    if not dirty:
+        return head_blobs.get(path) == main
+    return main == shared_repo.final_blob(top, "HEAD", path, {path}, deadline)
+
+
+def _shared_judge(top, data, path, feature, intake, deadline, trees=None, dirty=True, content=True):
+    """공유 레포 판정이다. 설명 문서 예외와, 기능 이전의 origin/main 과 같은 파일 제외를 적용한다."""
+    full = top / path
+    if shared_repo.is_feature_doc(path, feature) and _size(full) <= rules_max_bytes(data):
+        return None
+    if intake and _same_as_main(top, path, deadline, trees or _intake_trees(top, deadline), dirty):
+        return None
+    return _judge(top, data, path, content)
+
+
+def rules_max_bytes(data):
+    return int(data["data"]["file_max_mib"] * 1024 * 1024)
+
+
+def _stage_shared(top, data, feature, intake, deadline):
+    reset_index(top, deadline)
+    tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
+    changed = changed_paths(top, deadline)
+    trees = _intake_trees(top, deadline) if intake else None
+    full_check = content_check_due(top, data, deadline)
+    staged, excluded, untrack, hide, others = [], [], [], [], []
+    for path in changed:
+        owner = shared_repo.feature_of(path)
+        if owner and owner != feature:
+            others.append(owner)
+            continue
+        if path.startswith(DESIGN_DOCS):
+            continue
+        verdict = _shared_judge(top, data, path, feature, intake, deadline, trees)
+        if verdict is None:
+            staged.append(path)
+            continue
+        found, rule = verdict
+        reason = f"{found}-tracked" if found == "secret-filename" and path in tracked else found
+        excluded.append(_excluded(path, reason, rule))
+        if found != "secret-content" and shared_repo.allowed(path, feature):
+            untrack.append(path)
+        elif found != "secret-content" and path not in tracked:
+            hide.append(path)
+    for path in sorted(tracked - set(changed)):
+        if path.startswith(DESIGN_DOCS):
+            continue
+        verdict = _shared_judge(top, data, path, feature, intake, deadline, trees, dirty=False, content=full_check)
+        if verdict is None:
+            continue
+        found, rule = verdict
+        reason = "secret-filename-tracked" if found == "secret-filename" else (
+            "secret-content-tracked" if found == "secret-content" else found)
+        excluded.append(_excluded(path, reason, rule))
+        # 추적 끊기는 내 기능 폴더 안 파일에만 한다. 남의 파일을 지우는 commit 을 만들지 않기 위해서다.
+        if found != "secret-content" and shared_repo.allowed(path, feature):
+            untrack.append(path)
+    add_to_exclude(top, [DESIGN_DOCS] + [ignore_line(path) for path in untrack + hide], deadline)
+    if untrack:
+        _pathspec(top, ("rm", "-q", "--cached", "--ignore-unmatch"), untrack, deadline)
+    if staged:
+        _pathspec(top, ("add", "-A"), staged, deadline)
+    if full_check:
+        record_content_check(top, data, deadline)
+    return excluded, sorted(set(others))
+
+
+def _shared_commit_result(status, message, detail="", excluded=None, committed=False, branch=None, others=()):
+    payload = commit_result(status, message, detail, excluded, committed, branch)
+    payload["other_features"] = list(others)
+    return payload
+
+
+def _commit_shared(top, message, feature, intake, deadline, progress):
+    progress["other_features"] = []
+    branch = current_branch(top, deadline)
+    if not shared_repo.supported(top):
+        return _shared_commit_result("unsupported", MSG_UNSUPPORTED, branch=branch)
+    status = shared_repo.feature_status(top, feature) if feature else "invalid"
+    if status == "invalid" or (intake and status != "new"):
+        return _shared_commit_result("invalid-feature", MSG_INVALID_FEATURE, branch=branch)
+    pending = progress["pending"] = pending_filter(top, deadline)
+    progress["closed_prs"] = pending["closed_prs"]
+    if branch in pending["excluded"]:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"{branch} 는 검토 요청(PR)이 열려 있거나 닫힌 branch 다. "
+                                     f"switch-feature --feature {feature} --summary <영문 요약> 으로 새 작업 branch 를 "
+                                     "만들어 commit 하라.", branch=branch)
+    if not branch or _kw_feature(top, branch, deadline) != feature:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"지금 branch 가 {feature} 기능의 작업 branch 가 아니다. "
+                                     f"switch-feature --feature {feature} 로 먼저 옮겨라.", branch=branch)
+    progress["branch"] = branch
+    if not intake and is_intake_branch(top, branch, deadline):
+        return _shared_commit_result("failed", MSG_FAILED, INTAKE_ONLY_DETAIL.format(branch=branch), branch=branch)
+    data = rules.load(RULES_PATH)
+    recover(top, deadline)
+    if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        if not intake:
+            return _shared_commit_result("failed", MSG_FAILED, MERGE_DETAIL, branch=branch)
+        return _commit_intake_merge(top, message, feature, data, deadline, progress)
+    # 앞선 업로드가 끊기며 남긴 이 작업 폴더의 stash 를 먼저 되돌린다.
+    restored = restore_upload_stash(top, deadline)
+    if restored:
+        return _shared_commit_result("failed", MSG_FAILED, restored, branch=branch)
+    excluded, others = stage(top, data, deadline, scope=(feature, intake))
+    progress["excluded"], progress["other_features"] = excluded, others
+    if not has_staged_changes(top, deadline):
+        return _shared_commit_result("nothing", with_notes(MSG_NOTHING, excluded), "", excluded, branch=branch,
+                                     others=others)
+    ensure_author(top, deadline)
+    commit(top, message, excluded, deadline)
+    progress["committed"] = True
+    return _shared_commit_result("committed", with_notes(MSG_COMMITTED, excluded), "", excluded, True, branch,
+                                 others)
+
+
+def _has_conflict_mark(full):
+    try:
+        lines = full.read_bytes().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return False
+    return any(line.startswith(CONFLICT_MARK) for line in lines)
+
+
+def _commit_intake_merge(top, message, feature, data, deadline, progress):
+    """기능 이전의 진행 중 merge 를 검사한 뒤 부모가 둘인 commit 으로 끝낸다. index 를 되돌리지 않는다."""
+    branch = progress["branch"]
+    unmerged = _unmerged(top, deadline)
+    if unmerged:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"아직 풀지 않은 충돌이 있다: {', '.join(unmerged)}", branch=branch)
+    notes = []
+    if (top / MARKER).exists() or MARKER in gitcmd.git_z(top, "ls-files", "-z", deadline=deadline):
+        gitcmd.git(top, "rm", "-q", "-f", "--cached", "--ignore-unmatch", "--", MARKER, deadline=deadline)
+        (top / MARKER).unlink(missing_ok=True)
+        notes.append(f"기능 레포의 표식 파일 {MARKER} 를 지웠다.")
+    paths = changed_paths(top, deadline)
+    marked = [p for p in paths if (top / p).is_file() and _has_conflict_mark(top / p)]
+    if marked:
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     f"충돌 표시 줄이 남은 파일이 있다: {', '.join(marked)}", branch=branch)
+    result = shared_repo.boundary(top, feature, paths, "HEAD", set(paths), intake=True, deadline=deadline)
+    if result["status"] != "inside":
+        payload = _shared_commit_result(result["status"] if result["status"] != "outside" else "failed",
+                                        _boundary_payload(result)["message"] or MSG_FAILED,
+                                        f"기능 이전 merge 결과가 경계 검사를 통과하지 못했다: {result}", branch=branch)
+        payload["outside"] = result["outside"]
+        payload["reason"] = result["reason"]
+        return payload
+    found, trees = [], _intake_trees(top, deadline)
+    for path in paths:
+        if not (top / path).is_file():
+            continue
+        verdict = _shared_judge(top, data, path, feature, True, deadline, trees)
+        if verdict is not None:
+            found.append(_excluded(path, *verdict))
+    if found:
+        progress["excluded"] = found
+        return _shared_commit_result("failed", MSG_FAILED,
+                                     SECRET_DETAIL.format(files=", ".join(item["path"] for item in found)), found,
+                                     branch=branch)
+    _pathspec(top, ("add", "-A"), paths, deadline)
+    ensure_author(top, deadline)
+    gitcmd.git(top, "commit", "-q", "-F", "-", deadline=deadline, stdin=(message + "\n").encode("utf-8"))
+    progress["committed"] = True
+    return _shared_commit_result("committed", MSG_COMMITTED, " ".join(notes), [], True, branch)
 
 
 class UploadStop(Exception):
@@ -748,42 +1278,307 @@ def _stash_leftovers(top, deadline, progress):
     if gitcmd.git(top, "status", "--porcelain", "--untracked-files=all", deadline=deadline).strip():
         # gitcmd 가 거는 GIT_LITERAL_PATHSPECS=1 아래에서는 stash -u 가 추적되지 않는 파일을 stash 에 넣고도
         # 작업 트리에서 지우지 않는다(2026-10-20 이 PC 에서 재현). 이 호출에서만 끈다.
-        gitcmd.git(top, "--no-literal-pathspecs", "stash", "push", "-q", "-u", "-m", UPLOAD_STASH, deadline=deadline)
+        gitcmd.git(top, "--no-literal-pathspecs", "stash", "push", "-q", "-u", "-m", upload_stash_name(top, deadline),
+                   deadline=deadline)
         progress["stashed"] = True
 
 
-def _merge(top, branch, state, deadline, progress):
-    """5·6단계다. 원격 main 에 맞춘 main 에 작업 브랜치를 --no-ff 로 합친다. 충돌하면 충돌 파일 목록을 돌려준다."""
+MSG_NOT_MERGED_FEATURE = ("작업을 GitHub 에 push(업로드)했지만 팀이 함께 보는 main 에 반영하지 못했습니다. "
+                          "잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요.")
+MSG_NOT_MERGED_SHARED = ("작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. "
+                         "잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요.")
+LAST_UPLOAD = "kwUpload.{key}.sha"
+
+
+def _not_merged(top, progress):
+    return MSG_NOT_MERGED_SHARED if progress.get("shared") else MSG_NOT_MERGED_FEATURE
+
+
+def _contains(top, ref, deadline):
+    return gitcmd.git_try(top, "merge-base", "--is-ancestor", ref, REMOTE_REF, deadline=deadline)[0] == 0
+
+
+def _remote_tip(top, branch, deadline):
+    code, out, _ = gitcmd.git_try(top, "ls-remote", "origin", f"refs/heads/{branch}", deadline=deadline)
+    return out.split()[0] if code == 0 and out.strip() else None
+
+
+def _save_state(top, state, deadline):
+    _state_path(top, deadline).write_text(json.dumps(state), encoding="utf-8")
+
+
+def _push_branch(top, branch, state, deadline, progress):
+    """2단계다. 원격 추적 설정 없이, force 없이 push 하고 push 한 SHA 를 기록한다."""
+    code, out, err = gitcmd.git_try(top, "push", "-q", "origin", branch, deadline=deadline)
+    if code != 0:
+        text = (err or out).strip()
+        if "non-fast-forward" in text or "(fetch first)" in text:
+            raise UploadStop(f"GitHub 에 같은 이름의 다른 {branch} 가 있어 push 가 거부되었다. 새 영문 요약으로 "
+                             f"branch 를 만들어 다시 올려라. {text}")
+        raise UploadStop(f"{branch} 를 push 하지 못했다. 아래 git 출력으로 원인(로그인·네트워크·권한·보호 규칙)을 "
+                         f"확인해 고친 뒤 upload --continue 로 이어 가라. 새 branch 는 만들지 마라. {text}")
+    state["pushed_sha"] = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
+    _save_state(top, state, deadline)
+    progress["pushed"] = True
+
+
+def _precheck(top, branch, state, deadline):
+    """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다."""
+    feature = state.get("feature")
+    leaked = _branch_hits(top, branch, feature, state.get("intake", False), deadline)
+    if leaked:
+        return {"status": "failed", "message": MSG_FAILED, "outside": [],
+                "reason": "history-hits" if state.get("intake") else "",
+                "detail": f"올릴 commit 에 비밀값·데이터 파일이 있어 push 하지 않았다: {', '.join(leaked)}. 그 파일을 "
+                          "고치는 commit 을 저장 스크립트로 만든 뒤 다시 올려라."}
+    if not feature:
+        return None
+    intake = state.get("intake", False)
+    result = _boundary_of(top, feature, branch, intake, deadline)
+    if result["status"] == "inside":
+        return _history_hits(top, branch, feature, deadline) if intake else None
+    payload = _boundary_payload(result)
+    return {"status": result["status"], "message": payload["message"], "outside": result["outside"],
+            "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
+
+
+def _branch_hits(top, branch, feature, intake, deadline):
+    """merge-base 기준 내 변경의 최종 내용에 비밀값·데이터 파일 검사를 한다. 지워진 파일은 보지 않는다."""
+    data = rules.load(RULES_PATH)
+    base = gitcmd.git(top, "merge-base", REMOTE_REF, branch, deadline=deadline).strip()
+    found = []
+    head_blobs = shared_repo.tree_blobs(top, branch, deadline)
+    main_blobs = shared_repo.tree_blobs(top, REMOTE_REF, deadline) if intake else {}
+    for path in shared_repo.changed_paths(top, base, branch, deadline):
+        blob = head_blobs.get(path)
+        if blob is None:
+            continue
+        if intake and blob == main_blobs.get(path):
+            continue
+        raw = gitcmd.git_bytes(top, "cat-file", "blob", blob, deadline=deadline)
+        if feature and shared_repo.is_feature_doc(path, feature) and len(raw) <= rules_max_bytes(data):
+            continue
+        if rules.judge(data, path, len(raw), lambda raw=raw: raw) is not None:
+            found.append(path)
+    return found
+
+
+def _history_hits(top, branch, feature, deadline):
+    """기능 이전 branch 에만 있는 commit 전체를 검사한다. 기능 레포 중간 commit 의 비밀값을 잡기 위해서다."""
+    commits = gitcmd.git(top, "rev-list", f"{REMOTE_REF}..{branch}", deadline=deadline).split()
+    hits = scan_history.scan(top, rules.load(RULES_PATH), deadline, commits=commits, skip_ref=REMOTE_REF,
+                             doc_feature=feature)
+    if not hits:
+        return None
+    files = ", ".join(sorted({f"{hit['path']}({hit['commit']})" for hit in hits}))
+    return {"status": "failed", "message": MSG_FAILED, "outside": [], "reason": "history-hits",
+            "detail": f"기능 이전 이력에 올리면 안 되는 파일이 있어 push 하지 않았다: {files}"}
+
+
+def _stopped(stop, progress):
+    """_precheck 가 돌려준 결과에 upload 공통 칸을 채운다."""
+    return {**_upload_result(stop["status"], stop["message"], stop["detail"], progress),
+            "outside": stop["outside"], "reason": stop["reason"]}
+
+
+def _ask_github(top, full, branch, state, deadline, progress):
+    """3단계다. 'merged'·'conflict'·결과 dict 중 하나를 돌려준다."""
+    code, message = github_merge.merge(full, state["pushed_sha"], _merge_message(top, state), deadline)
+    if code in (201, 204):
+        return "merged"
+    if code == 409:
+        return "conflict"
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
-    # git 은 체크아웃된 브랜치의 branch -f 를 거부하므로 작업 브랜치로 먼저 옮긴다.
-    gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
-    gitcmd.git(top, "branch", "-f", BRANCH, REMOTE_REF, deadline=deadline)
-    gitcmd.git(top, "switch", "-q", BRANCH, deadline=deadline)
+    if _contains(top, state["pushed_sha"], deadline):
+        return "merged"  # 시간 초과여도 GitHub 쪽 merge 는 끝났을 수 있다
+    return _upload_result("failed", _not_merged(top, progress),
+                          f"GitHub merge 응답 {code if code is not None else '시간 초과'}: {message}. 원격 {branch} 는 "
+                          "남겨 두었다. 잠시 뒤 upload --continue --repo <폴더> 로 이어 가라.", progress)
+
+
+def _pc_merge(top, branch, state, deadline, progress):
+    """4단계 앞부분이다. GitHub 가 409 를 낸 main 과 같은 main 을 작업 branch 에 합친다."""
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+    if current_branch(top, deadline) != branch:
+        gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
     ensure_author(top, deadline)
     progress["merge_started"] = True
-    code, out, err = gitcmd.git_try(top, "merge", "--no-ff", "--no-commit", branch, deadline=deadline)
+    code, out, err = gitcmd.git_try(top, "merge", "--no-edit", REMOTE_REF, deadline=deadline)
     if code != 0:
         files = _unmerged(top, deadline)
         if files:
-            return files
+            return _upload_result("failed", MSG_CONFLICT, CONFLICT_DETAIL.format(files=", ".join(files)), progress)
         raise gitcmd.GitError(f"git merge 실패: {(err or out).strip()}")
-    gitcmd.git(top, "commit", "-q", "-F", "-", deadline=deadline, stdin=_merge_message(top, state).encode("utf-8"))
     progress["merge_started"] = False
     return None
 
 
-def _push_main(top, deadline):
-    return gitcmd.git_try(top, "push", "-q", "origin", BRANCH, deadline=deadline)[0] == 0
+def _after_pc_merge(top, full, branch, state, deadline, progress):
+    """4단계 뒷부분이다. 다시 검사하고 push 한 뒤 3단계를 한 번 다시 한다."""
+    stop = _precheck(top, branch, state, deadline)
+    if stop is not None:
+        github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
+        return _stopped(stop, progress)
+    _push_branch(top, branch, state, deadline, progress)
+    answer = _ask_github(top, full, branch, state, deadline, progress)
+    if answer == "merged":
+        return _cleanup(top, branch, state, deadline, progress)
+    if answer == "conflict":
+        return _upload_result("failed", _not_merged(top, progress),
+                              "PC 에서 합친 뒤에도 GitHub 가 다시 충돌(409)로 거부했다. 그사이 다른 개발자가 또 "
+                              "반영했을 수 있다. 잠시 뒤 upload --continue --repo <폴더> 로 이어 가라.", progress)
+    return answer
 
 
-def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False):
+def _github_merge(top, full, branch, state, deadline, progress):
+    """spec 「GitHub 에서 merge」 1~5단계다."""
+    stop = _precheck(top, branch, state, deadline)
+    if stop is not None:
+        return _stopped(stop, progress)
+    _push_branch(top, branch, state, deadline, progress)
+    answer = _ask_github(top, full, branch, state, deadline, progress)
+    if answer == "merged":
+        return _cleanup(top, branch, state, deadline, progress)
+    if answer == "conflict":
+        return _on_conflict(top, full, branch, state, deadline, progress)
+    return answer
+
+
+def _on_conflict(top, full, branch, state, deadline, progress):
+    """4단계다. 기능 이전은 PC 에서 합치지 않고 멈춘다. 이전 절차가 최신 main 부터 다시 한다.
+
+    원격 branch 는 남긴다. 세션이 끊겨도 이전 절차의 다시 실행 판정이 업로드한 작업으로 알아보게 하기 위해서다.
+    """
+    if state.get("intake"):
+        return {**_upload_result("failed", MSG_NOT_MERGED_SHARED,
+                                 f"기능 이전 중 GitHub 가 충돌(409)로 거부했다. PC 에서 합치지 않았고 원격 {branch} 는 "
+                                 "남겨 두었다. 기능 이전 절차의 업로드 단계를 처음(최신 main 합치기)부터 다시 하라.",
+                                 progress), "reason": "intake-conflict"}
+    stopped = _pc_merge(top, branch, state, deadline, progress)
+    if stopped is not None:
+        return stopped
+    return _after_pc_merge(top, full, branch, state, deadline, progress)
+
+
+def _main_free(top, deadline):
+    """main 이 다른 작업 폴더에 체크아웃되어 있지 않은가."""
+    out = gitcmd.git(top, "worktree", "list", "--porcelain", deadline=deadline)
+    own = str(Path(top).resolve()).casefold()
+    folder = None
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            folder = str(Path(line[len("worktree "):]).resolve()).casefold()
+        elif line == f"branch refs/heads/{BRANCH}" and folder != own:
+            return False
+    return True
+
+
+def _move_head(top, deadline):
+    """5단계 HEAD 이동이다. 옮기지 못한 사정은 detail 문장으로 돌려준다."""
+    own, common = _git_dirs(top, deadline)
+    has_main = _ref_exists(top, f"refs/heads/{BRANCH}", deadline)
+    ff = not has_main or gitcmd.git_try(top, "merge-base", "--is-ancestor", BRANCH, REMOTE_REF,
+                                        deadline=deadline)[0] == 0
+    if own == common and ff and _main_free(top, deadline):
+        if has_main:
+            gitcmd.git(top, "switch", "-q", BRANCH, deadline=deadline)
+            gitcmd.git(top, "merge", "-q", "--ff-only", REMOTE_REF, deadline=deadline)
+        else:
+            gitcmd.git(top, "switch", "-q", "-c", BRANCH, REMOTE_REF, deadline=deadline)
+        return ""
+    gitcmd.git(top, "switch", "-q", "--detach", REMOTE_REF, deadline=deadline)
+    if own != common:
+        return ""
+    return "PC 의 main 을 GitHub main 으로 맞추지 못해 HEAD 를 GitHub main 에 떼어 두었다(main 은 그대로다)."
+
+
+def _cleanup(top, branch, state, deadline, progress):
+    """5단계다. 원격 branch 삭제, fetch, HEAD 이동, 로컬 branch 삭제 차례다."""
+    notes = []
+    sha = state.get("pushed_sha") or gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+    if not _contains(top, sha, deadline):
+        raise UploadStop(f"GitHub 가 merge 했다고 답했지만 GitHub main 에 {branch} 가 보이지 않는다. 작업 branch 는 "
+                         "지우지 않았다. upload --continue --repo <폴더> 로 다시 실행하라.")
+    if not github_merge.delete_remote(top, branch, sha, deadline) and _remote_tip(top, branch, deadline):
+        notes.append(f"GitHub 의 {branch} 를 지우지 못했다(그사이 다른 commit 이 올라왔을 수 있다).")
+    gitcmd.git(top, "fetch", "-q", "--prune", "origin", deadline=deadline)
+    note = _move_head(top, deadline)
+    if note:
+        notes.append(note)
+    if _ref_exists(top, f"refs/heads/{branch}", deadline) and _contains(top, branch, deadline):
+        if gitcmd.git_try(top, "branch", "-q", "-D", branch, deadline=deadline)[0] != 0:
+            notes.append(f"이 PC 의 {branch} 를 지우지 못했다.")
+    key = state.get("feature") or "_feature"
+    gitcmd.git(top, "config", "--local", LAST_UPLOAD.format(key=key), sha, deadline=deadline)
+    _state_path(top, deadline).unlink(missing_ok=True)
+    progress["pushed"] = True
+    done = MSG_UPLOADED_SHARED if state.get("feature") else MSG_UPLOADED
+    return _upload_result("uploaded", with_notes(done, progress["excluded"]), " ".join(notes), progress)
+
+
+def _abort_legacy_main_merge(top, deadline, progress):
+    """PR #63 버전이 PC 의 main 위에 남긴 진행 중 merge 를 취소한다."""
+    if current_branch(top, deadline) == BRANCH and (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        gitcmd.git(top, "merge", "--abort", deadline=deadline)
+        progress["note"] = " ".join(filter(None, [progress.get("note"),
+                                                  "이전 버전이 PC 의 main 에 남긴 merge 를 취소했다. 그 merge 에서 푼 "
+                                                  "충돌 해결은 남지 않았을 수 있다."]))
+
+
+def _resume(top, full, state, deadline, progress):
+    """--continue 판정이다. spec 차례대로 이어 갈 지점을 정한다."""
+    branch = progress["branch"] = state.get("branch")
+    if branch and not _ref_exists(top, f"refs/heads/{branch}", deadline) and state.get("pushed_sha"):
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        if _contains(top, state["pushed_sha"], deadline):
+            return _cleanup(top, branch, state, deadline, progress)  # 정리 도중 끊긴 업로드다
+    if not branch or not _ref_exists(top, f"refs/heads/{branch}", deadline):
+        raise UploadStop("이어서 올릴 작업 브랜치를 알 수 없다. upload --task --title 로 처음부터 다시 실행하라.")
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+    _abort_legacy_main_merge(top, deadline, progress)
+    if _contains(top, branch, deadline):
+        return _cleanup(top, branch, state, deadline, progress)
+    if current_branch(top, deadline) == branch and (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        if state.get("intake"):
+            raise UploadStop("기능 이전 branch 에 진행 중인 merge 가 있다. 이어 하기는 이 merge 를 commit 하지 않는다. "
+                             "commit --intake 로 merge 를 끝낸 뒤 upload --continue 로 다시 실행하라.")
+        files = _unmerged(top, deadline)
+        if files:
+            raise UploadStop(f"아직 풀리지 않은 충돌이 있다: {', '.join(files)}. 풀고 git add 한 뒤 다시 실행하라.")
+        ensure_author(top, deadline)
+        gitcmd.git(top, "commit", "-q", "--no-edit", deadline=deadline)
+        return _after_pc_merge(top, full, branch, state, deadline, progress)
+    if current_branch(top, deadline) != branch:
+        gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+    local = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
+    if _remote_tip(top, branch, deadline) == local:
+        state["pushed_sha"] = local
+        answer = _ask_github(top, full, branch, state, deadline, progress)
+        if answer == "merged":
+            return _cleanup(top, branch, state, deadline, progress)
+        if answer == "conflict":
+            return _on_conflict(top, full, branch, state, deadline, progress)
+        return answer
+    return _github_merge(top, full, branch, state, deadline, progress)
+
+
+def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False, feature=None,
+           intake=False):
     """승인받은 작업을 GitHub 공유 코드에 올린다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
-    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    deadline = gitcmd.Deadline(INTAKE_UPLOAD_SECONDS if intake else SAVE_SECONDS)
     progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": []}
     try:
-        payload = _upload(Path(repo), task, title, list(close), resume, deadline, progress, allow_other_owner)
+        top = locate(Path(repo))
+        if top is not None and shared_repo.repo_kind(top) == "shared":
+            progress["shared"] = True
+            payload = _upload_shared(top, task, title, list(close), resume, feature, intake, deadline, progress)
+        else:
+            payload = _upload(Path(repo), task, title, list(close), resume, deadline, progress, allow_other_owner)
     except UploadStop as exc:
         payload = _upload_result("failed", MSG_FAILED, str(exc), progress)
+    except AuthorMissing:
+        payload = _upload_result("needs-author", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, progress)
     except rules.RulesError as exc:
         payload = _upload_result("failed", MSG_RULES, f"규칙 파일 오류다. upload_rules.json 을 고쳐야 한다. {exc}",
                                  progress)
@@ -803,6 +1598,13 @@ def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owne
     note = " ".join(filter(None, [progress.get("note"), _restore_after_upload(progress, payload["status"] == "uploaded")]))
     if note:
         payload["detail"] = f"{payload['detail']} {note}".strip()
+    if progress.get("shared"):
+        payload.setdefault("reason", "")
+        payload.setdefault("closed_prs", progress.get("closed_prs", []))
+    if payload["status"] == "uploaded" and progress["top"] is not None:
+        copy_note = _remove_copy_note(progress["top"])
+        if copy_note:
+            payload["detail"] = f"{payload['detail']} {copy_note}".strip()
     return payload
 
 
@@ -832,12 +1634,18 @@ def _restore_after_upload(progress, uploaded):
         if (git_dir(top, timeout=ABORT_SECONDS) / "MERGE_HEAD").exists():
             return ""
         branch = progress.get("branch")
-        if not uploaded and branch and current_branch(top) != branch:
+        if not uploaded and branch and current_branch(top) != branch and _ref_exists(top, f"refs/heads/{branch}",
+                                                                                         None):
             # 중간에 멈추면 main 에는 작업 브랜치의 파일이 없을 수 있다. stash 를 만든 작업 브랜치로 돌아가 되돌린다.
             gitcmd.git(top, "switch", "-q", branch, timeout=ABORT_SECONDS)
         return restore_upload_stash(top, timeout=ABORT_SECONDS) or ""
     except Exception as exc:  # noqa: BLE001
         return f"{UPLOAD_STASH} stash 를 되돌리지 못했다. git stash list 로 확인하라. {exc}"
+
+
+def _full_name(top):
+    owner, name = parse_remote(origin_url(top) or "") or ("", "")
+    return f"{owner}/{name}"
 
 
 def _upload(repo, task, title, close, resume, deadline, progress, allow_other_owner):
@@ -850,84 +1658,235 @@ def _upload(repo, task, title, close, resume, deadline, progress, allow_other_ow
     other = other_owner_url(top, deadline)
     if other and not allow_other_owner:
         return _upload_result("other-owner", MSG_OTHER_OWNER, OTHER_OWNER_DETAIL.format(url=other), progress)
+    full = _full_name(top)
     state_path = _state_path(top, deadline)
     if resume:
         if not state_path.exists():
             raise UploadStop("이어서 할 업로드가 없다. upload --task --title 로 다시 실행하라.")
         state = json.loads(state_path.read_text(encoding="utf-8"))
         progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
-        branch = progress["branch"] = state.get("branch")
-        if not branch or not _ref_exists(top, f"refs/heads/{branch}", deadline):
-            raise UploadStop("이어서 올릴 작업 브랜치를 알 수 없다. upload --task --title 로 처음부터 다시 실행하라.")
-        if (git_dir(top, deadline) / "MERGE_HEAD").exists():
-            files = _unmerged(top, deadline)
-            if files:
-                raise UploadStop(f"아직 풀리지 않은 충돌이 있다: {', '.join(files)}. 풀고 git add 한 뒤 다시 실행하라.")
-            ensure_author(top, deadline)
-            gitcmd.git(top, "commit", "-q", "-F", "-", deadline=deadline,
-                       stdin=_merge_message(top, state).encode("utf-8"))
-        if gitcmd.git_try(top, "merge-base", "--is-ancestor", branch, BRANCH, deadline=deadline)[0] != 0:
-            # merge 를 취소했거나 merge 전에 멈췄다. 작업 브랜치를 다시 합친다.
-            files = _merge(top, branch, state, deadline, progress)
-            if files:
-                return _upload_result("failed", MSG_CONFLICT, CONFLICT_DETAIL.format(files=", ".join(files)), progress)
-    else:
-        if task is None or not title:
-            raise UploadStop("--task 와 --title 이 필요하다.")
-        if (git_dir(top, deadline) / "MERGE_HEAD").exists():
-            raise UploadStop("앞선 merge 가 진행 중이다. 풀고 git add 한 뒤 upload --continue 를 실행하라.")
-        state = {"task": task, "title": title, "close": close}
-        state_path.write_text(json.dumps(state), encoding="utf-8")
-        recover(top, deadline)
-        progress["note"] = restore_upload_stash(top, deadline) or ""
+        return _resume(top, full, state, deadline, progress)
+    if task is None or not title:
+        raise UploadStop("--task 와 --title 이 필요하다.")
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline, check=False)
+    _abort_legacy_main_merge(top, deadline, progress)
+    if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        raise UploadStop("앞선 merge 가 진행 중이다. 풀고 git add 한 뒤 upload --continue 를 실행하라.")
+    state = {"task": task, "title": title, "close": close}
+    _save_state(top, state, deadline)
+    recover(top, deadline)
+    restored = restore_upload_stash(top, deadline) or ""
+    progress["note"] = " ".join(filter(None, [progress.get("note"), restored]))
+    data = rules.load(RULES_PATH)
+    excluded = stage(top, data, deadline)
+    progress["excluded"] = excluded
+    staged = has_staged_changes(top, deadline)
+    branch = _work_branch_for_upload(top, deadline) if (staged or unpushed(top, deadline)) else None
+    if staged:
+        ensure_author(top, deadline)
+        commit(top, title, excluded, deadline)
+    if not unpushed(top, deadline):
+        state_path.unlink()
+        return _upload_result("nothing", with_notes(MSG_NO_UPLOAD, excluded), "", progress)
+    _stash_leftovers(top, deadline, progress)
+    state["branch"] = progress["branch"] = branch
+    _save_state(top, state, deadline)
+    if not _ref_exists(top, REMOTE_REF, deadline):
+        # 빈 레포에 다른 브랜치를 먼저 올리면 GitHub 가 그 브랜치를 기본 브랜치로 정한다.
+        gitcmd.git(top, "push", "-q", "-u", "origin", BRANCH, deadline=deadline)
         gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
-        data = rules.load(RULES_PATH)
-        excluded = stage(top, data, deadline)
+        progress["pushed"] = True
+    if branch is None:
+        state_path.unlink()
+        return _upload_result("uploaded", with_notes(MSG_UPLOADED, excluded), "", progress)
+    return _github_merge(top, full, branch, state, deadline, progress)
+
+
+def _upload_shared(top, task, title, close, resume, feature, intake, deadline, progress):
+    """공유 레포 upload 다. 그 기능의 작업 branch 를 「GitHub 에서 merge」로 올린다."""
+    progress["top"] = top
+    full = _full_name(top)
+    state_path = _state_path(top, deadline)
+    if resume:
+        if not state_path.exists():
+            raise UploadStop("이어서 할 업로드가 없다. upload --task --title --feature 로 다시 실행하라.")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["feature"] = state.get("feature") or _kw_feature(top, state.get("branch") or "", deadline)
+        if state.get("intake"):
+            deadline.seconds = INTAKE_UPLOAD_SECONDS
+        progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
+        return _resume(top, full, state, deadline, progress)
+    if task is None or not title:
+        raise UploadStop("--task 와 --title 이 필요하다.")
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline, check=False)
+    if not shared_repo.supported(top):
+        return _upload_result("unsupported", MSG_UNSUPPORTED, "", progress)
+    status = shared_repo.feature_status(top, feature) if feature else "invalid"
+    if status == "invalid" or (intake and status != "new"):
+        return _upload_result("invalid-feature", MSG_INVALID_FEATURE, "", progress)
+    if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        raise UploadStop("앞선 merge 가 진행 중이다. 풀고 git add 한 뒤 upload --continue 를 실행하라.")
+    pending = pending_filter(top, deadline)
+    progress["closed_prs"] = pending["closed_prs"]
+    try:
+        branch = feature_branch(top, feature, exclude=pending["excluded"], deadline=deadline)
+    except BranchChoiceError as exc:
+        raise UploadStop(str(exc)) from exc
+    if branch and not intake and is_intake_branch(top, branch, deadline):
+        raise UploadStop(INTAKE_ONLY_DETAIL.format(branch=branch))
+    current = current_branch(top, deadline)
+    # 검토 요청 대기 branch 에는 commit 하지 않는다.
+    now = _kw_feature(top, current, deadline) if current and current not in pending["excluded"] else ""
+    state = {"task": task, "title": title, "close": close, "feature": feature, "intake": intake}
+    recover(top, deadline)
+    restored = restore_upload_stash(top, deadline) or ""
+    progress["note"] = " ".join(filter(None, [progress.get("note"), restored]))
+    if now == feature:
+        excluded, _ = stage(top, rules.load(RULES_PATH), deadline, scope=(feature, intake))
         progress["excluded"] = excluded
-        staged = has_staged_changes(top, deadline)
-        branch = _work_branch_for_upload(top, deadline) if (staged or unpushed(top, deadline)) else None
-        if staged:
+        if has_staged_changes(top, deadline):
             ensure_author(top, deadline)
             commit(top, title, excluded, deadline)
-        if not unpushed(top, deadline):
-            state_path.unlink()
-            return _upload_result("nothing", with_notes(MSG_NO_UPLOAD, excluded), "", progress)
-        _stash_leftovers(top, deadline, progress)
-        state["branch"] = progress["branch"] = branch
-        state_path.write_text(json.dumps(state), encoding="utf-8")
-        if not _ref_exists(top, REMOTE_REF, deadline):
-            # 빈 레포에 다른 브랜치를 먼저 올리면 GitHub 가 그 브랜치를 기본 브랜치로 정한다.
-            gitcmd.git(top, "push", "-q", "-u", "origin", BRANCH, deadline=deadline)
-            progress["pushed"] = True
+    elif now:
+        left = [p for p in shared_repo.worktree_paths(top, deadline)
+                if shared_repo.allowed(p, now) or shared_repo.feature_of(p) is None]
+        if left:
+            raise UploadStop(f"{now} 기능에 commit 하지 않은 변경이 있다: {', '.join(left)}. 그 기능을 먼저 commit 하라.")
+    if branch is None:
+        raise UploadStop(f"{feature} 기능의 작업 branch 가 없어 올릴 commit 이 없다.")
+    if not _count(top, f"{REMOTE_REF}..{branch}", deadline):
+        return _upload_result("nothing", with_notes(MSG_NO_UPLOAD, progress["excluded"]), "", progress)
+    _stash_leftovers(top, deadline, progress)
+    if current_branch(top, deadline) != branch:
+        gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+    state["branch"] = progress["branch"] = branch
+    _save_state(top, state, deadline)
+    return _github_merge(top, full, branch, state, deadline, progress)
+
+
+def _main_worktree(top, deadline):
+    out = gitcmd.git(top, "worktree", "list", "--porcelain", deadline=deadline)
+    first = next(line for line in out.splitlines() if line.startswith("worktree "))
+    return Path(first[len("worktree "):])
+
+
+# 패키지 설치가 만드는 폴더다. 안의 파일은 다시 설치하면 생기므로 정리 판정에서 뺀다.
+DEPENDENCY_DIRS = ("node_modules", ".venv", "venv", "__pycache__", ".pytest_cache")
+
+
+def _ignored(top, deadline):
+    out = gitcmd.git_z(top, "status", "--porcelain", "-z", "--ignored", "--untracked-files=all", deadline=deadline)
+    return [entry[3:] for entry in out if entry.startswith("!! ")]
+
+
+def _dependency(path):
+    return any(part in DEPENDENCY_DIRS for part in path.split("/")[:-1])
+
+
+def remove_copy(top, deadline=None):
+    """사본 작업 폴더를 정리하고 detail 에 붙일 문장을 돌려준다. 원래 작업 폴더이면 빈 문자열이다."""
+    top = Path(top)
+    own, common = _git_dirs(top, deadline)
+    if own == common:
+        return ""
+    left = shared_repo.worktree_paths(top, deadline)
+    if left:
+        return f"사본 작업 폴더 {top} 에 commit 하지 않은 변경이 있어 지우지 않았다: {', '.join(left)}"
+    listing = gitcmd.git(top, "stash", "list", "--format=%gs", deadline=deadline)
+    if any(line.endswith(f": {upload_stash_name(top, deadline)}") for line in listing.splitlines()):
+        return f"사본 작업 폴더 {top} 가 남긴 {UPLOAD_STASH} stash 가 있어 지우지 않았다. git stash list 로 확인하라."
+    data = rules.load(RULES_PATH)
+    ignored = _ignored(top, deadline)
+    risky = [path for path in ignored if not _dependency(path) and (top / path).is_file()
+             and _judge(top, data, path) is not None]
+    if risky:
+        return f"사본 작업 폴더 {top} 에 비밀값·데이터 파일이 남아 지우지 않았다: {', '.join(risky)}"
+    original = _main_worktree(top, deadline)
+    code, out, err = gitcmd.git_try(original, "worktree", "remove", str(top), deadline=deadline)
+    if code != 0:
+        return f"사본 작업 폴더 {top} 를 지우지 못해 폴더가 남아 있다: {(err or out).strip()}"
+    gitcmd.git(original, "worktree", "prune", deadline=deadline)
+    return f"사본 작업 폴더를 지우며 무시된 파일 {len(ignored)}개도 함께 지웠다." if ignored else ""
+
+
+def _remove_copy_note(top):
+    try:
+        return remove_copy(top, gitcmd.Deadline(ABORT_SECONDS * 4))
+    except Exception as exc:  # noqa: BLE001 — 정리 실패가 업로드 결과를 바꾸지 않게 한다
+        return f"사본 작업 폴더를 정리하지 못했다: {exc}"
+
+
+def add_copy(repo, feature, summary):
+    """원래 작업 폴더 옆에 <레포 폴더 이름>-<기능> 사본 작업 폴더를 만들고 그 기능 branch 를 체크아웃한다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(Path(repo))
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        if shared_repo.feature_status(top, feature) == "invalid":
+            return {"status": "invalid-feature", "reason": "", "message": MSG_INVALID_FEATURE, "detail": ""}
+        original = _main_worktree(top, deadline)
+        path = original.parent / f"{original.name}-{feature}"
+        if path.exists():
+            return _shared_failed(MSG_FAILED, f"{path} 가 이미 있다. 그 폴더에서 이어서 작업하라.")
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+        branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"], deadline=deadline)
+        if branch:
+            gitcmd.git(top, "worktree", "add", "-q", str(path), branch, deadline=deadline)
+        else:
+            branch = SHARED_BRANCH.format(feature=feature, login=_login(top, deadline), summary=summary)
+            gitcmd.git(top, "worktree", "add", "-q", "--no-track", "-b", branch, str(path), REMOTE_REF,
+                       deadline=deadline)
+            gitcmd.git(top, "config", f"branch.{branch}.kwFeature", feature, deadline=deadline)
+        return {"status": "created", "path": str(path), "branch": branch, "reason": "", "message": "",
+                "detail": ""}
+    except BranchChoiceError as exc:
+        return _shared_failed(MSG_FAILED, str(exc))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
+
+
+def open_pr(repo, feature, title, body_file):
+    """경계를 넘어야 하거나 충돌을 풀지 못한 작업을 검토 요청(PR)으로 올린다. main 에는 merge 하지 않는다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(Path(repo))
+        if top is None or shared_repo.repo_kind(top) != "shared":
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        notes = []
+        if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+            # 풀지 못한 충돌은 PR 에서 AX팀이 푼다.
+            gitcmd.git(top, "merge", "--abort", deadline=deadline)
+            notes.append("진행 중이던 merge 를 취소했다.")
+        branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"], deadline=deadline)
         if branch is None:
-            state_path.unlink()
-            return _upload_result("uploaded", with_notes(MSG_UPLOADED, excluded), "", progress)
-        gitcmd.git(top, "push", "-q", "-u", "origin", branch, deadline=deadline)
-        files = _merge(top, branch, state, deadline, progress)
-        if files:
-            return _upload_result("failed", MSG_CONFLICT, CONFLICT_DETAIL.format(files=", ".join(files)), progress)
-    if not _push_main(top, deadline):
-        # 원격이 그사이 앞섰다. 5단계부터 한 번 다시 한다.
-        files = _merge(top, branch, state, deadline, progress)
-        if files:
-            return _upload_result("failed", MSG_CONFLICT, CONFLICT_DETAIL.format(files=", ".join(files)), progress)
-        if not _push_main(top, deadline):
-            raise UploadStop("GitHub 공유 코드가 계속 앞서 main push 가 거부되었다. 잠시 뒤 다시 실행하라.")
-    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
-    if gitcmd.git_try(top, "merge-base", "--is-ancestor", branch, REMOTE_REF, deadline=deadline)[0] != 0:
-        raise UploadStop(f"main push 뒤에도 GitHub 공유 코드에 {branch} 가 보이지 않는다. 작업 브랜치는 지우지 않았다. "
-                         "upload --continue 로 다시 실행하라.")
-    progress["pushed"] = True
-    left = []
-    if branch:
-        if gitcmd.git_try(top, "push", "-q", "origin", "--delete", branch, deadline=deadline)[0] != 0:
-            left.append(f"GitHub 의 {branch}")
-        # -d 는 합쳐진 브랜치만 지운다. 합쳐지지 않은 커밋을 지우지 않기 위해서다.
-        if gitcmd.git_try(top, "branch", "-q", "-d", branch, deadline=deadline)[0] != 0:
-            left.append(f"이 PC 의 {branch}")
-    state_path.unlink(missing_ok=True)
-    detail = f"합친 작업 브랜치를 지우지 못했다: {', '.join(left)}. 다음 업로드 때 다시 지워도 된다." if left else ""
-    return _upload_result("uploaded", with_notes(MSG_UPLOADED, progress["excluded"]), detail, progress)
+            return _shared_failed(MSG_FAILED, f"{feature} 기능의 작업 branch 가 없어 검토 요청을 올리지 않았다.")
+        if current_branch(top, deadline) != branch:
+            gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+        gitcmd.git(top, "push", "-q", "origin", branch, deadline=deadline)
+        args = ["pr", "create", "-R", _full_name(top), "--base", BRANCH, "--head", branch, "--title", title,
+                "--body-file", str(body_file), "--assignee", "@me"]
+        if _login(top, deadline) != PR_REVIEWER:
+            args += ["--reviewer", PR_REVIEWER]
+        out = gitcmd.gh(*args, deadline=deadline)
+        url = (out.strip().splitlines() or [""])[-1]
+        # PR 은 이미 열렸으므로 아래 단계가 실패해도 결과는 pr-opened 로 두고 detail 에 적는다.
+        gitcmd.git_try(top, "fetch", "-q", "origin", deadline=deadline)
+        # 같은 기능의 다음 수정이 PR branch 에 쌓이지 않게 한다.
+        code, out, err = gitcmd.git_try(top, "switch", "-q", "--detach", REMOTE_REF, deadline=deadline)
+        if code != 0:
+            notes.append(f"HEAD 를 GitHub main 으로 떼어 두지 못해 {branch} 에 남아 있다. 다음 수정 전에 "
+                         f"switch-feature 로 새 작업 branch 를 만들어라. {(err or out).strip()}")
+        restored = restore_upload_stash(top, deadline)
+        if restored:
+            notes.append(restored)
+        notes.append(_remove_copy_note(top))
+        return {"status": "pr-opened", "url": url, "reason": "", "message": MSG_PR_OPENED,
+                "detail": " ".join(filter(None, notes))}
+    except BranchChoiceError as exc:
+        return _shared_failed(MSG_FAILED, str(exc))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
 
 BULLET = re.compile(r"^[-*]\s*(\[[ xX]?\]\s*)?")
@@ -945,24 +1904,46 @@ def template_only(title, body):
     return True
 
 
-def _leaked(top, data, deadline):
-    """GitHub 공유 코드에 올라간 파일 중 업로드 규칙에 해당하는 파일이다."""
-    found = []
-    for path in gitcmd.git_z(top, "ls-tree", "-r", "-z", "--name-only", REMOTE_REF, deadline=deadline):
-        raw = gitcmd.git_bytes(top, "cat-file", "blob", f"{REMOTE_REF}:{path}", deadline=deadline)
-        verdict = rules.judge(data, path, len(raw), lambda raw=raw: raw)
-        if verdict is not None:
-            found.append(_excluded(path, verdict[0], verdict[1]))
-    return found
+def _leaked(top, data, deadline, keep=None):
+    """GitHub 공유 코드에 올라간 파일 중 업로드 규칙에 해당하는 파일이다. keep 이 있으면 그 경로만 본다."""
+    entries = []
+    for entry in gitcmd.git_z(top, "ls-tree", "-r", "-z", "--format=%(objectname) %(path)", REMOTE_REF,
+                              deadline=deadline):
+        blob, path = entry.split(" ", 1)
+        if keep is None or keep(path):
+            entries.append((blob, path))
+    judged = scan_history.judge_blobs(top, data, entries, deadline)
+    return [_excluded(path, verdict[0], verdict[1]) for _, path, _, verdict in sorted(judged, key=lambda item: item[1])
+            if verdict is not None]
 
 
-def review_upload(repo):
-    """업로드 뒤 점검에 쓸 사실을 모은다. 판단과 처리는 saving-work 스킬의 Claude 가 한다."""
+def _contains_config(top, key, deadline):
+    """git config 에 적힌 마지막 업로드 SHA 가 GitHub main 에 들어 있는가."""
+    code, out, _ = gitcmd.git_try(top, "config", "--get", key, deadline=deadline)
+    return code == 0 and bool(out.strip()) and _contains(top, out.strip(), deadline)
+
+
+def _copies(top, deadline):
+    out = gitcmd.git(top, "worktree", "list", "--porcelain", deadline=deadline)
+    folders = [line[len("worktree "):] for line in out.splitlines() if line.startswith("worktree ")]
+    return folders[1:]  # 첫 줄은 원래 작업 폴더다
+
+
+def review_upload(repo, feature=None, intake=False):
+    """업로드 뒤 점검에 쓸 사실을 모은다. 판단과 처리는 saving-work 스킬의 Claude 가 한다.
+
+    공유 레포에서는 그 기능의 허용 경로와 [<기능>] 이슈만 본다. intake 이면 이전 허용 파일과 구조 파일도 본다.
+    """
     deadline = gitcmd.Deadline(SAVE_SECONDS)
-    payload = {"status": "failed", "uploaded": False, "leaked": [], "issues": [], "message": MSG_FAILED, "detail": ""}
+    payload = {"status": "failed", "uploaded": False, "leaked": [], "issues": [], "copies": [], "message": MSG_FAILED,
+               "detail": ""}
     try:
         top = locate(Path(repo))
-        if top is None or not is_feature_repo(top):
+        shared = top is not None and shared_repo.repo_kind(top) == "shared"
+        if shared and shared_repo.feature_status(top, feature or "") == "invalid":
+            payload.update(message=MSG_INVALID_FEATURE, detail="--feature 가 없거나 기능 이름으로 쓸 수 없다.")
+            return payload
+        if top is None or not (shared or is_feature_repo(top)):
             payload.update(message=MSG_NOT_FEATURE, detail="표식 파일이 없는 폴더다.")
             return payload
         parsed = parse_remote(origin_url(top) or "")
@@ -970,20 +1951,29 @@ def review_upload(repo):
             payload["detail"] = "origin 주소에서 GitHub 레포 이름을 읽지 못했다."
             return payload
         gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
-        local = gitcmd.git(top, "rev-parse", BRANCH, deadline=deadline).strip()
-        remote = gitcmd.git(top, "rev-parse", REMOTE_REF, deadline=deadline).strip()
-        feature = read_marker(top).get("issue")
+        if shared:
+            uploaded = _contains_config(top, LAST_UPLOAD.format(key=feature), deadline)
+            prefix, issue = f"[{feature}] ", None
+            extra = set(shared_repo.INTAKE_FILES) | set(shared_repo.STRUCTURE_FILES) if intake else set()
+            keep = lambda path: shared_repo.allowed(path, feature) or path in extra  # noqa: E731
+        else:
+            local = gitcmd.git_try(top, "rev-parse", BRANCH, deadline=deadline)[1].strip()
+            remote = gitcmd.git(top, "rev-parse", REMOTE_REF, deadline=deadline).strip()
+            # 업로드 5단계가 PC 의 main 을 옮기지 못했으면 마지막 업로드 SHA 로 본다.
+            uploaded = local == remote or _contains_config(top, LAST_UPLOAD.format(key="_feature"), deadline)
+            prefix, issue, keep = f"[{parsed[1]}] ", read_marker(top).get("issue"), None
         me = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
         listed = json.loads(gitcmd.gh("issue", "list", "-R", "/".join(parsed), "--state", "open", "--json",
                                       "number,title,body,assignees,author", "--limit", "100", deadline=deadline) or "[]")
         payload.update(
             status="ok", message="",
-            uploaded=local == remote,
-            leaked=_leaked(top, rules.load(RULES_PATH), deadline),
-            # ours: 플러그인이 만든 이슈다. 제목이 "[<레포 이름>] " 으로 시작하고 작성자가 지금 gh 사용자다.
-            # 같은 접두어로 팀원이 만든 이슈를 지우거나 닫지 않기 위해서다.
-            issues=[{"number": item["number"], "title": item["title"], "feature": str(item["number"]) == feature,
-                     "ours": bool(me) and item["title"].startswith(f"[{parsed[1]}] ")
+            uploaded=uploaded,
+            leaked=_leaked(top, rules.load(RULES_PATH), deadline, keep),
+            copies=_copies(top, deadline),
+            # ours: 플러그인이 만든 이슈다. 제목이 "[<레포 이름>] "(공유 레포는 "[<기능>] ")으로 시작하고 작성자가
+            # 지금 gh 사용자다. 같은 접두어로 팀원이 만든 이슈를 지우거나 닫지 않기 위해서다.
+            issues=[{"number": item["number"], "title": item["title"], "feature": str(item["number"]) == issue,
+                     "ours": bool(me) and item["title"].startswith(prefix)
                              and (item.get("author") or {}).get("login") == me,
                      "template_only": template_only(item["title"], item.get("body")),
                      "no_assignee": not item.get("assignees")} for item in listed],
@@ -1009,6 +1999,8 @@ def main(argv=None):
     mode.add_argument("--message")
     mode.add_argument("--catch-up", action="store_true")
     commit_cmd.add_argument("--branch")
+    commit_cmd.add_argument("--feature", help="공유 대시보드 레포에서 고친 기능 이름")
+    commit_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
     prepare_cmd = sub.add_parser("prepare-upload", help="원격 레포와 기능 이슈를 맞춘다")
     prepare_cmd.add_argument("--repo", required=True)
     prepare_cmd.add_argument("--allow-other-owner", action="store_true")
@@ -1020,15 +2012,53 @@ def main(argv=None):
     upload_cmd.add_argument("--title")
     upload_cmd.add_argument("--close", type=int, action="append", default=[])
     upload_cmd.add_argument("--allow-other-owner", action="store_true")
-    sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다").add_argument("--repo", required=True)
+    upload_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
+    upload_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    review_cmd = sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다")
+    review_cmd.add_argument("--repo", required=True)
+    review_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올린 기능 이름")
+    review_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    boundary_cmd = sub.add_parser("check-boundary", help="공유 대시보드 레포에서 기능 폴더 경계를 검사한다")
+    boundary_cmd.add_argument("--repo", required=True)
+    boundary_cmd.add_argument("--feature", required=True)
+    boundary_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    switch_cmd = sub.add_parser("switch-feature", help="그 기능의 작업 branch 로 옮긴다")
+    switch_cmd.add_argument("--repo", required=True)
+    switch_cmd.add_argument("--feature", required=True)
+    switch_cmd.add_argument("--summary")
+    switch_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 branch 로 표시한다")
+    revert_cmd = sub.add_parser("revert-outside", help="기능 폴더 밖 수정을 GitHub main 상태로 되돌린다")
+    revert_cmd.add_argument("--repo", required=True)
+    revert_cmd.add_argument("--feature", required=True)
+    revert_cmd.add_argument("--paths", nargs="+", required=True)
+    pr_cmd = sub.add_parser("open-pr", help="공유 대시보드 레포에서 검토 요청(PR)을 올린다")
+    pr_cmd.add_argument("--repo", required=True)
+    pr_cmd.add_argument("--feature", required=True)
+    pr_cmd.add_argument("--title", required=True)
+    pr_cmd.add_argument("--body-file", required=True)
+    copy_cmd = sub.add_parser("add-copy", help="두 번째 기능용 사본 작업 폴더를 만든다")
+    copy_cmd.add_argument("--repo", required=True)
+    copy_cmd.add_argument("--feature", required=True)
+    copy_cmd.add_argument("--summary", required=True)
     args = parser.parse_args(argv)
+    if args.command == "open-pr":
+        return _print(open_pr(args.repo, args.feature, args.title, args.body_file))
+    if args.command == "add-copy":
+        return _print(add_copy(args.repo, args.feature, args.summary))
+    if args.command == "check-boundary":
+        return _print(check_boundary(args.repo, args.feature, intake=args.intake))
+    if args.command == "switch-feature":
+        return _print(switch_feature(args.repo, args.feature, summary=args.summary, intake=args.intake))
+    if args.command == "revert-outside":
+        return _print(revert_outside(args.repo, args.feature, args.paths))
     if args.command == "review-upload":
-        return _print(review_upload(args.repo))
+        return _print(review_upload(args.repo, feature=args.feature, intake=args.intake))
     if args.command == "upload":
         return _print(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
-                             allow_other_owner=args.allow_other_owner))
+                             allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake))
     if args.command == "commit":
-        return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up))
+        return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
+                                  feature=args.feature, intake=args.intake))
     if args.command == "prepare-upload":
         return _print(prepare_upload(args.repo, allow_other_owner=args.allow_other_owner, body_file=args.body_file))
     return 2

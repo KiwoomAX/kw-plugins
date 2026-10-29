@@ -56,11 +56,11 @@
       },
       {
         "name": "password-assignment",
-        "regex": "(?i)(?:password|passwd|pwd|secret|api_?key|access_?token|auth_?token|token)\\w*['\\\"]?\\s*[:=]\\s*['\\\"][^'\\\"\\s]{4,}['\\\"]"
+        "regex": "(?i)(?:(?:password|passwd|pwd|secret|api_?key)\\w*|(?<![a-z0-9])(?:access_?|auth_?|api_?)?token\\b)['\\\"]?\\s*[:=]\\s*['\\\"](?![/'\\\"])[^'\\\"\\s]{4,}['\\\"]"
       },
       {
         "name": "login-account",
-        "regex": "(?i)\\b(?:user_?name|user_?id|login_?id|login|account_?id|account|db_?user)['\\\"]?\\s*[:=]\\s*['\\\"][^'\\\"\\s]{3,}['\\\"]"
+        "regex": "(?i)\\b(?:(?:user_?name|user_?id|login_?id|account_?id|db_?user)['\\\"]?\\s*[:=]\\s*['\\\"][^'\\\"\\s]{3,}['\\\"]|(?:login|account)['\\\"]?\\s*[:=]\\s*['\\\"](?!/)(?!(?-i:(?=[A-Z0-9_-]*\\d)[A-Z0-9]+(?:[-_][A-Z0-9]+)*)['\\\"])[^'\\\"\\s]{3,}['\\\"])"
       }
     ]
   },

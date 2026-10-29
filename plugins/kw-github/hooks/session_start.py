@@ -16,6 +16,7 @@ import gitcmd  # noqa: E402
 import repo_setup  # noqa: E402
 import save_work  # noqa: E402
 import session_mark  # noqa: E402
+import shared_repo  # noqa: E402
 
 CODE_RULES_PATH = PLUGIN_ROOT / "feature_code_rules.md"
 GIT_TERMS_PATH = PLUGIN_ROOT / "git_terms.md"
@@ -32,6 +33,10 @@ UNPUSHED_NOTE = (
 OTHER_OWNER_NOTE = (
     "이 폴더의 origin 은 회사 GitHub(KiwoomAX) 밖이다. 올릴지 물을 때 그 주소를 함께 알리고, 회사 GitHub 이 아닌 "
     "곳에 올려도 되는지 확인하라."
+)
+NEEDS_AUTHOR_NOTE = (
+    "[kw-github] commit 명의가 없어 commit 하지 않았다. saving-work 스킬의 「commit 명의」 절에 따라 개발자에게 이름과 "
+    "메일을 물어 설정한 뒤 saving-work 로 commit 하라."
 )
 INSTALL_HELP = (
     "{tool} 를 찾지 못해 이 기능 레포를 commit 하지 못했다. 개발자에게 사내 설치기 kw_install 을 다시 "
@@ -60,6 +65,8 @@ def build_context(result, elsewhere=False):
         lines.append("빠진 파일(excluded): " + json.dumps(result["excluded"], ensure_ascii=False))
     if result["status"] == "failed":
         lines.append("saving-work 스킬의 「결과 처리」 절에 따라 처리하라.")
+    if result["status"] == "needs-author":
+        lines.append(NEEDS_AUTHOR_NOTE)
     if result.get("unpushed"):
         lines.append(UNPUSHED_NOTE)
         lines.append(f"first_push: {str(bool(result.get('first_push'))).lower()}, "
@@ -103,14 +110,131 @@ def _guidance_for(cwd):
     """기능 레포가 아닌 폴더에 넣을 안내다. 회사의 다른 레포에는 넣지 않는다."""
     state = repo_setup.inspect(cwd).get("state")
     if state in ("not-git", "local-only"):
-        return _with_rules(START_NOTE)
+        # 사용자 결정(2026-10-28): 기능 코드 규칙과 git 용어표는 starting-feature-repo 가 준비할 때 읽는다.
+        return START_NOTE
     if state == "other-remote":
         return ELSEWHERE_NOTE
     return None
 
 
+# 2026-10-27 globalbond-dashboard 의 fetch 10번 실측 최댓값 3.10초의 3배를 올림했다.
+SYNC_FETCH_SECONDS = 10
+SHARED_REMINDER = (
+    "[kw-github] 이 폴더는 여러 개발자가 함께 쓰는 공유 대시보드 레포다. 세션 시작 때 commit 하지 않는다. 기능마다 "
+    "save_work.py switch-feature 와 commit --feature <기능> 으로 commit 하고, 올리기는 saving-work 스킬로 한다."
+)
+SHARED_DIRTY_NOTE = (
+    "[kw-github] 공유 대시보드 레포에 commit 하지 않은 변경이 있다: {groups}. 개발자와 기능을 확인하고 "
+    "save_work.py switch-feature 와 commit --feature <기능> 으로 기능마다 commit 하라."
+)
+BEHIND_NOTE = ("[kw-github] 지금 작업 branch 가 공유 코드보다 {count}개 commit 뒤처져 있다. 작업 branch 에 main 을 "
+               "자동으로 합치지 않았다.")
+SHARED_UNPUSHED_NOTE = (
+    "[kw-github] GitHub 에 올리지 않은 commit 이 있다. 개발자에게 '업로드되지 않은 작업이 있습니다.' 라고 한 줄 알린 뒤 "
+    "saving-work 스킬의 「push 질문」 절에 따라 묻고, 동의하면 「공유 대시보드 레포」의 「올리기 흐름」을 하라."
+)
+INTAKE_BRANCH_NOTE = (
+    "[kw-github] 지금 branch 는 kw-dashboard 기능 이전 중인 branch 다. saving-work 의 「push 질문」을 하지 말고, "
+    "commit 하지 않은 변경도 기능별로 commit 하지 마라. kw-dashboard 기능 이전 절차의 「다시 실행 판정」부터 이어 가고, "
+    "업로드 승인은 그 절차가 공유 코드 반영 직전에 하는 질문으로 받아라."
+)
+UNSUPPORTED_NOTE = (
+    "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "
+    "개발자가 올리기를 원하면 AX팀에 문의하라고 안내하라."
+)
+LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
+             "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
+
+
+def _move_main(top, session_id):
+    """spec 「세션 시작 동기화」 3단계다. 조건을 모두 만족할 때만 PC 의 main 을 origin/main 으로 옮긴다."""
+    old = gitcmd.git_try(top, "rev-parse", "--verify", "-q", "refs/heads/main")[1].strip()
+    new = gitcmd.git(top, "rev-parse", save_work.REMOTE_REF).strip()
+    if not old or old == new or shared_repo.worktree_paths(top):
+        return
+    if gitcmd.git_try(top, "merge-base", "--is-ancestor", old, new)[0] != 0:
+        return
+    if not save_work._main_free(top, None):
+        return
+    if session_id and session_mark.others_active(top, session_id):
+        return
+    if save_work.current_branch(top) == save_work.BRANCH:
+        gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF)
+    else:
+        gitcmd.git(top, "update-ref", "refs/heads/main", new, old)
+
+
+def sync_shared(top, session_id=None):
+    """세션 시작 동기화다. Claude 에게 넣을 알림 문장 목록을 돌려준다."""
+    notes = []
+    try:
+        gitcmd.git(top, "fetch", "-q", "origin", timeout=SYNC_FETCH_SECONDS)
+        _move_main(top, session_id)
+    except gitcmd.CommandTimeout:
+        _, common = save_work._git_dirs(top)
+        locks = sorted(str(path) for path in common.rglob("*.lock"))
+        if locks:
+            notes.append(LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks)))
+    except gitcmd.GitError:
+        pass  # fetch 가 실패해도 세션 시작을 이어 간다
+    current = save_work.current_branch(top)
+    if current and current.startswith(save_work.WORK_PREFIXES) and save_work._ref_exists(top, save_work.REMOTE_REF,
+                                                                                       None):
+        count = save_work._count(top, f"HEAD..{save_work.REMOTE_REF}", None)
+        if count:
+            notes.append(BEHIND_NOTE.format(count=count))
+    return notes
+
+
+def _dirty_groups(top):
+    counts = {}
+    for path in shared_repo.worktree_paths(top):
+        group = shared_repo.feature_of(path) or "공용"
+        counts[group] = counts.get(group, 0) + 1
+    order = sorted(name for name in counts if name != "공용") + (["공용"] if "공용" in counts else [])
+    return ", ".join(f"{name} {counts[name]}개" for name in order)
+
+
+def _unpushed_quietly(top):
+    """세션 시작의 업로드 질문 판정이다. GitHub 확인(PR 상태)만 fetch 와 같은 상한 안에서 한다."""
+    try:
+        pending = save_work.pending_filter(top, gitcmd.Deadline(SYNC_FETCH_SECONDS), strict=True, record=False)
+    except save_work.GH_ERRORS:
+        pending = {"excluded": []}  # GitHub 를 확인하지 못하면 모든 작업 branch 를 센다
+    try:
+        return save_work.unpushed(top, pending=pending)
+    except save_work.GH_ERRORS:
+        return False  # 다음 commit 결과가 다시 알린다
+
+
+def shared_context(top, session_id=None):
+    # 다른 세션 확인(sync_shared)을 이 세션 표시보다 먼저 한다.
+    notes = sync_shared(top, session_id)
+    if session_id:
+        session_mark.touch(top, session_id)
+    current = save_work.current_branch(top)
+    if current and save_work.is_intake_branch(top, current):
+        # 기능 이전 중에는 이전 절차만 commit·업로드하므로 기능별 commit 안내를 넣지 않는다.
+        notes.append(INTAKE_BRANCH_NOTE)
+    # 지원 구조가 아니면 경로를 기능별로 묶을 기준이 없고, commit 도 하지 않는다.
+    elif not shared_repo.supported(top):
+        notes.insert(0, UNSUPPORTED_NOTE)
+    else:
+        notes.insert(0, SHARED_REMINDER)
+        groups = _dirty_groups(top)
+        if groups:
+            notes.append(SHARED_DIRTY_NOTE.format(groups=groups))
+        if _unpushed_quietly(top):
+            notes.append(SHARED_UNPUSHED_NOTE)
+    # 기능 코드 규칙은 기능 레포 구조를 정하므로 넣지 않는다. 개발자에게 하는 말의 git 용어 규칙만 넣는다.
+    return "\n".join(notes) + "\n\n" + GIT_TERMS_PATH.read_text(encoding="utf-8")
+
+
 def context_for(cwd, session_id=None):
     try:
+        top = save_work.locate(cwd)
+        if top is not None and shared_repo.repo_kind(top) == "shared":
+            return shared_context(top, session_id)
         top = feature_top(cwd)
     except gitcmd.ToolMissing:
         return _with_rules(INSTALL_HELP.format(tool="git")) if marker_above(cwd) else None
