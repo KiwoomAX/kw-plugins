@@ -367,18 +367,31 @@ if ($missing.Count -gt 0) {
 # 동기화는 한 번에 하나만 실행한다. 창을 둘 이상 동시에 열면 훅이 저마다 동기화를 호출해 pip 과
 # claude plugin 과 상태 파일 쓰기가 겹친다. 잠금 폴더를 먼저 만든 쪽만 실행하고 만들지 못한 쪽은
 # 이번 세션을 건너뛴다. 상태 파일을 읽기 전에 잠가야 직전 동기화가 적은 값을 덮지 않는다.
-# 훅이 제한 시간을 초과해 중단되면 잠금 폴더가 남으므로 10분 넘은 것은 삭제한다.
+# 동기화가 강제로 종료되면 finally 가 실행되지 않아 잠금 폴더가 남는다. 그래서 잠금 폴더에
+# 만든 프로그램의 번호와 시작 시각을 적어 두고, 그 프로그램이 종료되었으면 바로 삭제한다.
+# 번호만 보면 종료된 프로그램의 번호를 새 프로그램이 받았을 때 실행 중으로 잘못 보므로 시작 시각도 비교한다.
+# 프로그램이 실행 중이어도 10분 넘은 것은 멈춘 것으로 보고 삭제한다.
 $syncLock = Join-Path $cfg 'kw-control-tower.sync.lock'
+$lockOwner = Join-Path $syncLock 'owner'
 if (-not $WhatIfOnly) {
     if (Test-Path -LiteralPath $syncLock) {
         # 확인 직후 다른 창이 잠금 폴더를 삭제했으면 Get-Item 이 오류를 내고 훅이 그 오류를 전달한다. 오류를 무시한다.
         $lockItem = Get-Item -LiteralPath $syncLock -ErrorAction SilentlyContinue
-        if ($null -ne $lockItem -and ((Get-Date) - $lockItem.CreationTime).TotalMinutes -ge 10) {
+        $owner = Get-Content -LiteralPath $lockOwner -Raw -ErrorAction SilentlyContinue
+        # 번호를 적기 전의 잠금 폴더와 이전 버전이 만든 잠금 폴더에는 owner 파일이 없다. 그때는 만든 시각만 본다.
+        $ownerGone = $false
+        if ("$owner" -match '^(\d+)\|(\d+)') {
+            $p = Get-Process -Id ([int]$Matches[1]) -ErrorAction SilentlyContinue
+            $ownerGone = ($null -eq $p) -or ($p.StartTime.ToUniversalTime().Ticks -ne [long]$Matches[2])
+        }
+        if ($null -ne $lockItem -and ($ownerGone -or ((Get-Date) - $lockItem.CreationTime).TotalMinutes -ge 10)) {
             Remove-Item -LiteralPath $syncLock -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     try { New-Item -ItemType Directory -Path $syncLock -ErrorAction Stop | Out-Null }
     catch { Write-Host 'kw-control-tower: 다른 창에서 동기화가 실행 중이라 이번에는 건너뜁니다.'; exit 0 }
+    $me = [System.Diagnostics.Process]::GetCurrentProcess()
+    "$($me.Id)|$($me.StartTime.ToUniversalTime().Ticks)" | Set-Content -LiteralPath $lockOwner -Encoding ascii -NoNewline -ErrorAction SilentlyContinue
 }
 # 여기서부터 끝까지를 감싼다. exit 와 예외와 중단 모두에서 finally 가 잠금 폴더를 삭제한다.
 try {
