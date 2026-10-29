@@ -357,7 +357,7 @@ if ($null -eq $manifest) { Write-Error "목록 없음: $root\manifest.json"; exi
 # 읽을 수 있고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다. 있어야 할 항목이
 # 다 있는지 확인하고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 확인하지 않는다.
 $required = @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')
+              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels', 'minNodeVersion')
 $missing = @($required | Where-Object { $null -eq $manifest.PSObject.Properties[$_] })
 if ($missing.Count -gt 0) {
     Write-Error "목록에 항목 없음: $($missing -join ', ') ($root\manifest.json)"
@@ -1007,6 +1007,46 @@ try {
         Note "전역 설정의 `"availableModels`" 를 $($models -join ', ') 로 동기화(백업: $settingsPath.kw.bak). 이 목록에 없는 모델은 고를 수 없습니다."
     }
 } catch { Fail '9' $_.Exception.Message }
+} else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
+Save-State
+
+# ---------------------------------------------------------------- 단계 10
+Show '10. Node.js 버전을 확인합니다.'
+if (Want 10) {
+try {
+    # 목록의 minNodeVersion 보다 낮으면 winget 으로 최신 LTS 로 업데이트한다(2026-10-29 사용자 결정).
+    # winget install 은 이미 설치된 패키지를 업데이트한다. Node.js 가 없으면 설치기가 설치하므로 그대로 둔다.
+    # 버전은 세션 점검 훅과 같은 방법으로 node.exe 파일의 버전 정보에서 읽는다. 버전 정보가 없는 파일은 판정하지 않는다.
+    $min = [version]$manifest.minNodeVersion
+    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $node) { Say 'Node.js 가 없어 그대로 둡니다. 설치는 설치기가 합니다.' }
+    elseif (-not $node.Version -or $node.Version -eq [version]'0.0.0.0') { Say "버전 정보가 없는 node.exe 라 그대로 둡니다: $($node.Source)" }
+    elseif ($node.Version -ge $min) { Say "이미 $($node.Version) 입니다. 그대로 둡니다." }
+    else {
+        $wgArgs = @('install', '--id', 'OpenJS.NodeJS.LTS', '--exact', '--source', 'winget', '--silent',
+                    '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
+        if ($WhatIfOnly) { Say "[미리보기] winget $($wgArgs -join ' ')" }
+        else {
+            $wg = (Get-Command winget -ErrorAction SilentlyContinue).Source
+            if (-not $wg) { throw 'winget 찾기 실패: PATH 에 winget 없음' }
+            # pip 과 마찬가지로 제한 시간으로 중단하지 않는다. 설치 도중에 중단하면 Node.js 가 반쯤 바뀐 채로 남는다.
+            # Node.js 는 모든 사용자용으로 설치되므로 winget 이 관리자 승인 창을 띄울 수 있다.
+            $wgOut = & $wg @wgArgs 2>&1
+            $rc = $LASTEXITCODE
+            # 0 은 업데이트한 것이고 0x8A15002B 는 winget 이 이미 최신이라고 본 것이다. 둘 다 아래에서 버전을 다시 읽어 판정한다.
+            if ($rc -ne 0 -and $rc -ne -1978335189) {
+                foreach ($l in $wgOut) { Say "$l" }
+                throw "winget 실패: 종료 코드 $rc"
+            }
+            $after = (Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Version
+            if ($after -lt $min) {
+                # nvm 처럼 node.exe 를 따로 두는 도구가 PATH 에서 앞에 있으면 winget 이 업데이트한 것이 쓰이지 않는다.
+                throw "winget 을 실행했지만 PATH 의 node 가 여전히 $after 입니다. 어느 node.exe 가 먼저 오는지 확인해 주십시오: $($node.Source)"
+            }
+            Note "Node.js 를 $($node.Version) 에서 $after 로 업데이트했습니다. 이미 열려 있는 터미널은 다시 열어야 적용됩니다."
+        }
+    }
+} catch { Fail '10' $_.Exception.Message }
 } else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }
 Save-State
 

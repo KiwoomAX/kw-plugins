@@ -11,6 +11,10 @@ $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
 $ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기는 7 이 없으면 아무것도 설치하지 않는다.
 
+# 세션 점검 훅과 동기화 단계 10 은 PATH 의 node 를 본다. 이 PC 의 Node.js 버전에 따라 결과가 달라지지 않게
+# node.exe 가 있는 폴더를 PATH 에서 뺀다. Node.js 검사는 가짜 node.exe 를 둔 폴더를 앞에 붙여 실행한다.
+$env:PATH = @($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'node.exe')) }) -join ';'
+
 # 훅·동기화·명의 스크립트는 UTF-8 로 출력하고, PowerShell 은 자식 프로그램의 출력을
 # [Console]::OutputEncoding 으로 읽는다. 이 값은 PC 의 코드페이지를 따르므로(한국어 윈도우는 949)
 # 맞추지 않으면 한글이 깨져 출력을 대조하는 검사가 모두 실패한다. 결과를 낸 뒤 원래 값으로 되돌린다.
@@ -471,7 +475,7 @@ Check '폐기한 훅은 이름과 경로를 함께 적는다' {
 }
 # JSON 형식이 맞는 것과 목록의 형식이 맞는 것은 다르다. 항목 이름을 하나 잘못 적으면 JSON 형식
 # 오류는 없고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다.
-$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','availableModels')
+$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','availableModels','minNodeVersion')
 Check '목록에 있어야 할 항목이 모두 있다' {
     @($manifestKeys | Where-Object { $null -eq $mf.PSObject.Properties[$_] }).Count -eq 0
 }
@@ -1790,6 +1794,45 @@ Check '모델 허용 목록 단계는 settings.json 이 없으면 만들지 않�
 Check '점검이 모델 허용 목록이 없으면 알린다' { (Invoke-HookWith '{}') -match '모델 허용 목록이 목록과 다릅니다' }
 Check '점검이 모델 허용 목록이 다르면 알린다' { (Invoke-HookWith '{ "availableModels": ["fable"] }') -match '모델 허용 목록이 목록과 다릅니다' }
 Check '점검이 모델 허용 목록이 같으면 말하지 않는다' { (Invoke-HookWith "{ `"availableModels`": [$modelsJson] }") -notmatch '모델 허용 목록' }
+
+# --- Node.js 버전 -------------------------------------------------------------
+Write-Host ''
+Write-Host 'Node.js 버전'
+Check '목록의 Node.js 기준이 24.22.1 이다' { $mf.minNodeVersion -eq '24.22.1' }
+# where.exe 복사본을 가짜 node.exe 로 쓴다. 버전 정보(10.0.x)가 있어 기준보다 낮은 node 로 읽힌다.
+# 동기화는 미리보기로만 실행해 winget 을 실제로 호출하지 않는다.
+$nodeBin = Join-Path $os 'nodebin'
+New-Item -ItemType Directory -Force -Path $nodeBin | Out-Null
+Copy-Item (Join-Path $env:SystemRoot 'System32\where.exe') (Join-Path $nodeBin 'node.exe')
+function Invoke-WithNode([string]$Bin, [scriptblock]$Body) {
+    $saved = $env:PATH
+    if ($Bin) { $env:PATH = "$Bin;$env:PATH" }
+    try { & $Body } finally { $env:PATH = $saved }
+}
+function Invoke-NodeStep([string]$Root) {
+    $h = Join-Path $os ("n-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path (Join-Path $h '.claude') | Out-Null
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:CLAUDE_PLUGIN_ROOT='$Root'; & '$osCut' -WhatIfOnly -Steps '10'; exit `$LASTEXITCODE" 2>&1
+    ($out | ForEach-Object { "$_" }) -join "`n"
+}
+Check '점검이 기준보다 낮은 Node.js 를 알린다' {
+    (Invoke-WithNode $nodeBin { Invoke-HookWith '{}' }) -match 'Node\.js 10\.0\.[\d.]+ 이 기준 24\.22\.1 보다 낮습니다'
+}
+Check '점검이 Node.js 가 없으면 말하지 않는다' { (Invoke-HookWith '{}') -notmatch 'Node\.js' }
+Check '동기화가 기준보다 낮은 Node.js 를 winget 으로 최신 LTS 로 업데이트한다' {
+    (Invoke-WithNode $nodeBin { Invoke-NodeStep $plugin }) -match '\[미리보기\] winget install --id OpenJS\.NodeJS\.LTS --exact --source winget'
+}
+Check '동기화가 Node.js 가 없으면 설치하지 않는다' { (Invoke-NodeStep $plugin) -match 'Node\.js 가 없어 그대로 둡니다' }
+# 기준을 가짜 node.exe 보다 낮게 고친 목록으로 기준 이상인 경우를 본다.
+$quietManifest = Join-Path $osQuiet 'manifest.json'
+$manifestText = [System.IO.File]::ReadAllText($quietManifest)
+[System.IO.File]::WriteAllText($quietManifest, $manifestText.Replace('"minNodeVersion": "24.22.1"', '"minNodeVersion": "1.0.0"'), (New-Object System.Text.UTF8Encoding($true)))
+Check '점검이 기준 이상인 Node.js 는 말하지 않는다' { (Invoke-WithNode $nodeBin { Invoke-HookWith '{}' }) -notmatch 'Node\.js' }
+Check '동기화가 기준 이상인 Node.js 는 그대로 둔다' {
+    $o = Invoke-WithNode $nodeBin { Invoke-NodeStep $osQuiet }
+    ($o -match '이미 10\.0\.[\d.]+ 입니다\. 그대로 둡니다') -and ($o -notmatch 'winget')
+}
+[System.IO.File]::WriteAllText($quietManifest, $manifestText, (New-Object System.Text.UTF8Encoding($true)))
 Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 동기화가 끝까지 간다 ---------------------------------------------------

@@ -236,7 +236,7 @@ try {
     # 조용히 사라져, 목록과 다른 PC 를 정상으로 본다. 동기화는 이때 멈추고 알리지만, 이 훅은
     # 세션을 어지럽히지 않도록 기록만 남기고 종료한다.
     foreach ($k in @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')) {
+                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels', 'minNodeVersion')) {
         if ($null -eq $manifest.PSObject.Properties[$k]) { throw "목록에 항목 없음: $k ($root\manifest.json)" }
     }
 
@@ -583,6 +583,25 @@ try {
     if ($null -ne $settings -and
         (@(Get-Prop $settings 'availableModels') -join ',') -cne (@($manifest.availableModels) -join ',')) {
         Add-Note 9 '전역 설정의 모델 허용 목록이 목록과 다릅니다.'
+    }
+
+    # --- 질문 18. Node.js 가 목록의 minNodeVersion 보다 낮은가 ----------------
+    # node 를 실행하지 않고 node.exe 파일의 버전 정보를 읽는다. node --version 은 이 PC 에서 93밀리초라
+    # 고르지 않았다. 읽는 파일이 하나 늘어나는 것은 2026-10-29 사용자 승인이다. Node.js 가 없거나 버전 정보가
+    # 없는 파일이면 동기화가 고칠 수 없으므로 말하지 않는다.
+    # Get-Command 는 쓰지 않는다. node 가 없으면 모듈까지 찾느라 이 PC 에서 첫 호출이 1.8초, 이후 150밀리초였다.
+    # PATH 의 폴더를 차례로 보는 것은 있든 없든 20밀리초 안이었다. Join-Path 는 없는 드라이브에서 오류를 내므로 문자열로 잇는다.
+    $script:Budget.Files++
+    $nodeExe = $null
+    foreach ($d in ($env:PATH -split ';')) {
+        if ($d -and [System.IO.File]::Exists($d.TrimEnd('\') + '\node.exe')) { $nodeExe = $d.TrimEnd('\') + '\node.exe'; break }
+    }
+    if ($nodeExe) {
+        $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($nodeExe)
+        $nodeVer = [version]::new($fv.FileMajorPart, $fv.FileMinorPart, $fv.FileBuildPart, $fv.FilePrivatePart)
+        if ($nodeVer -ne [version]'0.0.0.0' -and $nodeVer -lt [version]$manifest.minNodeVersion) {
+            Add-Note 10 "Node.js $nodeVer 이 기준 $($manifest.minNodeVersion) 보다 낮습니다."
+        }
     }
 }
 catch {
