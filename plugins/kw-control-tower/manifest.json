@@ -31,7 +31,7 @@
 
   "availableModels": ["opus", "sonnet", "haiku"],
 
-  "_minNodeVersion_comment": "Node.js 가 이 버전보다 낮은 PC 는 동기화가 winget 으로 최신 LTS 로 업데이트한다(2026-10-29 사용자 결정). 설치기(KiwoomAX/kw_install 의 setup.ps1)도 같은 기준으로 설치하고 업데이트한다. 두 코드 저장소의 값이 같은지 자동으로 확인하는 검사는 없으므로 바꿀 때는 두 곳을 함께 바꾼다. Node.js 가 없는 PC 는 설치기가 설치하므로 동기화는 설치하지 않는다.",
+  "_minNodeVersion_comment": "Node.js 가 이 버전보다 낮은 PC 에서 winget 이 설치한 Node.js 는 동기화 단계 10 이 winget 을 별도 프로그램으로 띄워 최신 LTS 로 올린다. nvm 같은 다른 도구로 설치한 것은 그 도구로 올리라고 안내한다(2026-10-29 사용자 결정). 설치기(KiwoomAX/kw_install 의 setup.ps1)도 같은 기준을 쓴다. 두 코드 저장소의 값이 같은지 자동으로 확인하는 검사는 없으므로 바꿀 때는 두 곳을 함께 바꾼다. 설치기는 kw-plugins 를 내려받기 전에 Node.js 를 설치하므로 이 파일을 읽을 수 없다.",
 
   "minNodeVersion": "24.22.1",
 

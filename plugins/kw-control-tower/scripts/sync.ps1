@@ -1011,40 +1011,34 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 10
-Show '10. Node.js 버전을 확인합니다.'
+Show '10. Node.js 를 최신 LTS 로 업데이트합니다.'
 if (Want 10) {
 try {
-    # 목록의 minNodeVersion 보다 낮으면 winget 으로 최신 LTS 로 업데이트한다(2026-10-29 사용자 결정).
-    # winget install 은 이미 설치된 패키지를 업데이트한다. Node.js 가 없으면 설치기가 설치하므로 그대로 둔다.
-    # 버전은 세션 점검 훅과 같은 방법으로 node.exe 파일의 버전 정보에서 읽는다. 버전 정보가 없는 파일은 판정하지 않는다.
-    $min = [version]$manifest.minNodeVersion
-    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -eq $node) { Say 'Node.js 가 없어 그대로 둡니다. 설치는 설치기가 합니다.' }
-    elseif (-not $node.Version -or $node.Version -eq [version]'0.0.0.0') { Say "버전 정보가 없는 node.exe 라 그대로 둡니다: $($node.Source)" }
-    elseif ($node.Version -ge $min) { Say "이미 $($node.Version) 입니다. 그대로 둡니다." }
+    # 세션 점검 훅이 winget 이 설치한 Node.js 가 목록의 minNodeVersion 보다 낮다고 판정해 단계를 지정했을 때만 실행한다.
+    # 판정은 훅 한 곳에만 둔다. 두 곳에 두면 판정이 달라질 때 훅은 세션마다 이 단계를 호출하고 이 단계는 할 일이 없다고
+    # 끝나 실패 기록도 남지 않는다(PR #88 리뷰). 설치기는 단계를 지정하지 않고 호출하며, 프로그램 단계에서 이미 Node.js 를 올린다.
+    # update-node.ps1 을 별도 프로그램으로 띄우고 기다리지 않는다. winget 은 내려받기와 관리자 승인을 기다려
+    # 훅의 제한 시간 90초를 넘길 수 있다. 훅이 끝나거나 강제 종료되어도 띄운 프로그램은 끝까지 실행된다
+    # (2026-10-29 Node.js 의 하위 프로그램으로 재현해 확인했다. Bun 으로 만든 클로드 코드도 같다는 것은 가정이다).
+    # 같은 날 다시 띄우지 않도록 nodeUpdate 에 날짜를 적는다. 성공했는지는 다음 세션에 훅이 버전을 다시 읽어
+    # 판정하고, 여전히 낮으면 다음 날 다시 띄운다(2026-10-29 사용자 결정).
+    $today = Get-Date -Format 'yyyy-MM-dd'
+    $updater = Join-Path $root 'scripts\update-node.ps1'
+    $nodeLog = Join-Path $cfg 'kw-control-tower.node-update.log'
+    if (-not $script:StepsGiven) { Say '세션 점검 훅이 지정할 때만 실행합니다. 설치기는 프로그램 단계에서 Node.js 를 올립니다.' }
+    elseif ($state['nodeUpdate'] -eq $today) { Say '오늘 이미 업데이트를 시작했습니다. 그대로 둡니다.' }
+    elseif (-not (Test-Path -LiteralPath $updater)) { throw "업데이트 스크립트 없음: $updater" }
+    elseif ($WhatIfOnly) { Say "[미리보기] 별도 프로그램으로 실행: $updater (기록: $nodeLog)" }
     else {
-        $wgArgs = @('install', '--id', 'OpenJS.NodeJS.LTS', '--exact', '--source', 'winget', '--silent',
-                    '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
-        if ($WhatIfOnly) { Say "[미리보기] winget $($wgArgs -join ' ')" }
-        else {
-            $wg = (Get-Command winget -ErrorAction SilentlyContinue).Source
-            if (-not $wg) { throw 'winget 찾기 실패: PATH 에 winget 없음' }
-            # pip 과 마찬가지로 제한 시간으로 중단하지 않는다. 설치 도중에 중단하면 Node.js 가 반쯤 바뀐 채로 남는다.
-            # Node.js 는 모든 사용자용으로 설치되므로 winget 이 관리자 승인 창을 띄울 수 있다.
-            $wgOut = & $wg @wgArgs 2>&1
-            $rc = $LASTEXITCODE
-            # 0 은 업데이트한 것이고 0x8A15002B 는 winget 이 이미 최신이라고 본 것이다. 둘 다 아래에서 버전을 다시 읽어 판정한다.
-            if ($rc -ne 0 -and $rc -ne -1978335189) {
-                foreach ($l in $wgOut) { Say "$l" }
-                throw "winget 실패: 종료 코드 $rc"
-            }
-            $after = (Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Version
-            if ($after -lt $min) {
-                # nvm 처럼 node.exe 를 따로 두는 도구가 PATH 에서 앞에 있으면 winget 이 업데이트한 것이 쓰이지 않는다.
-                throw "winget 을 실행했지만 PATH 의 node 가 여전히 $after 입니다. 어느 node.exe 가 먼저 오는지 확인해 주십시오: $($node.Source)"
-            }
-            Note "Node.js 를 $($node.Version) 에서 $after 로 업데이트했습니다. 이미 열려 있는 터미널은 다시 열어야 적용됩니다."
-        }
+        # 쉘을 거쳐(Start-Process) cmd.exe 를 띄우고, cmd.exe 가 pwsh 를 실행한다. 2026-10-29 이 PC 에서 확인한 것 2가지 때문이다.
+        # - 쉘을 거치지 않으면(Process.Start) 이 프로그램의 출력 파이프를 물려받아, 출력을 읽는 세션 점검 훅이 winget 이
+        #   끝날 때까지 기다린다. 가짜 winget 이 20초 걸리면 동기화도 24.8초 뒤에 끝났다.
+        # - 쉘을 거쳐 pwsh 를 직접 띄우면 마이크로소프트 스토어판 pwsh 가 PATH 를 물려받지 못해(항목 17개가 2개로) winget 을
+        #   찾지 못한다. cmd.exe 는 pwsh 를 쉘 없이 실행하므로 PATH 가 그대로 이어진다.
+        $cmdLine = "/d /s /c `"pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$updater`" -Log `"$nodeLog`"`""
+        Start-Process -FilePath $env:ComSpec -ArgumentList $cmdLine -WindowStyle Hidden
+        $state['nodeUpdate'] = $today
+        Note "Node.js 를 최신 LTS 로 업데이트하는 winget 을 시작했습니다. 관리자 승인 창이 뜨면 승인해 주십시오. 기록: $nodeLog"
     }
 } catch { Fail '10' $_.Exception.Message }
 } else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }

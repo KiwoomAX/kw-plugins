@@ -586,9 +586,12 @@ try {
     }
 
     # --- 질문 18. Node.js 가 목록의 minNodeVersion 보다 낮은가 ----------------
+    # winget 이 설치한 Node.js 이면 동기화 단계 10 이 winget 을 별도 프로그램으로 띄운다. 단계 10 은 기다리지 않으므로
+    # 내려받기와 관리자 승인이 훅의 제한 시간 90초를 넘겨도 된다(2026-10-29 사용자 결정). 단계 10 이 오늘 이미 띄웠으면
+    # 상태 파일의 nodeUpdate 가 오늘 날짜이므로 알리지 않는다. 실행 중인 winget 을 다시 띄우지 않기 위해서다.
+    #
     # node 를 실행하지 않고 node.exe 파일의 버전 정보를 읽는다. node --version 은 이 PC 에서 93밀리초라
-    # 고르지 않았다. 읽는 파일이 하나 늘어나는 것은 2026-10-29 사용자 승인이다. Node.js 가 없거나 버전 정보가
-    # 없는 파일이면 동기화가 고칠 수 없으므로 말하지 않는다.
+    # 고르지 않았다. 읽는 파일이 하나 늘어나는 것은 2026-10-29 사용자 승인이다.
     # Get-Command 는 쓰지 않는다. node 가 없으면 모듈까지 찾느라 이 PC 에서 첫 호출이 1.8초, 이후 150밀리초였다.
     # PATH 의 폴더를 차례로 보는 것은 있든 없든 20밀리초 안이었다. Join-Path 는 없는 드라이브에서 오류를 내므로 문자열로 잇는다.
     $script:Budget.Files++
@@ -597,10 +600,26 @@ try {
         if ($d -and [System.IO.File]::Exists($d.TrimEnd('\') + '\node.exe')) { $nodeExe = $d.TrimEnd('\') + '\node.exe'; break }
     }
     if ($nodeExe) {
+        # 제품 이름이 Node.js 인 파일만 판정한다. Volta·Scoop 의 대리 실행 파일도 이름이 node.exe 이지만
+        # 버전 정보는 자기 것이라, 판정하면 사용자가 없앨 수 없는 잘못된 알림이 세션마다 나온다.
         $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($nodeExe)
-        $nodeVer = [version]::new($fv.FileMajorPart, $fv.FileMinorPart, $fv.FileBuildPart, $fv.FilePrivatePart)
-        if ($nodeVer -ne [version]'0.0.0.0' -and $nodeVer -lt [version]$manifest.minNodeVersion) {
-            Add-Note 10 "Node.js $nodeVer 이 기준 $($manifest.minNodeVersion) 보다 낮습니다."
+        $nodeVer = [version]::new($fv.FileMajorPart, $fv.FileMinorPart, $fv.FileBuildPart)
+        $minNode = $manifest.minNodeVersion
+        if ($fv.ProductName -eq 'Node.js' -and $nodeVer -lt [version]$minNode) {
+            # winget 은 자기가 설치한 위치(%ProgramFiles%\nodejs)의 Node.js 만 업데이트한다. 다른 곳의 node 에
+            # 실행하면 그 폴더에 두 번째 Node.js 를 설치하고 PATH 의 node 는 그대로 낮다. 이전 nvm-windows 는 그
+            # 폴더를 링크로 만들어 두므로 링크이면 winget 이 설치한 것으로 보지 않는다.
+            $msiDir = "$env:ProgramFiles\nodejs"
+            $byWinget = ($nodeExe -eq "$msiDir\node.exe") -and
+                -not ([System.IO.File]::GetAttributes($msiDir) -band [System.IO.FileAttributes]::ReparsePoint)
+            if ($byWinget) {
+                if ($kwState['nodeUpdate'] -ne (Get-Date -Format 'yyyy-MM-dd')) {
+                    Add-Note 10 "Node.js $nodeVer 이 기준 $minNode 보다 낮습니다."
+                }
+            } else {
+                Add-Ask "Node.js $nodeVer($nodeExe) 이 기준 $minNode 보다 낮습니다. 이 Node.js 를 설치한 도구로 업데이트하십시오." `
+                    'winget 으로 설치하지 마라. 두 번째 Node.js 가 생기고 PATH 의 node 는 그대로 낮다. NVM_HOME 환경 변수가 있으면 nvm install lts 와 nvm use lts 를 제안하고, 없으면 그 node 를 무엇으로 설치했는지 사용자에게 물어라.'
+            }
         }
     }
 }
