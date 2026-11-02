@@ -1184,7 +1184,7 @@ def unpushed_commits(top, deadline=None):
 
 
 MSG_MAIN_FAILED = "GitHub 코드 저장소의 기본 branch 를 main 으로 바꾸지 못했습니다. AX팀에 문의해 주세요."
-MSG_MAIN_NO_PERMISSION = ("{repo} 의 기본 branch 가 {old} 로 되어 있습니다. 이 GitHub 계정({account})에는 이 설정을 "
+MSG_MAIN_NO_PERMISSION = ("{name} 의 기본 branch 가 {old} 로 되어 있습니다. 이 GitHub 계정({account})에는 이 설정을 "
                           "바꿀 관리자 권한이 없습니다. AX팀에 이 코드 저장소의 기본 branch 를 main 으로 바꿔 달라고 "
                           "요청해 주세요.")
 MSG_MAIN_CONFLICT = "예전 기본 branch 의 작업을 main 에 자동으로 반영하지 못했습니다."
@@ -1251,7 +1251,7 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
         if fixed["status"] not in ("ok", "normalized"):
             message = MAIN_BRANCH_MESSAGES.get(fixed["status"], "")
             if fixed["reason"] == "no-permission":
-                message = MSG_MAIN_NO_PERMISSION.format(repo=f"{owner}/{name}", old=fixed["old_branch"],
+                message = MSG_MAIN_NO_PERMISSION.format(name=f"{owner}/{name}", old=fixed["old_branch"],
                                                         account=fixed["account"])
             return {**_ready_result("main-branch", message, fixed["detail"], repo=f"{owner}/{name}"),
                     "main_branch": fixed}
