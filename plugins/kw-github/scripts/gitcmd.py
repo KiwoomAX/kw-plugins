@@ -174,3 +174,11 @@ def gh(*args, deadline=None, timeout=GH_SECONDS):
     if code != 0:
         raise _fail(["gh", *args], code, out, err)
     return out
+
+
+def gh_login(deadline=None):
+    """지금 gh 에 로그인한 GitHub 계정 이름이다. 읽지 못하면 GitError 다."""
+    out = gh("api", "user", "--jq", ".login", deadline=deadline).strip()
+    if not out:
+        raise GitError("gh api user 가 로그인을 돌려주지 않았다")
+    return out

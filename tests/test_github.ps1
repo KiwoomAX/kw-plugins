@@ -269,6 +269,31 @@ try {
         $merged.status -eq 'normalized' -and (Test-Path (Join-Path $work4 'b.py')) -and (Invoke-Git $work4 @('branch', '--format=%(refname:short)')).Trim() -eq 'main')
 } finally { Remove-Item -LiteralPath $work4 -Recurse -Force -ErrorAction SilentlyContinue }
 
+Write-Host '--- old history reset ---'
+# reset_history moves the old history aside so only the current files reach GitHub.
+$work5 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $work5 | Out-Null
+try {
+    $null = Invoke-Git $work5 @('init', '-q', '-b', 'main')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $work5 (@('config') + $kv) }
+    [IO.File]::WriteAllText((Join-Path $work5 'a.py'), "x = 1`n")
+    $null = Invoke-Git $work5 @('add', '-A'); $null = Invoke-Git $work5 @('commit', '-q', '-m', 'first')
+    [IO.File]::WriteAllText((Join-Path $work5 'a.py'), "x = 2`n")
+    $null = Invoke-Git $work5 @('add', '-A'); $null = Invoke-Git $work5 @('commit', '-q', '-m', 'second')
+    $null = Invoke-Git $work5 @('branch', 'feat/login')
+    $null = Invoke-Git $work5 @('switch', '-q', '--detach', 'HEAD~1')
+    $before = Invoke-Git $work5 @('for-each-ref', '--format=%(refname) %(objectname)')
+    $old = Invoke-Py @((Join-Path $Scripts 'reset_history.py'), '--repo', $work5) | ConvertFrom-Json
+    Assert 'reset refuses an old detached commit and changes nothing' (
+        $old.status -eq 'refused' -and $old.reason -eq 'detached' -and (Invoke-Git $work5 @('for-each-ref', '--format=%(refname) %(objectname)')) -eq $before)
+    $null = Invoke-Git $work5 @('switch', '-q', 'main')
+    $done = Invoke-Py @((Join-Path $Scripts 'reset_history.py'), '--repo', $work5) | ConvertFrom-Json
+    $names = (Invoke-Git $work5 @('for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/')) -split "`n"
+    Assert 'reset keeps other branches as local-history-<name>' (
+        $done.status -eq 'reset' -and $done.kept.'feat/login' -eq 'local-history-feat-login' -and
+        ($names -join ',') -eq 'local-history,local-history-feat-login' -and (Get-Content (Join-Path $work5 'a.py') -Raw) -eq "x = 2`n")
+} finally { Remove-Item -LiteralPath $work5 -Recurse -Force -ErrorAction SilentlyContinue }
+
 Write-Host '--- shared dashboard repo ---'
 # A KiwoomAX repo whose name ends in "dashboard" is shared by several developers, one feature folder each.
 $work3   = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))

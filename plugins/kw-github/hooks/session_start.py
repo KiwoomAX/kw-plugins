@@ -141,7 +141,7 @@ INTAKE_BRANCH_NOTE = (
 )
 UNSUPPORTED_NOTE = (
     "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "
-    "개발자가 올리기를 원하면 AX팀에 기능별 폴더 구조로 이관을 요청하라고 안내하라."
+    "개발자가 올리기를 원하면 AX팀에 기능별 폴더 구조로 전환을 요청하라고 안내하라."
 )
 MAIN_DECISION_NOTE = (
     "[kw-github] 예전 기본 branch {old} 에 main 에 없는 commit 이 있다: {commits}. saving-work 스킬의 「기본 branch "

@@ -69,7 +69,7 @@ MSG_CONFLICT = "GitHub에 올라온 것과 지금 PC에 저장된 것이 달라 
 MSG_NO_UPLOAD = "GitHub에 올릴 새 작업이 없습니다."
 MSG_OTHER_OWNER = "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다."
 MSG_RULES = "저장 규칙 파일을 읽지 못해 저장을 멈췄습니다."
-RULES_DETAIL = "규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 다시 설치하라. {exc}"
+RULES_DETAIL = "규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 업데이트하라. {exc}"
 MSG_TIMEOUT = "저장이 오래 걸려 멈췄습니다. 다음에 다시 저장합니다."
 MSG_FAILED = "저장하지 못했습니다. 원인을 확인해 이어서 처리합니다."
 MSG_NEEDS_AUTHOR = "commit 에 남길 이름과 메일을 알려 주세요. 한 번만 설정하면 됩니다."
@@ -622,7 +622,7 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 
 # ---- 공유 대시보드 레포 ----
 MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
-                   "AX팀에 기능별 폴더 구조로 이관을 요청해 주세요.")
+                   "AX팀에 기능별 폴더 구조로 전환을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
 MSG_OUTSIDE = "이번 수정 중 {files} 은 내 기능 폴더 밖의 파일이라 공유 코드에 바로 반영할 수 없습니다."
 MSG_PR_OPENED = "공유 코드에 바로 반영할 수 없어 검토 요청을 올렸습니다. AX팀에 문의해 주세요."
@@ -633,10 +633,7 @@ COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 �
 
 
 def _login(top, deadline):
-    out = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
-    if not out:
-        raise gitcmd.GitError("gh api user 가 로그인을 돌려주지 않았다")
-    return out
+    return gitcmd.gh_login(deadline)
 
 
 def _kw_feature(top, branch, deadline=None):
@@ -1183,13 +1180,13 @@ def unpushed_commits(top, deadline=None):
     return [line for line in out.splitlines() if line.strip()]
 
 
-MSG_MAIN_FAILED = "GitHub 코드 저장소의 기본 branch 를 main 으로 바꾸지 못했습니다. AX팀에 문의해 주세요."
 MSG_MAIN_NO_PERMISSION = ("{name} 의 기본 branch 가 {old} 로 되어 있습니다. 이 GitHub 계정({account})에는 이 설정을 "
                           "바꿀 관리자 권한이 없습니다. AX팀에 이 코드 저장소의 기본 branch 를 main 으로 바꿔 달라고 "
                           "요청해 주세요.")
 MSG_MAIN_CONFLICT = "예전 기본 branch 의 작업을 main 에 자동으로 반영하지 못했습니다."
 MSG_MAIN_DECISION = "예전 기본 branch 에 main 에 없는 작업이 있어 반영할지 정해야 합니다."
-MAIN_BRANCH_MESSAGES = {"failed": MSG_MAIN_FAILED, "conflict": MSG_MAIN_CONFLICT, "needs-decision": MSG_MAIN_DECISION}
+# failed 는 no-permission 뿐이며, 그 문장은 레포와 계정을 넣어 만든다.
+MAIN_BRANCH_MESSAGES = {"conflict": MSG_MAIN_CONFLICT, "needs-decision": MSG_MAIN_DECISION}
 
 
 def normalize_main(repo, merge_old=None, discard_old=None):
@@ -1210,21 +1207,44 @@ def normalize_main(repo, merge_old=None, discard_old=None):
                 "detail": COMMAND_DETAIL.format(exc=exc)}
 
 
-def _share_with_team(full, team, deadline):
-    """팀에 읽기 권한을 준다. 성공하면 None, 실패하면 이유(no-team·no-permission·failed)다."""
-    for _ in range(2):
+# 팀 공유를 다시 시도하기 전에 기다리는 시간이다. 일시 장애가 지나갈 여유를 둔다.
+TEAM_RETRY_SECONDS = 2
+
+
+def _share_with_team(top, full, team, deadline):
+    """팀에 읽기 권한을 준다. 성공하면 표식에 team-shared 를 적고 None, 실패하면 (이유, GitHub 오류 원문) 이다.
+
+    이유는 no-team(404)·no-permission(403)·timeout·failed(그 밖의 GitHub 오류)다. 시간 초과와 그 밖의 오류는
+    잠시 기다려 한 번 다시 시도한다.
+    """
+    reason, error = "failed", ""
+    for attempt in range(2):
+        if attempt:
+            time.sleep(TEAM_RETRY_SECONDS)
         try:
             code, _out, err = gitcmd.gh_try("api", "-X", "PUT", f"orgs/{ORG}/teams/{team}/repos/{full}",
                                             "-f", "permission=pull", deadline=deadline)
         except gitcmd.CommandTimeout:
+            reason, error = "timeout", ""
             continue
         if code == 0:
+            set_marker(top, "team-shared", "yes")
             return None
+        error = err.strip().splitlines()[-1] if err.strip() else ""
         if "HTTP 404" in err:
-            return "no-team"
+            return "no-team", error
         if "HTTP 403" in err:
-            return "no-permission"
-    return "failed"
+            return "no-permission", error
+        reason = "failed"
+    return reason, error
+
+
+def _team_result(result, marker, failure):
+    if failure:
+        result.update(team_shared=False, team=marker["team"], team_reason=failure[0], team_error=failure[1])
+    elif marker.get("team"):
+        result["team_shared"] = True
+    return result
 
 
 def _ready_result(status, message, detail="", repo=None, feature_issue=None, team_shared=None):
@@ -1262,24 +1282,25 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
         _create_remote(top, name, marker.get("title") or name, deadline)
     full = f"{owner}/{name}"
     company = owner.lower() == ORG.lower()
+    # 팀 공유는 성공해 표식에 team-shared 가 적힐 때까지 업로드 준비마다 다시 시도한다.
+    share = company and marker.get("team") and not marker.get("team-shared")
     if marker.get("issue"):
-        # 기능 이슈까지 마친 레포다. topic 과 팀 권한은 그때 이미 맞췄다.
-        return dict(_ready_result("ready", "", repo=full, feature_issue=int(marker["issue"])),
-                    commits=unpushed_commits(top, deadline))
-    team_shared = None
+        # 기능 이슈까지 마친 레포다. topic 은 그때 이미 달았다.
+        failure = _share_with_team(top, full, marker["team"], deadline) if share else None
+        result = dict(_ready_result("ready", "", repo=full, feature_issue=int(marker["issue"])),
+                      commits=unpushed_commits(top, deadline))
+        return _team_result(result, marker, failure) if share else result
+    failure = None
     if company:
         # topic 과 팀 권한은 회사 레포에만 단다.
         gitcmd.gh("repo", "edit", full, "--add-topic", TOPIC, deadline=deadline)
-        if marker.get("team"):
-            team_reason = _share_with_team(full, marker["team"], deadline)
-            team_shared = team_reason is None
+        if share:
+            failure = _share_with_team(top, full, marker["team"], deadline)
     title = marker.get("title") or remote_description(full, deadline) or name
     number = _feature_issue(top, full, name, title, deadline, body_file)
-    result = dict(_ready_result("ready", "", repo=full, feature_issue=number, team_shared=team_shared),
+    result = dict(_ready_result("ready", "", repo=full, feature_issue=number),
                   commits=unpushed_commits(top, deadline))
-    if team_shared is False:
-        result.update(team=marker["team"], team_reason=team_reason)
-    return result
+    return _team_result(result, marker, failure) if (share or marker.get("team-shared")) else result
 
 
 UPLOAD_STATE = "kiwoom-upload.json"
@@ -2019,7 +2040,7 @@ def review_upload(repo, feature=None, intake=False):
             # 업로드 5단계가 PC 의 main 을 옮기지 못했으면 마지막 업로드 SHA 로 본다.
             uploaded = local == remote or _contains_config(top, LAST_UPLOAD.format(key="_feature"), deadline)
             prefix, issue, keep = f"[{parsed[1]}] ", read_marker(top).get("issue"), None
-        me = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()
+        me = gitcmd.gh("api", "user", "--jq", ".login", deadline=deadline).strip()  # 비어 있으면 내 이슈가 없다
         listed = json.loads(gitcmd.gh("issue", "list", "-R", "/".join(parsed), "--state", "open", "--json",
                                       "number,title,body,assignees,author", "--limit", "100", deadline=deadline) or "[]")
         payload.update(

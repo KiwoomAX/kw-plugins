@@ -45,7 +45,7 @@ description: 사내 개발자용 기능 레포(최상위 폴더에 .kiwoom-featu
 - **미반영 commit 이 있는 작업 branch 가 둘 이상이다.** `detail` 이 정한 대로 한다. 개발자에게 두 작업을 쉬운 말로 적어 어느 쪽을 먼저 올릴지 묻고, `git switch <branch>` 로 그 branch 로 옮겨 「push 절차」대로 올린 뒤 다시 commit 한다. branch 를 `git merge` 로 합치거나 지우지 않고, `git reset` 으로 commit 을 버리지 않는다.
 - **새 작업 branch의 이름이 없다.** 이번 작업에 맞는 이름을 정해 `--branch` 로 다시 실행한다.
 - **제한 시간을 넘겼다.** 한 번만 다시 실행한다. 또 실패하면 `message` 만 전하고 넘어간다.
-- **규칙 파일 오류다.** 규칙 파일을 직접 고치지 않는다. 설치한 kw-github 파일이 빠졌거나 깨졌을 수 있으므로, 먼저 `claude plugin update kw-github@kiwoom-ax` 를 실행한다. 출력에 이미 최신 버전이라고 나오면 `claude plugin uninstall kw-github@kiwoom-ax` 와 `claude plugin install kw-github@kiwoom-ax` 를 차례로 실행해 다시 설치한다. 그다음 개발자에게 "저장 규칙 파일을 읽지 못해 kw-github 를 다시 설치했습니다. Claude Code 를 다시 열고 같은 요청을 해 주세요. 다시 열어도 이 안내가 나오면 kw-github 의 저장 규칙 파일에 문제가 있어 저장이 동작하지 않습니다. AX팀에 문의해 주세요." 라고 알린다. 다시 설치하는 명령이 실패하면 설치 대신 마지막 두 문장만 알린다.
+- **규칙 파일 오류다.** 규칙 파일을 직접 고치지 않는다. 이 PC 의 kw-github 가 최신 버전이 아닐 수 있으므로 `claude plugin update kw-github@kiwoom-ax` 를 실행한다. 출력이 새 버전으로 업데이트했다고 하면 개발자에게 "저장 규칙 파일을 읽지 못해 kw-github 를 업데이트했습니다. Claude Code 를 재시작한 뒤 같은 요청을 해 주세요." 라고 알린다. 출력이 이미 최신 버전이라고 하거나 명령이 실패하면 업데이트로 풀 수 없는 문제다. 개발자에게 "kw-github 의 저장 규칙 파일에 문제가 있어 저장이 동작하지 않습니다. AX팀에 문의해 주세요." 라고 알린다. 재시작한 뒤 같은 오류가 나면 업데이트가 이미 최신이라고 답하므로 이 안내로 끝난다.
 - **git 이나 gh 를 찾지 못했거나 GitHub 로그인이 필요하다.** 개발자에게 사내 설치기 `kw_install` 을 다시 실행하거나, 터미널에서 `gh auth login --web --git-protocol https --skip-ssh-key --clipboard` 를 한 번 실행하라고 안내한다.
 - **그 밖의 오류다.** `detail` 에 포함된 명령 출력을 읽고 원인을 고친 뒤 다시 실행한다. 두 번 고쳐도 실패하면 멈추고 `message` 만 전한다.
 
@@ -88,7 +88,7 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
 
    표식 파일에 `issue=` 줄이 있으면 `--body-file` 없이 실행한다.
 
-   `team_shared` 가 거짓이면 저장 스크립트가 이미 한 번 다시 시도했다. 개발자에게 "`<repo>` 를 `<team>` 팀이 볼 수 있게 설정하지 못했습니다. 이유: `<이유>`. 이 문장을 AX팀에 그대로 전해 주세요." 라고 알린다. `<이유>` 는 `team_reason` 이 `no-team` 이면 "GitHub 에 그 팀 이름이 없음", `no-permission` 이면 "이 GitHub 계정에 팀 공유를 설정할 권한이 없음", `failed` 면 "GitHub 가 응답하지 않음" 이다. 같은 이름의 레포가 이미 있어 `failed` 면 개발자에게 "같은 이름의 GitHub 코드 저장소가 이미 있어 이 이름은 쓸 수 없습니다." 라고 알리고, 다른 이름을 정해 표식 파일의 `name` 을 고친 뒤 다시 실행한다. 결과의 `feature_issue` 가 기능 이슈 번호다.
+   `team_shared` 가 거짓이면 저장 스크립트가 이미 한 번 다시 시도했고, 다음 업로드 준비 때도 다시 시도한다. 개발자에게 "`<repo>` 를 `<team>` 팀이 볼 수 있게 설정하지 못했습니다. 이유: `<이유>`. 다음에 올릴 때 다시 시도합니다. 계속되면 이 문장을 AX팀에 그대로 전해 주세요." 라고 알린다. `<이유>` 는 `team_reason` 에 따라 정한다. `no-team` 이면 "GitHub 에서 그 팀을 찾지 못함(팀 이름이 틀렸거나 이 계정이 그 팀을 볼 수 없음)", `no-permission` 이면 "이 GitHub 계정에 팀 공유를 설정할 권한이 없음", `timeout` 이면 "GitHub 가 제한 시간 안에 응답하지 않음", `failed` 면 "GitHub 오류: `<team_error>`" 다. 같은 이름의 레포가 이미 있어 `failed` 면 개발자에게 "같은 이름의 GitHub 코드 저장소가 이미 있어 이 이름은 쓸 수 없습니다." 라고 알리고, 다른 이름을 정해 표식 파일의 `name` 을 고친 뒤 다시 실행한다. 결과의 `feature_issue` 가 기능 이슈 번호다.
 
    `status` 가 `main-branch` 면 아래 「기본 branch 맞추기」 절에 따라 처리한 뒤 `prepare-upload` 를 다시 실행한다.
 
@@ -186,7 +186,7 @@ origin 이 `KiwoomAX/<이름>` 이고 이름이 `dashboard` 로 끝나는 레포
 
 ### 결과의 `status`
 
-- `unsupported` 면 개발자에게 "이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. AX팀에 기능별 폴더 구조로 이관을 요청해 주세요." 라고 알리고 멈춘다.
+- `unsupported` 면 개발자에게 "이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. AX팀에 기능별 폴더 구조로 전환을 요청해 주세요." 라고 알리고 멈춘다.
 - `invalid-feature` 면 "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요." 라고 알리고, 개발자에게 받은 이름으로 다시 실행한다.
 - `failed` 는 위 「결과 처리」 절에 따라 처리한다. `reason` 이 있으면 「기능 이전 업로드」 절에 따라 처리한다.
 
