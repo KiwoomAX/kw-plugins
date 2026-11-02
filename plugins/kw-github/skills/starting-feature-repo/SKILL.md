@@ -25,7 +25,7 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
    python "${CLAUDE_PLUGIN_ROOT}/scripts/repo_setup.py" check-rules
    ```
 
-   `ok` 가 `false` 면 아무것도 만들지 않고 멈춘다. 개발자에게 "저장 규칙을 읽지 못해 준비를 멈췄습니다. AX팀에 알려 주세요." 라고 알린다. 이어서 폴더를 확인한다.
+   `ok` 가 `false` 면 아무것도 만들지 않고 멈춘다. `${CLAUDE_PLUGIN_ROOT}/skills/saving-work/SKILL.md` 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 다시 설치하고 개발자에게 알린다. 알리는 문장의 "저장 규칙 파일을 읽지 못해" 는 "저장 규칙 파일을 읽지 못해 준비를 멈췄고" 로 바꾼다. 이어서 폴더를 확인한다.
 
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/repo_setup.py" check-folder --path "<폴더>"
@@ -73,7 +73,9 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
      python "${CLAUDE_PLUGIN_ROOT}/scripts/reset_history.py" --repo "<폴더>"
      ```
 
-     `scan_history.py` 의 `status` 가 `failed` 이거나 `reset_history.py` 의 `status` 가 `reset` 이 아니면 멈춘다. `refused` 는 스크립트가 아무것도 바꾸지 않았다는 뜻이라, 이어 가면 비밀값이 포함된 예전 기록이 첫 업로드 때 GitHub 에 올라간다. 개발자에게는 "예전 기록을 정리하지 못해 준비를 멈췄습니다. AX팀에 알려 주세요." 라고 알리고, `detail` 의 원인(예: `local-history` 가 이미 있음)을 AX팀에 전하라고 한다.
+     `reset_history.py` 는 이미 있는 `local-history` 와 다른 branch 를 `local-history-<이름>` 으로 보관한 뒤 정리한다. 보관한 branch 는 결과의 `kept` 에 있다. `kept` 가 비어 있지 않으면 개발자에게 "다른 branch 의 예전 작업은 이 PC 의 `<새 이름들>` 에 보관했습니다. GitHub 에는 올리지 않습니다." 라고 알린다.
+
+     `scan_history.py` 나 `reset_history.py` 의 `status` 가 `failed` 면 한 번만 다시 실행한다. `reset_history.py` 의 `status` 가 `refused` 면 스크립트가 아무것도 바꾸지 않았다. 이어 가면 비밀값이 포함된 예전 기록이 첫 업로드 때 GitHub 에 올라가므로, 다시 실행해도 `status` 가 `reset` 이 아니면 멈춘다. 개발자에게는 "예전 기록을 정리하지 못해 GitHub 업로드 준비가 동작하지 않습니다. 작업은 이 PC 에 그대로 있습니다. AX팀에 문의해 주세요." 라고 알리고, `detail` 의 원인(예: 이미 GitHub 에 연결됨)을 AX팀에 전하라고 한다.
    - 마지막으로 현재 branch 이름을 확인한다. `reset_history.py` 를 실행했으면 이미 `main` 이다. 아니면 2단계 결과의 `branch` 가 `main` 이 아닐 때 `git branch -m main` 으로 이름을 바꾼다.
 
 6. **표식 파일을 만든다.** 최상위 폴더에 `.kiwoom-feature` 를 만들고 줄마다 `<키>=<값>` 을 적는다.

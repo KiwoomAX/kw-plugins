@@ -68,7 +68,8 @@ MSG_UPLOADED_SHARED = "작업을 GitHub 에 push(업로드)해 공유 코드에 
 MSG_CONFLICT = "GitHub에 올라온 것과 지금 PC에 저장된 것이 달라 올리기를 멈췄습니다. 이어서 확인하겠습니다."
 MSG_NO_UPLOAD = "GitHub에 올릴 새 작업이 없습니다."
 MSG_OTHER_OWNER = "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다."
-MSG_RULES = "저장 규칙을 읽지 못해 저장을 멈췄습니다. AX팀에 알려 주세요."
+MSG_RULES = "저장 규칙 파일을 읽지 못해 저장을 멈췄습니다."
+RULES_DETAIL = "규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 다시 설치하라. {exc}"
 MSG_TIMEOUT = "저장이 오래 걸려 멈췄습니다. 다음에 다시 저장합니다."
 MSG_FAILED = "저장하지 못했습니다. 원인을 확인해 이어서 처리합니다."
 MSG_NEEDS_AUTHOR = "commit 에 남길 이름과 메일을 알려 주세요. 한 번만 설정하면 됩니다."
@@ -576,8 +577,7 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
     except AuthorMissing:
         return _failed(progress, MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, status="needs-author")
     except rules.RulesError as exc:
-        return _failed(progress, MSG_RULES,
-                       f"규칙 파일 오류다. upload_rules.json 을 고쳐야 하며 개발자가 풀 일이 아니다. {exc}")
+        return _failed(progress, MSG_RULES, RULES_DETAIL.format(exc=exc))
     except gitcmd.CommandTimeout as exc:
         return _failed(progress, MSG_TIMEOUT, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}")
     except gitcmd.ToolMissing as exc:
@@ -621,7 +621,8 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 
 
 # ---- 공유 대시보드 레포 ----
-MSG_UNSUPPORTED = "이 대시보드는 아직 기능별 폴더로 나뉘지 않아 공유 코드에 반영할 수 없습니다. AX팀에 문의해 주세요."
+MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
+                   "AX팀에 기능별 폴더 구조로 이관을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
 MSG_OUTSIDE = "이번 수정 중 {files} 은 내 기능 폴더 밖의 파일이라 공유 코드에 바로 반영할 수 없습니다."
 MSG_PR_OPENED = "공유 코드에 바로 반영할 수 없어 검토 요청을 올렸습니다. AX팀에 문의해 주세요."
@@ -1183,6 +1184,9 @@ def unpushed_commits(top, deadline=None):
 
 
 MSG_MAIN_FAILED = "GitHub 코드 저장소의 기본 branch 를 main 으로 바꾸지 못했습니다. AX팀에 문의해 주세요."
+MSG_MAIN_NO_PERMISSION = ("{name} 의 기본 branch 가 {old} 로 되어 있습니다. 이 GitHub 계정({account})에는 이 설정을 "
+                          "바꿀 관리자 권한이 없습니다. AX팀에 이 코드 저장소의 기본 branch 를 main 으로 바꿔 달라고 "
+                          "요청해 주세요.")
 MSG_MAIN_CONFLICT = "예전 기본 branch 의 작업을 main 에 자동으로 반영하지 못했습니다."
 MSG_MAIN_DECISION = "예전 기본 branch 에 main 에 없는 작업이 있어 반영할지 정해야 합니다."
 MAIN_BRANCH_MESSAGES = {"failed": MSG_MAIN_FAILED, "conflict": MSG_MAIN_CONFLICT, "needs-decision": MSG_MAIN_DECISION}
@@ -1204,6 +1208,23 @@ def normalize_main(repo, merge_old=None, discard_old=None):
     except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
         return {"status": "failed", "old_branch": merge_old or discard_old, "commits": [], "reason": "",
                 "detail": COMMAND_DETAIL.format(exc=exc)}
+
+
+def _share_with_team(full, team, deadline):
+    """팀에 읽기 권한을 준다. 성공하면 None, 실패하면 이유(no-team·no-permission·failed)다."""
+    for _ in range(2):
+        try:
+            code, _out, err = gitcmd.gh_try("api", "-X", "PUT", f"orgs/{ORG}/teams/{team}/repos/{full}",
+                                            "-f", "permission=pull", deadline=deadline)
+        except gitcmd.CommandTimeout:
+            continue
+        if code == 0:
+            return None
+        if "HTTP 404" in err:
+            return "no-team"
+        if "HTTP 403" in err:
+            return "no-permission"
+    return "failed"
 
 
 def _ready_result(status, message, detail="", repo=None, feature_issue=None, team_shared=None):
@@ -1228,8 +1249,12 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
             return _ready_result("other-owner", MSG_OTHER_OWNER, OTHER_OWNER_DETAIL.format(url=other))
         fixed = main_branch.normalize(top, f"{owner}/{name}", deadline)
         if fixed["status"] not in ("ok", "normalized"):
-            return {**_ready_result("main-branch", MAIN_BRANCH_MESSAGES.get(fixed["status"], ""), fixed["detail"],
-                                    repo=f"{owner}/{name}"), "main_branch": fixed}
+            message = MAIN_BRANCH_MESSAGES.get(fixed["status"], "")
+            if fixed["reason"] == "no-permission":
+                message = MSG_MAIN_NO_PERMISSION.format(name=f"{owner}/{name}", old=fixed["old_branch"],
+                                                        account=fixed["account"])
+            return {**_ready_result("main-branch", message, fixed["detail"], repo=f"{owner}/{name}"),
+                    "main_branch": fixed}
     elif not marker.get("name"):
         raise UploadStop("표식 파일에 name 이 없다. 영문 레포 이름을 정해 name=<이름> 줄을 넣고 다시 실행하라.")
     else:
@@ -1246,12 +1271,15 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
         # topic 과 팀 권한은 회사 레포에만 단다.
         gitcmd.gh("repo", "edit", full, "--add-topic", TOPIC, deadline=deadline)
         if marker.get("team"):
-            team_shared = gitcmd.gh_try("api", "-X", "PUT", f"orgs/{ORG}/teams/{marker['team']}/repos/{full}",
-                                        "-f", "permission=pull", deadline=deadline)[0] == 0
+            team_reason = _share_with_team(full, marker["team"], deadline)
+            team_shared = team_reason is None
     title = marker.get("title") or remote_description(full, deadline) or name
     number = _feature_issue(top, full, name, title, deadline, body_file)
-    return dict(_ready_result("ready", "", repo=full, feature_issue=number, team_shared=team_shared),
-                commits=unpushed_commits(top, deadline))
+    result = dict(_ready_result("ready", "", repo=full, feature_issue=number, team_shared=team_shared),
+                  commits=unpushed_commits(top, deadline))
+    if team_shared is False:
+        result.update(team=marker["team"], team_reason=team_reason)
+    return result
 
 
 UPLOAD_STATE = "kiwoom-upload.json"
@@ -1610,8 +1638,7 @@ def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owne
     except AuthorMissing:
         payload = _upload_result("needs-author", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, progress)
     except rules.RulesError as exc:
-        payload = _upload_result("failed", MSG_RULES, f"규칙 파일 오류다. upload_rules.json 을 고쳐야 한다. {exc}",
-                                 progress)
+        payload = _upload_result("failed", MSG_RULES, RULES_DETAIL.format(exc=exc), progress)
     except gitcmd.CommandTimeout as exc:
         payload = _upload_result("failed", MSG_TIMEOUT, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}",
                                  progress)
