@@ -49,8 +49,11 @@ def settled(top, deadline=None):
     return not any(_exists(top, ref, deadline) for ref in (f"refs/heads/{LOCAL_OLD}", f"refs/remotes/origin/{LOCAL_OLD}"))
 
 
-def _result(status, old_branch=None, commits=(), reason="", detail=""):
-    return {"status": status, "old_branch": old_branch, "commits": list(commits), "reason": reason, "detail": detail}
+def _result(status, old_branch=None, commits=(), reason="", detail="", account=None):
+    result = {"status": status, "old_branch": old_branch, "commits": list(commits), "reason": reason, "detail": detail}
+    if account is not None:
+        result["account"] = account
+    return result
 
 
 def local_rename(top, deadline=None):
@@ -92,8 +95,11 @@ def _change_default(full, old, has_main, deadline):
     if code == 0:
         return None
     if "HTTP 403" in err:
-        return _result("failed", old, reason="no-permission",
-                       detail=f"GitHub 의 기본 branch({old})를 main 으로 바꿀 권한이 없다. AX팀 문의를 안내하라.")
+        login = gitcmd.gh_try("api", "user", "--jq", ".login", deadline=deadline)
+        account = login[1].strip() if login[0] == 0 and login[1].strip() else "확인하지 못함"
+        return _result("failed", old, reason="no-permission", account=account,
+                       detail=f"{full} 의 기본 branch 가 {old} 다. GitHub 계정 {account} 에는 이 설정을 바꿀 관리자 "
+                              "권한이 없다. saving-work 「기본 branch 맞추기」의 no-permission 문장으로 알려라.")
     raise gitcmd.GitError(f"gh {' '.join(args)} 실패: {(err or out).strip()}")
 
 

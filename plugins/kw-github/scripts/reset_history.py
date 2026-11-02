@@ -7,6 +7,7 @@
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import gitcmd
@@ -25,32 +26,52 @@ def _ok(top, *args):
     return gitcmd.git_try(top, *args)[0] == 0
 
 
-def reset(repo):
+def _branch_exists(top, name):
+    return _ok(top, "rev-parse", "--verify", "-q", f"refs/heads/{name}")
+
+
+def _keep_name(top, base, stamp, taken):
+    """보관할 branch 이름을 고른다. 같은 이름이 있으면 시각과 번호를 붙여 기존 기록을 덮어쓰지 않는다."""
+    name, number = base, 1
+    while name in taken or _branch_exists(top, name):
+        name = f"{base}-{stamp}" if number == 1 else f"{base}-{stamp}-{number}"
+        number += 1
+    taken.add(name)
+    return name
+
+
+def reset(repo, stamp=None):
+    """예전 기록을 local-history 로 옮긴다. 보관한 다른 branch 의 {원래 이름: 새 이름} 을 돌려준다."""
     top = Path(gitcmd.git(repo, "rev-parse", "--show-toplevel").strip())
+    stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     if _ok(top, "remote", "get-url", "origin"):
         raise ResetRefused("origin 이 이미 있다. 이미 연결한 레포의 기록은 이 스크립트로 옮기지 않는다.")
-    if _ok(top, "rev-parse", "--verify", "-q", f"refs/heads/{HISTORY_BRANCH}"):
-        raise ResetRefused(f"{HISTORY_BRANCH} 가 이미 있다. 예전 기록을 덮어쓰지 않도록 멈췄다.")
-    code, branch, _ = gitcmd.git_try(top, "symbolic-ref", "--short", "-q", "HEAD")
-    if code != 0:
-        raise ResetRefused("HEAD 가 분리되어 있다. 브랜치로 돌아간 뒤 다시 부른다.")
     if not _ok(top, "rev-parse", "--verify", "-q", "HEAD"):
         raise ResetRefused("커밋이 없어 옮길 기록이 없다.")
-    branch = branch.strip()
-    # 지금 branch 만 옮기므로, 남은 main 이 있으면 checkout --orphan main 이 실패해 중간 상태로 끝난다.
-    if branch != BRANCH and _ok(top, "rev-parse", "--verify", "-q", f"refs/heads/{BRANCH}"):
-        raise ResetRefused(f"{BRANCH} 가 따로 있다. 지금 branch {branch} 만 옮기면 새 {BRANCH} 를 열지 못해 멈췄다.")
-    # 다른 branch 의 예전 commit 은 옮겨지지 않아 나중에 함께 올라갈 수 있다.
-    others = [name for name in gitcmd.git(top, "for-each-ref", "--format=%(refname:short)", "refs/heads/").split()
-              if name != branch]
-    if others:
-        raise ResetRefused(f"다른 branch 가 있다: {', '.join(others)}. 그 기록은 옮기지 않으므로 멈췄다.")
-    gitcmd.git(top, "branch", "-m", branch, HISTORY_BRANCH)
+    code, branch, _ = gitcmd.git_try(top, "symbolic-ref", "--short", "-q", "HEAD")
+    branch = branch.strip() if code == 0 else None
+    kept, taken = {}, set()
+    # 앞서 정리한 기록은 시각을 붙인 이름으로 옮겨 보관한다.
+    if branch != HISTORY_BRANCH and _branch_exists(top, HISTORY_BRANCH):
+        kept[HISTORY_BRANCH] = _keep_name(top, f"{HISTORY_BRANCH}-{stamp}", stamp, taken)
+    # 다른 branch(남은 main 포함)는 local-history-<이름> 으로 보관한다. 이 이름은 업로드 대상이 아니다.
+    for name in gitcmd.git(top, "for-each-ref", "--format=%(refname:short)", "refs/heads/").split():
+        # 앞서 보관한 local-history-* 는 이미 업로드 대상이 아니라 그대로 둔다.
+        if name in (branch, HISTORY_BRANCH) or name.startswith(f"{HISTORY_BRANCH}-"):
+            continue
+        kept[name] = _keep_name(top, f"{HISTORY_BRANCH}-{name.replace('/', '-')}", stamp, taken)
+    for name, new_name in kept.items():
+        gitcmd.git(top, "branch", "-m", name, new_name)
+    if branch is None:
+        # 분리된 HEAD 는 지금 commit 에 local-history 를 만들어 옮긴다.
+        gitcmd.git(top, "branch", HISTORY_BRANCH, "HEAD")
+    elif branch != HISTORY_BRANCH:
+        gitcmd.git(top, "branch", "-m", branch, HISTORY_BRANCH)
     # checkout --orphan 은 작업 트리를 그대로 두고 부모 없는 main 을 연다. switch --orphan 은 파일을 지운다.
     gitcmd.git(top, "checkout", "-q", "--orphan", BRANCH)
     # 새 main 의 첫 저장이 모든 파일을 처음부터 검사하도록 인덱스를 비운다.
     gitcmd.git(top, "read-tree", "--empty")
-    return top
+    return kept
 
 
 def main(argv=None):
@@ -59,13 +80,13 @@ def main(argv=None):
     parser.add_argument("--repo", required=True)
     args = parser.parse_args(argv)
     try:
-        reset(Path(args.repo))
-        payload = {"status": "reset", "message": MESSAGE,
+        kept = reset(Path(args.repo))
+        payload = {"status": "reset", "message": MESSAGE, "kept": kept,
                    "detail": f"예전 기록은 {HISTORY_BRANCH} 에 있다. 이어서 save_work.py commit 으로 첫 commit 을 하라."}
     except ResetRefused as exc:
-        payload = {"status": "refused", "message": MSG_FAILED, "detail": str(exc)}
+        payload = {"status": "refused", "message": MSG_FAILED, "kept": {}, "detail": str(exc)}
     except Exception as exc:  # noqa: BLE001 — 스킬은 어떤 경우에도 JSON 을 받아야 한다
-        payload = {"status": "failed", "message": MSG_FAILED, "detail": f"{exc.__class__.__name__}: {exc}"}
+        payload = {"status": "failed", "message": MSG_FAILED, "kept": {}, "detail": f"{exc.__class__.__name__}: {exc}"}
     # ASCII 로만 내보낸다. cp949 로 설정된 PowerShell 이 출력을 담아도 한글이 깨지지 않는다.
     print(json.dumps(payload))
     return 0 if payload["status"] == "reset" else 1
