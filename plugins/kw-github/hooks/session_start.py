@@ -152,6 +152,56 @@ LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 
              "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
 
 
+# 근거 측정이 없는 설계자 판단이다. 훅 전체 90초에서 남은 변경 commit 45초와 fetch 10초를 빼고 남은 시간 안에 든다.
+SYNC_MOVE_SECONDS = 20
+AUTO_NOTE = (
+    "[kw-github] GitHub main 에 이 PC 에 없는 변경이 있어 지금 branch 에 받아왔다. 개발자에게 'AX팀 등이 GitHub 에 "
+    "올린 변경을 받아왔습니다.' 라고 한 줄 알려라."
+)
+ASK_NOTE = (
+    "[kw-github] GitHub main 에 지금 작업 branch 에 없는 변경(AX팀 수정 등)이 있다. 이 context 에 push 질문 안내가 "
+    "있으면 push 질문을 먼저 하라. 올리기가 그 변경을 함께 반영한다. 개발자가 올리기를 미루었거나 push 질문이 없으면 "
+    "선택 창으로 'AX팀 등이 GitHub 에 올린 변경이 있습니다. 지금 작업에 반영할까요?' 라고 물어라. 동의하면 "
+    "saving-work 의 「AX팀 변경 반영」 절대로 하고, 미루면 이 세션에서 다시 묻지 마라."
+)
+FF_FAILED_NOTE = "[kw-github] GitHub main 의 변경을 받아오지 못했다. 원인을 개발자에게 쉬운 말로 알려라: {detail}"
+
+
+def _tracked_dirty(top, deadline):
+    return bool(gitcmd.git(top, "status", "--porcelain", "--untracked-files=no", deadline=deadline).strip())
+
+
+def sync_feature(top, source, elsewhere):
+    """기능 레포의 세션 시작 동기화다(spec 2026-11-03). Claude 에게 넣을 알림 문장 목록을 돌려준다."""
+    if source != "startup" or elsewhere:
+        return []
+    try:
+        gdir = save_work.git_dir(top)
+        if (gdir / "MERGE_HEAD").exists() or (gdir / save_work.UPLOAD_STATE).exists():
+            return []
+        save_work.check_head(top)
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SYNC_FETCH_SECONDS))
+    except gitcmd.CommandTimeout:
+        _, common = save_work._git_dirs(top)
+        locks = sorted(str(path) for path in common.rglob("*.lock"))
+        return [LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks))] if locks else []
+    except (gitcmd.GitError, save_work.BranchChoiceError):
+        return []  # fetch 가 실패해도 세션 시작을 이어 간다
+    deadline = gitcmd.Deadline(SYNC_MOVE_SECONDS)
+    try:
+        if not save_work._ref_exists(top, save_work.REMOTE_REF, deadline):
+            return []  # 첫 push 전이다
+        save_work.align_main(top, deadline)
+        if not save_work._count(top, f"HEAD..{save_work.REMOTE_REF}", deadline):
+            return []
+        if save_work._is_ancestor(top, "HEAD", save_work.REMOTE_REF, deadline) and not _tracked_dirty(top, deadline):
+            gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF, deadline=deadline)
+            return [AUTO_NOTE]
+        return [ASK_NOTE]
+    except (gitcmd.GitError, gitcmd.CommandTimeout) as exc:
+        return [FF_FAILED_NOTE.format(detail=exc)]
+
+
 def _move_main(top, session_id):
     """spec 「세션 시작 동기화」 3단계다. 조건을 모두 만족할 때만 PC 의 main 을 origin/main 으로 옮긴다."""
     old = gitcmd.git_try(top, "rev-parse", "--verify", "-q", "refs/heads/main")[1].strip()
@@ -260,7 +310,7 @@ def shared_context(top, session_id=None):
     return "\n".join(notes) + "\n\n" + GIT_TERMS_PATH.read_text(encoding="utf-8")
 
 
-def context_for(cwd, session_id=None):
+def context_for(cwd, session_id=None, source="startup"):
     try:
         top = save_work.locate(cwd)
         if top is not None and shared_repo.repo_kind(top) == "shared":
@@ -279,13 +329,17 @@ def context_for(cwd, session_id=None):
     owner = save_work.origin_owner(top) if save_work.origin_url(top) else save_work.ORG
     elsewhere = (owner or "").lower() != save_work.ORG.lower()
     context = build_context(save_work.commit_work(top, None, catch_up=True), elsewhere)
+    # 남은 변경을 commit 한 뒤 동기화한다. 그래야 받아온 변경과 개발자의 수정이 작업 트리에서 섞이지 않는다.
+    notes = sync_feature(top, source, elsewhere)
+    context = "\n".join(filter(None, [context, *notes]))
     return _with_rules(context) if context else None
 
 
 def main():
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
-        context = context_for(payload.get("cwd") or os.getcwd(), payload.get("session_id"))
+        context = context_for(payload.get("cwd") or os.getcwd(), payload.get("session_id"),
+                              payload.get("source") or "startup")
     except Exception as exc:  # noqa: BLE001 — 훅이 죽으면 저장 알림도 사라진다
         context = (f"세션 시작 훅이 실패했다: {exc.__class__.__name__}: {exc}. "
                    "이 폴더가 기능 레포면 saving-work 로 commit 하라.")

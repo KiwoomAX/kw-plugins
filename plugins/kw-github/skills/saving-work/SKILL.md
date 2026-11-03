@@ -145,6 +145,24 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" normalize-main --repo "<작�
 - `conflict`: 반영하다 충돌했다. 아무것도 지우지 않았다. 개발자에게 "예전 기본 branch 의 작업이 main 과 충돌해 자동으로 반영하지 못했습니다." 라고 알리고, 버릴지 그대로 두고 AX팀에 문의할지 묻는다. 버리기면 `--discard-old <old_branch>` 로 실행한다.
 - `failed` 이고 `reason` 이 `no-permission`: "`<레포>` 의 기본 branch 가 `<old_branch>` 로 되어 있습니다. 이 GitHub 계정(`<account>`)에는 이 설정을 바꿀 관리자 권한이 없습니다. AX팀에 이 코드 저장소의 기본 branch 를 main 으로 바꿔 달라고 요청해 주세요." 라고 알리고 올리지 않는다. `prepare-upload` 결과면 `message` 가 이 문장이다. 그 밖의 `failed` 는 「결과 처리」 절의 「그 밖의 오류」대로 한다.
 
+## AX팀 변경 반영
+
+기능 레포에서 세션 시작 훅은 GitHub main 을 받아온다. 올리지 않은 commit 이 없으면 훅이 묻지 않고 지금 branch 를 GitHub main 으로 옮긴다. 올리지 않은 commit 이 있으면 훅은 개발자에게 반영할지 물으라고 Claude 에게 알린다.
+
+개발자가 동의하면 Claude 는 아래 명령을 실행한다. 공유 대시보드 레포에는 이 명령을 쓰지 않는다.
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" sync-main --repo "<작업 폴더>"
+```
+
+결과의 `status` 에 따라 아래처럼 한다. `message` 는 개발자에게 그대로 전한다.
+
+- `updated`·`nothing`: `message` 만 전한다.
+- `conflict`: AX팀이 고친 코드와 지금 작업이 같은 줄을 고쳤다. 충돌한 파일은 `detail` 에 있다. 양쪽 동작이 같고 줄바꿈·공백·표기만 다르면 묻지 말고 풀어라. 동작이 다르면 개발자에게 'AX팀이 고친 코드' 와 '지금 PC 에 저장된 코드' 를 A 와 B 로 적어 묻는다. 풀고 `git add` 한 뒤 같은 명령에 `--continue` 를 붙여 실행한다. 묻지 않고 푼 파일 이름은 결과 보고에 적는다.
+- `--continue` 결과가 다시 `conflict` 이면 `detail` 의 파일을 마저 푼다. `failed` 이고 `detail` 에 검사에서 빠질 파일이 있으면 그 파일에서 비밀값과 데이터를 빼고 다시 `--continue` 한다.
+- 풀지 못하거나 개발자가 고르지 못하면 같은 명령에 `--abort` 를 붙여 실행하고 `message` 를 전한다. `message` 는 AX팀 문의를 안내한다.
+- 그 밖의 `failed`: 「결과 처리」 절의 「그 밖의 오류」대로 한다.
+
 ## 작업 이슈
 
 push 한 번마다 작업 이슈 하나를 정한다. 무엇을 언제 올렸는지 이슈 목록으로 남기기 위해서다. 제목은 `[<name>] <이번에 한 일을 쉬운 말로 한 줄>` 이다. 본문에는 `기능 이슈: #<기능 이슈 번호>` 와, 올릴 commit 목록을 적는다. commit 목록은 `prepare-upload` 결과의 `commits` 를 그대로 쓴다. 첫 push 에는 `origin/main` 이 없어 `git log` 로 직접 계산할 수 없기 때문이다.

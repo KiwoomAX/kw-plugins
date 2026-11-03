@@ -244,6 +244,37 @@ try {
     Assert 'the other work branch stays on this PC' ((Invoke-Git $repo2 @('branch', '--list')) -match 'feat/b')
 } finally { Remove-Item -LiteralPath $work2 -Recurse -Force -ErrorAction SilentlyContinue }
 
+Write-Host '--- sync-main ---'
+# AX팀이 GitHub main 에 올린 변경을 개발자의 작업 branch 에 반영한다(decided 2026-11-03).
+$work3 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$repo3   = Join-Path $work3 'repo'
+$remote3 = Join-Path $work3 'remote.git'
+$ax3     = Join-Path $work3 'ax'
+New-Item -ItemType Directory -Path $repo3 | Out-Null
+try {
+    $null = Invoke-Git $work3 @('init', '-q', '--bare', '-b', 'main', $remote3)
+    $null = Invoke-Git $repo3 @('init', '-q', '-b', 'main')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $repo3 (@('config') + $kv) }
+    $url3 = 'https://github.com/KiwoomAX/kwgh-sync.git'
+    $null = Invoke-Git $repo3 @('remote', 'add', 'origin', $url3)
+    $null = Invoke-Git $repo3 @('config', "url.$($remote3.Replace('\', '/')).insteadOf", $url3)
+    [IO.File]::WriteAllText((Join-Path $repo3 '.kiwoom-feature'), "name=kwgh-sync`ntitle=시험`nissue=1`n")
+    [IO.File]::WriteAllText((Join-Path $repo3 'a.py'), "x = 1`n")
+    $null = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'commit', '--repo', $repo3, '--message', '작업 폴더 준비')
+    $null = Invoke-Git $repo3 @('push', '-q', '-u', 'origin', 'main')
+    [IO.File]::WriteAllText((Join-Path $repo3 'a.py'), "x = 2`n")
+    $null = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'commit', '--repo', $repo3, '--message', '내 작업', '--branch', 'feat/x')
+    $null = Invoke-Git $work3 @('clone', '-q', '-c', 'core.autocrlf=false', $remote3, $ax3)
+    foreach ($kv in @(@('user.email', 'ax@example.com'), @('user.name', 'ax'))) { $null = Invoke-Git $ax3 (@('config') + $kv) }
+    [IO.File]::WriteAllText((Join-Path $ax3 'deploy.yml'), "x: 1`n")
+    $null = Invoke-Git $ax3 @('add', '-A')
+    $null = Invoke-Git $ax3 @('commit', '-q', '-m', 'AX팀 수정')
+    $null = Invoke-Git $ax3 @('push', '-q', 'origin', 'main')
+    $sync = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'sync-main', '--repo', $repo3) | ConvertFrom-Json
+    Assert 'sync-main merges the AX team change into the work branch' ($sync.status -eq 'updated' -and (Test-Path (Join-Path $repo3 'deploy.yml')))
+    Assert 'sync-main keeps the work branch and its own change' (((Invoke-Git $repo3 @('branch', '--show-current')).Trim() -eq 'feat/x') -and ([IO.File]::ReadAllText((Join-Path $repo3 'a.py')) -eq "x = 2`n"))
+} finally { Remove-Item -LiteralPath $work3 -Recurse -Force -ErrorAction SilentlyContinue }
+
 Write-Host '--- default branch main ---'
 # Company repos use main (decided 2026-10-28). Without origin, normalize-main renames on this PC only and calls no gh.
 $work4 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))

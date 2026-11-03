@@ -83,6 +83,11 @@ MERGE_DETAIL = (
     "앞선 upload 의 merge 가 충돌로 멈춘 채 남아 있다. 충돌한 파일을 saving-work 의 충돌 규칙대로 풀고 "
     "git add 한 뒤 save_work.py upload --continue --repo <폴더> 를 실행하라. 그 전에는 commit 하지 않는다."
 )
+SYNC_MERGE_DETAIL = (
+    "AX팀 변경을 반영하던 sync-main 의 merge 가 충돌로 멈춘 채 남아 있다. saving-work 의 「AX팀 변경 반영」 절대로 "
+    "풀고 git add 한 뒤 save_work.py sync-main --continue --repo <폴더> 를 실행하라. 풀지 못하면 "
+    "save_work.py sync-main --abort --repo <폴더> 를 실행하라. 그 전에는 commit 하지 않는다."
+)
 
 
 class BranchChoiceError(Exception):
@@ -603,7 +608,8 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
     main_branch.local_rename(top, deadline)
     recover(top, deadline)
     if (git_dir(top, deadline) / "MERGE_HEAD").exists():
-        return commit_result("failed", MSG_FAILED, MERGE_DETAIL, branch=current_branch(top, deadline))
+        detail = SYNC_MERGE_DETAIL if sync_merge_in_progress(top, deadline) else MERGE_DETAIL
+        return commit_result("failed", MSG_FAILED, detail, branch=current_branch(top, deadline))
     note = restore_upload_stash(top, deadline) or ""
     data = rules.load(RULES_PATH)
     excluded = stage(top, data, deadline)
@@ -1748,6 +1754,8 @@ def _upload(repo, task, title, close, resume, deadline, progress, allow_other_ow
         raise UploadStop("--task 와 --title 이 필요하다.")
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline, check=False)
     _abort_legacy_main_merge(top, deadline, progress)
+    if sync_merge_in_progress(top, deadline):
+        raise UploadStop(SYNC_MERGE_DETAIL)
     if (git_dir(top, deadline) / "MERGE_HEAD").exists():
         raise UploadStop("앞선 merge 가 진행 중이다. 풀고 git add 한 뒤 upload --continue 를 실행하라.")
     state = {"task": task, "title": title, "close": close}
@@ -2061,6 +2069,142 @@ def review_upload(repo, feature=None, intake=False):
     return payload
 
 
+# ---- AX팀 변경 반영(기능 레포) ----
+MSG_SYNCED = "AX팀 등이 GitHub 에 올린 변경을 지금 작업에 반영했습니다."
+MSG_SYNC_NOTHING = "새로 반영할 변경이 없습니다."
+MSG_SYNC_CONFLICT = "AX팀이 고친 코드와 지금 작업이 같은 줄을 고쳤습니다. 어느 쪽을 남길지 정리해 보겠습니다."
+MSG_SYNC_ABORTED = ("AX팀이 고친 코드를 반영하다 같은 줄이 겹쳐 반영을 취소했습니다. 작업은 그대로 있습니다. "
+                    "AX팀에 문의해 주세요.")
+MSG_SYNC_FAILED = "AX팀이 고친 코드를 반영하지 못했습니다."
+SYNC_CONFLICT_DETAIL = (
+    "GitHub main 과 작업 branch 의 같은 줄이 겹쳐 merge 를 멈췄다. 충돌한 파일: {files}. saving-work 의 "
+    "「AX팀 변경 반영」 절대로 풀고 git add 한 뒤 save_work.py sync-main --continue --repo <폴더> 를 실행하라. "
+    "풀지 못하면 sync-main --abort 를 실행하라."
+)
+
+
+def sync_merge_in_progress(top, deadline=None):
+    """진행 중 merge 가 sync-main 의 merge 인가. upload 의 409 merge 는 늘 업로드 상태 파일을 남긴다."""
+    gdir = git_dir(top, deadline)
+    return (gdir / "MERGE_HEAD").exists() and not (gdir / UPLOAD_STATE).exists()
+
+
+def _is_ancestor(top, older, newer, deadline):
+    return gitcmd.git_try(top, "merge-base", "--is-ancestor", older, newer, deadline=deadline)[0] == 0
+
+
+def align_main(top, deadline=None):
+    """HEAD 가 main 이 아닐 때 뒤처진 PC 의 main 을 GitHub main 으로 옮긴다. 다른 작업 폴더의 main 은 건드리지 않는다."""
+    if current_branch(top, deadline) == BRANCH or not _ref_exists(top, REMOTE_REF, deadline):
+        return
+    code, out, _ = gitcmd.git_try(top, "rev-parse", "--verify", "-q", f"refs/heads/{BRANCH}", deadline=deadline)
+    old, new = out.strip(), gitcmd.git(top, "rev-parse", REMOTE_REF, deadline=deadline).strip()
+    if code != 0 or old == new or not _is_ancestor(top, old, new, deadline) or not _main_free(top, deadline):
+        return
+    gitcmd.git(top, "update-ref", f"refs/heads/{BRANCH}", new, old, deadline=deadline)
+
+
+def _sync_result(status, message, detail=""):
+    return {"status": status, "message": message, "detail": detail.strip()}
+
+
+def _sync_done(top, deadline):
+    restored = restore_upload_stash(top, deadline) or ""
+    align_main(top, deadline)
+    return _sync_result("updated", MSG_SYNCED, restored)
+
+
+def _sync_failed(top, deadline, detail):
+    restored = restore_upload_stash(top, deadline) or ""
+    return _sync_result("failed", MSG_SYNC_FAILED, f"{detail} {restored}")
+
+
+def _sync_start(top, deadline):
+    gdir = git_dir(top, deadline)
+    if (gdir / "MERGE_HEAD").exists() or (gdir / UPLOAD_STATE).exists():
+        return _sync_result("failed", MSG_SYNC_FAILED, "진행 중인 merge 나 업로드가 있다. 그 작업을 먼저 끝내라.")
+    check_head(top, deadline)
+    gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
+    if not _ref_exists(top, REMOTE_REF, deadline) or _is_ancestor(top, REMOTE_REF, "HEAD", deadline):
+        return _sync_result("nothing", MSG_SYNC_NOTHING)
+    # 검사에서 빠져 commit 되지 않은 수정을 merge 동안 치워 둔다. upload 와 같은 stash 다.
+    _stash_leftovers(top, deadline, {})
+    if _is_ancestor(top, "HEAD", REMOTE_REF, deadline):
+        code, out, err = gitcmd.git_try(top, "merge", "-q", "--ff-only", REMOTE_REF, deadline=deadline)
+        if code != 0:
+            return _sync_failed(top, deadline, f"fast-forward 하지 못했다. {(err or out).strip()}")
+        return _sync_done(top, deadline)
+    if current_branch(top, deadline) == BRANCH:
+        return _sync_failed(top, deadline, "PC 의 main 에 GitHub 에 없는 commit 이 있다. main 에서는 merge 하지 않는다.")
+    ensure_author(top, deadline)
+    code, out, err = gitcmd.git_try(top, "merge", "--no-edit", REMOTE_REF, deadline=deadline)
+    if code == 0:
+        return _sync_done(top, deadline)
+    files = _unmerged(top, deadline)
+    if files:
+        # 치워 둔 수정은 --continue 나 --abort 가 끝날 때 되돌린다.
+        return _sync_result("conflict", MSG_SYNC_CONFLICT, SYNC_CONFLICT_DETAIL.format(files=", ".join(files)))
+    if (gdir / "MERGE_HEAD").exists():
+        gitcmd.git(top, "merge", "--abort", deadline=deadline, check=False)
+    return _sync_failed(top, deadline, f"git merge 실패: {(err or out).strip()}")
+
+
+def _sync_continue(top, deadline):
+    if not sync_merge_in_progress(top, deadline):
+        return _sync_result("failed", MSG_SYNC_FAILED, "이어서 끝낼 sync-main 의 merge 가 없다.")
+    files = _unmerged(top, deadline)
+    if files:
+        return _sync_result("conflict", MSG_SYNC_CONFLICT, SYNC_CONFLICT_DETAIL.format(files=", ".join(files)))
+    paths = gitcmd.git_z(top, "diff", "--cached", "--name-only", "-z", "HEAD", deadline=deadline)
+    marked = [p for p in paths if (top / p).is_file() and _has_conflict_mark(top / p)]
+    if marked:
+        return _sync_result("conflict", MSG_SYNC_CONFLICT,
+                            f"충돌 표시 줄이 남은 파일이 있다: {', '.join(marked)}. 풀고 git add 한 뒤 다시 실행하라.")
+    data = rules.load(RULES_PATH)
+    found = [p for p in paths if (top / p).is_file() and _judge(top, data, p) is not None]
+    if found:
+        return _sync_result("failed", MSG_SYNC_FAILED,
+                            f"검사에서 빠질 파일이 merge 결과에 있어 commit 하지 않았다: {', '.join(found)}. 비밀값과 "
+                            "데이터를 코드에서 빼고 git add 한 뒤 sync-main --continue 를 다시 실행하라.")
+    ensure_author(top, deadline)
+    gitcmd.git(top, "commit", "-q", "--no-edit", deadline=deadline)
+    return _sync_done(top, deadline)
+
+
+def _sync_abort(top, deadline):
+    if not sync_merge_in_progress(top, deadline):
+        return _sync_result("failed", MSG_SYNC_FAILED, "취소할 sync-main 의 merge 가 없다.")
+    gitcmd.git(top, "merge", "--abort", deadline=deadline)
+    restored = restore_upload_stash(top, deadline) or ""
+    return _sync_result("aborted", MSG_SYNC_ABORTED, restored)
+
+
+def sync_main(repo, mode=None):
+    """기능 레포의 작업에 GitHub main 을 반영한다. mode 는 None·'continue'·'abort' 다. 예외는 failed 로 바꾼다."""
+    deadline = gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(Path(repo))
+        if top is None or shared_repo.repo_kind(top) == "shared" or not is_feature_repo(top):
+            return _sync_result("failed", MSG_NOT_FEATURE, "기능 레포가 아니다. 공유 레포에는 sync-main 을 쓰지 않는다.")
+        if mode == "continue":
+            return _sync_continue(top, deadline)
+        if mode == "abort":
+            return _sync_abort(top, deadline)
+        return _sync_start(top, deadline)
+    except BranchChoiceError as exc:
+        return _sync_result("failed", MSG_SYNC_FAILED, str(exc))
+    except AuthorMissing:
+        return _sync_result("failed", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL)
+    except rules.RulesError as exc:
+        return _sync_result("failed", MSG_RULES, RULES_DETAIL.format(exc=exc))
+    except gitcmd.CommandTimeout as exc:
+        return _sync_result("failed", MSG_SYNC_FAILED, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}")
+    except gitcmd.GitError as exc:
+        return _sync_result("failed", MSG_SYNC_FAILED, COMMAND_DETAIL.format(exc=exc))
+    except Exception as exc:  # noqa: BLE001 — 스킬은 어떤 경우에도 JSON 을 받아야 한다
+        return _sync_result("failed", MSG_SYNC_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
+
+
 def _print(payload):
     # ASCII 로만 내보낸다. cp949 로 설정된 PowerShell 이 출력을 담아도 한글이 깨지지 않는다.
     print(json.dumps(payload))
@@ -2123,7 +2267,14 @@ def main(argv=None):
     copy_cmd.add_argument("--repo", required=True)
     copy_cmd.add_argument("--feature", required=True)
     copy_cmd.add_argument("--summary", required=True)
+    sync_cmd = sub.add_parser("sync-main", help="AX팀 등이 GitHub main 에 올린 변경을 지금 작업에 반영한다")
+    sync_cmd.add_argument("--repo", required=True)
+    sync_mode = sync_cmd.add_mutually_exclusive_group()
+    sync_mode.add_argument("--continue", dest="sync_mode", action="store_const", const="continue")
+    sync_mode.add_argument("--abort", dest="sync_mode", action="store_const", const="abort")
     args = parser.parse_args(argv)
+    if args.command == "sync-main":
+        return _print(sync_main(args.repo, mode=args.sync_mode))
     if args.command == "normalize-main":
         return _print(normalize_main(args.repo, merge_old=args.merge_old, discard_old=args.discard_old))
     if args.command == "open-pr":
