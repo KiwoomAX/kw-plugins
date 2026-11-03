@@ -638,10 +638,6 @@ BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVA
 COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 뒤 다시 실행하라. {exc}"
 
 
-def _login(top, deadline):
-    return gitcmd.gh_login(deadline)
-
-
 def _kw_feature(top, branch, deadline=None):
     code, out, _ = gitcmd.git_try(top, "config", "--get", f"branch.{branch}.kwFeature", deadline=deadline)
     return out.strip() if code == 0 else ""
@@ -765,7 +761,7 @@ def switch_feature(repo, feature, summary=None, intake=False):
             if not summary:
                 return _shared_failed(MSG_FAILED, "새 작업 branch 가 필요하다. 영문 요약을 --summary 로 넘겨라.")
             try:
-                login = _login(top, deadline)
+                login = gitcmd.gh_login(deadline)
             except gitcmd.GitError:
                 return _shared_failed(MSG_FAILED, "GitHub 로그인을 확인하지 못했다. gh auth status 로 확인하라.")
             gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
@@ -1013,6 +1009,22 @@ def _has_conflict_mark(full):
     except OSError:
         return False
     return any(line.startswith(CONFLICT_MARK) for line in lines)
+
+
+def _merge_resolved(top, deadline):
+    """진행 중 merge 의 인덱스에서 MERGE_HEAD 와 내용이 다른 파일의 (경로, 인덱스 내용) 목록이다.
+
+    merge 로 들어온 상대편 파일은 빼고, 이쪽 작업과 충돌을 풀며 고친 파일만 남긴다. commit 되는 내용을 보도록
+    작업 트리가 아니라 인덱스를 읽는다.
+    """
+    paths = gitcmd.git_z(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=d", "MERGE_HEAD",
+                         deadline=deadline)
+    return [(path, gitcmd.git_bytes(top, "show", f":{path}", deadline=deadline)) for path in paths]
+
+
+def _conflict_marked(resolved):
+    return [path for path, raw in resolved
+            if any(line.startswith(CONFLICT_MARK) for line in raw.decode("utf-8", "replace").splitlines())]
 
 
 def _commit_intake_merge(top, message, feature, data, deadline, progress):
@@ -1290,20 +1302,16 @@ def _prepare_upload(repo, deadline, allow_other_owner, body_file=None):
     company = owner.lower() == ORG.lower()
     # 팀 공유는 성공해 표식에 team-shared 가 적힐 때까지 업로드 준비마다 다시 시도한다.
     share = company and marker.get("team") and not marker.get("team-shared")
-    if marker.get("issue"):
-        # 기능 이슈까지 마친 레포다. topic 은 그때 이미 달았다.
-        failure = _share_with_team(top, full, marker["team"], deadline) if share else None
-        result = dict(_ready_result("ready", "", repo=full, feature_issue=int(marker["issue"])),
-                      commits=unpushed_commits(top, deadline))
-        return _team_result(result, marker, failure) if share else result
-    failure = None
-    if company:
-        # topic 과 팀 권한은 회사 레포에만 단다.
+    issue = marker.get("issue")
+    if company and not issue:
+        # topic 은 회사 레포에만 단다. 기능 이슈까지 마친 레포는 그때 이미 달았다.
         gitcmd.gh("repo", "edit", full, "--add-topic", TOPIC, deadline=deadline)
-        if share:
-            failure = _share_with_team(top, full, marker["team"], deadline)
-    title = marker.get("title") or remote_description(full, deadline) or name
-    number = _feature_issue(top, full, name, title, deadline, body_file)
+    failure = _share_with_team(top, full, marker["team"], deadline) if share else None
+    if issue:
+        number = int(issue)
+    else:
+        title = marker.get("title") or remote_description(full, deadline) or name
+        number = _feature_issue(top, full, name, title, deadline, body_file)
     result = dict(_ready_result("ready", "", repo=full, feature_issue=number),
                   commits=unpushed_commits(top, deadline))
     return _team_result(result, marker, failure) if (share or marker.get("team-shared")) else result
@@ -1631,6 +1639,9 @@ def _resume(top, full, state, deadline, progress):
         files = _unmerged(top, deadline)
         if files:
             raise UploadStop(f"아직 풀리지 않은 충돌이 있다: {', '.join(files)}. 풀고 git add 한 뒤 다시 실행하라.")
+        marked = _conflict_marked(_merge_resolved(top, deadline))
+        if marked:
+            raise UploadStop(f"충돌 표시 줄이 남은 파일이 있다: {', '.join(marked)}. 풀고 git add 한 뒤 다시 실행하라.")
         ensure_author(top, deadline)
         gitcmd.git(top, "commit", "-q", "--no-edit", deadline=deadline)
         return _after_pc_merge(top, full, branch, state, deadline, progress)
@@ -1920,7 +1931,7 @@ def add_copy(repo, feature, summary):
         if branch:
             gitcmd.git(top, "worktree", "add", "-q", str(path), branch, deadline=deadline)
         else:
-            branch = SHARED_BRANCH.format(feature=feature, login=_login(top, deadline), summary=summary)
+            branch = SHARED_BRANCH.format(feature=feature, login=gitcmd.gh_login(deadline), summary=summary)
             gitcmd.git(top, "worktree", "add", "-q", "--no-track", "-b", branch, str(path), REMOTE_REF,
                        deadline=deadline)
             gitcmd.git(top, "config", f"branch.{branch}.kwFeature", feature, deadline=deadline)
@@ -1952,7 +1963,7 @@ def open_pr(repo, feature, title, body_file):
         gitcmd.git(top, "push", "-q", "origin", branch, deadline=deadline)
         args = ["pr", "create", "-R", _full_name(top), "--base", BRANCH, "--head", branch, "--title", title,
                 "--body-file", str(body_file), "--assignee", "@me"]
-        if _login(top, deadline) != PR_REVIEWER:
+        if gitcmd.gh_login(deadline) != PR_REVIEWER:
             args += ["--reviewer", PR_REVIEWER]
         out = gitcmd.gh(*args, deadline=deadline)
         url = (out.strip().splitlines() or [""])[-1]
@@ -2083,10 +2094,13 @@ SYNC_CONFLICT_DETAIL = (
 )
 
 
+SYNC_STATE = "kiwoom-sync"
+
+
 def sync_merge_in_progress(top, deadline=None):
-    """진행 중 merge 가 sync-main 의 merge 인가. upload 의 409 merge 는 늘 업로드 상태 파일을 남긴다."""
+    """진행 중 merge 가 sync-main 이 시작한 merge 인가. sync-main 은 merge 를 시작할 때 표식 파일을 남긴다."""
     gdir = git_dir(top, deadline)
-    return (gdir / "MERGE_HEAD").exists() and not (gdir / UPLOAD_STATE).exists()
+    return (gdir / "MERGE_HEAD").exists() and (gdir / SYNC_STATE).exists()
 
 
 def _is_ancestor(top, older, newer, deadline):
@@ -2109,26 +2123,45 @@ def _sync_result(status, message, detail=""):
 
 
 def _sync_done(top, deadline):
+    (git_dir(top, deadline) / SYNC_STATE).unlink(missing_ok=True)
     restored = restore_upload_stash(top, deadline) or ""
     align_main(top, deadline)
     return _sync_result("updated", MSG_SYNCED, restored)
 
 
 def _sync_failed(top, deadline, detail):
+    (git_dir(top, deadline) / SYNC_STATE).unlink(missing_ok=True)
     restored = restore_upload_stash(top, deadline) or ""
     return _sync_result("failed", MSG_SYNC_FAILED, f"{detail} {restored}")
 
 
-def _sync_start(top, deadline):
+def _sync_rollback(progress):
+    """stash 뒤 예외로 멈춘 sync-main 을 되돌린다. 시작한 merge 를 취소하고 치워 둔 수정을 작업 폴더로 돌려놓는다."""
+    top = progress["top"]
+    if top is None or not progress["stashed"]:
+        return ""
+    try:
+        gdir = git_dir(top, timeout=ABORT_SECONDS)
+        if (gdir / "MERGE_HEAD").exists():
+            gitcmd.git(top, "merge", "--abort", timeout=ABORT_SECONDS, check=False)
+        (gdir / SYNC_STATE).unlink(missing_ok=True)
+        return restore_upload_stash(top, timeout=ABORT_SECONDS) or ""
+    except Exception as exc:  # noqa: BLE001
+        return f"{UPLOAD_STASH} stash 를 되돌리지 못했다. git stash list 로 확인하라. {exc}"
+
+
+def _sync_start(top, deadline, progress):
     gdir = git_dir(top, deadline)
     if (gdir / "MERGE_HEAD").exists() or (gdir / UPLOAD_STATE).exists():
         return _sync_result("failed", MSG_SYNC_FAILED, "진행 중인 merge 나 업로드가 있다. 그 작업을 먼저 끝내라.")
+    (gdir / SYNC_STATE).unlink(missing_ok=True)  # 앞선 merge 를 git 으로 직접 끝냈으면 표식만 남는다
     check_head(top, deadline)
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
     if not _ref_exists(top, REMOTE_REF, deadline) or _is_ancestor(top, REMOTE_REF, "HEAD", deadline):
         return _sync_result("nothing", MSG_SYNC_NOTHING)
     # 검사에서 빠져 commit 되지 않은 수정을 merge 동안 치워 둔다. upload 와 같은 stash 다.
     _stash_leftovers(top, deadline, {})
+    progress["stashed"] = True
     if _is_ancestor(top, "HEAD", REMOTE_REF, deadline):
         code, out, err = gitcmd.git_try(top, "merge", "-q", "--ff-only", REMOTE_REF, deadline=deadline)
         if code != 0:
@@ -2137,12 +2170,14 @@ def _sync_start(top, deadline):
     if current_branch(top, deadline) == BRANCH:
         return _sync_failed(top, deadline, "PC 의 main 에 GitHub 에 없는 commit 이 있다. main 에서는 merge 하지 않는다.")
     ensure_author(top, deadline)
+    (gdir / SYNC_STATE).write_text("", encoding="utf-8")
     code, out, err = gitcmd.git_try(top, "merge", "--no-edit", REMOTE_REF, deadline=deadline)
     if code == 0:
         return _sync_done(top, deadline)
     files = _unmerged(top, deadline)
     if files:
         # 치워 둔 수정은 --continue 나 --abort 가 끝날 때 되돌린다.
+        progress["stashed"] = False
         return _sync_result("conflict", MSG_SYNC_CONFLICT, SYNC_CONFLICT_DETAIL.format(files=", ".join(files)))
     if (gdir / "MERGE_HEAD").exists():
         gitcmd.git(top, "merge", "--abort", deadline=deadline, check=False)
@@ -2155,13 +2190,13 @@ def _sync_continue(top, deadline):
     files = _unmerged(top, deadline)
     if files:
         return _sync_result("conflict", MSG_SYNC_CONFLICT, SYNC_CONFLICT_DETAIL.format(files=", ".join(files)))
-    paths = gitcmd.git_z(top, "diff", "--cached", "--name-only", "-z", "HEAD", deadline=deadline)
-    marked = [p for p in paths if (top / p).is_file() and _has_conflict_mark(top / p)]
+    resolved = _merge_resolved(top, deadline)
+    marked = _conflict_marked(resolved)
     if marked:
         return _sync_result("conflict", MSG_SYNC_CONFLICT,
                             f"충돌 표시 줄이 남은 파일이 있다: {', '.join(marked)}. 풀고 git add 한 뒤 다시 실행하라.")
     data = rules.load(RULES_PATH)
-    found = [p for p in paths if (top / p).is_file() and _judge(top, data, p) is not None]
+    found = [path for path, raw in resolved if rules.judge(data, path, len(raw), lambda raw=raw: raw) is not None]
     if found:
         return _sync_result("failed", MSG_SYNC_FAILED,
                             f"검사에서 빠질 파일이 merge 결과에 있어 commit 하지 않았다: {', '.join(found)}. 비밀값과 "
@@ -2175,6 +2210,7 @@ def _sync_abort(top, deadline):
     if not sync_merge_in_progress(top, deadline):
         return _sync_result("failed", MSG_SYNC_FAILED, "취소할 sync-main 의 merge 가 없다.")
     gitcmd.git(top, "merge", "--abort", deadline=deadline)
+    (git_dir(top, deadline) / SYNC_STATE).unlink(missing_ok=True)
     restored = restore_upload_stash(top, deadline) or ""
     return _sync_result("aborted", MSG_SYNC_ABORTED, restored)
 
@@ -2182,27 +2218,32 @@ def _sync_abort(top, deadline):
 def sync_main(repo, mode=None):
     """기능 레포의 작업에 GitHub main 을 반영한다. mode 는 None·'continue'·'abort' 다. 예외는 failed 로 바꾼다."""
     deadline = gitcmd.Deadline(SAVE_SECONDS)
+    progress = {"top": None, "stashed": False}
     try:
-        top = locate(Path(repo))
+        top = progress["top"] = locate(Path(repo))
         if top is None or shared_repo.repo_kind(top) == "shared" or not is_feature_repo(top):
             return _sync_result("failed", MSG_NOT_FEATURE, "기능 레포가 아니다. 공유 레포에는 sync-main 을 쓰지 않는다.")
         if mode == "continue":
             return _sync_continue(top, deadline)
         if mode == "abort":
             return _sync_abort(top, deadline)
-        return _sync_start(top, deadline)
+        return _sync_start(top, deadline, progress)
     except BranchChoiceError as exc:
-        return _sync_result("failed", MSG_SYNC_FAILED, str(exc))
+        result = _sync_result("failed", MSG_SYNC_FAILED, str(exc))
     except AuthorMissing:
-        return _sync_result("failed", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL)
+        result = _sync_result("failed", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL)
     except rules.RulesError as exc:
-        return _sync_result("failed", MSG_RULES, RULES_DETAIL.format(exc=exc))
+        result = _sync_result("failed", MSG_RULES, RULES_DETAIL.format(exc=exc))
     except gitcmd.CommandTimeout as exc:
-        return _sync_result("failed", MSG_SYNC_FAILED, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}")
+        result = _sync_result("failed", MSG_SYNC_FAILED, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}")
     except gitcmd.GitError as exc:
-        return _sync_result("failed", MSG_SYNC_FAILED, COMMAND_DETAIL.format(exc=exc))
+        result = _sync_result("failed", MSG_SYNC_FAILED, COMMAND_DETAIL.format(exc=exc))
     except Exception as exc:  # noqa: BLE001 — 스킬은 어떤 경우에도 JSON 을 받아야 한다
-        return _sync_result("failed", MSG_SYNC_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
+        result = _sync_result("failed", MSG_SYNC_FAILED, f"예상하지 못한 오류다: {exc.__class__.__name__}: {exc}")
+    restored = _sync_rollback(progress)
+    if restored:
+        result["detail"] = f"{result['detail']} {restored}"
+    return result
 
 
 def _print(payload):

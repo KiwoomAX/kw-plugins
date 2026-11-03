@@ -167,6 +167,14 @@ ASK_NOTE = (
 FF_FAILED_NOTE = "[kw-github] GitHub main 의 변경을 받아오지 못했다. 원인을 개발자에게 쉬운 말로 알려라: {detail}"
 
 
+def _lock_note(top):
+    """fetch 가 제한 시간을 넘겼을 때 남아 있는 git lock 파일을 알리는 문장 목록이다. git 이 lock 을 두는 위치만 본다."""
+    own, common = save_work._git_dirs(top)
+    candidates = [own / "index.lock", own / "HEAD.lock"] + list((common / "refs").rglob("*.lock"))
+    locks = sorted(str(path) for path in candidates if path.exists())
+    return [LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks))] if locks else []
+
+
 def _tracked_dirty(top, deadline):
     return bool(gitcmd.git(top, "status", "--porcelain", "--untracked-files=no", deadline=deadline).strip())
 
@@ -182,9 +190,7 @@ def sync_feature(top, source, elsewhere):
         save_work.check_head(top)
         gitcmd.git(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SYNC_FETCH_SECONDS))
     except gitcmd.CommandTimeout:
-        _, common = save_work._git_dirs(top)
-        locks = sorted(str(path) for path in common.rglob("*.lock"))
-        return [LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks))] if locks else []
+        return _lock_note(top)
     except (gitcmd.GitError, save_work.BranchChoiceError):
         return []  # fetch 가 실패해도 세션 시작을 이어 간다
     deadline = gitcmd.Deadline(SYNC_MOVE_SECONDS)
@@ -194,9 +200,12 @@ def sync_feature(top, source, elsewhere):
         save_work.align_main(top, deadline)
         if not save_work._count(top, f"HEAD..{save_work.REMOTE_REF}", deadline):
             return []
-        if save_work._is_ancestor(top, "HEAD", save_work.REMOTE_REF, deadline) and not _tracked_dirty(top, deadline):
+        behind_only = save_work._is_ancestor(top, "HEAD", save_work.REMOTE_REF, deadline)
+        if behind_only and not _tracked_dirty(top, deadline):
             gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF, deadline=deadline)
             return [AUTO_NOTE]
+        if not behind_only and save_work.current_branch(top, deadline) == save_work.BRANCH:
+            return []  # sync-main 은 main 에서 merge 하지 않으므로 반영 질문이 늘 실패로 끝난다
         return [ASK_NOTE]
     except (gitcmd.GitError, gitcmd.CommandTimeout) as exc:
         return [FF_FAILED_NOTE.format(detail=exc)]
@@ -251,10 +260,7 @@ def sync_shared(top, session_id=None):
         notes += _main_notes(top, session_id, deadline)
         _move_main(top, session_id)
     except gitcmd.CommandTimeout:
-        _, common = save_work._git_dirs(top)
-        locks = sorted(str(path) for path in common.rglob("*.lock"))
-        if locks:
-            notes.append(LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks)))
+        notes += _lock_note(top)
     except gitcmd.GitError:
         pass  # fetch 가 실패해도 세션 시작을 이어 간다
     current = save_work.current_branch(top)

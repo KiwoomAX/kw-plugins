@@ -96,8 +96,9 @@ def reset(repo, stamp=None):
     code, branch, _ = gitcmd.git_try(top, "symbolic-ref", "--short", "-q", "HEAD")
     branch = branch.strip() if code == 0 else None
     if not _ok(top, "rev-parse", "--verify", "-q", "HEAD"):
-        if branch == BRANCH and HISTORY_BRANCH in heads:
-            # 앞선 실행이 branch 를 옮긴 뒤 멈췄다. 남은 단계만 마친다.
+        if branch and HISTORY_BRANCH in heads:
+            # 앞선 실행이 branch 를 옮긴 뒤 멈췄다. HEAD 가 가리키는 branch 가 없다. 남은 단계만 마친다.
+            gitcmd.git(top, "symbolic-ref", "HEAD", f"refs/heads/{BRANCH}")
             gitcmd.git(top, "read-tree", "--empty")
             return {}
         raise ResetRefused("no-commits", "커밋이 없어 옮길 기록이 없다.")
