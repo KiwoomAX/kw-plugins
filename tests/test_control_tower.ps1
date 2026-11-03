@@ -1532,6 +1532,10 @@ function Invoke-SyncScenario {
     if ($Lock) {
         New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
         if ($Lock -eq 'stale') { (Get-Item -LiteralPath $lockDir).CreationTime = (Get-Date).AddMinutes(-15) }
+        # 'alive' 는 이 검사 프로그램이 잠금을 쥔 것으로, 'dead' 는 시작 시각이 다른 프로그램(번호를 이어받은 새 프로그램)이 쥔 것으로 적는다.
+        $ticks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
+        if ($Lock -eq 'alive') { "$PID|$ticks" | Set-Content -LiteralPath (Join-Path $lockDir 'owner') -NoNewline }
+        if ($Lock -eq 'dead')  { "$PID|$($ticks - 1)" | Set-Content -LiteralPath (Join-Path $lockDir 'owner') -NoNewline }
     }
     $env:STUB_MK = $Mk; $env:STUB_UP = $Up; $env:STUB_NEW = $shaNew; $env:KWCT_REMOTE_HEAD = "kiwoom-ax=$shaNew"; $env:STUB_LOG = Join-Path $h 'calls.log'
     $env:STUB_SLEEP = if ($Sleep) { "$Sleep" } else { '' }
@@ -1640,6 +1644,11 @@ $r = Invoke-SyncScenario -Steps '1,2' -Lock 'fresh'
 Check '다른 동기화가 실행 중이면 건너뛴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 건너뜁니다') -and ($r.Code -eq 0) }
 $r = Invoke-SyncScenario -Steps '1,2' -Lock 'stale'
 Check '10분 넘은 잠금은 삭제하고 실행한다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
+# 강제 종료된 동기화의 잠금은 10분을 기다리지 않고 삭제한다. 17:07 동기화가 남긴 잠금이 다음 세션의 Node.js 업데이트를 건너뛰게 한 일이 있었다.
+$r = Invoke-SyncScenario -Steps '1,2' -Lock 'dead'
+Check '잠금을 만든 프로그램이 종료되었으면 바로 삭제하고 실행한다' { ($r.Sha -eq $shaNew) -and -not $r.LockLeft }
+$r = Invoke-SyncScenario -Steps '1,2' -Lock 'alive'
+Check '잠금을 만든 프로그램이 실행 중이면 건너뛴다' { ($r.Sha -eq $shaOld) -and ($r.Out -match '이번에는 건너뜁니다') }
 # 제한 시간에 중단된 실행도 잠금을 남기지 않는다. 위의 중단 시나리오를 다시 실행한다.
 $r = Invoke-SyncScenario -Budget 3 -Bin $hang -Steps '1'
 Check '제한 시간에 중단된 실행도 잠금을 삭제한다' { -not $r.LockLeft }
