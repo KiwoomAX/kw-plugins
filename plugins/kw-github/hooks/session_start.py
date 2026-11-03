@@ -155,14 +155,25 @@ LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 
 # 근거 측정이 없는 설계자 판단이다. 훅 전체 90초에서 남은 변경 commit 45초와 fetch 10초를 빼고 남은 시간 안에 든다.
 SYNC_MOVE_SECONDS = 20
 AUTO_NOTE = (
-    "[kw-github] GitHub main 에 이 PC 에 없는 변경이 있어 지금 branch 에 받아왔다. 개발자에게 'AX팀 등이 GitHub 에 "
-    "올린 변경을 받아왔습니다.' 라고 한 줄 알려라."
+    "[kw-github] GitHub main 에 이 PC 에 없는 변경이 있어 지금 branch 에 받아왔다. 아래 변경 목록을 요약해 개발자에게 "
+    "받아온 변경을 알려라."
 )
 ASK_NOTE = (
     "[kw-github] GitHub main 에 지금 작업 branch 에 없는 변경(AX팀 수정 등)이 있다. 이 context 에 push 질문 안내가 "
     "있으면 push 질문을 먼저 하라. 올리기가 그 변경을 함께 반영한다. 개발자가 올리기를 미루었거나 push 질문이 없으면 "
-    "선택 창으로 'AX팀 등이 GitHub 에 올린 변경이 있습니다. 지금 작업에 반영할까요?' 라고 물어라. 동의하면 "
+    "아래 변경 목록을 요약해 알린 뒤 선택 창으로 '지금 작업에 반영할까요?' 라고 물어라. 동의하면 "
     "saving-work 의 「AX팀 변경 반영」 절대로 하고, 미루면 이 세션에서 다시 묻지 마라."
+)
+# 근거 측정이 없는 설계자 판단이다. 안내문이 길어지지 않게 commit 과 파일을 이 개수까지만 적는다.
+SYNC_LIST_LIMIT = 10
+CHANGES_NOTE = (
+    "[kw-github] 받아올 변경 목록이다.\n"
+    "commit(작성자 · 제목): {commits}\n"
+    "바뀐 파일: {files}\n"
+    "요약하기 전에 git diff {base}..{tip} 로 바뀐 내용을 읽어라. 작성자는 AX팀이라고 단정하지 말고 commit 작성자 "
+    "이름으로 적어라. 바뀐 내용을 쉬운 말로 한두 줄 요약하라. 배포 설정·문서·주석만 바뀌었으면 기능 동작은 "
+    "그대로라고 알려라. 기능 코드가 바뀌었으면 무엇이 달라지는지 알려라. 동작이 바뀌는지 판단하기 어려우면 바뀐 "
+    "파일과 내용만 알려라."
 )
 FF_FAILED_NOTE = "[kw-github] GitHub main 의 변경을 받아오지 못했다. 원인을 개발자에게 쉬운 말로 알려라: {detail}"
 
@@ -173,6 +184,20 @@ def _lock_note(top):
     candidates = [own / "index.lock", own / "HEAD.lock"] + list((common / "refs").rglob("*.lock"))
     locks = sorted(str(path) for path in candidates if path.exists())
     return [LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks))] if locks else []
+
+
+def _capped(items, unit):
+    shown = ", ".join(items[:SYNC_LIST_LIMIT])
+    return f"{shown} 외 {len(items) - SYNC_LIST_LIMIT}{unit}" if len(items) > SYNC_LIST_LIMIT else shown
+
+
+def _changes_note(top, deadline):
+    """HEAD 에 없고 GitHub main 에 있는 변경의 목록 안내다. fast-forward 하기 전에 만든다."""
+    base = gitcmd.git(top, "merge-base", "HEAD", save_work.REMOTE_REF, deadline=deadline).strip()
+    tip = gitcmd.git(top, "rev-parse", save_work.REMOTE_REF, deadline=deadline).strip()
+    commits = gitcmd.git(top, "log", "--format=%an · %s", f"HEAD..{tip}", deadline=deadline).splitlines()
+    files = gitcmd.git_z(top, "diff", "--name-only", "-z", base, tip, deadline=deadline)
+    return CHANGES_NOTE.format(commits=_capped(commits, "건"), files=_capped(files, "개"), base=base, tip=tip)
 
 
 def _tracked_dirty(top, deadline):
@@ -201,12 +226,13 @@ def sync_feature(top, source, elsewhere):
         if not save_work._count(top, f"HEAD..{save_work.REMOTE_REF}", deadline):
             return []
         behind_only = save_work._is_ancestor(top, "HEAD", save_work.REMOTE_REF, deadline)
-        if behind_only and not _tracked_dirty(top, deadline):
-            gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF, deadline=deadline)
-            return [AUTO_NOTE]
         if not behind_only and save_work.current_branch(top, deadline) == save_work.BRANCH:
             return []  # sync-main 은 main 에서 merge 하지 않으므로 반영 질문이 늘 실패로 끝난다
-        return [ASK_NOTE]
+        changes = _changes_note(top, deadline)
+        if behind_only and not _tracked_dirty(top, deadline):
+            gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF, deadline=deadline)
+            return [AUTO_NOTE, changes]
+        return [ASK_NOTE, changes]
     except (gitcmd.GitError, gitcmd.CommandTimeout) as exc:
         return [FF_FAILED_NOTE.format(detail=exc)]
 
