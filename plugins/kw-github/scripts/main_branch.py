@@ -5,11 +5,12 @@
 """
 import gitcmd
 import github_merge
+from reset_history import is_history_branch
 
 MAIN = "main"
 LOCAL_OLD = "master"
 MAIN_REF = f"refs/remotes/origin/{MAIN}"
-KEEP_PREFIXES = ("feat/", "fix/", "refactor/", "docs/", "local-history")
+KEEP_PREFIXES = ("feat/", "fix/", "refactor/", "docs/")
 # GitHub 기본 branch 를 바꾸기 전의 이름이다. 바꾼 직후 멈춰도 다음 실행이 그 branch 를 다시 검사하게 남겨 둔다.
 OLD_DEFAULT_KEY = "kw-github.old-default"
 
@@ -28,7 +29,7 @@ def _head(top, deadline):
 
 
 def _is_old_name(name):
-    return name != MAIN and not name.startswith(KEEP_PREFIXES)
+    return name != MAIN and not name.startswith(KEEP_PREFIXES) and not is_history_branch(name)
 
 
 def _recorded_old(top, deadline):
@@ -95,8 +96,10 @@ def _change_default(full, old, has_main, deadline):
     if code == 0:
         return None
     if "HTTP 403" in err:
-        login = gitcmd.gh_try("api", "user", "--jq", ".login", deadline=deadline)
-        account = login[1].strip() if login[0] == 0 and login[1].strip() else "확인하지 못함"
+        try:
+            account = gitcmd.gh_login(deadline)
+        except (gitcmd.GitError, gitcmd.CommandTimeout):
+            account = "확인하지 못함"
         return _result("failed", old, reason="no-permission", account=account,
                        detail=f"{full} 의 기본 branch 가 {old} 다. GitHub 계정 {account} 에는 이 설정을 바꿀 관리자 "
                               "권한이 없다. saving-work 「기본 branch 맞추기」의 no-permission 문장으로 알려라.")

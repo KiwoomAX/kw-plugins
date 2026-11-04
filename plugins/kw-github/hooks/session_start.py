@@ -141,7 +141,7 @@ INTAKE_BRANCH_NOTE = (
 )
 UNSUPPORTED_NOTE = (
     "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "
-    "개발자가 올리기를 원하면 AX팀에 기능별 폴더 구조로 이관을 요청하라고 안내하라."
+    "개발자가 올리기를 원하면 AX팀에 기능별 폴더 구조로 전환을 요청하라고 안내하라."
 )
 MAIN_DECISION_NOTE = (
     "[kw-github] 예전 기본 branch {old} 에 main 에 없는 commit 이 있다: {commits}. saving-work 스킬의 「기본 branch "
@@ -150,6 +150,100 @@ MAIN_DECISION_NOTE = (
 MAIN_FAILED_NOTE = "[kw-github] GitHub 의 기본 branch 를 main 으로 바꾸지 못했다. {detail}"
 LOCK_NOTE = ("[kw-github] 세션 시작 fetch 가 {seconds}초 안에 끝나지 않아 멈췄다. .git 아래에 lock 파일이 남아 있다: "
              "{locks}. 다른 git 명령이 실행 중이 아니면 이 파일을 지운 뒤 fetch 하라.")
+
+
+# 근거 측정이 없는 설계자 판단이다. 훅 전체 90초에서 남은 변경 commit 45초와 fetch 10초를 빼고 남은 시간 안에 든다.
+SYNC_MOVE_SECONDS = 20
+AUTO_NOTE = (
+    "[kw-github] GitHub main 에 이 PC 에 없는 변경이 있어 지금 branch 에 받아왔다. 아래 변경 목록을 요약해 개발자에게 "
+    "받아온 변경을 알려라."
+)
+ASK_NOTE = (
+    "[kw-github] GitHub main 에 지금 작업 branch 에 없는 변경(AX팀 수정 등)이 있다. 이 context 에 push 질문 안내가 "
+    "있으면 push 질문을 먼저 하라. 올리기가 그 변경을 함께 반영한다. 개발자가 올리기를 미루었거나 push 질문이 없으면 "
+    "아래 변경 목록을 요약해 알린 뒤 선택 창으로 '지금 작업에 반영할까요?' 라고 물어라. 동의하면 "
+    "saving-work 의 「AX팀 변경 반영」 절대로 하고, 미루면 이 세션에서 다시 묻지 마라."
+)
+# 근거 측정이 없는 설계자 판단이다. 안내문이 길어지지 않게 commit 과 파일을 이 개수까지만 적는다.
+SYNC_LIST_LIMIT = 10
+CHANGES_NOTE = (
+    "[kw-github] 받아올 변경 목록이다.\n"
+    "commit(작성자 · 제목): {commits}\n"
+    "바뀐 파일: {files}\n"
+    "요약하기 전에 git diff {base}..{tip} 로 바뀐 내용을 읽어라. 작성자는 AX팀이라고 단정하지 말고 commit 작성자 "
+    "이름으로 적어라. 바뀐 내용을 쉬운 말로 한두 줄 요약하라. 배포 설정·문서·주석만 바뀌었으면 기능 동작은 "
+    "그대로라고 알려라. 기능 코드가 바뀌었으면 무엇이 달라지는지 알려라. 동작이 바뀌는지 판단하기 어려우면 바뀐 "
+    "파일과 내용만 알려라."
+)
+FF_FAILED_NOTE = "[kw-github] GitHub main 의 변경을 받아오지 못했다. 원인을 개발자에게 쉬운 말로 알려라: {detail}"
+
+
+def _lock_note(top):
+    """fetch 가 제한 시간을 넘겼을 때 남아 있는 git lock 파일을 알리는 문장 목록이다. git 이 lock 을 두는 위치만 본다."""
+    own, common = save_work._git_dirs(top)
+    fixed = [own / "index.lock", own / "HEAD.lock", common / "packed-refs.lock", common / "shallow.lock",
+             common / "config.lock", common / "objects" / "info" / "commit-graph.lock"]
+    candidates = fixed + list((common / "refs").rglob("*.lock"))
+    locks = sorted(str(path) for path in candidates if path.exists())
+    return [LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks))] if locks else []
+
+
+def _capped(items, unit):
+    shown = ", ".join(items[:SYNC_LIST_LIMIT])
+    return f"{shown} 외 {len(items) - SYNC_LIST_LIMIT}{unit}" if len(items) > SYNC_LIST_LIMIT else shown
+
+
+def _changes_note(top, deadline):
+    """HEAD 에 없고 GitHub main 에 있는 변경의 목록 안내다. fast-forward 하기 전에 만든다."""
+    base = gitcmd.git(top, "merge-base", "HEAD", save_work.REMOTE_REF, deadline=deadline).strip()
+    tip = gitcmd.git(top, "rev-parse", save_work.REMOTE_REF, deadline=deadline).strip()
+    commits = gitcmd.git(top, "log", "--format=%an · %s", f"HEAD..{tip}", deadline=deadline).splitlines()
+    files = gitcmd.git_z(top, "diff", "--name-only", "-z", base, tip, deadline=deadline)
+    return CHANGES_NOTE.format(commits=_capped(commits, "건"), files=_capped(files, "개"), base=base, tip=tip)
+
+
+def _tracked_dirty(top, deadline):
+    return bool(gitcmd.git(top, "status", "--porcelain", "--untracked-files=no", deadline=deadline).strip())
+
+
+def sync_feature(top, source, elsewhere):
+    """기능 레포의 세션 시작 동기화다. Claude 에게 넣을 알림 문장 목록을 돌려준다.
+
+    AX팀이 GitHub 에서 고친 코드를 개발자가 따로 요청하지 않아도 새 세션에서 받아오게 한다. 올리지 않은 commit 과
+    commit 하지 않은 수정이 없으면 충돌이 생길 수 없으므로 묻지 않고 fast-forward 한다. 그 밖에는 Claude 가
+    개발자에게 묻고 sync-main 이 반영한다. 대화 재개에서는 받아오지 않는다. 재개한 Claude 는 앞서 읽은 파일 내용을
+    기준으로 일하므로, 그사이 파일이 바뀌면 옛 내용으로 고치게 된다. main 이 GitHub main 과 갈라졌으면 묻지 않는다.
+    sync-main 은 main 에서 merge 하지 않으므로 반영 질문이 늘 실패로 끝나기 때문이다.
+    """
+    if source != "startup" or elsewhere:
+        return []
+    try:
+        gdir = save_work.git_dir(top)
+        if (gdir / "MERGE_HEAD").exists() or (gdir / save_work.UPLOAD_STATE).exists():
+            return []
+        save_work.check_head(top)
+        gitcmd.git(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SYNC_FETCH_SECONDS))
+    except gitcmd.CommandTimeout:
+        return _lock_note(top)
+    except (gitcmd.GitError, save_work.BranchChoiceError):
+        return []  # fetch 가 실패해도 세션 시작을 이어 간다
+    deadline = gitcmd.Deadline(SYNC_MOVE_SECONDS)
+    try:
+        if not save_work._ref_exists(top, save_work.REMOTE_REF, deadline):
+            return []  # 첫 push 전이다
+        save_work.align_main(top, deadline)
+        if not save_work._count(top, f"HEAD..{save_work.REMOTE_REF}", deadline):
+            return []
+        behind_only = save_work._is_ancestor(top, "HEAD", save_work.REMOTE_REF, deadline)
+        if not behind_only and save_work.current_branch(top, deadline) == save_work.BRANCH:
+            return []  # sync-main 은 main 에서 merge 하지 않으므로 반영 질문이 늘 실패로 끝난다
+        changes = _changes_note(top, deadline)
+        if behind_only and not _tracked_dirty(top, deadline):
+            gitcmd.git(top, "merge", "-q", "--ff-only", save_work.REMOTE_REF, deadline=deadline)
+            return [AUTO_NOTE, changes]
+        return [ASK_NOTE, changes]
+    except (gitcmd.GitError, gitcmd.CommandTimeout) as exc:
+        return [FF_FAILED_NOTE.format(detail=exc)]
 
 
 def _move_main(top, session_id):
@@ -201,10 +295,7 @@ def sync_shared(top, session_id=None):
         notes += _main_notes(top, session_id, deadline)
         _move_main(top, session_id)
     except gitcmd.CommandTimeout:
-        _, common = save_work._git_dirs(top)
-        locks = sorted(str(path) for path in common.rglob("*.lock"))
-        if locks:
-            notes.append(LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks)))
+        notes += _lock_note(top)
     except gitcmd.GitError:
         pass  # fetch 가 실패해도 세션 시작을 이어 간다
     current = save_work.current_branch(top)
@@ -260,7 +351,7 @@ def shared_context(top, session_id=None):
     return "\n".join(notes) + "\n\n" + GIT_TERMS_PATH.read_text(encoding="utf-8")
 
 
-def context_for(cwd, session_id=None):
+def context_for(cwd, session_id=None, source="startup"):
     try:
         top = save_work.locate(cwd)
         if top is not None and shared_repo.repo_kind(top) == "shared":
@@ -279,13 +370,20 @@ def context_for(cwd, session_id=None):
     owner = save_work.origin_owner(top) if save_work.origin_url(top) else save_work.ORG
     elsewhere = (owner or "").lower() != save_work.ORG.lower()
     context = build_context(save_work.commit_work(top, None, catch_up=True), elsewhere)
+    # 남은 변경을 commit 한 뒤 동기화한다. 그래야 받아온 변경과 개발자의 수정이 작업 트리에서 섞이지 않는다.
+    try:
+        notes = sync_feature(top, source, elsewhere)
+    except Exception as exc:  # noqa: BLE001 — 동기화는 부가 단계다. 앞서 만든 commit 알림을 버리지 않는다
+        notes = [FF_FAILED_NOTE.format(detail=f"{exc.__class__.__name__}: {exc}")]
+    context = "\n".join(filter(None, [context, *notes]))
     return _with_rules(context) if context else None
 
 
 def main():
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
-        context = context_for(payload.get("cwd") or os.getcwd(), payload.get("session_id"))
+        context = context_for(payload.get("cwd") or os.getcwd(), payload.get("session_id"),
+                              payload.get("source") or "startup")
     except Exception as exc:  # noqa: BLE001 — 훅이 죽으면 저장 알림도 사라진다
         context = (f"세션 시작 훅이 실패했다: {exc.__class__.__name__}: {exc}. "
                    "이 폴더가 기능 레포면 saving-work 로 commit 하라.")

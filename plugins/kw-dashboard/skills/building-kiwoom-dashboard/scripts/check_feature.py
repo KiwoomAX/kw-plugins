@@ -14,6 +14,15 @@ from pathlib import Path
 import intake_common as common
 
 
+def _history(name: str) -> bool:
+    """kw-github 가 보관한 예전 기록 branch(local-history, local-history-*)다. 비밀값이 있을 수 있어 이전 후보가 아니다.
+
+    원본 규칙은 kw-github/scripts/reset_history.py 의 is_history_branch 다. 다른 플러그인이라 import 하지 않으므로,
+    그쪽 이름 규칙을 바꾸면 여기도 함께 고쳐라.
+    """
+    return name == "local-history" or name.startswith("local-history-")
+
+
 def _dirty(repo: Path) -> list[str]:
     entries = common.git_z(repo, "status", "--porcelain", "-z", "--untracked-files=all")
     paths, skip = [], False
@@ -44,12 +53,12 @@ def check(repo: Path) -> dict:
                        "backend": common.blob(repo, ref, "backend/router.py") is not None}
     locals_ = common.git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").split()
     for name in locals_:
-        if name in (branch, "local-history"):
+        if name == branch or _history(name):
             continue
         _add_branch(repo, result, name, f"{ref}..{name}")
     for name in common.git(repo, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin").split():
         short = name.removeprefix("origin/")
-        if short in (branch, "HEAD", "local-history") or name == "origin":
+        if short in (branch, "HEAD") or _history(short) or name == "origin":
             continue
         # 같은 이름의 로컬 branch 가 있으면 그 branch 에 없는 원격 commit 만 센다
         _add_branch(repo, result, name, f"{ref}..{name}" + (f" ^{short}" if short in locals_ else ""))
@@ -150,6 +159,8 @@ def check_other_branch(tmp: Path) -> None:
     common.commit_files(repo, {"backend/extra.py": "y = 2\n"}, "추가 기능")
     common.git(repo, "switch", "-q", "-c", "local-history")
     common.commit_files(repo, {"old.txt": "old\n"}, "옛 기록")
+    common.git(repo, "switch", "-q", "-c", "local-history-feat-login")
+    common.commit_files(repo, {"secret.txt": "old\n"}, "보관한 예전 branch")
     common.git(repo, "switch", "-q", "main")
     result = check(repo)
     assert result["other_branches"] == [{"name": "feat/x", "ahead": 1, "last_subject": "추가 기능"}], result

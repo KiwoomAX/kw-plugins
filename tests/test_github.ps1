@@ -244,6 +244,37 @@ try {
     Assert 'the other work branch stays on this PC' ((Invoke-Git $repo2 @('branch', '--list')) -match 'feat/b')
 } finally { Remove-Item -LiteralPath $work2 -Recurse -Force -ErrorAction SilentlyContinue }
 
+Write-Host '--- sync-main ---'
+# AX팀이 GitHub main 에 올린 변경을 개발자의 작업 branch 에 반영한다(decided 2026-11-03).
+$work3 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$repo3   = Join-Path $work3 'repo'
+$remote3 = Join-Path $work3 'remote.git'
+$ax3     = Join-Path $work3 'ax'
+New-Item -ItemType Directory -Path $repo3 | Out-Null
+try {
+    $null = Invoke-Git $work3 @('init', '-q', '--bare', '-b', 'main', $remote3)
+    $null = Invoke-Git $repo3 @('init', '-q', '-b', 'main')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $repo3 (@('config') + $kv) }
+    $url3 = 'https://github.com/KiwoomAX/kwgh-sync.git'
+    $null = Invoke-Git $repo3 @('remote', 'add', 'origin', $url3)
+    $null = Invoke-Git $repo3 @('config', "url.$($remote3.Replace('\', '/')).insteadOf", $url3)
+    [IO.File]::WriteAllText((Join-Path $repo3 '.kiwoom-feature'), "name=kwgh-sync`ntitle=시험`nissue=1`n")
+    [IO.File]::WriteAllText((Join-Path $repo3 'a.py'), "x = 1`n")
+    $null = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'commit', '--repo', $repo3, '--message', '작업 폴더 준비')
+    $null = Invoke-Git $repo3 @('push', '-q', '-u', 'origin', 'main')
+    [IO.File]::WriteAllText((Join-Path $repo3 'a.py'), "x = 2`n")
+    $null = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'commit', '--repo', $repo3, '--message', '내 작업', '--branch', 'feat/x')
+    $null = Invoke-Git $work3 @('clone', '-q', '-c', 'core.autocrlf=false', $remote3, $ax3)
+    foreach ($kv in @(@('user.email', 'ax@example.com'), @('user.name', 'ax'))) { $null = Invoke-Git $ax3 (@('config') + $kv) }
+    [IO.File]::WriteAllText((Join-Path $ax3 'deploy.yml'), "x: 1`n")
+    $null = Invoke-Git $ax3 @('add', '-A')
+    $null = Invoke-Git $ax3 @('commit', '-q', '-m', 'AX팀 수정')
+    $null = Invoke-Git $ax3 @('push', '-q', 'origin', 'main')
+    $sync = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'sync-main', '--repo', $repo3) | ConvertFrom-Json
+    Assert 'sync-main merges the AX team change into the work branch' ($sync.status -eq 'updated' -and (Test-Path (Join-Path $repo3 'deploy.yml')))
+    Assert 'sync-main keeps the work branch and its own change' (((Invoke-Git $repo3 @('branch', '--show-current')).Trim() -eq 'feat/x') -and ([IO.File]::ReadAllText((Join-Path $repo3 'a.py')) -eq "x = 2`n"))
+} finally { Remove-Item -LiteralPath $work3 -Recurse -Force -ErrorAction SilentlyContinue }
+
 Write-Host '--- default branch main ---'
 # Company repos use main (decided 2026-10-28). Without origin, normalize-main renames on this PC only and calls no gh.
 $work4 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -268,6 +299,31 @@ try {
     Assert '--merge-old brings the old work into main and deletes the old branch' (
         $merged.status -eq 'normalized' -and (Test-Path (Join-Path $work4 'b.py')) -and (Invoke-Git $work4 @('branch', '--format=%(refname:short)')).Trim() -eq 'main')
 } finally { Remove-Item -LiteralPath $work4 -Recurse -Force -ErrorAction SilentlyContinue }
+
+Write-Host '--- old history reset ---'
+# reset_history moves the old history aside so only the current files reach GitHub.
+$work5 = Join-Path ([IO.Path]::GetTempPath()) ("kwgh-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $work5 | Out-Null
+try {
+    $null = Invoke-Git $work5 @('init', '-q', '-b', 'main')
+    foreach ($kv in @(@('user.email', 't@example.com'), @('user.name', 't'), @('core.autocrlf', 'false'))) { $null = Invoke-Git $work5 (@('config') + $kv) }
+    [IO.File]::WriteAllText((Join-Path $work5 'a.py'), "x = 1`n")
+    $null = Invoke-Git $work5 @('add', '-A'); $null = Invoke-Git $work5 @('commit', '-q', '-m', 'first')
+    [IO.File]::WriteAllText((Join-Path $work5 'a.py'), "x = 2`n")
+    $null = Invoke-Git $work5 @('add', '-A'); $null = Invoke-Git $work5 @('commit', '-q', '-m', 'second')
+    $null = Invoke-Git $work5 @('branch', 'feat/login')
+    $null = Invoke-Git $work5 @('switch', '-q', '--detach', 'HEAD~1')
+    $before = Invoke-Git $work5 @('for-each-ref', '--format=%(refname) %(objectname)')
+    $old = Invoke-Py @((Join-Path $Scripts 'reset_history.py'), '--repo', $work5) | ConvertFrom-Json
+    Assert 'reset refuses an old detached commit and changes nothing' (
+        $old.status -eq 'refused' -and $old.reason -eq 'detached' -and (Invoke-Git $work5 @('for-each-ref', '--format=%(refname) %(objectname)')) -eq $before)
+    $null = Invoke-Git $work5 @('switch', '-q', 'main')
+    $done = Invoke-Py @((Join-Path $Scripts 'reset_history.py'), '--repo', $work5) | ConvertFrom-Json
+    $names = (Invoke-Git $work5 @('for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/')) -split "`n"
+    Assert 'reset keeps other branches as local-history-<name>' (
+        $done.status -eq 'reset' -and $done.kept.'feat/login' -eq 'local-history-feat-login' -and
+        ($names -join ',') -eq 'local-history,local-history-feat-login' -and (Get-Content (Join-Path $work5 'a.py') -Raw) -eq "x = 2`n")
+} finally { Remove-Item -LiteralPath $work5 -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Host '--- shared dashboard repo ---'
 # A KiwoomAX repo whose name ends in "dashboard" is shared by several developers, one feature folder each.

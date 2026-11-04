@@ -26,6 +26,31 @@ class RulesError(Exception):
     """규칙 파일을 믿을 수 없을 때 올린다. 검사 없이 저장하는 길을 막는다."""
 
 
+# 재설치를 안내한 kw-github 버전을 적는 파일이다. 같은 버전에서 재설치 안내가 세션마다 반복되지 않게 하기 위해서다.
+REINSTALL_MARK = Path.home() / ".claude" / "kw-github-reinstalled"
+REINSTALL_DETAIL = ("규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 업데이트하고, "
+                    "이미 최신이면 다시 설치하라. {exc}")
+GIVE_UP_DETAIL = ("규칙 파일 오류다. 이 버전의 kw-github 는 이미 다시 설치해 보았다. 다시 설치하지 말고 saving-work "
+                  "「결과 처리」의 「규칙 파일 오류」대로 AX팀 문의를 안내하라. {exc}")
+
+
+def failure_detail(exc):
+    """규칙 파일 오류의 안내 문장이다. 재설치는 kw-github 버전마다 한 번만 안내한다."""
+    version = Path(__file__).resolve().parents[1].name  # 설치 폴더 이름이 kw-github 의 commit 이다
+    try:
+        tried = REINSTALL_MARK.read_text(encoding="utf-8").strip() == version
+    except OSError:
+        tried = False
+    if tried:
+        return GIVE_UP_DETAIL.format(exc=exc)
+    try:
+        REINSTALL_MARK.parent.mkdir(parents=True, exist_ok=True)
+        REINSTALL_MARK.write_text(version, encoding="utf-8")
+    except OSError:
+        return GIVE_UP_DETAIL.format(exc=exc)  # 기록하지 못하면 반복될 수 있으므로 재설치를 안내하지 않는다
+    return REINSTALL_DETAIL.format(exc=exc)
+
+
 def load(path):
     path = Path(path)
     try:

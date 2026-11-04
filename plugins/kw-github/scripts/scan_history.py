@@ -108,8 +108,7 @@ def run_scan(repo, rules_path=RULES_PATH, ref=None):
         commits = gitcmd.git(repo, "rev-list", ref, deadline=deadline).split() if ref else None
         hits = scan(repo, data, deadline, commits=commits)
     except rules.RulesError as exc:
-        return {"status": "failed", "hits": [],
-                "detail": f"규칙 파일 오류다. 개발자가 풀 일이 아니니 멈추고 AX팀에 알리라고 전하라. {exc}"}
+        return {"status": "failed", "hits": [], "detail": rules.failure_detail(exc)}
     except gitcmd.CommandTimeout as exc:
         return {"status": "timeout", "hits": [],
                 "detail": (f"{SCAN_SECONDS}초 안에 검사를 끝내지 못했다. 끝까지 확인하지 못한 이력은 올리지 "
