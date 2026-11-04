@@ -73,7 +73,7 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
      python "${CLAUDE_PLUGIN_ROOT}/scripts/reset_history.py" --repo "<폴더>"
      ```
 
-     `scan_history.py` 의 `status` 가 `failed` 면 한 번만 다시 실행한다. 다시 실행해도 `failed` 면 아래 「AX팀 문의 문장」을 알리고 멈춘다.
+     `scan_history.py` 의 `status` 가 `failed` 이고 `detail` 이 규칙 파일 오류면 saving-work 「결과 처리」의 「규칙 파일 오류」대로 한다. 그 밖의 `failed` 면 한 번만 다시 실행한다. 다시 실행해도 `failed` 면 아래 「AX팀 문의 문장」을 알리고 멈춘다.
 
      `reset_history.py` 는 이미 있는 `local-history` 와 다른 branch 를 `local-history-<이름>` 으로 보관한 뒤 정리한다. branch 이름은 한 번에 함께 바뀌므로, 실패하면 하나도 바뀌지 않는다. 결과의 `status` 에 따라 아래대로 한다. 정리하지 않고 이어 가면 비밀값이 포함된 예전 기록이 첫 업로드 때 GitHub 에 올라가므로, `reset` 이 아니면 다음 단계로 가지 않는다.
      - `reset`: 정리를 마쳤다. 결과의 `kept` 가 비어 있지 않으면 개발자에게 "다른 branch 의 예전 작업은 이 PC 의 `<kept 의 새 이름들>` 에 보관했습니다. GitHub 에는 올리지 않습니다." 라고 알린다.

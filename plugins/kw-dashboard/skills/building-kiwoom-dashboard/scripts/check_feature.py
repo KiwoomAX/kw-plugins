@@ -15,7 +15,11 @@ import intake_common as common
 
 
 def _history(name: str) -> bool:
-    """kw-github 가 보관한 예전 기록 branch(local-history, local-history-*)다. 비밀값이 있을 수 있어 이전 후보가 아니다."""
+    """kw-github 가 보관한 예전 기록 branch(local-history, local-history-*)다. 비밀값이 있을 수 있어 이전 후보가 아니다.
+
+    원본 규칙은 kw-github/scripts/reset_history.py 의 is_history_branch 다. 다른 플러그인이라 import 하지 않으므로,
+    그쪽 이름 규칙을 바꾸면 여기도 함께 고쳐라.
+    """
     return name == "local-history" or name.startswith("local-history-")
 
 

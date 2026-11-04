@@ -69,7 +69,6 @@ MSG_CONFLICT = "GitHub에 올라온 것과 지금 PC에 저장된 것이 달라 
 MSG_NO_UPLOAD = "GitHub에 올릴 새 작업이 없습니다."
 MSG_OTHER_OWNER = "올리려는 곳이 회사 GitHub(KiwoomAX)가 아닙니다."
 MSG_RULES = "저장 규칙 파일을 읽지 못해 저장을 멈췄습니다."
-RULES_DETAIL = "규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 업데이트하라. {exc}"
 MSG_TIMEOUT = "저장이 오래 걸려 멈췄습니다. 다음에 다시 저장합니다."
 MSG_FAILED = "저장하지 못했습니다. 원인을 확인해 이어서 처리합니다."
 MSG_NEEDS_AUTHOR = "commit 에 남길 이름과 메일을 알려 주세요. 한 번만 설정하면 됩니다."
@@ -582,7 +581,7 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
     except AuthorMissing:
         return _failed(progress, MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, status="needs-author")
     except rules.RulesError as exc:
-        return _failed(progress, MSG_RULES, RULES_DETAIL.format(exc=exc))
+        return _failed(progress, MSG_RULES, rules.failure_detail(exc))
     except gitcmd.CommandTimeout as exc:
         return _failed(progress, MSG_TIMEOUT, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}")
     except gitcmd.ToolMissing as exc:
@@ -1003,28 +1002,41 @@ def _commit_shared(top, message, feature, intake, deadline, progress):
                                  others)
 
 
+def _marked(raw):
+    return any(line.startswith(CONFLICT_MARK) for line in raw.decode("utf-8", "replace").splitlines())
+
+
 def _has_conflict_mark(full):
     try:
-        lines = full.read_bytes().decode("utf-8", "replace").splitlines()
+        return _marked(full.read_bytes())
     except OSError:
         return False
-    return any(line.startswith(CONFLICT_MARK) for line in lines)
 
 
 def _merge_resolved(top, deadline):
-    """진행 중 merge 의 인덱스에서 MERGE_HEAD 와 내용이 다른 파일의 (경로, 인덱스 내용) 목록이다.
+    """진행 중 merge 가 HEAD 에서 바꾸었고 MERGE_HEAD 와도 내용이 다른 파일의 (경로, 인덱스 내용) 목록이다.
 
-    merge 로 들어온 상대편 파일은 빼고, 이쪽 작업과 충돌을 풀며 고친 파일만 남긴다. commit 되는 내용을 보도록
-    작업 트리가 아니라 인덱스를 읽는다.
+    양쪽을 합치거나 충돌을 풀며 고친 파일만 남는다. 상대편 내용을 그대로 받은 파일과 이쪽에만 있던 변경은 빠진다.
+    commit 되는 내용을 보도록 작업 트리가 아니라 인덱스를 읽는다.
     """
-    paths = gitcmd.git_z(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=d", "MERGE_HEAD",
-                         deadline=deadline)
-    return [(path, gitcmd.git_bytes(top, "show", f":{path}", deadline=deadline)) for path in paths]
+    def changed(ref):
+        return set(gitcmd.git_z(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=d", ref,
+                                deadline=deadline))
+
+    paths = changed("HEAD") & changed("MERGE_HEAD")
+    if not paths:
+        return []
+    blobs = {}
+    for entry in gitcmd.git_z(top, "ls-files", "--stage", "-z", deadline=deadline):
+        meta, _, path = entry.partition("\t")
+        if path in paths:
+            blobs[path] = meta.split()[1]
+    contents = gitcmd.blob_contents(top, blobs.values(), deadline)
+    return [(path, contents.get(blob, b"")) for path, blob in sorted(blobs.items())]
 
 
 def _conflict_marked(resolved):
-    return [path for path, raw in resolved
-            if any(line.startswith(CONFLICT_MARK) for line in raw.decode("utf-8", "replace").splitlines())]
+    return [path for path, raw in resolved if _marked(raw)]
 
 
 def _commit_intake_merge(top, message, feature, data, deadline, progress):
@@ -1676,7 +1688,7 @@ def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owne
     except AuthorMissing:
         payload = _upload_result("needs-author", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL, progress)
     except rules.RulesError as exc:
-        payload = _upload_result("failed", MSG_RULES, RULES_DETAIL.format(exc=exc), progress)
+        payload = _upload_result("failed", MSG_RULES, rules.failure_detail(exc), progress)
     except gitcmd.CommandTimeout as exc:
         payload = _upload_result("failed", MSG_TIMEOUT, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}",
                                  progress)
@@ -2159,16 +2171,17 @@ def _sync_start(top, deadline, progress):
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
     if not _ref_exists(top, REMOTE_REF, deadline) or _is_ancestor(top, REMOTE_REF, "HEAD", deadline):
         return _sync_result("nothing", MSG_SYNC_NOTHING)
+    fast_forward = _is_ancestor(top, "HEAD", REMOTE_REF, deadline)
+    if not fast_forward and current_branch(top, deadline) == BRANCH:
+        return _sync_result("failed", MSG_SYNC_FAILED,
+                            "PC 의 main 에 GitHub 에 없는 commit 이 있다. main 에서는 merge 하지 않는다.")
     # 검사에서 빠져 commit 되지 않은 수정을 merge 동안 치워 둔다. upload 와 같은 stash 다.
-    _stash_leftovers(top, deadline, {})
-    progress["stashed"] = True
-    if _is_ancestor(top, "HEAD", REMOTE_REF, deadline):
+    _stash_leftovers(top, deadline, progress)
+    if fast_forward:
         code, out, err = gitcmd.git_try(top, "merge", "-q", "--ff-only", REMOTE_REF, deadline=deadline)
         if code != 0:
             return _sync_failed(top, deadline, f"fast-forward 하지 못했다. {(err or out).strip()}")
         return _sync_done(top, deadline)
-    if current_branch(top, deadline) == BRANCH:
-        return _sync_failed(top, deadline, "PC 의 main 에 GitHub 에 없는 commit 이 있다. main 에서는 merge 하지 않는다.")
     ensure_author(top, deadline)
     (gdir / SYNC_STATE).write_text("", encoding="utf-8")
     code, out, err = gitcmd.git_try(top, "merge", "--no-edit", REMOTE_REF, deadline=deadline)
@@ -2233,7 +2246,7 @@ def sync_main(repo, mode=None):
     except AuthorMissing:
         result = _sync_result("failed", MSG_NEEDS_AUTHOR, AUTHOR_DETAIL)
     except rules.RulesError as exc:
-        result = _sync_result("failed", MSG_RULES, RULES_DETAIL.format(exc=exc))
+        result = _sync_result("failed", MSG_RULES, rules.failure_detail(exc))
     except gitcmd.CommandTimeout as exc:
         result = _sync_result("failed", MSG_SYNC_FAILED, f"제한 시간을 넘겨 멈췄다. 한 번만 다시 실행하라. {exc}")
     except gitcmd.GitError as exc:

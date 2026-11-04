@@ -108,8 +108,7 @@ def run_scan(repo, rules_path=RULES_PATH, ref=None):
         commits = gitcmd.git(repo, "rev-list", ref, deadline=deadline).split() if ref else None
         hits = scan(repo, data, deadline, commits=commits)
     except rules.RulesError as exc:
-        return {"status": "failed", "hits": [],
-                "detail": f"규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 업데이트하라. {exc}"}
+        return {"status": "failed", "hits": [], "detail": rules.failure_detail(exc)}
     except gitcmd.CommandTimeout as exc:
         return {"status": "timeout", "hits": [],
                 "detail": (f"{SCAN_SECONDS}초 안에 검사를 끝내지 못했다. 끝까지 확인하지 못한 이력은 올리지 "

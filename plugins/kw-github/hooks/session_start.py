@@ -181,7 +181,9 @@ FF_FAILED_NOTE = "[kw-github] GitHub main 의 변경을 받아오지 못했다. 
 def _lock_note(top):
     """fetch 가 제한 시간을 넘겼을 때 남아 있는 git lock 파일을 알리는 문장 목록이다. git 이 lock 을 두는 위치만 본다."""
     own, common = save_work._git_dirs(top)
-    candidates = [own / "index.lock", own / "HEAD.lock"] + list((common / "refs").rglob("*.lock"))
+    fixed = [own / "index.lock", own / "HEAD.lock", common / "packed-refs.lock", common / "shallow.lock",
+             common / "config.lock", common / "objects" / "info" / "commit-graph.lock"]
+    candidates = fixed + list((common / "refs").rglob("*.lock"))
     locks = sorted(str(path) for path in candidates if path.exists())
     return [LOCK_NOTE.format(seconds=SYNC_FETCH_SECONDS, locks=", ".join(locks))] if locks else []
 
@@ -205,7 +207,14 @@ def _tracked_dirty(top, deadline):
 
 
 def sync_feature(top, source, elsewhere):
-    """기능 레포의 세션 시작 동기화다(spec 2026-11-03). Claude 에게 넣을 알림 문장 목록을 돌려준다."""
+    """기능 레포의 세션 시작 동기화다. Claude 에게 넣을 알림 문장 목록을 돌려준다.
+
+    AX팀이 GitHub 에서 고친 코드를 개발자가 따로 요청하지 않아도 새 세션에서 받아오게 한다. 올리지 않은 commit 과
+    commit 하지 않은 수정이 없으면 충돌이 생길 수 없으므로 묻지 않고 fast-forward 한다. 그 밖에는 Claude 가
+    개발자에게 묻고 sync-main 이 반영한다. 대화 재개에서는 받아오지 않는다. 재개한 Claude 는 앞서 읽은 파일 내용을
+    기준으로 일하므로, 그사이 파일이 바뀌면 옛 내용으로 고치게 된다. main 이 GitHub main 과 갈라졌으면 묻지 않는다.
+    sync-main 은 main 에서 merge 하지 않으므로 반영 질문이 늘 실패로 끝나기 때문이다.
+    """
     if source != "startup" or elsewhere:
         return []
     try:
@@ -362,7 +371,10 @@ def context_for(cwd, session_id=None, source="startup"):
     elsewhere = (owner or "").lower() != save_work.ORG.lower()
     context = build_context(save_work.commit_work(top, None, catch_up=True), elsewhere)
     # 남은 변경을 commit 한 뒤 동기화한다. 그래야 받아온 변경과 개발자의 수정이 작업 트리에서 섞이지 않는다.
-    notes = sync_feature(top, source, elsewhere)
+    try:
+        notes = sync_feature(top, source, elsewhere)
+    except Exception as exc:  # noqa: BLE001 — 동기화는 부가 단계다. 앞서 만든 commit 알림을 버리지 않는다
+        notes = [FF_FAILED_NOTE.format(detail=f"{exc.__class__.__name__}: {exc}")]
     context = "\n".join(filter(None, [context, *notes]))
     return _with_rules(context) if context else None
 
