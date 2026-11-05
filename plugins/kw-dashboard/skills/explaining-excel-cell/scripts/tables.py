@@ -12,6 +12,7 @@ from explain_cell import a1, col_name
 
 HEADER_MIN = 3  # 머리글 행으로 볼 글자 셀 최소 개수(근거 없는 시작 값)
 HEADER_SHARE = 0.6  # 그 행 셀 중 글자 셀 비율(근거 없는 시작 값)
+OUTSIDE_LIMIT = 200  # 표 밖 셀 목록의 상한(근거 없는 시작 값)
 DATED = re.compile(r"(19|20)\d\d|(?<!\d)\d{6}(?!\d)|(?<!\d)\d{8}(?!\d)")
 SUMMARY_LABEL = re.compile(r"소\s*계|합\s*계|총\s*계|총\s*합|계|total|sub\s*total|grand\s*total", re.I)
 SUMMARY_FUNCS = ("SUM", "AVERAGE", "COUNT")
@@ -187,15 +188,25 @@ def find_tables(book, sheet):
     pos = {p for p in set(book.cells.get(sheet, {})) | set(book.sheet_values(sheet))
            if not any(_inside(p, area) for _, area in excel)}
     out = []
-    for name, area in excel + [(None, area) for area in _split_around(pos, [a for _, a in excel])]:
-        rows = header_rows(book, sheet, area)
+    for name, whole in excel + [(None, area) for area in _split_around(pos, [a for _, a in excel])]:
+        rows = header_rows(book, sheet, whole)
         head = rows[0] if rows else None
-        levels = column_levels(book, sheet, area, rows)
+        levels = column_levels(book, sheet, whole, rows)
+        area, trimmed = (whole, []) if name or not rows else _trim_headerless(whole, levels, pos)
+        levels = tuple(line[:area[3] - area[1] + 1] for line in levels)
         out.append({"id": f"{sheet}!{a1(area[0], area[1])}:{a1(area[2], area[3])}", "sheet": sheet, "area": area,
-                    "header_row": head, "header_rows": rows, "levels": levels,
+                    "header_row": head, "header_rows": rows, "levels": levels, "trimmed_cells": trimmed,
                     "header": join_levels(levels) if rows else None, "excel_table": name,
-                    "title": _title(book, sheet, area, head), "has_formula": _has_formula(book, sheet, area)})
+                    "title": _title(book, sheet, area, head), "has_formula": _has_formula(book, sheet, whole)})
     return sorted(out, key=lambda t: (t["area"][0], t["area"][1]))
+
+
+def _trim_headerless(area, levels, pos):
+    """표 오른쪽 끝에서 머리글이 빈 열을 뺀다. (줄인 범위, 뺀 셀 위치 목록). 담당자가 표 옆에 둔 값이 표에 섞이지 않게 한다."""
+    names = join_levels(levels)
+    last = area[1] + max(i for i, name in enumerate(names) if name)
+    cut = (area[0], area[1], area[2], last)
+    return cut, sorted(p for p in pos if _inside(p, area) and p[1] > last)
 
 
 def group_tables(tables):
@@ -258,7 +269,7 @@ def _overlap(area, other):
 def _formula_cells(book, t):
     cells = book.cells[t["sheet"]]
     for p, c in cells.items():
-        if c.kind == "formula" and _inside(p, t["area"]) and (t["sheet"], p) not in book.pivot_at:
+        if c.kind == "formula" and (_inside(p, t["area"]) or p in t["trimmed_cells"]) and (t["sheet"], p) not in book.pivot_at:
             f = book.formula(t["sheet"], p) or ""
             if not is_constant_formula(f):
                 yield p, f
@@ -300,8 +311,60 @@ def read_map(book, tables, skipped):
                     if other in skipped:
                         note(t["sheet"], p, "past_sheet")
                         continue
-                    reads[t["id"]] |= {u["id"] for u in by_sheet.get(other, []) if u["id"] != t["id"] and _overlap(u["area"], area)}
+                    reads[t["id"]] |= {u["id"] for u in by_sheet.get(other, []) if u["id"] != t["id"] and _reads_table(u, area)}
     return reads, odd
+
+
+def _reads_table(table, area):
+    """참조 범위가 표나 표에서 뺀 셀과 겹치면 True."""
+    return _overlap(table["area"], area) or any(_overlap((*p, *p), area) for p in table["trimmed_cells"])
+
+
+def read_cells(book, tables, ids):
+    """ids 표의 수식이 읽는 셀 집합 {(시트, (행, 열))}. 값이나 수식이 있는 셀만 센다."""
+    from types import SimpleNamespace
+    import trace_cells
+    areas = set()
+    for t in tables:
+        if t["id"] not in ids:
+            continue
+        for p, f in _formula_cells(book, t):
+            probe = SimpleNamespace(broken_refs=set(), dynamic_refs=set())
+            for ref in trace_cells._references(f, probe, (t["sheet"], *p)):
+                got = book.resolve(ref[0] if isinstance(ref, tuple) else ref, t["sheet"], p)
+                if not isinstance(got, str):
+                    areas.update((sheet, tuple(area)) for sheet, area in got)
+    out = set()
+    for sheet in {s for s, _ in areas}:
+        mine = [a for s, a in areas if s == sheet]
+        for p in set(book.cells.get(sheet, {})) | set(book.sheet_values(sheet)):
+            if any(_overlap((*p, *p), a) for a in mine):
+                out.add((sheet, p))
+    return out
+
+
+def outside_cells(book, sheet, used, unused, read, skip=()):
+    """시트에서 쓰인 표 밖의 값 · 수식 셀 목록. {"items": 앞의 항목들, "total": 전체 수}.
+    머리글이 있는 쓰이지 않는 표는 한 줄로 적고, 결과가 읽는 셀이 든 표와 머리글 없는 범위는 셀마다 적는다."""
+    vals = book.sheet_values(sheet)
+    titles = {t["title"] for t in used if t["title"]}
+    whole = [t for t in unused if t["header_rows"] and not any((sheet, p) in read for p in _table_cells(book, t))]
+    items = [{"kind": "표", "where": t["id"].rpartition("!")[2], "value": t["title"], "formula": None,
+              "read_by_result": False, "action": "버림"} for t in whole]
+    for p in sorted(set(book.cells.get(sheet, {})) | set(vals)):
+        inside = any(_inside(p, t["area"]) and p[0] >= (t["header_row"] or 0) for t in used)  # 머리글 위 행은 표가 아니다
+        formula = book.formula(sheet, p)
+        if inside or p in skip or any(_inside(p, t["area"]) for t in whole) or _text(vals.get(p)) in titles or not (formula or p in vals):
+            continue
+        hit = (sheet, p) in read
+        items.append({"kind": "셀", "where": a1(*p), "value": vals.get(p), "formula": formula, "read_by_result": hit,
+                      "action": "별도 표로 저장" if hit else "개발 고정값 표에 저장"})
+    return {"items": items[:OUTSIDE_LIMIT], "total": len(items)}
+
+
+def _table_cells(book, table):
+    sheet = table["sheet"]
+    return [p for p in set(book.cells.get(sheet, {})) | set(book.sheet_values(sheet)) if _inside(p, table["area"])]
 
 
 def _ancestors(reads, ids):
