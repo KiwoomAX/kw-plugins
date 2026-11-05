@@ -4,7 +4,7 @@ SKILL.md 의 1단계에서 `git remote get-url origin` 이 주소를 내지 않�
 없는 복사본이 대부분이다.
 
 **같은 코드의 저장소가 조직에 이미 있으면 새로 만들지 않고 그 저장소에 붙인다.** 저장소가 둘이 되면 조직 폴더가
-같은 `Jenkinsfile` 로 잡을 둘 만들고, 두 잡의 Deploy 가 같은 `container_name` 의 컨테이너를 서로 지운다.
+같은 배포 설정 파일로 잡을 둘 만들고, 두 잡이 같은 `container_name` 의 컨테이너를 서로 지우거나(KiwoomAM) 서로의 배포를 멈춘다(KiwoomAX).
 
 ## 이름 후보 모으기
 

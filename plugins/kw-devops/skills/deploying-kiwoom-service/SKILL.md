@@ -1,20 +1,21 @@
 ---
 name: deploying-kiwoom-service
-description: Use when a KiwoomAX or KiwoomAM repo has to be deployed through the shared Jenkins CI/CD pipeline on server 192.7.9.45 and lacks a Dockerfile, docker-compose.yml or Jenkinsfile, when a new service needs a host port that will not collide, or when a deployed service's secrets or scheduled jobs must be registered with the AX team. Triggers on 배포 붙여줘·CI/CD 태워줘·젠킨스 붙이기·파이프라인 연결·Jenkinsfile 만들어줘·docker compose 만들어줘·포트 뭐 쓰지·새 서비스 배포.
+description: Use when a KiwoomAX or KiwoomAM repo has to be deployed through the shared Jenkins CI/CD pipeline on server 192.7.9.45 and lacks a Dockerfile, docker-compose.yml, kiwoom-deploy.yml (KiwoomAX) or Jenkinsfile (KiwoomAM), when a new service needs a host port that will not collide, or when a deployed service's secrets or scheduled jobs must be registered with the AX team. Triggers on 배포 붙여줘·CI/CD 태워줘·젠킨스 붙이기·파이프라인 연결·Jenkinsfile 만들어줘·kiwoom-deploy.yml 만들어줘·docker compose 만들어줘·포트 뭐 쓰지·새 서비스 배포.
 ---
 
 # deploying-kiwoom-service
 
 repo 하나를 공용 Jenkins 파이프라인에 태운다. **파이프라인 로직은 한 줄도 만들지 않는다** — `jenkins-shared-lib` 의
 `kiwoomDeploy` 가 이미 갖고 있고, 공용 라이브러리 등록·자격증명·조직 폴더 잡도 서버에 구축돼 있다. `main` 에
-`Jenkinsfile` 을 올리면 15분 안에 잡이 저절로 생긴다.
+배포 설정 파일(KiwoomAX 는 `kiwoom-deploy.yml`, KiwoomAM 은 `Jenkinsfile`)을 올리면 15분 안에 잡이 저절로 생긴다.
 
 | 만든다 | 무엇 |
 |---|---|
 | `Dockerfile` | 저장소에 없을 때만 만든다 |
 | `docker-compose.yml` | 서비스 정의. 호스트 포트를 여기서 배정한다 |
 | `docker-compose.jenkins.yml` | Jenkins(DooD) 전용 덮어쓰기. 바인드 마운트가 없으면 안 만든다 |
-| `Jenkinsfile` | `kiwoomDeploy(...)` 호출 몇 줄 |
+| `kiwoom-deploy.yml` | KiwoomAX 저장소. 배포 값 몇 줄. `Jenkinsfile` 은 만들지 않는다 |
+| `Jenkinsfile` | KiwoomAM 저장소. `kiwoomDeploy(...)` 호출 몇 줄 |
 
 ## 절대 규칙
 
@@ -27,13 +28,13 @@ repo 하나를 공용 Jenkins 파이프라인에 태운다. **파이프라인 �
 - **`container_name` 을 적고 빌드하는 서비스마다 healthcheck 를 둔다.** 파이프라인은 healthcheck 로 배포 성공을
   판정하고, 실패하면 직전 버전으로 되돌린다. healthcheck 가 없는 서비스는 검증 없이 통과하므로 고장 난 배포가
   그대로 남고, 빌드하는 서비스 어디에도 없으면 배포 자체가 실패로 끝난다.
-- **빌드하는 서비스에는 `image:` 를 적지 않는다.** 파이프라인이 `localhost:5000/<저장소>/<서비스>:<커밋>` 이름을
+- **빌드하는 서비스에는 `image:` 를 적지 않는다.** 파이프라인이 `localhost:5000/<저장소>/<서비스>:<커밋>`(KiwoomAX 는 `localhost:5000/ax/<저장소>/<서비스>:<커밋>`) 이름을
   붙여 서버 레지스트리에 올리고, 되돌릴 때 그 커밋 태그를 쓴다. 적어도 덮어쓴다. 공개 이미지를 받아 쓰는
   서비스(`rabbitmq` 같은 것)만 `image:` 를 둔다.
 - **`main` 에 올린다.** 조직 폴더가 `main` 만 발견한다.
 - **push 가 거부되면 새 저장소를 만들어 우회하지 않는다.** 권한 오류(403)면 멈추고, 담당자에게 저장소 관리자에게
   쓰기 권한을 요청하라고 알린다. 같은 코드의 저장소가 둘이 되면 두 Jenkins 잡이 같은 컨테이너를 서로 지운다.
-- **파이프라인 로직을 Jenkinsfile 에 복제하지 않는다.** stage 가 필요하면 그것은 shared-lib 에 넣을 변경이다.
+- **KiwoomAM 의 Jenkinsfile 에 파이프라인 로직을 복제하지 않는다.** stage 가 필요하면 그것은 shared-lib 에 넣을 변경이다.
 - **`.env` 와 `certs/` 를 커밋하지 않는다.** 파이프라인이 자격증명에서 빌드마다 복원한다.
 - **비밀을 이미지에 넣지 않는다.** `.env`·`kiwoom.pem`·서비스 계정 JSON 을 `COPY` 하지 않는다. 키 종류별 통로는
   [secrets.md](secrets.md) 에 있다.
@@ -135,7 +136,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
    5단계의 `--register` 줄이다. 「남이 먼저 잡았다」고 하면 2단계로 돌아가 다시 고르고 compose 의 포트를 고친다.
    미루면 push 와 빌드와 AX 팀 회신을 기다리는 동안 다른 사람이 같은 포트를 고른다. 배포를 그만두면 이 줄이
    등록부에 남으므로, 담당자에게 AX 팀에 그 줄의 삭제를 요청하라고 알린다.
-4. [jenkinsfile.md](jenkinsfile.md) 의 틀로 `Jenkinsfile` 을 쓴다.
+4. [jenkinsfile.md](jenkinsfile.md) 대로 KiwoomAX 는 `kiwoom-deploy.yml` 을, KiwoomAM 은 `Jenkinsfile` 을 쓴다.
 5. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
 
 ### 4. 검증 — 돌려 보지 않고 됐다고 하지 않는다
@@ -180,7 +181,7 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 
 | 흔적 | 요청 종류 |
 |---|---|
-| compose 에서 Jenkinsfile 이 띄우지 않는 서비스 — `services` 에 없거나 `service`(기본값 `backend`)가 아닌 것 | 컨테이너 실행형 |
+| compose 에서 배포 설정이 띄우지 않는 서비스 — `services`(기본값 `backend`)에 없는 것 | 컨테이너 실행형 |
 | `vercel.json` 의 `crons`, 스케줄러가 부르는 `/api/cron/…` 같은 라우트 | 주소 호출형 |
 
 **찾은 것이 없으면 「스케줄로 도는 것이 없다」고만 알리고 끝낸다.** 있으면 서버에서 돌릴지, 실행 주기와 예상
