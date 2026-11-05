@@ -4,18 +4,26 @@
 위치는 (r1, c1, r2, c2) 이고, 표 id 는 「시트!A1:C3」 형식이다.
 """
 import re
+from collections import Counter
 
 from openpyxl.formula import Tokenizer
 
-from explain_cell import a1
+from explain_cell import a1, col_name
 
 HEADER_MIN = 3  # 머리글 행으로 볼 글자 셀 최소 개수(근거 없는 시작 값)
 HEADER_SHARE = 0.6  # 그 행 셀 중 글자 셀 비율(근거 없는 시작 값)
 DATED = re.compile(r"(19|20)\d\d|(?<!\d)\d{6}(?!\d)|(?<!\d)\d{8}(?!\d)")
+SUMMARY_LABEL = re.compile(r"소\s*계|합\s*계|총\s*계|총\s*합|계|total|sub\s*total|grand\s*total", re.I)
+SUMMARY_FUNCS = ("SUM", "AVERAGE", "COUNT")
+SUM_ABOVE = re.compile(r"=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", re.I)
 
 
 def _text(v):
     return str(v).replace("\n", " ").strip() if isinstance(v, str) else None
+
+
+def _is_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 def _cell_text(book, sheet, pos):
@@ -400,3 +408,136 @@ def row_order(book, table):
             if len(nums) >= 2 and nums == sorted(nums) and len(nums) == len([x for x in seq if x is not None]):
                 return "순위 순"
     return "판정할 수 없음"
+
+
+def _column_of(token, table):
+    """참조 글자가 이 표의 한 열 안이면 (열 번호, 행 목록). 다른 시트 참조나 표 밖이면 None."""
+    import trace_cells
+    area = None if token is None or "!" in token.value else trace_cells._parse_area(token.value)
+    r1, c1, r2, c2 = table["area"]
+    if not area or None in area or area[1] != area[3] or not (c1 <= area[1] <= c2 and r1 <= area[0] and area[2] <= r2):
+        return None
+    return area[1], range(area[0], area[2] + 1)
+
+
+def _call_args(items, start):
+    """함수 여는 토큰 위치에서 (닫는 토큰 위치, 인수별 토큰 목록)."""
+    args, depth = [[]], 0
+    for i in range(start + 1, len(items)):
+        t = items[i]
+        if t.subtype == "CLOSE" and t.type == "FUNC" and depth == 0:
+            return i, args
+        depth += (t.type in ("FUNC", "PAREN") and t.subtype == "OPEN") - (t.type in ("FUNC", "PAREN") and t.subtype == "CLOSE")
+        if t.type == "SEP" and depth == 0:
+            args.append([])
+        else:
+            args[-1].append(t)
+    return len(items), args
+
+
+def _summary_call(name, args, table, names, found, rows):
+    """함수 하나를 식 문법으로 옮긴다. 문법에 없는 함수나 인수는 None. 읽는 데이터 행을 rows 에 추가한다."""
+    def column(arg):
+        got = _column_of(arg[0], table) if len(arg) == 1 and arg[0].subtype == "RANGE" else None
+        if got:
+            rows.update(r for r in got[1] if r not in found)
+        return names[got[0] - table["area"][1]] if got else None
+
+    if name in SUMMARY_FUNCS:
+        cols = {column(a) for a in args}
+        return f"{name}({cols.pop()})" if len(cols) == 1 and None not in cols else None
+    if name == "SUMPRODUCT" and len(args) == 2:
+        a, b = column(args[0]), column(args[1])
+        return f"SUMPRODUCT({a}, {b})" if a and b else None
+    if name == "SUMIF" and len(args) == 3 and len(args[1]) == 1 and args[1][0].subtype in ("TEXT", "NUMBER"):
+        a, b = column(args[0]), column(args[2])
+        return f"SUMIF({a}, {args[1][0].value}, {b})" if a and b else None
+    return None
+
+
+def _summary_expr(formula, table, names, found):
+    """합계 셀 수식을 식 문법으로 옮긴다. (식, 읽는 데이터 행 집합). 옮기지 못하면 (None, 빈 집합).
+    found 는 표의 소계 행 번호 → {"label", "rows"} 이다."""
+    items = [t for t in Tokenizer(formula).items if t.type != "WHITE-SPACE"]
+    cells = [_column_of(t, table) for t in items[::2]]
+    if len(items) > 1 and all(cells) and all(t.value == "+" for t in items[1::2]) and len({c[0] for c in cells}) == 1:
+        got = [found.get(r, {"rows": {r}}).get("rows") for c in cells for r in c[1]]  # 셀 더하기는 그 열의 합이다
+        if None not in got:
+            return f"SUM({names[cells[0][0] - table['area'][1]]})", set().union(*got)
+    out, rows, i = [], set(), 0
+    while i < len(items):
+        t = items[i]
+        if t.type == "FUNC" and t.subtype == "OPEN":
+            i, args = _call_args(items, i)
+            out.append(_summary_call(t.value[:-1].upper(), args, table, names, found, rows))
+        elif t.type == "OPERAND" and t.subtype == "NUMBER":
+            out.append(t.value)
+        elif t.type == "OPERAND" and t.subtype == "RANGE":
+            got = _column_of(t, table)
+            row = got[1][0] if got and len(got[1]) == 1 else None
+            label = found.get(row, {}).get("label")
+            out.append(f'ROW("{label}", {names[got[0] - table["area"][1]]})' if label else None)
+        elif t.type == "OPERATOR-INFIX" and t.value in "+-*/":
+            out.append(f" {t.value} ")
+        elif t.type == "PAREN":
+            out.append(t.value)
+        else:
+            out.append(None)
+        if out[-1] is None:
+            return None, set()
+        i += 1
+    return "".join(out), rows
+
+
+def _sums_above(formula, col, top, row):
+    m = SUM_ABOVE.fullmatch((formula or "").replace("$", ""))
+    return bool(m) and m[1] == m[3] == col_name(col) and top <= int(m[2]) and int(m[4]) < row
+
+
+def _group_column(book, table, rows, data, names):
+    """rows 의 값이 모두 같고 나머지 데이터 행과 다른 왼쪽 첫 글자 열 이름. 없으면 None."""
+    _, c1, _, c2 = table["area"]
+    for c in range(c1, c2 + 1):
+        inside = {_cell_text(book, table["sheet"], (r, c)) for r in rows}
+        outside = {_cell_text(book, table["sheet"], (r, c)) for r in data if r not in rows}
+        if len(inside) == 1 and None not in inside and not inside & outside:
+            return names[c - c1]
+    return None
+
+
+def summary_rows(book, table):
+    """표의 소계 · 합계 행 목록. 행은 개발 시점 엑셀 행이고, 운영 중 묶음은 group_by 열 값으로 정한다.
+    식 문법 밖의 셀, 값을 직접 적은 셀, 묶는 열을 찾지 못한 셀은 expr 값이 None 이다."""
+    r1, c1, r2, c2 = table["area"]
+    sheet, top, vals = table["sheet"], data_top(table), book.sheet_values(table["sheet"])
+    header = table["header"] or ("",) * (c2 - c1 + 1)
+    names = [db_column_name(h, col_name(c1 + i)) for i, h in enumerate(header)]
+    found = {}
+    for r in range(top, r2 + 1):
+        label = next(((c, _text(vals.get((r, c)))) for c in range(c1, c2 + 1)
+                      if _text(vals.get((r, c))) and SUMMARY_LABEL.fullmatch(_text(vals[(r, c)]))), None)
+        numbers = [c for c in range(c1, c2 + 1) if book.formula(sheet, (r, c)) or _is_number(vals.get((r, c)))]
+        sums = [c for c in numbers if _sums_above(book.formula(sheet, (r, c)), c, top, r)]
+        if label or (sums and 2 * len(sums) >= len(numbers)):
+            found[r] = {"label": label[1] if label else "", "label_col": names[label[0] - c1] if label else None, "numbers": numbers}
+    data = [r for r in range(top, r2 + 1) if r not in found]
+    out = []
+    for r, s in found.items():
+        cells = {}
+        for c in s["numbers"]:
+            formula = book.formula(sheet, (r, c))
+            cells[names[c - c1]] = _summary_expr(formula, table, names, found) if formula else (None, set())
+        sets = Counter(frozenset(rows) for _, rows in cells.values() if rows)
+        main = set(sets.most_common(1)[0][0]) if sets else set()
+        group = None if not main or main >= set(data) else _group_column(book, table, main, data, names)
+        keep = not main or main >= set(data) or group is not None
+        s["rows"] = main
+        out.append({"row": r, "label": s["label"], "label_col": s["label_col"], "group_by": group,
+                    "expr": {n: e if keep and (not rows or rows == main) else None for n, (e, rows) in cells.items()}})
+    return out
+
+
+def data_rows(table, summaries):
+    """표의 데이터 행 번호 목록. 소계 · 합계 행은 뺀다."""
+    skip = {s["row"] for s in summaries}
+    return [r for r in range(data_top(table), table["area"][2] + 1) if r not in skip]
