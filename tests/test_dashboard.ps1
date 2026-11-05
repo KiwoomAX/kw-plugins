@@ -163,7 +163,7 @@ Assert 'explainer runs scripts through uv, not python3' (($exText -match 'uv run
 Assert 'explainer carries no build-history notes' (-not ($exText -match '\b20\d\d-\d\d-\d\d\b|~/\.claude'))
 Assert 'the plugin description names the explainer' ($pluginJson.description -match 'explaining-excel-cell')
 Assert 'explainer ships scripts/definitions.py' (Test-Path (Join-Path $ExDir 'scripts/definitions.py'))
-foreach ($k in @('settings', 'refresh_unit', 'allow_today', 'allow_holiday')) {
+foreach ($k in @('settings', 'refresh_unit', 'allow_today', 'allow_holiday', 'definitions', '--replace', '표 밖 셀', '소계')) {
     Assert "explainer SKILL.md explains $k" ($exText -match $k)
 }
 
