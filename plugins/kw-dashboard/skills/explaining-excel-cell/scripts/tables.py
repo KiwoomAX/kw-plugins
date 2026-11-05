@@ -9,7 +9,7 @@ from collections import Counter
 
 from openpyxl.formula import Tokenizer
 
-from explain_cell import a1, col_name
+from explain_cell import a1, col_name, show
 
 HEADER_MIN = 3  # 머리글 행으로 볼 글자 셀 최소 개수(근거 없는 시작 값)
 HEADER_SHARE = 0.6  # 그 행 셀 중 글자 셀 비율(근거 없는 시작 값)
@@ -414,7 +414,7 @@ def outside_cells(book, sheet, used, unused, read, skip=()):
         if inside or p in skip or any(_inside(p, t["area"]) for t in whole) or _text(vals.get(p)) in titles or not (formula or p in vals):
             continue
         hit = (sheet, p) in read
-        items.append({"kind": "셀", "where": a1(*p), "value": vals.get(p), "formula": formula, "read_by_result": hit,
+        items.append({"kind": "셀", "where": a1(*p), "value": show(vals.get(p)), "formula": formula, "read_by_result": hit,
                       "action": "별도 표로 저장" if hit else "개발 고정값 표에 저장"})
     return {"items": items[:OUTSIDE_LIMIT], "total": len(items)}
 

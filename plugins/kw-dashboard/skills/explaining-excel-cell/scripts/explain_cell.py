@@ -500,15 +500,32 @@ def _zone(book, t):
     return f"{name} ({cols})" if name else cols
 
 
-def _preview(book, ts):
-    t = max(ts, key=lambda x: x["area"][2] - x["area"][0])  # 행이 가장 많은 표. 같으면 앞 표
+def _preview_table(book, t):
+    """표 하나의 미리보기. 표 오른쪽 · 아래 2셀과 소계 행을 함께 싣고, 셀마다 머리글 · 소계 · 데이터 · 표 밖을 적는다."""
+    import tables as tb
     r1, c1, r2, c2 = t["area"]
-    vals = book.sheet_values(t["sheet"])
-    rows = [[{"v": show(vals.get((r, c))), "formula": bool(book.formula(t["sheet"], (r, c)))} for c in range(c1, c2 + 1)]
-            for r in range(r1, min(r2, r1 + PREVIEW_ROWS - 1) + 1)]
-    note = (f"같은 모양 표 {len(ts)}개 중 이 표({_area_text(t['area'])})를 예로 보여 드립니다. 이 표의 행이 가장 많습니다."
-            if len(ts) > 1 else None)
-    return {"area": t["area"], "rows": rows, "note": note}
+    sheet, vals = t["sheet"], book.sheet_values(t["sheet"])
+    sums = {s["row"] for s in tb.summary_rows(book, t)}
+    head = t["header_rows"] or (r1, r1 - 1)
+    cut = min(r2, r1 + PREVIEW_ROWS - 1)
+    present = lambda r, c: (r, c) in vals or book.formula(sheet, (r, c))  # noqa: E731
+    rows = list(range(r1, cut + 1)) + sorted(r for r in sums if r > cut)
+    if cut == r2:
+        rows += [r for r in (r2 + 1, r2 + 2) if any(present(r, c) for c in range(c1, c2 + 3))]
+    last = max([c for c in (c2 + 1, c2 + 2) if any(present(r, c) for r in rows)], default=c2)
+
+    def kind(r, c):
+        if c > c2 or r > r2 or r < head[0]:
+            return "out"
+        return "head" if r <= head[1] else "sum" if r in sums else "data"
+
+    return {"id": t["id"], "area": t["area"], "rows": [
+        {"row": r, "cells": [{"v": show(vals.get((r, c))), "formula": bool(book.formula(sheet, (r, c))), "kind": kind(r, c)}
+                             for c in range(c1, last + 1)]} for r in rows]}
+
+
+def _preview(book, ts):
+    return {"tables": [_preview_table(book, t) for t in ts], "note": f"같은 모양 표 {len(ts)}개입니다." if len(ts) > 1 else None}
 
 
 def _lines(book, ts, found, names, groups, step_cache):
@@ -560,10 +577,11 @@ def _date_note(groups):
     return " ".join(f"이 화면은 날짜가 붙은 시트 중 {w}({s})를 기준으로 작성했습니다" for w, s in parts)
 
 
-def build_three_stage(book, analysis, result, names, step_cache):
+def build_three_stage(book, analysis, result, names, step_cache, defs=()):
     """결과표 하나의 페이지 자료. result 는 {"table", "sheet", "row_order"}, names 는 {묶음 번호: 클로드가 유추한 이름},
-    step_cache 는 실행 하나에서 공유하는 {(시트, 셀): build 결과} 다."""
+    step_cache 는 실행 하나에서 공유하는 {(시트, 셀): build 결과} 다. defs 는 결과 파일의 표 정의다."""
     import checks
+    import definitions
     import plain_text
     import sources
     import tables as tb
@@ -594,7 +612,10 @@ def build_three_stage(book, analysis, result, names, step_cache):
         analysis["same"] = checks.same_value_columns(book, by_sheet, analysis["date_groups"])
     page = [t for t in found if t["id"] in used]
     in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
+    mine = [d for d in defs if d["id"] in used or d.get("orphan")]
     return {"title": f"{result['table']} 결과표는 이렇게 만들어집니다",
+            "outside": [{"sheet": d["sheet"], **i} for d in mine for i in d.get("outside", {}).get("items", [])],
+            "conflicts": definitions.conflicts(mine),
             "excel": Path(book.path).name, "path": str(book.path), "result": result["sheet"],
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
             "date_note": _date_note(analysis["date_groups"]), "screens": screens, "sources": src,
@@ -806,7 +827,7 @@ def main_all(a, book):
     results.setdefault("parameters", definitions.parameter_cells(book))
     cache, files, total = {}, {}, 0  # files: 경로 → 글자
     for n, result in enumerate(results["results"], 1):
-        data = build_three_stage(book, analysis, result, results["names"], cache)
+        data = build_three_stage(book, analysis, result, results["names"], cache, results["definitions"])
         page = out.parent / f"{out.stem}_r{n}.html"
         steps_dir = out.parent / f"{out.stem}_r{n}_steps"
         step_files = {}

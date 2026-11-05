@@ -8,13 +8,13 @@
 <style>
 :root { color-scheme:light;
   --accent:#3F5A80; --on-accent:#FFFFFF; --accent-weak:#E8EBF0; --app:#FFFFFF; --surface:#FFFFFF; --sunken:#F4F6FA; --hover:#F0F0F1;
-  --ink:#1A1A1A; --ink2:#5D5D5D; --ink3:#8E8E8E; --line:#E5E5E5; --line2:#D1D1D1; --blink:#9DB4D8; --wave:#F3F5F9; }
+  --ink:#1A1A1A; --ink2:#5D5D5D; --ink3:#8E8E8E; --line:#E5E5E5; --line2:#D1D1D1; --blink:#9DB4D8; --wave:#F3F5F9; --outside:#FBEBDD; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme:dark;
   --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
-  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; } }
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; --outside:#3A2A1F; } }
 :root[data-theme="dark"] { color-scheme:dark;
   --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
-  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; }
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; --outside:#3A2A1F; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--app); color:var(--ink); font:14px/1.5 "Malgun Gothic","맑은 고딕",sans-serif; }
 header { padding:14px 24px 10px; border-bottom:1px solid var(--line); }
@@ -49,6 +49,13 @@ table.g { border-collapse:collapse; font-size:12px; }
 .g th { background:var(--sunken); color:var(--ink3); font-weight:normal; border:1px solid var(--line); padding:2px 6px; }
 .g td { border:1px solid var(--line); padding:2px 8px; white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
 .g td.f { background:var(--accent-weak); }
+.g td.head { background:var(--accent); color:var(--on-accent); font-weight:600; }
+.g td.sum { background:var(--sunken); font-weight:600; }
+.g td.out { background:var(--outside); border-style:dashed; }
+.g td.et { border-top:2px solid var(--accent); } .g td.eb { border-bottom:2px solid var(--accent); }
+.g td.el { border-left:2px solid var(--accent); } .g td.er { border-right:2px solid var(--accent); }
+.legend { display:flex; gap:12px; margin:4px 0 12px; font-size:11px; color:var(--ink2); }
+.legend i { display:inline-block; width:12px; height:12px; margin-right:4px; vertical-align:-2px; border:1px solid var(--line2); }
 table.list td { white-space:normal; max-width:none; }
 </style>
 </head>
@@ -77,12 +84,24 @@ function line(l) {
     <br><code>${esc(l.formula)}</code> <span class="sub">대표 셀 ${esc(l.step[0])}!${esc(l.cell)}</span>${go}</div></details></li>`;
 }
 
+function previewTable(t) {
+  const [r1, c1, r2] = t.area;
+  const inside = (r, i) => { const c = t.rows[r] && t.rows[r].cells[i]; return !!c && c.kind !== "out"; };
+  const cls = (c, r, i) => {
+    if (c.kind === "out") return "out";
+    const edge = [!inside(r - 1, i) && "et", !inside(r + 1, i) && "eb", !inside(r, i - 1) && "el", !inside(r, i + 1) && "er"];
+    return [c.kind === "data" ? (c.formula ? "f" : "") : c.kind, ...edge].filter(Boolean).join(" ");
+  };
+  let h = `<tr><th></th>${t.rows[0].cells.map((_, i) => `<th>${col(c1 + i)}</th>`).join("")}</tr>`;
+  t.rows.forEach((row, r) => { h += `<tr><th>${row.row}</th>${row.cells.map((c, i) => `<td class="${cls(c, r, i)}" title="${esc(c.v)}">${esc(c.v)}</td>`).join("")}</tr>`; });
+  const shown = t.rows.filter(row => row.row <= r2).length;
+  const cut = r2 - r1 + 1 > shown ? `<div class="sub">표 전체 ${r2 - r1 + 1}행 중 ${shown}행을 보입니다.</div>` : "";
+  return `<table class="g">${h}</table>${cut}`;
+}
+
 function preview(p) {
-  const [r1, c1, r2, c2] = p.area;
-  let h = `<tr><th></th>${Array.from({ length: c2 - c1 + 1 }, (_, i) => `<th>${col(c1 + i)}</th>`).join("")}</tr>`;
-  p.rows.forEach((row, i) => { h += `<tr><th>${r1 + i}</th>${row.map(c => `<td class="${c.formula ? "f" : ""}" title="${esc(c.v)}">${esc(c.v)}</td>`).join("")}</tr>`; });
-  const cut = r2 - r1 + 1 > p.rows.length ? `<div class="sub">표 전체 ${r2 - r1 + 1}행 중 위쪽 ${p.rows.length}행을 보입니다.</div>` : "";
-  return `<details class="more" open><summary>엑셀 모양</summary>${p.note ? `<div class="sub">${esc(p.note)}</div>` : ""}<table class="g">${h}</table>${cut}</details>`;
+  const legend = `<div class="legend"><span><i style="background:var(--accent)"></i>머리글</span><span><i style="background:var(--accent-weak)"></i>수식</span><span><i style="background:var(--sunken)"></i>소계 · 합계</span><span><i style="background:var(--outside)"></i>표 밖 셀</span><span><i style="border:2px solid var(--accent)"></i>표 범위</span></div>`;
+  return `<details class="more" open><summary>엑셀 모양</summary>${p.note ? `<div class="sub">${esc(p.note)}</div>` : ""}${p.tables.map(previewTable).join("")}${legend}</details>`;
 }
 
 function card(c) {
@@ -106,8 +125,11 @@ function checks() {
     c.same.items, c.same.more, i => esc(i.text));
   const amb = listCard("분석이 모호했던 상황", "분석기가 판단하지 못한 셀입니다.",
     c.ambiguous.items, c.ambiguous.more, i => `<b>${esc(i.kind)}</b> · ${esc(i.where)}: ${esc(i.text)}`);
-  const empty = odd || same || amb ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
-  return empty + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
+  const defs = listCard("표 정의에서 확인할 사항", "표 범위, 열 이름, 소계 식을 확인해 주세요.", D.conflicts, 0, esc);
+  const out = listCard("표 밖 셀", "표 밖에 있는 값과 수식입니다. 셀마다 처리 방식을 확인해 주세요.", D.outside, 0,
+    i => `「${esc(i.sheet)}」 시트 ${esc(i.where)}${i.value === null || i.value === undefined ? "" : ` (${esc(i.value)})`}: ${esc(i.action)}${i.read_by_result ? " · 결과 계산이 읽습니다" : ""}`);
+  const empty = odd || same || amb || defs || out ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
+  return empty + defs + out + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
 }
 
 function origin() {
