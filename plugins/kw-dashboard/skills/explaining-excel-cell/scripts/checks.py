@@ -8,7 +8,7 @@ from openpyxl.formula import Tokenizer
 
 from explain_cell import a1, col_name, show
 from plain_text import label, line_roles
-from tables import is_constant_formula
+from tables import data_top, is_constant_formula
 
 ODD_MAX, SAME_MAX, AMBIGUOUS_MAX = 20, 15, 20
 UNPLACED = {"시트 모름": ("매크로 시트", "매크로가 어느 시트에 값을 넣는지 알려 주세요."),
@@ -41,8 +41,7 @@ def _column(t, c):
 
 
 def _rows(t):
-    r1, _, r2, _ = t["area"]
-    return range((t["header_row"] or r1 - 1) + 1, r2 + 1)
+    return range(data_top(t), t["area"][2] + 1)
 
 
 def odd_rows(book, tables):

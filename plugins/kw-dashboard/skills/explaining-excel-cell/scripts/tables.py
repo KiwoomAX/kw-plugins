@@ -18,16 +18,91 @@ def _text(v):
     return str(v).replace("\n", " ").strip() if isinstance(v, str) else None
 
 
-def header_row(book, sheet, area):
-    """위쪽 3행 안에서 글자 셀이 3개 이상이고 그 행 셀의 60% 이상인 첫 행 번호. 열이 2개인 표는 글자 셀 2개면 된다."""
-    r1, c1, r2, c2 = area
-    vals = book.sheet_values(sheet)
+def _cell_text(book, sheet, pos):
+    """셀의 글자. 병합 범위 안의 셀은 그 범위의 왼쪽 위 셀 글자를 쓴다."""
+    return _text(book.sheet_values(sheet).get(book.merge_top.get(sheet, {}).get(pos, pos)))
+
+
+def _row_texts(book, sheet, r, c1, c2):
+    """r 행의 글자 셀 목록. 병합 범위의 셀은 왼쪽 위 셀 위치로 적는다.
+    같은 행의 가로 병합만 센다. 위 행에서 내려온 세로 병합은 그 행의 머리글이 아니다."""
+    tops = book.merge_top.get(sheet, {})
+    heads = [tops.get((r, c), (r, c)) for c in range(c1, c2 + 1)]
+    return [h for h in heads if h[0] == r and _text(book.sheet_values(sheet).get(h))]
+
+
+def _looks_header(texts, c1, c2):
     need = HEADER_MIN if c2 == c1 else min(HEADER_MIN, c2 - c1 + 1)
+    return len(set(texts)) >= 2 and len(texts) >= need and len(texts) >= HEADER_SHARE * (c2 - c1 + 1)  # 글자가 하나뿐이면 제목이다
+
+
+def _has_second_row(book, sheet, area, r):
+    """r 행에 가로 병합이 있고, 그 아래 셀이 모두 글자이고, 다음 행도 글자가 많으면 True.
+    아래 행이 위 병합과 같은 폭으로 병합되어 있으면 나뉜 머리글이 아니라 데이터 행이다."""
+    _, c1, r2, c2 = area
+    spans = [m for m in book.merged.get(sheet, []) if m[0] == m[2] == r and m[3] > m[1] and c1 <= m[1] and m[3] <= c2]
+    tops = book.merge_top.get(sheet, {})
+
+    def split(m):
+        cols = range(m[1], m[3] + 1)
+        return all(_cell_text(book, sheet, (r + 1, c)) for c in cols) and len({tops.get((r + 1, c), (r + 1, c)) for c in cols}) >= 2
+
+    texts = [c for c in range(c1, c2 + 1) if _cell_text(book, sheet, (r + 1, c))]
+    return r < r2 and bool(spans) and all(split(m) for m in spans) and len(texts) >= HEADER_SHARE * (c2 - c1 + 1)
+
+
+def header_row(book, sheet, area):
+    """위쪽 3행 안에서 글자 셀이 3개 이상이고 그 행 셀의 60% 이상인 첫 행 번호. 열이 2개인 표는 글자 셀 2개면 된다.
+    병합 제목과 단위 글자뿐인 행은 다음 행이 더 많은 글자로 머리글이면 넘어간다."""
+    r1, c1, r2, c2 = area
     for r in range(r1, min(r1 + 3, r2 + 1)):
-        texts = [c for c in range(c1, c2 + 1) if _text(vals.get((r, c)))]
-        if len(texts) >= need and len(texts) >= HEADER_SHARE * (c2 - c1 + 1):
+        texts = _row_texts(book, sheet, r, c1, c2)
+        if not _looks_header(texts, c1, c2):
+            continue
+        below = _row_texts(book, sheet, r + 1, c1, c2)
+        title = len(set(texts)) == 2 < len(texts) and _looks_header(below, c1, c2) and len(set(below)) > 2
+        if not title or _has_second_row(book, sheet, area, r):
             return r
     return None
+
+
+def header_rows(book, sheet, area):
+    """머리글의 (첫 행, 끝 행). 머리글이 없으면 None."""
+    r = header_row(book, sheet, area)
+    if r is None:
+        return None
+    return (r, r + 1) if _has_second_row(book, sheet, area, r) else (r, r)
+
+
+def column_levels(book, sheet, area, rows):
+    """머리글 줄마다의 글자. 병합 범위는 그 범위의 글자로 채운다. rows 가 None 이면 빈 tuple."""
+    if rows is None:
+        return ()
+    return tuple(tuple(_cell_text(book, sheet, (r, c)) or "" for c in range(area[1], area[3] + 1))
+                 for r in range(rows[0], rows[1] + 1))
+
+
+def join_levels(levels):
+    """열마다 위아래 머리글을 「_」로 잇는다. 세로 병합으로 같은 글자가 이어지면 한 번만 쓴다."""
+    out = []
+    for parts in zip(*levels):
+        kept = [p for i, p in enumerate(parts) if p and (i == 0 or p != parts[i - 1])]
+        out.append("_".join(kept))
+    return tuple(out)
+
+
+def data_top(table):
+    """표의 첫 데이터 행. 머리글이 없으면 범위의 첫 행이다."""
+    rows = table["header_rows"]
+    return rows[1] + 1 if rows else table["area"][0]
+
+
+def db_column_name(text, col_letter):
+    """샌드박스 열 이름 규칙에 맞는 이름. 언어는 그대로 두고 한글 · 영문 · 숫자 · 「_」 밖의 글자만 뺀다."""
+    name = re.sub(r"[^0-9A-Za-z_가-힣]", "", text)
+    if not name:
+        return f"c_{col_letter}"
+    return f"c_{name}" if name[0].isdigit() else name
 
 
 def is_constant_formula(formula):
@@ -105,11 +180,12 @@ def find_tables(book, sheet):
            if not any(_inside(p, area) for _, area in excel)}
     out = []
     for name, area in excel + [(None, area) for area in _split_around(pos, [a for _, a in excel])]:
-        head = header_row(book, sheet, area)
-        vals = book.sheet_values(sheet)
-        header = tuple(_text(vals.get((head, c))) or "" for c in range(area[1], area[3] + 1)) if head else None
+        rows = header_rows(book, sheet, area)
+        head = rows[0] if rows else None
+        levels = column_levels(book, sheet, area, rows)
         out.append({"id": f"{sheet}!{a1(area[0], area[1])}:{a1(area[2], area[3])}", "sheet": sheet, "area": area,
-                    "header_row": head, "header": header, "excel_table": name,
+                    "header_row": head, "header_rows": rows, "levels": levels,
+                    "header": join_levels(levels) if rows else None, "excel_table": name,
                     "title": _title(book, sheet, area, head), "has_formula": _has_formula(book, sheet, area)})
     return sorted(out, key=lambda t: (t["area"][0], t["area"][1]))
 
@@ -271,7 +347,7 @@ def result_tables(tables, groups, reads, sheet, excel_table=None):
 def column_kinds(book, table):
     """(값만 있는 열 수, 수식 열 수). 머리글 행 아래만 본다. 상수 수식은 값으로 센다."""
     r1, c1, r2, c2 = table["area"]
-    top = (table["header_row"] or r1 - 1) + 1
+    top = data_top(table)
     cells, vals = book.cells[table["sheet"]], book.sheet_values(table["sheet"])
     values = formulas = 0
     for c in range(c1, c2 + 1):
@@ -319,7 +395,7 @@ def row_order(book, table):
     r1, c1, r2, _ = table["area"]
     for i, h in enumerate(table["header"]):
         if "순위" in h:
-            seq = [vals.get((r, c1 + i)) for r in range(table["header_row"] + 1, r2 + 1)]
+            seq = [vals.get((r, c1 + i)) for r in range(data_top(table), r2 + 1)]
             nums = [x for x in seq if isinstance(x, (int, float)) and not isinstance(x, bool)]
             if len(nums) >= 2 and nums == sorted(nums) and len(nums) == len([x for x in seq if x is not None]):
                 return "순위 순"

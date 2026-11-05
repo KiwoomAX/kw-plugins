@@ -61,7 +61,10 @@ class Book:
     def __init__(self, path):
         self.path = path
         self.cells, self.order, names = trace_cells.load_cells(path)
-        self.tables, pivots = trace_cells.load_package_parts(path)
+        self.tables, pivots, self.merged = trace_cells.load_package_parts(path)
+        # 시트별로 병합 범위 안의 셀 위치 → 그 범위의 왼쪽 위 셀 위치
+        self.merge_top = {s: {(r, c): (a[0], a[1]) for a in areas for r in range(a[0], a[2] + 1)
+                              for c in range(a[1], a[3] + 1)} for s, areas in self.merged.items()}
         self.resolve = trace_cells.make_resolver(self.cells, self.tables, names)
         self.pivot_at = {(pv.sheet, pos): pv for pv in pivots if pv.sheet in self.cells and pv.area
                          for pos in self.cells[pv.sheet] if trace_cells._inside(pos, pv.area)}
@@ -692,8 +695,8 @@ def write_candidates(book, analysis, out_dir, base=None):
     top = {c["sheet"] for c in sorted(cands, key=lambda c: -c["reads"])[:SHOWN_TOP]}
 
     def first_row(t):
-        r1, c1, _, c2 = t["area"]
-        r = (t["header_row"] or r1 - 1) + 1
+        _, c1, _, c2 = t["area"]
+        r = tb.data_top(t)
         return [show(book.sheet_values(t["sheet"]).get((r, c))) for c in range(c1, c2 + 1)]
 
     out = {"excel": Path(book.path).name, "base_sheets": base or {},

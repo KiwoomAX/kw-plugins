@@ -95,13 +95,17 @@ def _rels(z, part):
 
 
 def load_package_parts(path):
-    """셀 값으로는 보이지 않는 연결을 읽는다. 표(구조적 참조용)와 피벗(원본 범위)."""
-    tables, pivots = {}, []
+    """셀 값으로는 보이지 않는 연결을 읽는다. 표(구조적 참조용), 피벗(원본 범위), 시트별 병합 범위."""
+    tables, pivots, merged = {}, [], {}
     with zipfile.ZipFile(path) as z:
         wb = ET.fromstring(z.read("xl/workbook.xml"))
         wb_rels = _rels(z, "xl/workbook.xml")
         for s in wb.find("m:sheets", _NS):
             sheet_part = wb_rels[s.get(f"{{{_NS['r']}}}id")][1]
+            data = z.read(sheet_part)
+            if b"mergeCell" in data:  # 병합이 없는 시트는 XML 을 풀지 않는다
+                refs = ET.fromstring(data).findall("m:mergeCells/m:mergeCell", _NS)
+                merged[s.get("name")] = [_parse_area(m.get("ref")) for m in refs]
             for kind, target in _rels(z, sheet_part).values():
                 if kind == "table":
                     t = ET.fromstring(z.read(target))
@@ -126,7 +130,7 @@ def load_package_parts(path):
                         [x for x in fields("rowFields") if x >= 0], [x for x in fields("colFields") if x >= 0],
                         [(int(d.get("fld")), d.get("subtotal", "sum")) for d in p.findall("m:dataFields/m:dataField", _NS)],
                         tuple(int(loc.get(k, "0")) for k in ("firstHeaderRow", "firstDataRow", "firstDataCol"))))
-    return tables, pivots
+    return tables, pivots, merged
 
 
 _SPECIAL = {"#ALL", "#DATA", "#HEADERS", "#TOTALS", "#THIS ROW"}

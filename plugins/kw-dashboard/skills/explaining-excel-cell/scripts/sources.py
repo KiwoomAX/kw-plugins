@@ -7,7 +7,7 @@ from collections import Counter
 
 from capture_views import SOURCE_KINDS
 from explain_cell import col_name
-from tables import is_constant_formula
+from tables import data_top, is_constant_formula
 
 ONLY_MANUAL = "WINUS · WFS 쿼리 연결이 이 표에 없고, 값이 직접 입력되어 있습니다."
 LABEL = dict(SOURCE_KINDS)
@@ -28,7 +28,7 @@ def source_of(book, tables):
     first = tables[0]
     for t in tables:
         r1, c1, r2, c2 = t["area"]
-        top = (t["header_row"] or r1 - 1) + 1
+        top = data_top(t)
         for c in range(c1, c2 + 1):
             i, fc = c - c1, first["area"][1] + c - c1
             name = (first["header"][i] if first["header"] and i < len(first["header"]) else None) or f"{col_name(fc)}열"
