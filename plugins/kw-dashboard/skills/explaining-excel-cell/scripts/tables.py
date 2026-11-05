@@ -400,21 +400,6 @@ def candidates(tables, reads):
     return [{"sheet": s, "tables": ids, "reads": len(_ancestors(reads, ids) - set(ids))} for s, ids in out.items()]
 
 
-def result_tables(tables, groups, reads, sheet, excel_table=None):
-    """사용자가 고른 시트의 결과표 id 집합. 엑셀 표를 골랐으면 그 표다.
-
-    시트 안에서 같은 시트의 다른 묶음이 읽지 않는 묶음의 표가 결과표다. 같은 묶음 안의 읽기는 따지지 않는다.
-    모든 묶음이 서로 읽으면 시트의 모든 표가 결과표다.
-    """
-    mine = [t for t in tables if t["sheet"] == sheet and (not excel_table or t["excel_table"] == excel_table)]
-    if excel_table:
-        return {t["id"] for t in mine}
-    group_of = {t["id"]: g["id"] for g in groups for t in g["tables"]}
-    ids = {t["id"] for t in mine}
-    read = {x for t in mine for x in reads.get(t["id"], ()) if x in ids and group_of[x] != group_of[t["id"]]}
-    return (ids - read) or ids
-
-
 def column_kinds(book, table):
     """(값만 있는 열 수, 수식 열 수). 머리글 행 아래만 본다. 상수 수식은 값으로 센다."""
     r1, c1, r2, c2 = table["area"]

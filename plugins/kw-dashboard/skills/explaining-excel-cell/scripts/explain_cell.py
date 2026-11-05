@@ -558,14 +558,14 @@ def _date_note(groups):
 
 
 def build_three_stage(book, analysis, result, names, step_cache):
-    """결과표 하나의 페이지 자료. result 는 {"sheet", "excel_table", "row_order"}, names 는 {묶음 번호: 클로드가 유추한 이름},
+    """결과표 하나의 페이지 자료. result 는 {"table", "sheet", "row_order"}, names 는 {묶음 번호: 클로드가 유추한 이름},
     step_cache 는 실행 하나에서 공유하는 {(시트, 셀): build 결과} 다."""
     import checks
     import plain_text
     import sources
     import tables as tb
     found, groups, reads = analysis["tables"], analysis["groups"], analysis["reads"]
-    result_ids = tb.result_tables(found, groups, reads, result["sheet"], result.get("excel_table"))
+    result_ids = {result["table"]}
     cls = tb.classify(book, found, reads, result_ids)
     rank = {i: n for n, i in enumerate(cls["order"])}
     screens, used = {}, set()
@@ -591,7 +591,7 @@ def build_three_stage(book, analysis, result, names, step_cache):
         analysis["same"] = checks.same_value_columns(book, by_sheet, analysis["date_groups"])
     page = [t for t in found if t["id"] in used]
     in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
-    return {"title": f"{result.get('excel_table') or result['sheet']} 결과표는 이렇게 만들어집니다",
+    return {"title": f"{result['table']} 결과표는 이렇게 만들어집니다",
             "excel": Path(book.path).name, "path": str(book.path), "result": result["sheet"],
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
             "date_note": _date_note(analysis["date_groups"]), "screens": screens, "sources": src,
@@ -703,6 +703,8 @@ def write_candidates(book, analysis, out_dir, base=None):
            "date_groups": [{"pattern": g["pattern"], "count": len(g["sheets"]), "base": g["base"]} for g in analysis["date_groups"]],
            "candidates": [{"sheet": c["sheet"], "reads": c["reads"], "shown": len(cands) <= SHOWN_ALL or c["sheet"] in top,
                            "tables": [{"id": i, "header": list(by_id[i]["header"] or []), "row_order": tb.row_order(book, by_id[i]),
+                                       "area": _area_text(by_id[i]["area"]), "title": by_id[i]["title"],
+                                       "first_row": first_row(by_id[i]),
                                        "excel_table": book.tables[by_id[i]["excel_table"]].name if by_id[i]["excel_table"] else None}
                                       for i in c["tables"]]} for c in cands],
            "groups": [{"id": g["id"], "sheet": g["sheet"], "areas": [_area_text(t["area"]) for t in g["tables"]],
@@ -715,7 +717,7 @@ def write_candidates(book, analysis, out_dir, base=None):
 
 def load_results(path, book, candidates_path):
     """결과 파일을 읽어 검사한다. BOM 을 허용하고 시트 · 기준 시트 이름 앞뒤 공백을 뺀다.
-    엑셀 표 이름은 대소문자를 무시하고 찾아 표 사전의 키(대문자)로 바꾼다. 기준 시트는 후보 파일과 같아야 한다."""
+    결과표는 표 id 로 지정한다. id 대조는 분석 뒤에 check_result_tables 가 한다. 기준 시트는 후보 파일과 같아야 한다."""
     data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if data.get("excel") != Path(book.path).name:
         sys.exit(f"결과표 파일의 엑셀 이름 다름: {data.get('excel')}")
@@ -723,12 +725,8 @@ def load_results(path, book, candidates_path):
         r["sheet"] = r["sheet"].strip()
         if r["sheet"] not in book.cells:
             sys.exit(f"결과표 시트 없음: {r['sheet']}")
-        table = r.get("excel_table")
-        if table:
-            key = table.strip().upper()
-            if key not in book.tables or book.tables[key].sheet != r["sheet"]:
-                sys.exit(f"결과표 엑셀 표 없음: {table}")
-            r["excel_table"] = key
+        if not r.get("table"):
+            sys.exit(f"결과표 표 지정 없음: {r['sheet']}")
     data.setdefault("names", {})
     data["base_sheets"] = {k: v.strip() if isinstance(v, str) else v for k, v in data.get("base_sheets", {}).items()}
     try:
@@ -738,6 +736,14 @@ def load_results(path, book, candidates_path):
     if data["base_sheets"] != expected:
         sys.exit("기준 시트가 후보 파일과 다름(--base 로 1번째 실행부터 다시)")
     return data
+
+
+def check_result_tables(results, analysis):
+    """결과 파일의 표 id 가 분석에서 찾은 표인지 확인한다."""
+    ids = {t["id"] for t in analysis["tables"]}
+    for r in results:
+        if r["table"] not in ids:
+            sys.exit(f"결과표 표 없음: {r['table']}")
 
 
 def parse_base(values, book):
@@ -772,6 +778,7 @@ def main_all(a, book):
     for r in results["results"]:
         if r["sheet"] in analysis["skipped"]:
             sys.exit(f"결과표 시트가 기준 시트가 아닌 날짜 시트: {r['sheet']}(--base 로 1번째 실행부터 다시)")
+    check_result_tables(results["results"], analysis)
     cache, files, total = {}, {}, 0  # files: 경로 → 글자
     for n, result in enumerate(results["results"], 1):
         data = build_three_stage(book, analysis, result, results["names"], cache)
