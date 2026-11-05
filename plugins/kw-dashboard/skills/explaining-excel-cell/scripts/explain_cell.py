@@ -688,10 +688,12 @@ def name_hints(book, data):
 
 SHOWN_ALL, SHOWN_TOP = 20, 10  # 후보 시트가 20개를 넘으면 읽는 표가 많은 10개만 보인다(근거 없는 시작 값)
 SIZE_LIMIT = 16 * 1024 * 1024  # 페이지와 단계 화면 크기 합계 상한(근거 없는 시작 값)
+SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today", "allow_holiday")
 
 
 def write_candidates(book, analysis, out_dir, base=None):
     """1번째 실행의 후보 파일을 쓰고 경로를 돌려준다. 실행할 때마다 새로 쓴다. base 는 --base 로 받은 {군 이름: 시트 또는 None}."""
+    import definitions
     import tables as tb
     by_id = {t["id"]: t for t in analysis["tables"]}
     cands = tb.candidates(analysis["tables"], analysis["reads"])
@@ -703,6 +705,7 @@ def write_candidates(book, analysis, out_dir, base=None):
         return [show(book.sheet_values(t["sheet"]).get((r, c))) for c in range(c1, c2 + 1)]
 
     out = {"excel": Path(book.path).name, "base_sheets": base or {},
+           "suggested": definitions.suggested(definitions.base_date_relation(book, analysis["tables"])),
            "date_groups": [{"pattern": g["pattern"], "count": len(g["sheets"]), "base": g["base"]} for g in analysis["date_groups"]],
            "candidates": [{"sheet": c["sheet"], "reads": c["reads"], "shown": len(cands) <= SHOWN_ALL or c["sheet"] in top,
                            "tables": [{"id": i, "header": list(by_id[i]["header"] or []), "row_order": tb.row_order(book, by_id[i]),
@@ -738,6 +741,11 @@ def load_results(path, book, candidates_path):
         sys.exit(f"후보 파일 읽기 실패: {candidates_path}(1번째 실행과 같은 --out 폴더로 실행)")
     if data["base_sheets"] != expected:
         sys.exit("기준 시트가 후보 파일과 다름(--base 로 1번째 실행부터 다시)")
+    if "settings" not in data:
+        sys.exit("결과 파일에 settings 없음")
+    for key in SETTINGS_KEYS:
+        if key not in data["settings"]:
+            sys.exit(f"settings 항목 없음: {key}")
     return data
 
 
@@ -794,6 +802,8 @@ def main_all(a, book):
     check_result_tables(results["results"], analysis)
     results["definitions"] = definitions.merge(definitions.propose(book, analysis, results, saved), saved)
     results["date_groups"] = [{"pattern": g["pattern"], "base": g["base"], "sheets": g["sheets"]} for g in analysis["date_groups"]]
+    results.setdefault("base_date", definitions.base_date_relation(book, analysis["tables"]))  # 개발자에게 물어 고친 값을 지키려고 비었을 때만 쓴다
+    results.setdefault("parameters", definitions.parameter_cells(book))
     cache, files, total = {}, {}, 0  # files: 경로 → 글자
     for n, result in enumerate(results["results"], 1):
         data = build_three_stage(book, analysis, result, results["names"], cache)

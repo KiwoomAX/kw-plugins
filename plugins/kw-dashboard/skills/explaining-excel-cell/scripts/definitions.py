@@ -3,11 +3,70 @@
 정의는 explain_results.json 의 definitions 에 남고, 대시보드 스킬은 이 항목만 읽는다.
 """
 import datetime as dt
+import re
 from collections import Counter
 
 import sources
 import tables as tb
-from explain_cell import a1, col_name
+from explain_cell import a1, col_name, parse_a1
+
+
+LABEL_START = re.compile(r", (?=변수 |셀 |쿼리 )")
+TODAY = re.compile(r"TODAY\(\)\s*([+-]\s*\d+)?", re.I)
+CELL_IN_LABEL = re.compile(r'셀 ([A-Z]+\d+) 를 읽는|(?:Sheets|Worksheets)\("([^"]+)"\)\.Range\("([A-Z]+\d+)"\)'
+                           r'|Range\("([A-Z]+\d+)"\)|Cells\((\d+),\s*(\d+)\)')
+
+
+def base_date_relation(book, found):
+    """기준일 셀과 오늘 날짜와의 관계. TODAY() 가 든 셀 중 수식이 가장 많이 읽는 셀이다. 없으면 None.
+    데이터 행이 있는 표의 머리글 셀은 날짜 머리글이므로 뺀다."""
+    heads = {(t["sheet"], (r, c)) for t in found if t["header_rows"] and tb.data_top(t) <= t["area"][2]
+             for r in range(t["header_rows"][0], t["header_rows"][1] + 1) for c in range(t["area"][1], t["area"][3] + 1)}
+    cands = {}
+    for sheet in dict.fromkeys(t["sheet"] for t in found):
+        for p, cell in book.cells[sheet].items():
+            hit = TODAY.search(cell.formula or "") if cell.kind == "formula" else None
+            if hit and (sheet, p) not in heads:
+                cands[(sheet, p)] = hit
+    if not cands:
+        return None
+    counts = tb.read_count(book, found, set(cands))
+    sheet, p = max(cands, key=lambda k: counts[k])
+    days = (cands[(sheet, p)].group(1) or "0").replace(" ", "")
+    return {"sheet": sheet, "cell": a1(*p), "formula": book.formula(sheet, p), "days": int(days)}
+
+
+def suggested(relation):
+    """기준일 관계로 만든 질문 제안값. 관계를 모르면 비워 둔다."""
+    if relation is None:
+        return {"date_input": {"on": True, "default": ""}, "allow_today": None}
+    days = relation["days"]
+    default = {-1: "어제", 0: "오늘"}.get(days, f"오늘 {days:+d}일")
+    return {"date_input": {"on": True, "default": default}, "allow_today": days >= 0}
+
+
+def input_cells(text, sheet_names):
+    """연결의 입력 글자에서 셀 주소를 찾는다. (찾은 셀 목록, 찾지 못한 입력 글자 목록)."""
+    found, unknown = [], []
+    for label in (x.strip() for x in LABEL_START.split(text) if x.strip()):
+        m = CELL_IN_LABEL.search(label)
+        if not m:
+            unknown.append(label)
+        elif m[5]:
+            found.append({"sheet": None, "cell": a1(int(m[5]), int(m[6]))})
+        else:
+            found.append({"sheet": m[2] if m[2] in sheet_names else None, "cell": m[1] or m[3] or m[4]})
+    return found, unknown
+
+
+def parameter_cells(book):
+    """WINUS 쿼리에 넣는 값이 든 셀. 시트를 적지 않은 셀은 연결이 쓰는 시트의 셀로 본다."""
+    found, unknown = [], []
+    for x in book.loaded_ranges:
+        cells, rest = input_cells(x.get("inputs") or "", book.order)
+        found += [{"sheet": c["sheet"] or x["sheet"], "cell": c["cell"], "connection": x["name"]} for c in cells]
+        unknown += rest
+    return {"found": [dict(t) for t in dict.fromkeys(tuple(f.items()) for f in found)], "unknown": list(dict.fromkeys(unknown))}
 
 
 def _area_text(area):
@@ -73,12 +132,14 @@ def propose(book, analysis, results, saved=()):
     read = tb.read_cells(book, found, ids)
     used = [t for t in found if t["id"] in ids]
     empty = {"items": [], "total": 0}
+    base = base_date_relation(book, found)
     owners = {}
     for sheet in dict.fromkeys(t["sheet"] for t in used):
         mine = [t for t in used if t["sheet"] == sheet]
         biggest = max(mine, key=lambda t: (t["area"][2] - t["area"][0] + 1) * (t["area"][3] - t["area"][1] + 1))
         rest = [t for t in found if t["sheet"] == sheet and t["id"] not in ids]
-        owners[biggest["id"]] = tb.outside_cells(book, sheet, mine, rest, read)
+        skip = {parse_a1(base["cell"])} if base and base["sheet"] == sheet else set()  # 기준일 셀은 결과 파일의 base_date 가 맡는다
+        owners[biggest["id"]] = tb.outside_cells(book, sheet, mine, rest, read, skip)
     return [_entry(book, t, classes, result_ids, owners.get(t["id"], empty)) for t in used]
 
 

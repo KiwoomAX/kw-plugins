@@ -90,7 +90,7 @@ def _areas(rest, values):
 def load_connections(path, sheet_values):
     """(결과 범위 목록, 시트를 정할 수 없는 연결 목록, 출처 대응표 상태).
 
-    결과 범위는 {sheet, area, source, kind, name, tables} 이다. VBA 연결의 시트 자리에는 VBA 객체 식이 들어가므로,
+    결과 범위는 {sheet, area, source, kind, name, tables, inputs} 이다. VBA 연결의 시트 자리에는 VBA 객체 식이 들어가므로,
     그 글자가 시트 이름과 같을 때만 그 시트로 본다.
     """
     conns, state = _scan_file(path)
@@ -114,7 +114,7 @@ def load_connections(path, sheet_values):
         tables = sorted({m.upper() for m in FROM_NAME.findall(c.sql or "")})
         for area in _areas(rest, sheet_values[obj]):
             loaded.append({"sheet": obj, "area": area, "source": source_name(c.kind, c.origin), "kind": c.kind,
-                           "name": c.location.removeprefix("연결 "), "tables": tables})
+                           "name": c.location.removeprefix("연결 "), "tables": tables, "inputs": c.inputs})
     unplaced = [dict(t) for t in dict.fromkeys(tuple(u.items()) for u in unplaced)]  # 한 매크로가 여러 번 쓰는 연결은 1번만
     return loaded, unplaced, state
 

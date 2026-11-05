@@ -367,20 +367,30 @@ def _reads_table(table, area):
     return _overlap(table["area"], area) or any(_overlap((*p, *p), area) for p in table["trimmed_cells"])
 
 
-def read_cells(book, tables, ids):
-    """ids 표의 수식이 읽는 셀 집합 {(시트, (행, 열))}. 값이나 수식이 있는 셀만 센다."""
+def _formula_areas(book, table):
+    """표의 수식이 읽는 (시트, 범위)를 수식마다 내놓는다. 외부 파일과 깨진 참조는 뺀다."""
     from types import SimpleNamespace
     import trace_cells
-    areas = set()
+    for p, f in _formula_cells(book, table):
+        probe = SimpleNamespace(broken_refs=set(), dynamic_refs=set())
+        for ref in trace_cells._references(f, probe, (table["sheet"], *p)):
+            got = book.resolve(ref[0] if isinstance(ref, tuple) else ref, table["sheet"], p)
+            if not isinstance(got, str):
+                yield from ((sheet, tuple(area)) for sheet, area in got)
+
+
+def read_count(book, tables, targets):
+    """targets 의 셀 {(시트, (행, 열))} 마다 그 셀을 읽는 참조 수."""
+    counts = Counter()
     for t in tables:
-        if t["id"] not in ids:
-            continue
-        for p, f in _formula_cells(book, t):
-            probe = SimpleNamespace(broken_refs=set(), dynamic_refs=set())
-            for ref in trace_cells._references(f, probe, (t["sheet"], *p)):
-                got = book.resolve(ref[0] if isinstance(ref, tuple) else ref, t["sheet"], p)
-                if not isinstance(got, str):
-                    areas.update((sheet, tuple(area)) for sheet, area in got)
+        for sheet, area in _formula_areas(book, t):
+            counts.update(x for x in targets if x[0] == sheet and _overlap((*x[1], *x[1]), area))
+    return counts
+
+
+def read_cells(book, tables, ids):
+    """ids 표의 수식이 읽는 셀 집합 {(시트, (행, 열))}. 값이나 수식이 있는 셀만 센다."""
+    areas = {x for t in tables if t["id"] in ids for x in _formula_areas(book, t)}
     out = set()
     for sheet in {s for s, _ in areas}:
         mine = [a for s, a in areas if s == sheet]

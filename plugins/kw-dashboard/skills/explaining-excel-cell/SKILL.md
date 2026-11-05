@@ -44,22 +44,28 @@ disable-model-invocation: true
 4. 같은 질문에서 행 순서를 확인한다. 결과표의 `row_order` 가 「순위 순」이면 묻지 않는다. 그 밖의 결과표와 사용자가 직접 지정한 표는 두 안을 묻는다.
    - 기본 안: 엑셀의 지금 순서를 순번 열(`row_seq`)로 저장하고, 앞으로 추가분은 뒷행에 붙인다.
    - 다른 안: 가나다 순이나 펀드코드 순 같은 정렬 기준을 정한다.
-5. 답을 `--out` 폴더의 `explain_results.json` 에 Write 도구로 쓴다(UTF-8). `base_sheets` 는 후보 파일의 `base_sheets` 를 그대로 옮긴다. 엑셀 표를 결과표로 골랐으면 `excel_table` 에 그 이름을 적는다. 표 묶음 이름은 후보 파일의 `groups`(머리글 행 글자, 표 위 제목 글자, 첫 행 값)를 보고 클로드가 유추해 묶음 번호로 적는다. 이 파일은 대시보드 스킬이 행 순서 답을 읽는 기록이기도 하다.
+5. 같은 질문에서 `settings` 네 항목을 묻는다. 후보 파일의 `suggested` 에 값이 있으면 제안값으로 보인다.
+   - `date_input`: 기준일 입력칸을 켤지와, 켜면 기본값(예: 어제)
+   - `refresh_unit`: 데이터 갱신 단위(`일자` · `시간`). 수기 입력의 이전 값을 모두 남겨야 하면 `시간` 이다
+   - `allow_today`: 오늘을 기준일로 받을지. 전일자 기준 업무는 받지 않는다
+   - `allow_holiday`: 휴일을 기준일로 받을지
+6. 답을 `--out` 폴더의 `explain_results.json` 에 Write 도구로 쓴다(UTF-8). `base_sheets` 는 후보 파일의 `base_sheets` 를 그대로 옮긴다. 결과표는 후보 파일 `tables[].id` 를 `table` 에 적는다. 표 묶음 이름은 후보 파일의 `groups`(머리글 행 글자, 표 위 제목 글자, 첫 행 값)를 보고 클로드가 유추해 묶음 번호로 적는다. 이 파일은 대시보드 스킬이 행 순서 답을 읽는 기록이기도 하다.
 
    ```json
    {"excel": "<엑셀 파일 이름>", "base_sheets": {"<pattern>": "<시트>"},
-    "results": [{"sheet": "<시트>", "excel_table": null, "row_order": "순위 순"}],
-    "names": {"g1": "분류 대응표"}}
+    "results": [{"table": "<표 id>", "sheet": "<시트>", "row_order": "순위 순"}],
+    "names": {"g1": "분류 대응표"},
+    "settings": {"date_input": {"on": true, "default": "어제"}, "refresh_unit": "일자", "allow_today": false, "allow_holiday": false}}
    ```
 
-6. 2번째 실행으로 페이지를 만든다. 결과표마다 `explain_all_r<번호>.html` 과 단계 화면 폴더 `explain_all_r<번호>_steps/` 가 생긴다.
+7. 2번째 실행으로 페이지를 만든다. 결과표마다 `explain_all_r<번호>.html` 과 단계 화면 폴더 `explain_all_r<번호>_steps/` 가 생긴다.
 
    ```powershell
    uv run --system-certs --no-project --with-requirements "<스킬>\scripts\requirements.txt" python "<스킬>\scripts\explain_cell.py" "<엑셀 경로>" --all --results explain_results.json --out explain_all.html
    ```
 
-7. 만든 페이지를 `Start-Process` 로 브라우저에서 연다. 날짜 시트 군이 있으면 대화에서 1번 알린다. 「마지막 시트(<시트>)의 계산 기준으로 분석했습니다. 더 과거의 계산 이력까지 모두 검토가 필요하면 말씀해 주세요.」 틀린 내용이 있으면 이 대화에서 알려 달라고 덧붙인다.
-8. 실패로 중단되면 아무 파일도 쓰이지 않는다. 원인을 고친 뒤 `--out` 이름을 바꿔 다시 실행한다.
+8. 만든 페이지를 `Start-Process` 로 브라우저에서 연다. 날짜 시트 군이 있으면 대화에서 1번 알린다. 「마지막 시트(<시트>)의 계산 기준으로 분석했습니다. 더 과거의 계산 이력까지 모두 검토가 필요하면 말씀해 주세요.」 틀린 내용이 있으면 이 대화에서 알려 달라고 덧붙인다.
+9. 실패로 중단되면 아무 파일도 쓰이지 않는다. 원인을 고친 뒤 `--out` 이름을 바꿔 다시 실행한다.
 
 수식이 하나도 없는 엑셀은 `계산 규칙 없음` 한 줄로 끝난다. `--hints` 와 `--names` 는 셀 모드에서만 쓴다.
 

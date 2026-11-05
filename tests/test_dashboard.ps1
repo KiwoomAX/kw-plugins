@@ -162,6 +162,10 @@ foreach ($f in @('scripts/explain_cell.py', 'scripts/formula_segments.py', 'scri
 Assert 'explainer runs scripts through uv, not python3' (($exText -match 'uv run') -and -not ($exText -match '\bpython3\b'))
 Assert 'explainer carries no build-history notes' (-not ($exText -match '\b20\d\d-\d\d-\d\d\b|~/\.claude'))
 Assert 'the plugin description names the explainer' ($pluginJson.description -match 'explaining-excel-cell')
+Assert 'explainer ships scripts/definitions.py' (Test-Path (Join-Path $ExDir 'scripts/definitions.py'))
+foreach ($k in @('settings', 'refresh_unit', 'allow_today', 'allow_holiday')) {
+    Assert "explainer SKILL.md explains $k" ($exText -match $k)
+}
 
 Write-Host '--- extracting-excel-queries ---'
 # The query extractor ships every script SKILL.md runs, and not the macro rebuild tool.
