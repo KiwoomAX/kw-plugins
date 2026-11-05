@@ -1,6 +1,6 @@
 # 3단계 — compose 파일과 환경변수
 
-SKILL.md 의 3단계에서 연다. `Jenkinsfile` 틀은 jenkinsfile.md 에 있다.
+SKILL.md 의 3단계에서 연다. 배포 설정 파일(KiwoomAX `kiwoom-deploy.yml`, KiwoomAM `Jenkinsfile`) 틀은 jenkinsfile.md 에 있다.
 
 ## compose 틀
 
@@ -214,8 +214,12 @@ mkdir -p /home/chshin84/opt/<저장소 이름>/data
 
 새 대시보드는 대개 런타임 자료가 아예 없다 — 그때는 이 마운트를 만들지 않는다.
 
-마운트가 아예 없으면 이 파일을 만들지 말고 Jenkinsfile 에서 `composeFiles: ['docker-compose.yml']`
-하나만 넘긴다.
+마운트가 아예 없으면 이 파일을 만들지 말고 배포 설정의 `composeFiles` 에 `docker-compose.yml`
+하나만 적는다.
+
+**KiwoomAX 는 호스트 폴더 마운트를 AX 팀이 등록한 경로만 받는다.** 새 대시보드의 자료는 named volume 에 두는 것이
+기본이다. 호스트 폴더(위 규약 경로 포함)가 꼭 필요하면 배포 전에 AX 팀에 경로와 읽기 전용 여부를 등록해 달라고
+요청하게 한다. 등록 전에 push 하면 첫 빌드가 `허용 경로 밖의 바인드 마운트` 로 멈춘다.
 
 ## 이미 도는 서비스를 넘겨받을 때
 
@@ -240,10 +244,14 @@ docker inspect <컨테이너> --format '{{range .Mounts}}{{.Source}} -> {{.Desti
 그대로 넘겨받은 것이다. 사용자에게 「수동 빌드를 누르는 순간 지금 화면이 잠깐 내려갔다 다시 뜬다」고
 미리 알린다.
 
+**KiwoomAX 는 다르다.** KiwoomAX 파이프라인은 다른 프로젝트의 컨테이너를 지우지 않는다. 지금 도는 컨테이너를 이 저장소
+배포가 띄운 것이 아니면 첫 배포가 이름 충돌이나 `배포 구성 문제` 로 멈춘다. 그때는 AX 팀에 그 컨테이너 정리를 요청한다.
+
 ## compose 위치와 프로젝트 이름
 
 **compose 가 저장소 루트에 없어도 된다.** `docker compose -f docker/compose.yml` 은 그 파일이 있는
-폴더를 기준으로 경로를 푼다. Jenkinsfile 에 그 경로를 적으면 그만이다. `docker-compose.jenkins.yml` 도
+폴더를 기준으로 경로를 푼다. KiwoomAM 은 Jenkinsfile 에 그 경로를 적으면 된다. **KiwoomAX 는 compose 파일을 저장소 최상위에
+둔다** — `kiwoom-deploy.yml` 은 최상위 파일 이름만 받는다. `docker-compose.jenkins.yml` 도
 그 옆에 둔다(예: `docker/compose.jenkins.yml`). 여러 파일을 합칠 때 상대경로는 **첫 파일이 있는
 폴더**를 기준으로 풀리므로, 덮어쓰기 안의 경로는 어디 두든 절대경로로 적는다. 다만 `.env` 는 워크스페이스
 **루트**에 복원되므로, compose 가 `env_file` 을 쓰면 `../.env` 로 고친다.
