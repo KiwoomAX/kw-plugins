@@ -3,6 +3,7 @@
 표는 엑셀 표가 있으면 그 표이고, 없으면 빈 행과 빈 열로 나뉜 데이터 범위 하나다.
 위치는 (r1, c1, r2, c2) 이고, 표 id 는 「시트!A1:C3」 형식이다.
 """
+import datetime as dt
 import re
 from collections import Counter
 
@@ -16,6 +17,7 @@ OUTSIDE_LIMIT = 200  # 표 밖 셀 목록의 상한(근거 없는 시작 값)
 DATED = re.compile(r"(19|20)\d\d|(?<!\d)\d{6}(?!\d)|(?<!\d)\d{8}(?!\d)")
 SUMMARY_LABEL = re.compile(r"소\s*계|합\s*계|총\s*계|총\s*합|계|total|sub\s*total|grand\s*total", re.I)
 SUMMARY_FUNCS = ("SUM", "AVERAGE", "COUNT")
+DATE_TEXT = re.compile(r"(19|20)\d{6}")
 SUM_ABOVE = re.compile(r"=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", re.I)
 
 
@@ -187,18 +189,63 @@ def find_tables(book, sheet):
     excel = [(name, tuple(t.area)) for name, t in book.tables.items() if t.sheet == sheet]
     pos = {p for p in set(book.cells.get(sheet, {})) | set(book.sheet_values(sheet))
            if not any(_inside(p, area) for _, area in excel)}
-    out = []
-    for name, whole in excel + [(None, area) for area in _split_around(pos, [a for _, a in excel])]:
-        rows = header_rows(book, sheet, whole)
-        head = rows[0] if rows else None
-        levels = column_levels(book, sheet, whole, rows)
-        area, trimmed = (whole, []) if name or not rows else _trim_headerless(whole, levels, pos)
-        levels = tuple(line[:area[3] - area[1] + 1] for line in levels)
-        out.append({"id": f"{sheet}!{a1(area[0], area[1])}:{a1(area[2], area[3])}", "sheet": sheet, "area": area,
-                    "header_row": head, "header_rows": rows, "levels": levels, "trimmed_cells": trimmed,
-                    "header": join_levels(levels) if rows else None, "excel_table": name,
-                    "title": _title(book, sheet, area, head), "has_formula": _has_formula(book, sheet, whole)})
+    out = [_make_table(book, sheet, whole, name, pos)
+           for name, whole in excel + [(None, area) for area in _split_around(pos, [a for _, a in excel])]]
     return sorted(out, key=lambda t: (t["area"][0], t["area"][1]))
+
+
+def _make_table(book, sheet, whole, name=None, pos=None):
+    """범위 하나의 표 사전. pos 를 주면 오른쪽 끝의 머리글 없는 열을 뺀다."""
+    rows = header_rows(book, sheet, whole)
+    head = rows[0] if rows else None
+    levels = column_levels(book, sheet, whole, rows)
+    area, trimmed = (whole, []) if name or not rows or pos is None else _trim_headerless(whole, levels, pos)
+    levels = tuple(line[:area[3] - area[1] + 1] for line in levels)
+    return {"id": f"{sheet}!{a1(area[0], area[1])}:{a1(area[2], area[3])}", "sheet": sheet, "area": area,
+            "header_row": head, "header_rows": rows, "levels": levels, "trimmed_cells": trimmed,
+            "header": join_levels(levels) if rows else None, "excel_table": name,
+            "title": _title(book, sheet, area, head), "has_formula": _has_formula(book, sheet, whole)}
+
+
+def defined_area(table):
+    """표 정의의 범위. 머리글 첫 행부터 마지막 행까지다. 제목 행과 기준일 표시 행을 표에 넣지 않는다."""
+    r1, c1, r2, c2 = table["area"]
+    return (table["header_row"] or r1, c1, r2, c2)
+
+
+def apply_areas(book, found, saved):
+    """결과 파일에서 고친 범위를 표 목록에 반영한다. 표 id 는 그대로 둔다. added 표시가 있는 항목은 새 표로 추가한다."""
+    by_id = {t["id"]: t for t in found}
+    for s in saved:
+        area = tuple(s.get("area") or ())
+        old = by_id.get(s["id"])
+        if len(area) == 4 and old and area != defined_area(old):
+            by_id[s["id"]] = {**_make_table(book, s["sheet"], area, old["excel_table"]), "id": s["id"]}
+        elif len(area) == 4 and not old and s.get("added"):
+            by_id[s["id"]] = {**_make_table(book, s["sheet"], area), "id": s["id"]}
+    return list(by_id.values())
+
+
+def date_header_columns(book, table):
+    """날짜가 열로 펼쳐진 머리글 열 목록 [{"col", "rel"}]. 수식으로 만든 날짜 머리글이 2개 이상 이어져야 한다."""
+    if not table["header_rows"]:
+        return []
+    r, (_, c1, _, c2) = table["header_rows"][1], table["area"]
+    vals = book.sheet_values(table["sheet"])
+
+    def dated(c):
+        formula, value = book.formula(table["sheet"], (r, c)), vals.get((r, c))
+        return bool(formula) and ("TODAY()" in formula.upper() or isinstance(value, dt.datetime) or bool(DATE_TEXT.fullmatch(str(value))))
+
+    runs, run = [], []
+    for c in range(c1, c2 + 2):
+        if c <= c2 and dated(c):
+            run.append(c)
+        else:
+            runs.append(run)
+            run = []
+    best = max(runs, key=len)
+    return [{"col": col_name(c), "rel": i} for i, c in enumerate(best, 1)] if len(best) >= 2 else []
 
 
 def _trim_headerless(area, levels, pos):

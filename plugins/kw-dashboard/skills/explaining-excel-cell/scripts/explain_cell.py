@@ -8,7 +8,9 @@
 import argparse
 import datetime as dt
 import json
+import os
 import re
+import shutil
 import sys
 import zipfile
 from collections import Counter
@@ -473,12 +475,13 @@ GUIDE = {"text": "분석 결과가 실제와 다르면, 알고 계신 엑셀 구
                     "「C」 시트의 지난주 열은 지난주 시트의 값을 매주 손으로 붙여 넣습니다."}
 
 
-def analyze(book, base_override=None):
-    """엑셀 전체의 표와 표 사이 읽기 관계. 날짜 시트 군의 기준 시트가 아닌 날짜 시트는 표를 찾지 않는다."""
+def analyze(book, base_override=None, saved=()):
+    """엑셀 전체의 표와 표 사이 읽기 관계. 날짜 시트 군의 기준 시트가 아닌 날짜 시트는 표를 찾지 않는다.
+    saved 는 결과 파일의 표 정의이고, 고친 범위를 표에 반영한다."""
     import tables as tb
     sheets, groups = tb.analyzed_sheets(book, base_override)
     skipped = [s for s in book.order if s not in sheets]
-    found = [t for s in sheets for t in tb.find_tables(book, s)]
+    found = tb.apply_areas(book, [t for s in sheets for t in tb.find_tables(book, s)], saved)
     reads, odd_refs = tb.read_map(book, found, set(skipped))
     return {"sheets": sheets, "skipped": skipped, "date_groups": groups, "tables": found,
             "groups": tb.group_tables(found), "reads": reads, "odd_refs": odd_refs}
@@ -738,6 +741,14 @@ def load_results(path, book, candidates_path):
     return data
 
 
+def write_results(path, data):
+    """결과 파일을 임시 파일에 쓴 뒤 바꾼다. 쓰다 실패해도 이전 파일이 남는다."""
+    text = json.dumps(data, ensure_ascii=False, indent=1)
+    temp = Path(path).with_suffix(".tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
+
+
 def check_result_tables(results, analysis):
     """결과 파일의 표 id 가 분석에서 찾은 표인지 확인한다."""
     ids = {t["id"] for t in analysis["tables"]}
@@ -773,12 +784,16 @@ def main_all(a, book):
         count = len(json.loads(path.read_text(encoding="utf-8"))["candidates"])
         print(f"결과표 후보 시트 {count}개: {path}")
         return
+    import definitions
     results = load_results(a.results, book, out.parent / "explain_candidates.json")
-    analysis = analyze(book, results["base_sheets"])
+    saved = results.get("definitions", [])
+    analysis = analyze(book, results["base_sheets"], saved)
     for r in results["results"]:
         if r["sheet"] in analysis["skipped"]:
             sys.exit(f"결과표 시트가 기준 시트가 아닌 날짜 시트: {r['sheet']}(--base 로 1번째 실행부터 다시)")
     check_result_tables(results["results"], analysis)
+    results["definitions"] = definitions.merge(definitions.propose(book, analysis, results, saved), saved)
+    results["date_groups"] = [{"pattern": g["pattern"], "base": g["base"], "sheets": g["sheets"]} for g in analysis["date_groups"]]
     cache, files, total = {}, {}, 0  # files: 경로 → 글자
     for n, result in enumerate(results["results"], 1):
         data = build_three_stage(book, analysis, result, results["names"], cache)
@@ -799,13 +814,19 @@ def main_all(a, book):
         files[page] = html
     dirs = {p.parent for p in files if p.parent != out.parent}
     pages = [out.parent / f"{out.stem}_r{n}{x}" for n in range(1, len(results["results"]) + 1) for x in (".html", "_steps")]
-    if any(p.exists() for p in pages):
+    if any(p.exists() for p in pages) and not a.replace:
         sys.exit("출력 파일 중복(다른 이름 필요)")
+    for p in pages:
+        if p.is_dir():
+            shutil.rmtree(p)
+        elif p.exists():
+            p.unlink()
     for d in sorted(dirs):
         d.mkdir()
     for p, html in files.items():
         with open(p, "x", encoding="utf-8") as f:
             f.write(html)
+    write_results(a.results, results)
     for n in range(1, len(results["results"]) + 1):
         print(out.parent / f"{out.stem}_r{n}.html")
 
@@ -819,6 +840,7 @@ def main(argv=None):
     ap.add_argument("--results", help="--all 일 때 결과표 파일(explain_results.json) 경로. 없으면 후보 파일만 쓴다")
     ap.add_argument("--base", action="append", help="--all 1번째 실행에서 날짜 시트 군의 기준 시트(「군 이름=시트」, 군을 풀면 「군 이름=없음」)")
     ap.add_argument("--out", help="만들 HTML 경로. 이미 있으면 실패한다")
+    ap.add_argument("--replace", action="store_true", help="--all 2번째 실행에서 같은 이름의 출력 파일을 지우고 다시 쓴다")
     ap.add_argument("--title", default="", help="결과 셀의 이름(예: 연도별 · 월별 수익률)")
     ap.add_argument("--hints", help="화면 대신 열 이름 재료를 이 JSON 경로에 쓴다")
     ap.add_argument("--names", help="열 이름 JSON {\"시트!열\": \"이름\"} 경로")
