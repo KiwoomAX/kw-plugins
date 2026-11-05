@@ -3,6 +3,7 @@
 쿼리 · 매크로가 결과를 쓰는 범위(book.loaded_ranges) 안의 값 셀은 그 범위의 출처다.
 다른 엑셀 파일을 읽는 수식 셀은 「외부 파일」, 그 밖의 값 셀은 「수기 입력」이다. 그 밖의 수식 셀은 세지 않는다.
 """
+import re
 from collections import Counter
 
 from capture_views import SOURCE_KINDS
@@ -11,6 +12,18 @@ from tables import data_top, is_constant_formula
 
 ONLY_MANUAL = "WINUS · WFS 쿼리 연결이 이 표에 없고, 값이 직접 입력되어 있습니다."
 LABEL = dict(SOURCE_KINDS)
+SCREEN_NUMBER = re.compile(r"(?<!\d)\d{6}(?!\d)")
+TAB_IN_NAME = re.compile(r"\(([^()]+)\)")
+
+
+def winus_candidate(sheet):
+    """시트 이름에 WINUS 나 화면 번호가 있으면 추출본 후보. {"screen", "tab"} 이고 후보가 아니면 None.
+    괄호 안 글자를 탭으로 보는 규칙은 표본 하나에서 나온 가정이므로 화면에서 확인받는다."""
+    screen = SCREEN_NUMBER.search(sheet)
+    if "WINUS" not in sheet.upper() and not screen:
+        return None
+    tabs = [x for x in TAB_IN_NAME.findall(sheet) if x.upper() != "WINUS"]
+    return {"screen": screen[0] if screen else None, "tab": tabs[-1] if tabs else None}
 
 
 def _cell_kind(book, sheet, pos):

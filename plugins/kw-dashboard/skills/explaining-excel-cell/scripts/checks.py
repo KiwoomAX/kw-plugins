@@ -8,7 +8,7 @@ from openpyxl.formula import Tokenizer
 
 from explain_cell import a1, col_name, show
 from plain_text import label, line_roles
-from tables import data_top, is_constant_formula
+from tables import _formula_cells, _is_number, data_top, is_constant_formula, summary_rows
 
 ODD_MAX, SAME_MAX, AMBIGUOUS_MAX = 20, 15, 20
 UNPLACED = {"시트 모름": ("매크로 시트", "매크로가 어느 시트에 값을 넣는지 알려 주세요."),
@@ -70,11 +70,54 @@ def odd_rows(book, tables):
                 if x == role:
                     continue
                 v = vals.get(pos)
-                if f is None and str(v).strip() in heads.get(sheet, ()):
+                if f is None and (_is_number(v) or str(v).strip() in heads.get(sheet, ())):  # 직접 적은 숫자는 typed_cells 가 모은다
                     continue
                 items.append({"sheet": sheet, "cell": a1(*pos), "column": _column(t, c), "usual": usual,
                               "got": f if f else f"값 「{show(v)}」"})
     return _capped(items, ODD_MAX)
+
+
+def typed_cells(book, tables):
+    """수식 열 중간에 숫자를 직접 적은 셀. 열 셀의 60% 이상이 수식인 열만 본다."""
+    items = []
+    for t in tables:
+        sheet, vals = t["sheet"], book.sheet_values(t["sheet"])
+        for c in range(t["area"][1], t["area"][3] + 1):
+            formulas = [r for r in _rows(t) if _formula(book, sheet, (r, c))]
+            numbers = [r for r in _rows(t) if r not in formulas and _is_number(vals.get((r, c)))]
+            if len(formulas) + len(numbers) >= ODD_MIN and len(formulas) >= ODD_SHARE * (len(formulas) + len(numbers)):
+                items += [{"sheet": sheet, "cell": a1(r, c), "value": show(vals[(r, c)])} for r in numbers]
+    return items
+
+
+def external_formula_cells(book, tables):
+    """다른 엑셀 파일을 읽는 수식 셀을 셀마다 모은다. 대표 수식만 따라가면 놓치는 셀을 찾기 위해서다."""
+    items = []
+    for t in tables:
+        for p, f in _formula_cells(book, t):
+            file = book.external_file(f, t["sheet"], p)
+            if file:
+                items.append({"sheet": t["sheet"], "cell": a1(*p), "file": file})
+    return items
+
+
+def gap_rows(book, tables):
+    """데이터 행 사이에서 첫 머리글 열이 빈 행. 펀드 행 사이의 BM 행 같은 행을 찾는다. 소계 행은 뺀다."""
+    items = []
+    for t in tables:
+        if not t["header"] or not any(t["header"]):
+            continue
+        sheet, vals = t["sheet"], book.sheet_values(t["sheet"])
+        key = t["area"][1] + next(i for i, h in enumerate(t["header"]) if h)
+        tops = book.merge_top.get(sheet, {})
+        keyed = [r for r in _rows(t) if tops.get((r, key), (r, key)) in vals or book.formula(sheet, (r, key))]
+        skip = {s["row"] for s in summary_rows(book, t)}
+        for r in _rows(t):
+            if keyed and keyed[0] < r < keyed[-1] and r not in keyed and r not in skip:
+                first = next((vals[(r, c)] for c in range(t["area"][1], t["area"][3] + 1) if (r, c) in vals), None)
+                if first is not None:
+                    items.append({"sheet": sheet, "row": r, "first": show(first)})
+    return items
 
 
 def _keep(v):
@@ -84,8 +127,9 @@ def _keep(v):
     return round(float(v), 10)
 
 
-def same_value_columns(book, tables_by_sheet, date_groups):
-    """수식이 없는 두 열이 같은 소수를 5개 이상, 작은 열 값의 80% 이상 보유하면 묻는다. 날짜 시트는 기준과 바로 이전 시트만 본다."""
+def same_value_columns(book, tables_by_sheet, date_groups, source_ids=()):
+    """수식이 없는 두 열이 같은 소수를 5개 이상, 작은 열 값의 80% 이상 보유하면 묻는다. 날짜 시트는 기준과 바로 이전 시트만 본다.
+    둘 다 원천 표(source_ids)이면 값이 같아도 옮겨 붙인 연결이 아니므로 묻지 않는다."""
     dated = {s for g in date_groups for s in g["sheets"]}
     keep_dated = {s for g in date_groups for s in (g["base"], g["previous"])}
     columns = []  # (표, 열 번호, 값 집합)
@@ -112,7 +156,7 @@ def same_value_columns(book, tables_by_sheet, date_groups):
     items = []
     for (i, j), n in sorted(shared.items()):
         (ta, ca, va), (tb, cb, vb) = columns[i], columns[j]
-        if n < SAME_MIN or n < SAME_SHARE * min(len(va), len(vb)):
+        if n < SAME_MIN or n < SAME_SHARE * min(len(va), len(vb)) or (ta["id"] in source_ids and tb["id"] in source_ids):
             continue
         text = (f"「{ta['sheet']}」 시트 {label(ta, {}, [])}의 「{_column(ta, ca)}」 값 {n}개가 "
                 f"「{tb['sheet']}」 시트 {label(tb, {}, [])}의 「{_column(tb, cb)}」 값과 같습니다. "

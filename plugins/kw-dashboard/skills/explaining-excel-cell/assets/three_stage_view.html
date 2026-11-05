@@ -128,8 +128,16 @@ function checks() {
   const defs = listCard("표 정의에서 확인할 사항", "표 범위, 열 이름, 소계 식을 확인해 주세요.", D.conflicts, 0, esc);
   const out = listCard("표 밖 셀", "표 밖에 있는 값과 수식입니다. 셀마다 처리 방식을 확인해 주세요.", D.outside, 0,
     i => `「${esc(i.sheet)}」 시트 ${esc(i.where)}${i.value === null || i.value === undefined ? "" : ` (${esc(i.value)})`}: ${esc(i.action)}${i.read_by_result ? " · 결과 계산이 읽습니다" : ""}`);
-  const empty = odd || same || amb || defs || out ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
-  return empty + defs + out + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
+  const winus = listCard("WINUS 추출본 후보", "시트 이름으로 찾은 후보입니다. 화면 번호와 탭이 맞는지 확인해 주세요.",
+    c.winus.items, c.winus.more, i => `「${esc(i.sheet)}」 시트: 화면 번호 ${esc(i.screen || "확인 필요")}, 탭 ${esc(i.tab || "확인 필요")}`);
+  const ext = listCard("다른 파일을 읽는 셀", "예전 파일을 읽는 셀일 수 있습니다. 셀마다 계속 쓸지 확인해 주세요.",
+    c.external.items, c.external.more, i => `「${esc(i.sheet)}」 시트 ${esc(i.cell)}: ${esc(i.file)}`);
+  const typed = listCard("수기 입력 셀", "수식 열 중간에 숫자를 직접 적은 셀입니다.",
+    c.typed.items, c.typed.more, i => `「${esc(i.sheet)}」 시트 ${esc(i.cell)}: ${esc(i.value)}`);
+  const gaps = listCard("데이터 행 사이에 끼어 있는 행", "첫 열이 빈 행입니다. 벤치마크 행 같은 행인지, 저장할 때 어떻게 다룰지 확인해 주세요.",
+    c.gaps.items, c.gaps.more, i => `「${esc(i.sheet)}」 시트 ${esc(i.row)}행: ${esc(i.first)}`);
+  const empty = odd || same || amb || defs || out || winus || ext || typed || gaps ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
+  return empty + defs + out + winus + ext + typed + gaps + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
 }
 
 function origin() {

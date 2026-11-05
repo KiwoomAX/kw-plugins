@@ -605,11 +605,9 @@ def build_three_stage(book, analysis, result, names, step_cache, defs=()):
             **sources.source_of(book, [t for t in by_group[c["group"]]["tables"] if t["id"] in cls["source"]])}
            for c in screens["source"]]
     sheets_of = lambda ids: list(dict.fromkeys(t["sheet"] for t in found if t["id"] in ids))  # noqa: E731
-    if "same" not in analysis:  # 값이 같은 열은 결과표와 무관하므로 실행 하나에서 1번만 찾는다
-        dated = {g["previous"] for g in analysis["date_groups"]}
-        by_sheet = {s: [t for t in found if t["sheet"] == s] for s in analysis["sheets"]}
-        by_sheet.update({s: tb.find_tables(book, s) for s in dated})
-        analysis["same"] = checks.same_value_columns(book, by_sheet, analysis["date_groups"])
+    dated = {g["previous"] for g in analysis["date_groups"]}
+    by_sheet = {s: [t for t in found if t["sheet"] == s] for s in analysis["sheets"]}
+    by_sheet.update({s: tb.find_tables(book, s) for s in dated})
     page = [t for t in found if t["id"] in used]
     in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
     mine = [d for d in defs if d["id"] in used or d.get("orphan")]
@@ -620,7 +618,13 @@ def build_three_stage(book, analysis, result, names, step_cache, defs=()):
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
             "date_note": _date_note(analysis["date_groups"]), "screens": screens, "sources": src,
             "source_rules": book.source_rules_state,
-            "checks": {"odd": checks.odd_rows(book, page), "same": analysis["same"],
+            "checks": {"odd": checks.odd_rows(book, page),
+                       "same": checks.same_value_columns(book, by_sheet, analysis["date_groups"], set(cls["source"])),
+                       "external": checks._capped(checks.external_formula_cells(book, page), checks.ODD_MAX),
+                       "typed": checks._capped(checks.typed_cells(book, page), checks.ODD_MAX),
+                       "gaps": checks._capped(checks.gap_rows(book, page), checks.ODD_MAX),
+                       "winus": checks._capped([{"sheet": s, **c} for s in sheets_of(cls["source"])
+                                                if (c := sources.winus_candidate(s))], checks.ODD_MAX),
                        "ambiguous": checks.ambiguous(book, [o for o in analysis["odd_refs"] if in_page(o)],
                                                      tb.nameless_read(found, reads, result_ids), analysis["date_groups"])},
             "guide": GUIDE, "steps": list(dict.fromkeys(line["step"] for k in screens for c in screens[k] for line in c["lines"]))}
