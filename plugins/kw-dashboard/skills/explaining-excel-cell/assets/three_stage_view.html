@@ -126,7 +126,7 @@ function checks() {
   const amb = listCard("분석이 모호했던 상황", "분석기가 판단하지 못한 셀입니다.",
     c.ambiguous.items, c.ambiguous.more, i => `<b>${esc(i.kind)}</b> · ${esc(i.where)}: ${esc(i.text)}`);
   const defs = listCard("표 정의에서 확인할 사항", "표 범위, 열 이름, 소계 식을 확인해 주세요.", D.conflicts, 0, esc);
-  const out = listCard("표 밖 셀", "표 밖에 있는 값과 수식입니다. 셀마다 처리 방식을 확인해 주세요.", D.outside, 0,
+  const out = listCard("표 밖 셀", "표 밖에 있는 값과 수식입니다. 셀마다 처리 방식을 확인해 주세요.", D.outside, D.outside_more,
     i => `「${esc(i.sheet)}」 시트 ${esc(i.where)}${i.value === null || i.value === undefined ? "" : ` (${esc(i.value)})`}: ${esc(i.action)}${i.read_by_result ? " · 결과 계산이 읽습니다" : ""}`);
   const winus = listCard("WINUS 추출본 후보", "시트 이름으로 찾은 후보입니다. 화면 번호와 탭이 맞는지 확인해 주세요.",
     c.winus.items, c.winus.more, i => `「${esc(i.sheet)}」 시트: 화면 번호 ${esc(i.screen || "확인 필요")}, 탭 ${esc(i.tab || "확인 필요")}`);

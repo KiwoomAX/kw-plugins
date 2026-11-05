@@ -15,10 +15,10 @@ HEADER_MIN = 3  # 머리글 행으로 볼 글자 셀 최소 개수(근거 없는
 HEADER_SHARE = 0.6  # 그 행 셀 중 글자 셀 비율(근거 없는 시작 값)
 OUTSIDE_LIMIT = 200  # 표 밖 셀 목록의 상한(근거 없는 시작 값)
 DATED = re.compile(r"(19|20)\d\d|(?<!\d)\d{6}(?!\d)|(?<!\d)\d{8}(?!\d)")
-SUMMARY_LABEL = re.compile(r"소\s*계|합\s*계|총\s*계|총\s*합|계|total|sub\s*total|grand\s*total", re.I)
+SUMMARY_LABEL = re.compile(r".{0,20}(소\s*계|합\s*계|총\s*계|총\s*합)|계|평\s*균|(sub\s*|grand\s*)?total", re.I)
 SUMMARY_FUNCS = ("SUM", "AVERAGE", "COUNT")
 DATE_TEXT = re.compile(r"(19|20)\d{6}")
-SUM_ABOVE = re.compile(r"=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", re.I)
+SUM_ABOVE = re.compile(r"=(?:SUM|AVERAGE)\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", re.I)
 
 
 def _text(v):
@@ -36,10 +36,12 @@ def _cell_text(book, sheet, pos):
 
 def _row_texts(book, sheet, r, c1, c2):
     """r 행의 글자 셀 목록. 병합 범위의 셀은 왼쪽 위 셀 위치로 적는다.
-    같은 행의 가로 병합만 센다. 위 행에서 내려온 세로 병합은 그 행의 머리글이 아니다."""
-    tops = book.merge_top.get(sheet, {})
-    heads = [tops.get((r, c), (r, c)) for c in range(c1, c2 + 1)]
-    return [h for h in heads if h[0] == r and _text(book.sheet_values(sheet).get(h))]
+    같은 행의 가로 병합만 센다. 위 행에서 내려온 세로 병합은 그 행의 머리글이 아니다.
+    날짜 값이 셋 이상이면 날짜가 열로 펼쳐진 머리글로 보고 함께 센다. 시작일 · 종료일 같은 데이터 행은 둘뿐이다."""
+    tops, vals = book.merge_top.get(sheet, {}), book.sheet_values(sheet)
+    heads = [h for h in (tops.get((r, c), (r, c)) for c in range(c1, c2 + 1)) if h[0] == r]
+    dates = [h for h in heads if isinstance(vals.get(h), dt.date)]
+    return [h for h in heads if _text(vals.get(h))] + (dates if len(dates) >= 3 else [])
 
 
 def _looks_header(texts, c1, c2):
@@ -48,18 +50,21 @@ def _looks_header(texts, c1, c2):
 
 
 def _has_second_row(book, sheet, area, r):
-    """r 행에 가로 병합이 있고, 그 아래 셀이 모두 글자이고, 다음 행도 글자가 많으면 True.
+    """r 행에 가로 병합이 있고, 그 아래 셀이 모두 글자이고, 다음 행의 나머지 셀에 숫자 · 날짜 · 수식이 없으면 True.
     아래 행이 위 병합과 같은 폭으로 병합되어 있으면 나뉜 머리글이 아니라 데이터 행이다."""
     _, c1, r2, c2 = area
     spans = [m for m in book.merged.get(sheet, []) if m[0] == m[2] == r and m[3] > m[1] and c1 <= m[1] and m[3] <= c2]
-    tops = book.merge_top.get(sheet, {})
+    tops, vals = book.merge_top.get(sheet, {}), book.sheet_values(sheet)
 
     def split(m):
         cols = range(m[1], m[3] + 1)
         return all(_cell_text(book, sheet, (r + 1, c)) for c in cols) and len({tops.get((r + 1, c), (r + 1, c)) for c in cols}) >= 2
 
-    texts = [c for c in range(c1, c2 + 1) if _cell_text(book, sheet, (r + 1, c))]
-    return r < r2 and bool(spans) and all(split(m) for m in spans) and len(texts) >= HEADER_SHARE * (c2 - c1 + 1)
+    def data(c):
+        v = vals.get((r + 1, c))
+        return _is_number(v) or isinstance(v, dt.date) or bool(book.formula(sheet, (r + 1, c)))
+
+    return r < r2 and bool(spans) and all(split(m) for m in spans) and not any(data(c) for c in range(c1, c2 + 1))
 
 
 def header_row(book, sheet, area):
@@ -86,10 +91,11 @@ def header_rows(book, sheet, area):
 
 
 def column_levels(book, sheet, area, rows):
-    """머리글 줄마다의 글자. 병합 범위는 그 범위의 글자로 채운다. rows 가 None 이면 빈 tuple."""
+    """머리글 줄마다의 글자. 병합 범위는 그 범위의 글자로 채우고, 숫자 · 날짜 머리글은 글자로 바꾼다. rows 가 None 이면 빈 tuple."""
     if rows is None:
         return ()
-    return tuple(tuple(_cell_text(book, sheet, (r, c)) or "" for c in range(area[1], area[3] + 1))
+    tops, vals = book.merge_top.get(sheet, {}), book.sheet_values(sheet)
+    return tuple(tuple(show(vals.get(tops.get((r, c), (r, c)))).replace("\n", " ").strip() for c in range(area[1], area[3] + 1))
                  for r in range(rows[0], rows[1] + 1))
 
 
@@ -194,12 +200,12 @@ def find_tables(book, sheet):
     return sorted(out, key=lambda t: (t["area"][0], t["area"][1]))
 
 
-def _make_table(book, sheet, whole, name=None, pos=None):
-    """범위 하나의 표 사전. pos 를 주면 오른쪽 끝의 머리글 없는 열을 뺀다."""
-    rows = header_rows(book, sheet, whole)
+def _make_table(book, sheet, whole, name=None, pos=None, rows=None):
+    """범위 하나의 표 사전. pos 를 주면 오른쪽 끝의 머리글 없는 열을 뺀다. rows 를 주면 그 행을 머리글로 쓴다."""
+    rows = rows or header_rows(book, sheet, whole)
     head = rows[0] if rows else None
     levels = column_levels(book, sheet, whole, rows)
-    area, trimmed = (whole, []) if name or not rows or pos is None else _trim_headerless(whole, levels, pos)
+    area, trimmed = (whole, []) if name or not rows or pos is None else _trim_headerless(book, sheet, whole, rows, levels, pos)
     levels = tuple(line[:area[3] - area[1] + 1] for line in levels)
     return {"id": f"{sheet}!{a1(area[0], area[1])}:{a1(area[2], area[3])}", "sheet": sheet, "area": area,
             "header_row": head, "header_rows": rows, "levels": levels, "trimmed_cells": trimmed,
@@ -214,20 +220,26 @@ def defined_area(table):
 
 
 def apply_areas(book, found, saved):
-    """결과 파일에서 고친 범위를 표 목록에 반영한다. 표 id 는 그대로 둔다. added 표시가 있는 항목은 새 표로 추가한다."""
+    """결과 파일에서 고친 범위와 머리글 행을 표 목록에 반영한다. 표 id 는 그대로 둔다. added 표시가 있는 항목은 새 표로 추가한다."""
     by_id = {t["id"]: t for t in found}
     for s in saved:
         area = tuple(s.get("area") or ())
         old = by_id.get(s["id"])
-        if len(area) == 4 and old and area != defined_area(old):
-            by_id[s["id"]] = {**_make_table(book, s["sheet"], area, old["excel_table"]), "id": s["id"]}
-        elif len(area) == 4 and not old and s.get("added"):
-            by_id[s["id"]] = {**_make_table(book, s["sheet"], area), "id": s["id"]}
+        if len(area) != 4:
+            continue
+        rows = tuple(s.get("header_rows") or ())
+        rows = rows if len(rows) == 2 and area[0] <= rows[0] and rows[1] <= area[2] else None
+        if old and (area != defined_area(old) or (rows and rows != old["header_rows"])):
+            kept = [p for p in old["trimmed_cells"] if not _inside(p, area)]
+            by_id[s["id"]] = {**_make_table(book, s["sheet"], area, old["excel_table"], rows=rows), "id": s["id"], "trimmed_cells": kept}
+        elif not old and s.get("added"):
+            by_id[s["id"]] = {**_make_table(book, s["sheet"], area, rows=rows), "id": s["id"]}
     return list(by_id.values())
 
 
 def date_header_columns(book, table):
-    """날짜가 열로 펼쳐진 머리글 열 목록 [{"col", "rel"}]. 수식으로 만든 날짜 머리글이 2개 이상 이어져야 한다."""
+    """날짜가 열로 펼쳐진 머리글 열 목록 [{"col", "rel"}]. 수식으로 만든 날짜 머리글이 2개 이상이어야 한다.
+    rel 은 왼쪽부터 센 순번이다. 실제 날짜는 날짜 머리글 표가 맡는다."""
     if not table["header_rows"]:
         return []
     r, (_, c1, _, c2) = table["header_rows"][1], table["area"]
@@ -237,21 +249,16 @@ def date_header_columns(book, table):
         formula, value = book.formula(table["sheet"], (r, c)), vals.get((r, c))
         return bool(formula) and ("TODAY()" in formula.upper() or isinstance(value, dt.datetime) or bool(DATE_TEXT.fullmatch(str(value))))
 
-    runs, run = [], []
-    for c in range(c1, c2 + 2):
-        if c <= c2 and dated(c):
-            run.append(c)
-        else:
-            runs.append(run)
-            run = []
-    best = max(runs, key=len)
-    return [{"col": col_name(c), "rel": i} for i, c in enumerate(best, 1)] if len(best) >= 2 else []
+    cols = [c for c in range(c1, c2 + 1) if dated(c)]
+    return [{"col": col_name(c), "rel": i} for i, c in enumerate(cols, 1)] if len(cols) >= 2 else []
 
 
-def _trim_headerless(area, levels, pos):
-    """표 오른쪽 끝에서 머리글이 빈 열을 뺀다. (줄인 범위, 뺀 셀 위치 목록). 담당자가 표 옆에 둔 값이 표에 섞이지 않게 한다."""
+def _trim_headerless(book, sheet, area, rows, levels, pos):
+    """표 오른쪽 끝에서 머리글이 빈 열을 뺀다. (줄인 범위, 뺀 셀 위치 목록). 담당자가 표 옆에 둔 값이 표에 섞이지 않게 한다.
+    저장값이 없는 머리글 수식도 머리글로 본다."""
     names = join_levels(levels)
-    last = area[1] + max(i for i, name in enumerate(names) if name)
+    last = area[1] + max(i for i, name in enumerate(names)
+                         if name or any(book.formula(sheet, (r, area[1] + i)) for r in range(rows[0], rows[1] + 1)))
     cut = (area[0], area[1], area[2], last)
     return cut, sorted(p for p in pos if _inside(p, area) and p[1] > last)
 
@@ -402,7 +409,8 @@ def read_cells(book, tables, ids):
 
 def outside_cells(book, sheet, used, unused, read, skip=()):
     """시트에서 쓰인 표 밖의 값 · 수식 셀 목록. {"items": 앞의 항목들, "total": 전체 수}.
-    머리글이 있는 쓰이지 않는 표는 한 줄로 적고, 결과가 읽는 셀이 든 표와 머리글 없는 범위는 셀마다 적는다."""
+    머리글이 있는 쓰이지 않는 표는 한 줄로 적고, 결과가 읽는 셀이 든 표와 머리글 없는 범위는 셀마다 적는다.
+    결과가 읽는 셀은 저장해야 하므로 앞에 두고 상한으로 자르지 않는다."""
     vals = book.sheet_values(sheet)
     titles = {t["title"] for t in used if t["title"]}
     whole = [t for t in unused if t["header_rows"] and not any((sheet, p) in read for p in _table_cells(book, t))]
@@ -411,12 +419,15 @@ def outside_cells(book, sheet, used, unused, read, skip=()):
     for p in sorted(set(book.cells.get(sheet, {})) | set(vals)):
         inside = any(_inside(p, t["area"]) and p[0] >= (t["header_row"] or 0) for t in used)  # 머리글 위 행은 표가 아니다
         formula = book.formula(sheet, p)
-        if inside or p in skip or any(_inside(p, t["area"]) for t in whole) or _text(vals.get(p)) in titles or not (formula or p in vals):
-            continue
         hit = (sheet, p) in read
+        title = _text(vals.get(p)) in titles and not hit
+        if inside or p in skip or any(_inside(p, t["area"]) for t in whole) or title or not (formula or p in vals):
+            continue
         items.append({"kind": "셀", "where": a1(*p), "value": show(vals.get(p)), "formula": formula, "read_by_result": hit,
                       "action": "별도 표로 저장" if hit else "개발 고정값 표에 저장"})
-    return {"items": items[:OUTSIDE_LIMIT], "total": len(items)}
+    must = [i for i in items if i["read_by_result"]]
+    rest = [i for i in items if not i["read_by_result"]]
+    return {"items": must + rest[:max(0, OUTSIDE_LIMIT - len(must))], "total": len(items)}
 
 
 def _table_cells(book, table):
@@ -459,13 +470,13 @@ def candidates(tables, reads):
 
 def column_kinds(book, table):
     """(값만 있는 열 수, 수식 열 수). 머리글 행 아래만 본다. 상수 수식은 값으로 센다."""
-    r1, c1, r2, c2 = table["area"]
-    top = data_top(table)
+    _, c1, _, c2 = table["area"]
+    rows = data_rows(table, summary_rows(book, table))  # 합계 행의 수식 때문에 값 표가 계산 표로 보이지 않게 한다
     cells, vals = book.cells[table["sheet"]], book.sheet_values(table["sheet"])
     values = formulas = 0
     for c in range(c1, c2 + 1):
         kinds = set()
-        for r in range(top, r2 + 1):
+        for r in rows:
             cell = cells.get((r, c))
             if cell is not None and cell.kind == "formula":
                 kinds.add("v" if is_constant_formula(book.formula(table["sheet"], (r, c)) or "") else "f")
@@ -540,48 +551,62 @@ def _call_args(items, start):
     return len(items), args
 
 
-def _summary_call(name, args, table, names, found, rows):
-    """함수 하나를 식 문법으로 옮긴다. 문법에 없는 함수나 인수는 None. 읽는 데이터 행을 rows 에 추가한다."""
+def _data_rows_of(rows, found):
+    """행 목록을 데이터 행 집합으로 펼친다. 소계 행은 그 소계가 읽는 행이 된다. 아직 모르는 소계나 겹치는 행이면 None."""
+    out = []
+    for r in rows:
+        part = found[r].get("rows") if r in found else {r}
+        if part is None:
+            return None
+        out += part
+    return set(out) if len(out) == len(set(out)) else None
+
+
+def _summary_call(name, args, table, names, found):
+    """함수 하나를 식 문법으로 옮긴다. (식, 읽는 데이터 행 집합). 문법에 없는 함수나 인수는 (None, None)."""
     def column(arg):
         got = _column_of(arg[0], table) if len(arg) == 1 and arg[0].subtype == "RANGE" else None
-        if got:
-            rows.update(r for r in got[1] if r not in found)
-        return names[got[0] - table["area"][1]] if got else None
+        return (names[got[0] - table["area"][1]], list(got[1])) if got else (None, [])
 
-    if name in SUMMARY_FUNCS:
-        cols = {column(a) for a in args}
-        return f"{name}({cols.pop()})" if len(cols) == 1 and None not in cols else None
-    if name == "SUMPRODUCT" and len(args) == 2:
-        a, b = column(args[0]), column(args[1])
-        return f"SUMPRODUCT({a}, {b})" if a and b else None
-    if name == "SUMIF" and len(args) == 3 and len(args[1]) == 1 and args[1][0].subtype in ("TEXT", "NUMBER"):
-        a, b = column(args[0]), column(args[2])
-        return f"SUMIF({a}, {args[1][0].value}, {b})" if a and b else None
-    return None
+    parts = [column(a) for a in args]
+    if name in SUMMARY_FUNCS and len({p[0] for p in parts}) == 1 and parts[0][0]:
+        rows = _data_rows_of([r for p in parts for r in p[1]], found)
+        return (f"{name}({parts[0][0]})", rows) if rows else (None, None)
+    if name == "SUMPRODUCT" and len(args) == 2 and parts[0][0] and parts[1][0] and parts[0][1] == parts[1][1]:
+        rows = _data_rows_of(parts[0][1], found)
+        return (f"SUMPRODUCT({parts[0][0]}, {parts[1][0]})", rows) if rows else (None, None)
+    if name == "SUMIF" and len(args) == 3 and len(args[1]) == 1 and args[1][0].subtype in ("TEXT", "NUMBER") \
+            and parts[0][0] and parts[2][0] and parts[0][1] == parts[2][1]:
+        rows = _data_rows_of(parts[0][1], found)
+        return (f"SUMIF({parts[0][0]}, {args[1][0].value}, {parts[2][0]})", rows) if rows else (None, None)
+    return None, None
 
 
-def _summary_expr(formula, table, names, found):
-    """합계 셀 수식을 식 문법으로 옮긴다. (식, 읽는 데이터 행 집합). 옮기지 못하면 (None, 빈 집합).
-    found 는 표의 소계 행 번호 → {"label", "rows"} 이다."""
+def _summary_expr(formula, table, names, found, row):
+    """row 행 합계 셀의 수식을 식 문법으로 옮긴다. (식, 읽는 데이터 행 집합). 옮기지 못하면 (None, 빈 집합).
+    found 는 표의 소계 행 번호 → {"label", "rows"} 이다. 함수마다 읽는 행이 다르면 열 이름만으로 나타낼 수 없어 옮기지 않는다."""
     items = [t for t in Tokenizer(formula).items if t.type != "WHITE-SPACE"]
     cells = [_column_of(t, table) for t in items[::2]]
     if len(items) > 1 and all(cells) and all(t.value == "+" for t in items[1::2]) and len({c[0] for c in cells}) == 1:
-        got = [found.get(r, {"rows": {r}}).get("rows") for c in cells for r in c[1]]  # 셀 더하기는 그 열의 합이다
-        if None not in got:
-            return f"SUM({names[cells[0][0] - table['area'][1]]})", set().union(*got)
-    out, rows, i = [], set(), 0
+        rows = _data_rows_of([r for c in cells for r in c[1]], found)  # 셀 더하기는 그 열의 합이다
+        return (f"SUM({names[cells[0][0] - table['area'][1]]})", rows) if rows else (None, set())
+    labels = Counter(s["label"] for s in found.values())
+    out, sets, i = [], [], 0
     while i < len(items):
         t = items[i]
         if t.type == "FUNC" and t.subtype == "OPEN":
             i, args = _call_args(items, i)
-            out.append(_summary_call(t.value[:-1].upper(), args, table, names, found, rows))
+            text, rows = _summary_call(t.value[:-1].upper(), args, table, names, found)
+            out.append(text)
+            sets.append(frozenset(rows or ()))
         elif t.type == "OPERAND" and t.subtype == "NUMBER":
             out.append(t.value)
         elif t.type == "OPERAND" and t.subtype == "RANGE":
             got = _column_of(t, table)
-            row = got[1][0] if got and len(got[1]) == 1 else None
-            label = found.get(row, {}).get("label")
-            out.append(f'ROW("{label}", {names[got[0] - table["area"][1]]})' if label else None)
+            at = got[1][0] if got and len(got[1]) == 1 else None
+            label = found.get(at, {}).get("label")
+            known = label and (at == row or labels[label] == 1)  # 같은 이름의 다른 소계는 어느 행인지 식에 적을 수 없다
+            out.append(f'ROW("{label}", {names[got[0] - table["area"][1]]})' if known else None)
         elif t.type == "OPERATOR-INFIX" and t.value in "+-*/":
             out.append(f" {t.value} ")
         elif t.type == "PAREN":
@@ -591,7 +616,9 @@ def _summary_expr(formula, table, names, found):
         if out[-1] is None:
             return None, set()
         i += 1
-    return "".join(out), rows
+    if len(set(sets)) > 1:
+        return None, set()
+    return "".join(out), set(sets[0]) if sets else set()
 
 
 def _sums_above(formula, col, top, row):
@@ -610,13 +637,13 @@ def _group_column(book, table, rows, data, names):
     return None
 
 
-def summary_rows(book, table):
+def summary_rows(book, table, names=None):
     """표의 소계 · 합계 행 목록. 행은 개발 시점 엑셀 행이고, 운영 중 묶음은 group_by 열 값으로 정한다.
-    식 문법 밖의 셀, 값을 직접 적은 셀, 묶는 열을 찾지 못한 셀은 expr 값이 None 이다."""
+    식 문법 밖의 셀, 값을 직접 적은 셀, 묶는 열을 찾지 못한 셀은 expr 값이 None 이다. names 는 열마다의 DB 열 이름이다."""
     r1, c1, r2, c2 = table["area"]
     sheet, top, vals = table["sheet"], data_top(table), book.sheet_values(table["sheet"])
     header = table["header"] or ("",) * (c2 - c1 + 1)
-    names = [db_column_name(h, col_name(c1 + i)) for i, h in enumerate(header)]
+    names = names or [db_column_name(h, col_name(c1 + i)) for i, h in enumerate(header)]
     found = {}
     for r in range(top, r2 + 1):
         label = next(((c, _text(vals.get((r, c)))) for c in range(c1, c2 + 1)
@@ -631,7 +658,7 @@ def summary_rows(book, table):
         cells = {}
         for c in s["numbers"]:
             formula = book.formula(sheet, (r, c))
-            cells[names[c - c1]] = _summary_expr(formula, table, names, found) if formula else (None, set())
+            cells[names[c - c1]] = _summary_expr(formula, table, names, found, r) if formula else (None, set())
         sets = Counter(frozenset(rows) for _, rows in cells.values() if rows)
         main = set(sets.most_common(1)[0][0]) if sets else set()
         group = None if not main or main >= set(data) else _group_column(book, table, main, data, names)

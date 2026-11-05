@@ -66,8 +66,9 @@ disable-model-invocation: true
 
 8. 만든 페이지를 `Start-Process` 로 브라우저에서 연다. 날짜 시트 군이 있으면 대화에서 1번 알린다. 「마지막 시트(<시트>)의 계산 기준으로 분석했습니다. 더 과거의 계산 이력까지 모두 검토가 필요하면 말씀해 주세요.」 틀린 내용이 있으면 이 대화에서 알려 달라고 덧붙인다.
 9. 결과에 쓰이는 표를 하나씩 확인받는다. 2번째 실행은 그 표마다 결과 파일의 `definitions` 에 표 정의를 제안한다. 화면의 표 범위 테두리, 머리글, 소계 행, 표 밖 셀과 「확인 필요한 사항」을 함께 보며 묻는다. 애매한 정의는 짐작하지 않고 모두 묻는다. 답은 결과 파일에 Edit 도구로 고치고, 같은 명령에 `--replace` 를 붙여 다시 실행한다. `--replace` 는 같은 이름의 출력 파일을 지우고 다시 쓴다.
-   - 표를 확인하면 `target` 에 표 이름의 영문 대상을 적고 `confirmed` 를 `true` 로 바꾼다.
-   - 표 범위(`area`)를 고치면 그 항목의 `columns`, `levels`, `header_rows`, `summaries`, `outside` 를 지운다. 다음 실행이 새 범위로 다시 제안한다.
+   - 표를 확인하면 `target` 에 표 이름의 영문 대상을 적고 `confirmed` 를 `true` 로 바꾼다. 역할(`role`)은 `confirmed` 가 `true` 일 때만 고친 값이 남는다.
+   - 다시 실행하면 분석 값은 새로 계산된다. 고친 값으로 남는 항목은 `target`, `confirmed`, `area`, `header_rows`, 열의 `db` · `type`, 표 밖 셀의 `action`, 빈 `expr` 에 적은 식이다.
+   - `area` 와 `header_rows` 는 `[시작 행, 시작 열, 끝 행, 끝 열]`, `[첫 행, 끝 행]` 형식의 숫자 목록이다.
    - 표를 새로 정하면 `id`(`시트!범위`), `sheet`, `area`, `added: true` 를 적은 항목을 추가한다.
    - 표 밖 셀의 `action` 은 `버림`, `개발 고정값 표에 저장`, `별도 표로 저장`, `이 표에 포함` 중 하나다. `read_by_result` 가 `true` 인 셀은 결과 계산이 읽으므로 버리지 않는다.
    - 소계 · 합계 행은 DB 에 저장하지 않는다. `expr` 이 `null` 인 셀은 계산 식을 물어 아래 문법으로 적는다.
@@ -78,7 +79,7 @@ disable-model-invocation: true
    함수 := SUM(열) | AVERAGE(열) | COUNT(열) | SUMIF(조건 열, "값", 합 열) | SUMPRODUCT(열, 열) | ROW("소계 이름", 열)
    ```
 
-   - `base_date` 가 `null` 이거나 `parameters.unknown` 에 글자가 있으면 기준일 셀과 매개변수 셀을 물어 적는다.
+   - `base_date` 가 `null` 이면 기준일 셀을 물어 적는다. `parameters.unknown` 에 글자가 있거나 `parameters.found` 의 `sheet` 가 `null` 이면 매개변수 셀과 시트를 물어 적는다.
 10. 실패로 중단되면 아무 파일도 쓰이지 않는다. 원인을 고친 뒤 같은 명령으로 다시 실행한다.
 
 수식이 하나도 없는 엑셀은 `계산 규칙 없음` 한 줄로 끝난다. `--hints` 와 `--names` 는 셀 모드에서만 쓴다.

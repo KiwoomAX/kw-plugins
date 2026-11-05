@@ -613,6 +613,7 @@ def build_three_stage(book, analysis, result, names, step_cache, defs=()):
     mine = [d for d in defs if d["id"] in used or d.get("orphan")]
     return {"title": f"{result['table']} 결과표는 이렇게 만들어집니다",
             "outside": [{"sheet": d["sheet"], **i} for d in mine for i in d.get("outside", {}).get("items", [])],
+            "outside_more": sum(d["outside"]["total"] - len(d["outside"]["items"]) for d in mine if "outside" in d),
             "conflicts": definitions.conflicts(mine),
             "excel": Path(book.path).name, "path": str(book.path), "result": result["sheet"],
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
@@ -753,7 +754,7 @@ def load_results(path, book, candidates_path):
     if data.get("excel") != Path(book.path).name:
         sys.exit(f"결과표 파일의 엑셀 이름 다름: {data.get('excel')}")
     for r in data["results"]:
-        r["sheet"] = r["sheet"].strip()
+        r["sheet"] = r["sheet"] if r["sheet"] in book.cells else r["sheet"].strip()  # 시트 이름 자체에 공백이 있을 수 있다
         if r["sheet"] not in book.cells:
             sys.exit(f"결과표 시트 없음: {r['sheet']}")
         if not r.get("table"):
