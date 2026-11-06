@@ -330,7 +330,7 @@ Remove-Item -Recurse -Force "$env:TEMP\kw-intake-chrome" -ErrorAction SilentlyCo
 
 비밀 키를 대시보드의 Jenkins 자격증명에 등록하도록 AX팀에 요청한다. 비밀 키가 없거나, 모두 이미 등록된 같은 값의 키이면 이 단계를 생략하라.
 
-**자격증명 이름.** 중앙 레포 `Jenkinsfile` 의 `envCredIds` 를 읽어라. `global-env`, `env-ax`, `env-am` 이 아닌 항목이 서비스 전용 자격증명이다. 없으면 배포 스킬의 규칙대로 짧은 서비스 이름을 개발자와 정하고, `env-<서비스 이름>` 을 `envCredIds` 끝에 추가해 저장 명령 `--intake` 로 commit 하라.
+**자격증명 이름.** 중앙 레포 `Jenkinsfile` 의 `envCredIds` 를 읽어라. `env-ax`, `env-am` 이 아닌 항목이 서비스 전용 자격증명이다. 없으면 배포 스킬의 규칙대로 짧은 서비스 이름을 개발자와 정하고, `env-<서비스 이름>` 을 `envCredIds` 끝에 추가해 저장 명령 `--intake` 로 commit 하라.
 
 **메일 전 질문.** 메일을 보내기 전에 늘 「`<중앙 레포>` 의 `<자격증명>` 에 키 등록 요청 메일을 이미 보냈습니까?」라고 물어라. 이미 보냈다고 하면 다시 보내지 마라.
 

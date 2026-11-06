@@ -26,7 +26,7 @@ envCredIds: [env-<서비스>]
 | `healthContainer` | **필수.** 대표 컨테이너 이름 하나 |
 | `services` | 배포할 compose 서비스 목록. 적지 않으면 `[backend]` 다. 서비스 키가 `backend` 하나가 아니면 반드시 적는다. cron 이 실행하는 수집기처럼 상시 뜨지 않는 서비스는 넣지 않는다 |
 | `composeFiles` | 적지 않으면 `[docker-compose.yml, docker-compose.jenkins.yml]` 이다. 덮어쓰기 파일이 없으면 `[docker-compose.yml]` 로 적는다. **저장소 최상위의 파일 이름만** 받는다 — `docker/compose.yml` 처럼 폴더 안 파일은 실패한다 |
-| `envCredIds` | 서비스 전용 비밀이 있을 때 `[env-<서비스>]`. `env-ax` 는 파이프라인이 붙이므로 적지 않는다. `global-env` 는 받지 않는다 — 코드가 공통 키(Gemini 키 같은 것)를 쓰면 그 키를 `env-<서비스>` 에 넣어 달라고 AX 팀에 요청한다 |
+| `envCredIds` | 서비스 전용 비밀이 있을 때 `[env-<서비스>]`. `env-ax` 는 파이프라인이 붙이므로 적지 않는다. AM 공통 키는 받지 않는다 — 코드가 공통 키(Gemini 키 같은 것)를 쓰면 그 키를 `env-<서비스>` 에 넣어 달라고 AX 팀에 요청한다 |
 | `gatewayServices` | 게이트웨이(로그인) 뒤로 옮길 서비스. 그 서비스의 호스트 포트는 열리지 않는다 |
 
 **표에 없는 키는 빌드를 실패시킨다.** `service`·`conflictContainers`·`cronSchedule` 같은 `kiwoomDeploy` 파라미터도
@@ -61,7 +61,7 @@ compose 를 쓸 때 처음부터 피한다.
 kiwoomDeploy(
     healthContainer: 'kiwoom-<이름>',
     composeFiles:    ['docker-compose.yml', 'docker-compose.jenkins.yml'],   // 덮어쓰기 파일이 없으면 첫 파일만
-    envCredIds:      ['global-env', 'env-am', 'env-<서비스>'],   // 서비스 전용 비밀 키가 없으면 마지막을 뺀다
+    envCredIds:      ['env-am', 'env-<서비스>'],   // 서비스 전용 비밀 키가 없으면 마지막을 뺀다
 )
 ```
 
@@ -74,7 +74,7 @@ kiwoomDeploy(
 | `services` | compose 에 배포할 서비스가 여럿일 때 그 목록. 적힌 것만 빌드하고 실행하므로, cron 이 실행하는 수집기처럼 상시 뜨지 않는 서비스는 뺀다. 헬스는 목록 중 healthcheck 가 있는 서비스를 모두 본다 |
 | `conflictContainers` | 넘기지 않으면 `healthContainer` 하나다. 서비스가 여럿일 때 나머지 `container_name` 까지 함께 넘긴다. 배포 직전 이 이름의 컨테이너 중 이 compose 프로젝트 소유가 아닌 것만 지운다 |
 | `extraCredentials` | 비밀 파일에는 쓰지 않는다. 서비스 계정 JSON 같은 파일 키는 base64 한 줄로 `.env` 에 넣는다(secrets.md) |
-| `envCredIds` | 늘 넘긴다. `['global-env', 'env-am', 'env-<서비스>']` 이다. 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다. `env-<서비스>` 는 환경변수 등록 요청을 받은 AX 팀이 만들고, 서비스 이름은 3단계에서 담당자와 정한 짧은 이름이다 |
+| `envCredIds` | 늘 넘긴다. `['env-am', 'env-<서비스>']` 이다. 앞에서 뒤 순서로 이어 붙고 같은 키는 뒤가 이긴다. `env-<서비스>` 는 환경변수 등록 요청을 받은 AX 팀이 만들고, 서비스 이름은 3단계에서 담당자와 정한 짧은 이름이다 |
 
 `changedOnly` 는 넣지 않는다 — 선별 빌드는 push 트리거에서만 켜지는데 이 Jenkins 에는 그 트리거가 없다.
 
