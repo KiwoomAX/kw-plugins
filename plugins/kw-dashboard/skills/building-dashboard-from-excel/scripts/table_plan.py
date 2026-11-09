@@ -156,12 +156,12 @@ def split_points(book, definition):
     formula_columns = 0
     for c in definition["columns"]:
         col = column_index_from_string(c["col"])
-        reads = [(_read_columns(f) if (f := book.formula(definition["sheet"], (r, col))) else None) for r in rows]
-        formula_columns += any(reads)
-        for i in range(1, len(rows) - 1):
-            stable = i == 1 or reads[i - 2] == reads[i - 1]
-            if stable and reads[i - 1] and reads[i] and reads[i] != reads[i - 1] and reads[i] == reads[i + 1]:
-                changed[rows[i]] += 1
+        reads = [(r, _read_columns(f)) for r in rows if (f := book.formula(definition["sheet"], (r, col)))]  # 빈 셀은 건너뛰고 앞뒤 수식을 비교한다
+        formula_columns += bool(reads)
+        for i in range(1, len(reads) - 1):
+            stable = i == 1 or reads[i - 2][1] == reads[i - 1][1]
+            if stable and reads[i][1] != reads[i - 1][1] and reads[i][1] == reads[i + 1][1]:
+                changed[reads[i][0]] += 1
     return sorted(r for r, n in changed.items() if 2 * n >= formula_columns)
 
 
