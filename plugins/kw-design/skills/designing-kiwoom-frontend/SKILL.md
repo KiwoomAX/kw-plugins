@@ -71,7 +71,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 | 셸 강조(사이드바 · 상태바) | `brand` · `on-brand` | `--brand` · `--on-brand` |
 | 표 머리 | `bg-th` · `text-on-th` | `--th-bg` · `--th-ink` |
 | 고른 행 | `bg-row-sel` | `--row-sel` |
-| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak`, 면 위 글자 `status-warn-ink` · `status-bad-ink` | `--ok` · `--warn` · `--bad` 와 각각의 `-weak`, 면 위 글자 `--warn-ink` · `--bad-ink` |
+| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak`(옅은 면), 진한 면 `status-warn-fill` · `status-bad-fill`, 면 위 글자 `status-warn-ink` · `status-bad-ink`, 면 없는 안내문 글자 `status-warn-text` | `--ok` · `--warn` · `--bad` 와 각각의 `-weak`, `--warn-fill` · `--bad-fill`, `--warn-ink` · `--bad-ink`, `--warn-text` |
 | 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` · `rise-fill` · `fall-fill` · `rise-weak` · `fall-weak` | 같은 이름의 `--rise` · `--fall` 등 |
 | 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` | `--chart-1`~`--chart-4` · `--chart-gray-1`~`--chart-gray-3` · `--grid-line` |
 | 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` | `--link` · `--focus` · `--disabled` |
@@ -110,7 +110,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 - 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감 알림과
   실패다. 초록과 노랑은 쓰지 않는다. 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 대비가 낮 3.09,
   밤 10.2 로 테마에 따라 눈에 띄는 정도가 크게 달라진다.
-- 확인이 필요한 것만 굵은 글씨에 면(`-weak`)을 준다. 면 위의 글자는 `status-warn-ink` · `status-bad-ink` 를 쓴다.
+- 확인이 필요한 것만 굵은 글씨에 면을 준다. 상태 표시의 면은 `-fill`, 그 위의 글자는 `-ink` 를 쓴다. `-weak` 는 이전 화면이 쓰던 옅은 면이며, 그 위에는 `status-warn` · `status-bad` 글자를 쓴다.
 - 화면 폭으로 넓게 보이는 안내문(저장 실패 · 확인 요청 등)에는 면과 테두리와 밑줄을 쓰지 않는다. 반드시 처리해야 하는 안내(저장 실패 · 마감 · 권한 문제 등)는 `--bad` 색 아이콘과 `status-bad` 글자로, 알아 두면 좋은 안내(확인 요청 · 주의 등)는 `--warn` 색 아이콘과 `status-warn-text` 글자로 적는다. 아이콘은 lucide 경고 아이콘을 쓰고, 글자는 굵게, 폭은 글자 길이만큼 둔다. 진행과 완료는 보통 굵기에 면 없이 글자만 둔다.
 - 색은 과하지 않게 쓴다. 한 화면에 색감은 2가지를 권장하고, 화면에 필요하면 3가지를 넘겨도 된다. 차트 안의
   계열은 이 셈에서 빼고 아래 차트 규칙으로 센다.

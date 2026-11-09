@@ -12,8 +12,8 @@ export function Card({ title, actions, className, children, ...rest }: CardProps
     <section className={cx('kw-card', className)} {...rest}>
       {(title || actions) && (
         <header className="kw-card__head">
-          <h3 className="kw-card__title">{title}</h3>
-          {actions}
+          {title && <h3 className="kw-card__title">{title}</h3>}
+          {actions && <div className="kw-card__actions">{actions}</div>}
         </header>
       )}
       {children}

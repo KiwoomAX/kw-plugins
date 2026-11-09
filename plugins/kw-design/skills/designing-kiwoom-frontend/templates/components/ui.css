@@ -1,4 +1,8 @@
 /* 공용 컴포넌트의 모양. Tailwind 가 없는 화면에서도 동작한다. */
+/* 레이어 순서를 먼저 정한다. 이 파일을 Tailwind 보다 먼저 불러와도 Tailwind 의 기본 초기화가
+   단추 모양을 덮지 않게 하기 위해서다. Tailwind 가 없는 화면은 태그 이름 규칙을 전역 CSS 에 적지 않는다. */
+@layer theme, base, components, utilities;
+
 @layer components {
   .kw-btn {
     display: inline-flex;
@@ -55,6 +59,7 @@
     justify-content: space-between;
     margin-bottom: var(--sp-12);
   }
+  .kw-card__actions { margin-left: auto; }
   .kw-card__title { margin: 0; font-size: var(--fs-body); font-weight: var(--w-bold); }
 
   .kw-modal {

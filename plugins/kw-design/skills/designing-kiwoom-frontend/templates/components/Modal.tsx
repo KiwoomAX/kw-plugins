@@ -30,6 +30,10 @@ export function Modal({ open, onClose, title, footer, children }: ModalProps) {
         event.preventDefault();
         onClose();
       }}
+      /* 본문의 <form method="dialog"> 처럼 브라우저가 직접 닫은 때에도 부모 상태를 맞춘다 */
+      onClose={() => {
+        if (open) onClose();
+      }}
     >
       {open && (
         <>

@@ -78,7 +78,7 @@ Assert 'the dashboard template draws the shell from code' ($dash -match 'createR
 # the sha256 of the tokens it was built from; the copy (without its header comment) must match.
 $tokText = (Read-TextOrEmpty (Join-Path $SkillDir 'templates/tokens.css')) -replace "`r`n", "`n"
 $tokBody = ($tokText -split "\*/`n", 2)[1]
-$tokSha  = if ($tokBody) { [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($tokBody))).Replace('-', '').ToLower() } else { '' }
+$tokSha  = if ($tokBody) { [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($tokBody))).Replace('-', '').ToLower() } else { '' }
 $tplSha  = ([regex]::Match($dash, 'name="kw-tokens-sha256" content="([0-9a-f]{64})"')).Groups[1].Value
 Assert 'tokens.css and the dashboard template come from the same tokens' ($tplSha -and $tokSha -eq $tplSha)
 Assert 'the dashboard template carries the font license notice' ($dash -match 'SIL Open Font License')
@@ -93,8 +93,10 @@ Assert 'the feature template carries the font license notice' ($feature -match '
 Assert 'the feature template carries the same tokens as tokens.css' ($tokBody -and $feature.Contains($tokBody.Trim()))
 # The shared components are a hand copy too. The dashboard template records their sha256.
 $uiDir = Join-Path $SkillDir 'templates/components'
-$uiText = (@('Button.tsx', 'Card.tsx', 'Input.tsx', 'Modal.tsx', 'cx.ts', 'index.ts', 'ui.css') | ForEach-Object { (Read-TextOrEmpty (Join-Path $uiDir $_)) -replace "`r`n", "`n" }) -join ''
-$uiSha = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($uiText))).Replace('-', '').ToLower()
+$uiNames = [string[]]@(Get-ChildItem $uiDir -File | Where-Object { $_.Name -notlike '*.test.*' } | ForEach-Object { $_.Name })
+[Array]::Sort($uiNames, [StringComparer]::Ordinal)
+$uiText = ($uiNames | ForEach-Object { "--- $_`n" + ((Read-TextOrEmpty (Join-Path $uiDir $_)) -replace "`r`n", "`n") }) -join ''
+$uiSha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($uiText))).Replace('-', '').ToLower()
 $tplUi = ([regex]::Match($dash, 'name="kw-ui-sha256" content="([0-9a-f]{64})"')).Groups[1].Value
 Assert 'the components copy and the dashboard template come from the same code' ($tplUi -and $uiSha -eq $tplUi)
 $uiCss = (Read-TextOrEmpty (Join-Path $uiDir 'ui.css')) -replace "`r`n", "`n"
