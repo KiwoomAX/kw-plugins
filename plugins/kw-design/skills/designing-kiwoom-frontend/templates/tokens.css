@@ -118,11 +118,11 @@
 
   --radius-sm: 6px;
   --radius-md: 10px;
-  /* 표의 모서리 */
-  --radius-lg: 12px;
-  /* 오른쪽 상세 패널의 모서리 */
-  --radius-xl: 18px;
   --radius-full: 9999px;
+  /* 표와 오른쪽 상세 패널의 모서리. Tailwind 의 rounded-lg · rounded-xl 을 바꾸면 이미 쓰는 화면이
+     달라지고 크기 순서도 뒤집히므로 이름을 따로 둔다 */
+  --table-radius: 12px;
+  --panel-radius: 18px;
 
   /* 키보드로 어디에 있는지 알리는 표시. 두께와 간격을 화면마다 다르게 적지 않는다 */
   --focus-width: 2px;
@@ -137,18 +137,17 @@
   --z-popover: 60;
   --z-modal: 80;
 
-  /* SUIT 는 보통과 굵게 두 파일만 싣는다. 300 과 500 은 보통으로, 600 은 굵게로 그려지므로
-     500 과 600 은 이름을 두지 않는다 */
-  --w-light: 300;
+  /* SUIT 는 보통과 굵게 두 파일만 불러온다. 300 과 500 은 보통으로, 600 은 굵게로 그려지므로
+     300 · 500 · 600 은 이름을 두지 않는다 */
   --w-regular: 400;
   --w-bold: 700;
 
   --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
 
-  --rail-w: 264px;
+  --rail-w: 238px;
   /* 사이드바 머리 칸과 상태바의 높이. 둘은 따로 정한다 */
-  --head-h: 68px;
-  --topbar-h: 56px;
+  --head-h: 61px;
+  --topbar-h: 50px;
   --t-fast: .15s ease;
 
   --lead-tight: 1.2; --lead-snug: 1.5; --lead-relaxed: 1.6;
@@ -370,9 +369,11 @@
   --shadow-sm: var(--elev-sm);
   --shadow-md: var(--elev-md);
 
-  --font-weight-light: var(--w-light);
   --font-weight-regular: var(--w-regular);
   --font-weight-bold: var(--w-bold);
+
+  --radius-table: var(--table-radius);
+  --radius-panel: var(--panel-radius);
 
   --color-outline: var(--border-light);
   --color-outline-strong: var(--border-medium);

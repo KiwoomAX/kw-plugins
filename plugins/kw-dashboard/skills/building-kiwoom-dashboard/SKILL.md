@@ -142,8 +142,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 알림은 대시보드 전체 기능이다. 모든 페이지의 종이 같은 서랍을 연다. 서랍 안 내용은
 `src/frontend/src/alerts.tsx` 한 곳에 적고, 종의 건수 배지는 그 파일에서 `useAlertCount(건수)` 로 알린다.
-페이지마다 알림을 따로 만들지 않는다. 서랍 안에도 `designing-kiwoom-frontend` 의 색과 글자 크기를 쓴다. 서랍은
-1.12배로 확대하지 않으므로 같은 px 가 내용 구획보다 조금 작게 보인다.
+페이지마다 알림을 따로 만들지 않는다. 서랍 안에도 `designing-kiwoom-frontend` 의 색과 글자 크기를 쓴다.
+서랍의 기본 글자는 13px 다.
 
 ## 사람이 지키는 것
 
@@ -160,7 +160,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 - 대시보드에서는 그 기본 디자인을 따르기를 강하게 권장한다. 다르게 하려면 사람에게 이유를 확인하고 진행한다.
 - **새로 만드는 화면**에 적용한다. 이미 만든 대시보드에서 옮겨 온 화면은 옛 모양대로 두고 옮기는 동안
-  고치지 않는다.
+  고치지 않는다. 옛 화면이 왼쪽 정렬이었으면 `DashboardLayout` 에 `contentAlign="left"` 를 넘겨 옛 위치를 유지한다.
 - 셸이 내용 구획의 폭을 정하고, 제안값으로 중앙에 둔다. 정렬은 페이지마다 자유롭게 정하고 사람에게 이유를
   확인하지 않는다. 구획 위치는 `DashboardLayout` 에 `contentAlign="left"` 나 `"right"` 를 넘겨 바꾼다.
 - 목업은 그 스킬의 대시보드 목업 템플릿으로 만들거나, 이 repo 를 실행해 보인다. 사이드바와 상태바를 HTML 로

@@ -32,10 +32,10 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 - `<template>` 안의 `<script>` 는 실행되지 않는다. 목업은 모양을 정하는 데만 쓰고, 승인되면 실제 코드로 다시 만든다.
 - 대시보드 repo 가 이미 있으면 그 repo 를 실행해 보이는 것도 된다. 셸이 실제 코드이므로 같은 결과다.
 
-**일반 기능 화면**은 [templates/tokens.css](templates/tokens.css) 를 `<style>` 로 넣은 HTML 에 내용만 그린다.
+**일반 기능 화면**은 [templates/feature-mockup.html](templates/feature-mockup.html) 을 복사해 만든다. 이 템플릿은
+토큰과 SUIT 서체를 파일 안에 포함하므로 HTML 파일 하나만 보내도 같은 모양으로 열린다. 파일 안의 서체와 토큰 구간은
+읽거나 옮겨 적지 않는다. 고쳐도 되는 곳은 「목업 스타일」 과 「목업 내용」 표시 구간뿐이다.
 사이드바와 상태바는 그리지 않는다. 이 목업도 Tailwind 를 빌드하지 않으므로 Tailwind 클래스는 듣지 않는다.
-서체는 [templates/fonts/suit.css](templates/fonts/suit.css) 가 든 `fonts` 폴더를 HTML 옆에 복사하고
-`<link rel="stylesheet" href="fonts/suit.css">` 로 불러온다.
 아래 「색」 표의 토큰 변수 열로 CSS 를 적는다. 나머지는 아래 규칙을 기본값으로 참고하면 된다.
 
 예시 데이터를 쓰면 화면에 예시라고 적는다.
@@ -49,14 +49,13 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
   「색」 의 이름(`bg-surface` 등)을 그대로 쓴다. Tailwind 를 쓰지 않으면 토큰 변수(`var(--bg-surface)`)로 쓴다.
 - 사이드바와 상태바와 자체 머리글을 만들지 않는다. 내용만 그린다.
 - `body` · `h1` · `table` 같은 태그 이름 규칙을 전역 CSS 에 적지 않는다. 대시보드에 붙이면 셸 모양까지 바뀐다.
-- 서체는 SUIT 다. `templates/fonts` 폴더를 복사해 `suit.css` 를 불러오고, 바탕 요소 하나에만
+- 서체는 SUIT 다. [templates/fonts/suit.css](templates/fonts/suit.css) 가 있는 `templates/fonts` 폴더를 복사해 `suit.css` 를 불러오고, 바탕 요소 하나에만
   `font-family: 'SUIT', 'Malgun Gothic', sans-serif` 를 준다. 화면마다 다시 주지 않는다. 폴더 안의 라이선스
   파일 `OFL.txt` 도 함께 복사한다.
 - 내용 정렬은 화면마다 자유롭게 정한다. 제안값은 중앙 정렬(`mx-auto` · `margin: 0 auto`)이다. 폭 상한은 기능마다 정한다.
   대시보드에 붙이면 셸이 내용 폭을 정한다.
 - 화면에서 부르는 API 는 `/api/<기능 이름>` 아래에 둔다. 대시보드에 붙일 때 주소를 바꾸지 않아도 된다.
-- 대시보드에 붙이기 전에 그 대시보드에서 한 번 실행해 본다. 대시보드는 화면 전체를 0.9배로 줄이고 내용만
-  1.12배로 확대하며, 알림 서랍을 열면 내용 폭이 340px 좁아진다.
+- 대시보드에 붙이기 전에 그 대시보드에서 한 번 실행해 본다. 대시보드는 알림 서랍을 열면 내용 폭이 306px 좁아진다.
 
 ## 색
 
@@ -148,8 +147,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
   다시 주지 않는다. SUIT 에 없는 드문 한글은 맑은 고딕으로 그려진다. 굵기는 보통과 굵게 두 가지만 쓴다.
 - 표에 없는 크기는 쓰지 않는다. Tailwind 기본 크기 중 `text-base` · `text-lg` · `text-xl` · `text-2xl` 은 표에
   없는 크기다. 같은 쓰임은 화면이 달라도 같은 크기로 둔다.
-- 대시보드는 셸이 화면 전체를 0.9배로 줄이고 내용 구획을 1.12배로 확대한다. 표의 값은 CSS 에 적는 값이고
-  배율은 셸이 정한다. 본문 14px 는 대시보드에서 약 14.1px 로 보이고, 일반 기능은 배율 없이 14px 로 보인다.
+- 표의 값은 CSS 에 적는 값이고 화면에도 그 크기로 보인다. 본문 14px 는 대시보드와 일반 기능 모두 14px 로 보인다.
 
 ## 아이콘
 
@@ -169,22 +167,24 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 | 불러오지 못함 | `status-bad` 로 적고 옅은 면을 준다. 다시 받을 수 있으면 단추를 함께 둔다 |
 | 권한이 없음 | 보조 글자색으로 적고 누구에게 물어야 하는지 함께 적는다 |
 
-- 숫자는 자릿수 정렬(`tabular-nums`)로 둔다. 대시보드는 셸이 화면 전체에 적용한다. 일반 기능은 바탕 요소에
-  `font-kerning: none` 을 함께 준다. SUIT 는 자릿수를 맞춘 숫자에도 1 뒤의 간격을 넓히는 조정이 있어, 끄지
-  않으면 표의 금액 끝이 어긋난다.
+- 숫자는 자릿수 정렬(`tabular-nums`)로 둔다. 대시보드는 셸이 화면 전체에 적용하고 표에 `font-kerning: none` 도
+  적용한다. 일반 기능은 바탕 요소에 `tabular-nums` 를 주고, 금액 열이 있는 표에 클래스로 `font-kerning: none` 을
+  준다. SUIT 는 자릿수를 맞춘 숫자에도 1 뒤의 간격을 넓히는 조정이 있어, 끄지 않으면 표의 금액 끝이 어긋난다.
+  표 요소가 아닌 그리드로 금액 열을 만들면 그 열에도 `font-kerning: none` 을 준다.
 
 ## 배치
 
 - 데스크톱 전용이다. 대시보드는 창이 1008px 보다 좁아지면 가로 스크롤이 생긴다. 좁은 창에서 내용을 어떻게 둘지는 페이지가
   정한다.
-- 레이아웃 폭을 고정 px(`w-[800px]`)로 묶지 않는다. 대시보드는 알림 서랍이 열리면 내용 구획이 340px
-  좁아지고, 사이드바를 접으면 200px 넓어진다. 그리드 비율과 `minmax` 로 폭을 나눈다. 너무 넓어지지 않게
+- 레이아웃 폭을 고정 px(`w-[800px]`)로 묶지 않는다. 대시보드는 알림 서랍이 열리면 내용 구획이 306px
+  좁아지고, 사이드바를 접으면 180px 넓어진다. 그리드 비율과 `minmax` 로 폭을 나눈다. 너무 넓어지지 않게
   `max-w-*` 로 상한을 두는 것은 괜찮다.
 - 내용 정렬은 화면마다 자유롭게 정하고, 사람에게 이유를 확인하지 않는다. 제안값은 중앙 정렬이다. 대시보드는
   셸이 내용 구획을 제안값인 중앙에 두고, 페이지가 `DashboardLayout` 에 `contentAlign="left"` 나 `"right"` 를 넘겨
   위치를 바꾼다. 목업은 `<template data-align="left" …>` 처럼 적는다. 구획 안쪽 내용의 정렬도 페이지가 자유롭게 정한다.
-- 모서리는 `rounded-sm`(6px)과 `rounded-md`(10px)를 쓴다. 표는 `rounded-lg`(12px), 오른쪽 상세 패널은
-  `rounded-xl`(18px)를 쓴다. 토큰 값으로 풀린다. Tailwind 를 빌드하지 않는 HTML 에서는 `var(--radius-lg)` 처럼 쓴다.
+- 모서리는 `rounded-sm`(6px)과 `rounded-md`(10px)를 쓴다. 표는 `rounded-table`(12px), 오른쪽 상세 패널은
+  `rounded-panel`(18px)를 쓴다. 토큰 값으로 풀린다. Tailwind 를 빌드하지 않는 HTML 에서는 `var(--radius-md)` ·
+  `var(--table-radius)` · `var(--panel-radius)` 처럼 쓴다.
 - 모서리 반경과 테두리는 같은 요소에 준다. `rounded-md overflow-hidden` 상자 안에 테두리 있는 표를 넣으면
   모서리 4곳에서 선이 잘린다.
 - 2개 이상의 화면이 같은 부품(카드 · 표 · 상태 점)을 쓰게 되면 한 곳으로 옮겨 같이 쓴다. 화면마다 다시 만들면
@@ -195,7 +195,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 
 ## 표와 목록
 
-- 목록 표는 바깥 카드로 감싸지 않고 표 자체를 상자로 쓴다. 모서리는 `rounded-lg`(12px)다.
+- 목록 표는 바깥 카드로 감싸지 않고 표 자체를 상자로 쓴다. 모서리는 `rounded-table`(12px)다.
 - 둥근 표의 첫 칸 왼쪽은 20px, 마지막 칸 오른쪽은 16px 여백을 둔다. 첫 글자가 둥근 모서리에 붙어 보이지 않게 한다.
 - 탭이나 필터로 행이 바뀌는 표는 열마다 기본 폭을 두고, 제목 열만 남는 폭을 쓴다. 내용 길이로 폭을 계산하면
   탭을 바꿀 때 열 위치가 움직인다.
@@ -209,8 +209,10 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
   권장하며, 강제하지 않는다.
 - 패널이 열려 표가 좁아지면 고르는 데 필요한 열만 남기고 나머지는 숨긴다.
 - 패널은 X 아이콘, Esc, 같은 행 다시 누르기로 닫는다. 전체화면 아이콘은 X 왼쪽에 두고, 전체화면에서는 우상단
-  X 만 둔다. 모서리는 `rounded-xl`(18px)다.
-- 패널과 알림 서랍은 같은 오른쪽을 쓰므로 하나를 열면 다른 하나를 닫는다.
+  X 만 둔다. 모서리는 `rounded-panel`(18px)다.
+- 패널과 알림 서랍은 같은 오른쪽을 쓰므로 하나를 열면 다른 하나를 닫는다. 대시보드는 셸의 `useDrawer()` 로 서랍
+  상태를 읽는다. 패널을 열 때 `open` 이 참이면 `toggle()` 로 서랍을 닫고, `open` 이 참으로 바뀌면 패널을 닫는다.
+  셸 파일을 고치지 않는다.
 - 상세를 전체 화면으로 열면 왼쪽 위 화살표로 돌아가고, 보던 목록 위치를 복원한다.
 - 상세 화면에서 입력하는 항목에는 면을 두지 않고, 상대가 보낸 내용에만 면을 준다.
 - 인용이나 관련 내용이 있을 때만 본문 위에 접어 두고, 펼치면 내용 전체를 보인다.
