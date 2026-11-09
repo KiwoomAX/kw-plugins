@@ -110,10 +110,10 @@ SKILL.md 의 「이미 만든 대시보드를 옮길 때」에서 연다.
 |---|---|---|
 | 색 | 옛 대시보드가 코드에 적어 둔 고정값 | 셸 토큰(`bg-surface` · `text-on-surface` · `accent` · `status-*` · `rise` · `fall`). 토큰은 낮 값과 밤 값을 함께 보유하므로, 화면이 색을 다시 적지 않아도 사람이 고른 테마의 값으로 그려진다 |
 | 글자 크기 | 옛 스케일 | 17 · 14 · 13 · 12 · 11 · 10 |
-| 모서리 | 옛 값 | `rounded-sm`(6px)과 `rounded-md`(10px) |
+| 모서리 | 옛 값 | `rounded-sm`(6px)과 `rounded-md`(10px), 표는 `rounded-lg`(12px), 오른쪽 상세 패널은 `rounded-xl`(18px) |
 | 아이콘 | 옛 아이콘 | lucide-react 아이콘, 획 두께 `strokeWidth={1.7}` |
 | 여백과 폭 | 고정 px | 그리드 비율과 `minmax` |
-| 장식 | 옛 화면의 왼쪽 띠 · 그라데이션 · 그림자 등 | `designing-kiwoom-frontend` 「쓰지 않는 장식」의 장식을 지운다 |
+| 장식 | 옛 화면의 왼쪽 띠 · 그라데이션 등 | `designing-kiwoom-frontend` 「쓰지 않는 장식」의 장식을 지운다 |
 
 끝난 뒤에는 옮기기 때와 같은 검사를 다시 실행하고, 화면마다 달라진 곳을 보고에 적는다.
 

@@ -59,7 +59,7 @@ Assert 'no skill file calls python3' (-not ($text -match '\bpython3\b'))
 Assert 'skill document carries no build-history notes' (-not ($text -match '\b20\d\d-\d\d-\d\d\b|\(실측|실측\)'))
 
 # A template that SKILL.md does not link is never opened.
-foreach ($t in @('templates/dashboard-mockup.html', 'templates/tokens.css')) {
+foreach ($t in @('templates/dashboard-mockup.html', 'templates/tokens.css', 'templates/fonts/suit.css')) {
     Assert "$t ships" (Test-Path (Join-Path $SkillDir $t))
     Assert "SKILL.md links $t" ($text -match [regex]::Escape("]($t)"))
 }
