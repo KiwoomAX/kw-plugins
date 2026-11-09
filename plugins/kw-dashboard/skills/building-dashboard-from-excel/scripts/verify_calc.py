@@ -39,13 +39,13 @@ def read_table(book, definition):
 
 
 def _wire(value, kind):
-    if value is None:
-        return None
+    if value is None or kind == "integer":
+        return value
     if isinstance(value, (dt.datetime, dt.date)):
         return value.isoformat()[:10]
     if isinstance(value, float) and value.is_integer():
         value = int(value)
-    return str(value).strip() if kind in ("text", "code") else str(value)
+    return str(value).strip() if kind in ("text", "code", "varchar") else str(value)
 
 
 def wire_values(rows, columns):
