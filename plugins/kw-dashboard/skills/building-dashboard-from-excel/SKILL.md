@@ -25,7 +25,8 @@ description: Use when someone wants to turn a business Excel workbook into store
 
 | 파일 | 내용 |
 |---|---|
-| `source_notes.md` | 0단계 출처 설명과 4단계에서 확정한 표별 출처 |
+| `source_notes.md` | 0단계 출처 설명 |
+| `sources.json` | 4단계에서 확정한 표별 출처 `{표 id: winus · external · manual}` |
 | `explain_results.json` | 엑셀 분석기의 결과 파일 |
 | `table_plan.json` | 만들 표의 설계 |
 | `query_requests.md` | AX 팀에 넘길 쿼리 등록 요청 |
@@ -51,7 +52,7 @@ description: Use when someone wants to turn a business Excel workbook into store
 
 ### 4. 원천 출처 확정
 
-결과 파일의 표 역할과 연결을 0단계 설명과 대조하고, 둘이 다른 표만 묻는다. 예를 들어 설명에는 수기 입력인데 연결이 있는 표, 설명에 없는 원천 표를 묻는다. 확정한 표별 출처(`winus` · `external` · `manual`)를 `source_notes.md` 에 적는다.
+결과 파일의 표 역할과 연결을 0단계 설명과 대조하고, 둘이 다른 표만 묻는다. 예를 들어 설명에는 수기 입력인데 연결이 있는 표, 설명에 없는 원천 표를 묻는다. 확정한 표별 출처를 `sources.json` 에 적는다.
 
 수기 입력 표와 외부 데이터 표가 모두 없는 엑셀은 이 스킬의 대상이 아니다. 저장해 둘 사람 입력이 없기 때문이다. 5단계까지만 진행하고, 저장 구조와 조회 화면 없이 등록 쿼리로 응용화면을 바로 만들라고 안내한 뒤 끝낸다.
 
