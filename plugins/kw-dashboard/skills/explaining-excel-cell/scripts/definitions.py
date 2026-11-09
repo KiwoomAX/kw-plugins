@@ -155,8 +155,9 @@ def _keep_answers(new, old):
     out["target"], out["confirmed"] = old.get("target", new["target"]), old.get("confirmed", new["confirmed"])
     if out["confirmed"]:
         out["role"] = old.get("role", new["role"])
-    actions = {i["where"]: i["action"] for i in old.get("outside", {}).get("items", [])}
-    items = [{**i, "action": actions.get(i["where"], i["action"])} for i in new["outside"]["items"]]
+    answers = {i["where"]: i for i in old.get("outside", {}).get("items", [])}
+    items = [{**i, "action": answers.get(i["where"], i)["action"], "target": answers.get(i["where"], {}).get("target", i.get("target", ""))}
+             for i in new["outside"]["items"]]
     out["outside"] = {**new["outside"], "items": items}
     answers = {s["row"]: s["expr"] for s in old.get("summaries", [])}
     out["summaries"] = [{**s, "expr": {k: v if v is not None else answers.get(s["row"], {}).get(k) for k, v in s["expr"].items()}}
@@ -190,4 +191,9 @@ def conflicts(defs):
         if targets.get(d.get("target"), 0) > 1:
             out.append(f"{where}: 대상 이름 겹침 {d['target']}")
         out += [f"{where}: 소계 식 확인 필요 {s['label']}" for s in d.get("summaries", []) if None in s["expr"].values()]
+        for item in d.get("outside", {}).get("items", []):
+            if item["action"] == "확인 필요":
+                out.append(f"{where}: 혼자 있는 값 확인 필요 {item['where']}")
+            elif item["action"] == "별도 표로 저장" and not item.get("target"):
+                out.append(f"{where}: 저장할 표 이름 없음 {item['where']}")
     return out

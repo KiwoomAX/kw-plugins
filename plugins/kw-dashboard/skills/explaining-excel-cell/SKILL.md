@@ -70,7 +70,7 @@ disable-model-invocation: true
    - 다시 실행하면 분석 값은 새로 계산된다. 고친 값으로 남는 항목은 `target`, `confirmed`, `area`, `header_rows`, 열의 `db` · `type`, 표 밖 셀의 `action`, 빈 `expr` 에 적은 식이다.
    - `area` 와 `header_rows` 는 `[시작 행, 시작 열, 끝 행, 끝 열]`, `[첫 행, 끝 행]` 형식의 숫자 목록이다.
    - 표를 새로 정하면 `id`(`시트!범위`), `sheet`, `area`, `added: true` 를 적은 항목을 추가한다.
-   - 표 밖 셀의 `action` 은 `버림`, `개발 고정값 표에 저장`, `별도 표로 저장`, `이 표에 포함` 중 하나다. `read_by_result` 가 `true` 인 셀은 결과 계산이 읽으므로 버리지 않는다.
+   - 표 밖 셀의 `action` 은 `버림`, `개발 고정값 표에 저장`, `별도 표로 저장`, `이 표에 포함` 중 하나다. `read_by_result` 가 `true` 인 셀은 결과 계산이 읽으므로 버리지 않는다. `별도 표로 저장` 은 `target` 에 영문 대상 이름을 적고, 같은 `target` 의 셀은 한 표가 된다. `확인 필요` 는 혼자 있는 숫자 · 날짜이므로 담당자가 바꾸는 값인지 물어 `매개변수` 또는 `개발 고정값 표에 저장` 으로 고친다.
    - 소계 · 합계 행은 DB 에 저장하지 않는다. `expr` 이 `null` 인 셀은 계산 식을 물어 아래 문법으로 적는다.
 
    ```
@@ -79,7 +79,7 @@ disable-model-invocation: true
    함수 := SUM(열) | AVERAGE(열) | COUNT(열) | SUMIF(조건 열, "값", 합 열) | SUMPRODUCT(열, 열) | ROW("소계 이름", 열)
    ```
 
-   - `base_date` 가 `null` 이면 기준일 셀을 물어 적는다. `parameters.unknown` 에 글자가 있거나 `parameters.found` 의 `sheet` 가 `null` 이면 매개변수 셀과 시트를 물어 적는다.
+   - `base_date` 가 `null` 이면 기준일 셀을 물어 적는다. `parameters.unknown` 에 글자가 있거나 `parameters.found` 의 `sheet` 가 `null` 이면 매개변수 셀과 시트를 물어 적는다. 데이터 연결이 있는데 `found` 와 `unknown` 이 모두 비었으면 조회 조건을 어디서 정하는지 묻는다.
 10. 실패로 중단되면 아무 파일도 쓰이지 않는다. 원인을 고친 뒤 같은 명령으로 다시 실행한다.
 
 수식이 하나도 없는 엑셀은 `계산 규칙 없음` 한 줄로 끝난다. `--hints` 와 `--names` 는 셀 모드에서만 쓴다.

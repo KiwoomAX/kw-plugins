@@ -13,7 +13,7 @@ from explain_cell import a1, col_name, show
 
 HEADER_MIN = 3  # 머리글 행으로 볼 글자 셀 최소 개수(근거 없는 시작 값)
 HEADER_SHARE = 0.6  # 그 행 셀 중 글자 셀 비율(근거 없는 시작 값)
-OUTSIDE_LIMIT = 200  # 표 밖 셀 목록의 상한(근거 없는 시작 값)
+OUTSIDE_LIMIT = 200  # 화면에 보이는 표 밖 셀 상한(근거 없는 시작 값)
 DATED = re.compile(r"(19|20)\d\d|(?<!\d)\d{6}(?!\d)|(?<!\d)\d{8}(?!\d)")
 SUMMARY_LABEL = re.compile(r".{0,20}(소\s*계|합\s*계|총\s*계|총\s*합)|계|평\s*균|(sub\s*|grand\s*)?total", re.I)
 SUMMARY_FUNCS = ("SUM", "AVERAGE", "COUNT")
@@ -44,9 +44,10 @@ def _row_texts(book, sheet, r, c1, c2):
     return [h for h in heads if _text(vals.get(h))] + (dates if len(dates) >= 3 else [])
 
 
-def _looks_header(texts, c1, c2):
+def _looks_header(texts, c1, c2, last):
+    """글자 셀 수는 표 폭으로, 비율은 그 행의 마지막 값까지로 본다. 「기준일 | 값」 한 줄이 긴 표의 머리글이 되지 않게 한다."""
     need = HEADER_MIN if c2 == c1 else min(HEADER_MIN, c2 - c1 + 1)
-    return len(set(texts)) >= 2 and len(texts) >= need and len(texts) >= HEADER_SHARE * (c2 - c1 + 1)  # 글자가 하나뿐이면 제목이다
+    return len(set(texts)) >= 2 and len(texts) >= need and len(texts) >= HEADER_SHARE * (last - c1 + 1)  # 글자가 하나뿐이면 제목이다
 
 
 def _has_second_row(book, sheet, area, r):
@@ -71,12 +72,19 @@ def header_row(book, sheet, area):
     """위쪽 3행 안에서 글자 셀이 3개 이상이고 그 행 셀의 60% 이상인 첫 행 번호. 열이 2개인 표는 글자 셀 2개면 된다.
     병합 제목과 단위 글자뿐인 행은 다음 행이 더 많은 글자로 머리글이면 넘어간다."""
     r1, c1, r2, c2 = area
+    tops, vals = book.merge_top.get(sheet, {}), book.sheet_values(sheet)
+
+    def last(row):
+        """그 행에서 값이나 수식이 있는 마지막 열. 오른쪽의 머리글 없는 메모 열이 비율을 낮추지 않게 한다."""
+        used = [c for c in range(c1, c2 + 1) if tops.get((row, c), (row, c)) in vals or book.formula(sheet, (row, c))]
+        return max(used, default=c1)
+
     for r in range(r1, min(r1 + 3, r2 + 1)):
         texts = _row_texts(book, sheet, r, c1, c2)
-        if not _looks_header(texts, c1, c2):
+        if not _looks_header(texts, c1, c2, last(r)):
             continue
         below = _row_texts(book, sheet, r + 1, c1, c2)
-        title = len(set(texts)) == 2 < len(texts) and _looks_header(below, c1, c2) and len(set(below)) > 2
+        title = len(set(texts)) == 2 < len(texts) and _looks_header(below, c1, c2, last(r + 1)) and len(set(below)) > 2
         if not title or _has_second_row(book, sheet, area, r):
             return r
     return None
@@ -190,14 +198,50 @@ def _title(book, sheet, area, head):
     return ""
 
 
-def find_tables(book, sheet):
-    """시트의 표 목록. 엑셀 표를 먼저 정하고, 엑셀 표 밖 칸을 데이터 범위로 나눈다."""
+def _all_ranges(book, sheet):
+    """시트의 범위 목록. 엑셀 표를 먼저 정하고, 엑셀 표 밖 칸을 데이터 범위로 나눈다."""
     excel = [(name, tuple(t.area)) for name, t in book.tables.items() if t.sheet == sheet]
     pos = {p for p in set(book.cells.get(sheet, {})) | set(book.sheet_values(sheet))
            if not any(_inside(p, area) for _, area in excel)}
     out = [_make_table(book, sheet, whole, name, pos)
            for name, whole in excel + [(None, area) for area in _split_around(pos, [a for _, a in excel])]]
     return sorted(out, key=lambda t: (t["area"][0], t["area"][1]))
+
+
+def _cells_of(area):
+    return [(r, c) for r in range(area[0], area[2] + 1) for c in range(area[1], area[3] + 1)]
+
+
+def _is_title(book, t, found):
+    """한 행의 글자뿐인 범위가 1~2행 아래 표의 바로 위에 있으면 그 표의 제목이다."""
+    r1, c1, r2, c2 = t["area"]
+    vals = book.sheet_values(t["sheet"])
+    texts = [p for p in _cells_of(t["area"]) if p in vals]
+    if t["excel_table"] or t["has_formula"] or r1 != r2 or not all(_text(vals[p]) for p in texts):
+        return False
+    return any(u is not t and 1 <= u["area"][0] - r1 <= 2 and u["area"][2] > u["area"][0] and u["area"][1] <= c2 and c1 <= u["area"][3] for u in found)
+
+
+def _is_lone_value(book, t):
+    """혼자 있는 숫자 · 날짜 셀이면 True."""
+    r1, c1, r2, c2 = t["area"]
+    v = book.sheet_values(t["sheet"]).get((r1, c1))
+    return (r1, c1) == (r2, c2) and not t["excel_table"] and not book.formula(t["sheet"], (r1, c1)) and (_is_number(v) or isinstance(v, dt.date))
+
+
+def _scan_sheet(book, sheet):
+    """(표 목록, 제목 셀 집합, 혼자 있는 값 셀 집합). 제목과 혼자 있는 값은 표로 세지 않는다."""
+    found = _all_ranges(book, sheet)
+    titles = [t for t in found if _is_title(book, t, found)]
+    lone = [t for t in found if _is_lone_value(book, t)]
+    gone = {t["id"] for t in titles + lone}
+    return ([t for t in found if t["id"] not in gone], {p for t in titles for p in _cells_of(t["area"])},
+            {p for t in lone for p in _cells_of(t["area"])})
+
+
+def find_tables(book, sheet):
+    """시트의 표 목록. 표 위 제목 글자와 혼자 있는 숫자 · 날짜는 표가 아니므로 뺀다."""
+    return _scan_sheet(book, sheet)[0]
 
 
 def _make_table(book, sheet, whole, name=None, pos=None, rows=None):
@@ -410,9 +454,10 @@ def read_cells(book, tables, ids):
 def outside_cells(book, sheet, used, unused, read, skip=()):
     """시트에서 쓰인 표 밖의 값 · 수식 셀 목록. {"items": 앞의 항목들, "total": 전체 수}.
     머리글이 있는 쓰이지 않는 표는 한 줄로 적고, 결과가 읽는 셀이 든 표와 머리글 없는 범위는 셀마다 적는다.
-    결과가 읽는 셀은 저장해야 하므로 앞에 두고 상한으로 자르지 않는다."""
+    결과가 읽는 셀을 앞에 둔다. 저장 대상이 빠지지 않게 목록은 자르지 않고, 화면에서만 상한을 둔다."""
     vals = book.sheet_values(sheet)
     titles = {t["title"] for t in used if t["title"]}
+    _, title_cells, lone = _scan_sheet(book, sheet)
     whole = [t for t in unused if t["header_rows"] and not any((sheet, p) in read for p in _table_cells(book, t))]
     items = [{"kind": "표", "where": t["id"].rpartition("!")[2], "value": t["title"], "formula": None,
               "read_by_result": False, "action": "버림"} for t in whole]
@@ -420,14 +465,14 @@ def outside_cells(book, sheet, used, unused, read, skip=()):
         inside = any(_inside(p, t["area"]) and p[0] >= (t["header_row"] or 0) for t in used)  # 머리글 위 행은 표가 아니다
         formula = book.formula(sheet, p)
         hit = (sheet, p) in read
-        title = _text(vals.get(p)) in titles and not hit
+        title = (_text(vals.get(p)) in titles or p in title_cells) and not hit
         if inside or p in skip or any(_inside(p, t["area"]) for t in whole) or title or not (formula or p in vals):
             continue
+        action = "확인 필요" if p in lone else "개발 고정값 표에 저장" if not hit or p in title_cells or _text(vals.get(p)) in titles else "별도 표로 저장"
         items.append({"kind": "셀", "where": a1(*p), "value": show(vals.get(p)), "formula": formula, "read_by_result": hit,
-                      "action": "별도 표로 저장" if hit else "개발 고정값 표에 저장"})
-    must = [i for i in items if i["read_by_result"]]
-    rest = [i for i in items if not i["read_by_result"]]
-    return {"items": must + rest[:max(0, OUTSIDE_LIMIT - len(must))], "total": len(items)}
+                      "action": action, "target": ""})
+    items.sort(key=lambda i: not i["read_by_result"])
+    return {"items": items, "total": len(items)}
 
 
 def _table_cells(book, table):
