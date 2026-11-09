@@ -46,7 +46,7 @@ def _table(excel, stage, target, d, extra, key, **more):
     columns = [_column(c, d["levels"], i) for i, c in enumerate(d["columns"])]
     return {"name": f"{excel}__{stage}__{target}", "stage": stage, "definition_id": d["id"], "primary_key": key,
             "description": f"{excel} 엑셀 「{d['sheet']}」 시트의 표({d['id'].rsplit('!', 1)[-1]})",
-            "columns": COMMON + extra + columns, "editable": False, "waiting_query": False, "query_id": None, **more}
+            "columns": COMMON + extra + columns, "summaries": d["summaries"], "editable": False, "waiting_query": False, "query_id": None, **more}
 
 
 def _simple(name, stage, description, columns, key):
