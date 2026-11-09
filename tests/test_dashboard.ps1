@@ -171,6 +171,21 @@ foreach ($k in @('settings', 'refresh_unit', 'allow_today', 'allow_holiday', 'de
     Assert "explainer SKILL.md explains $k" ($exText -match $k)
 }
 
+Write-Host '--- building-dashboard-from-excel ---'
+$BxDir  = Join-Path $PluginDir 'skills/building-dashboard-from-excel'
+$bxText = Read-TextOrEmpty (Join-Path $BxDir 'SKILL.md')
+Assert 'excel dashboard SKILL.md ships' ($bxText -ne '')
+Assert 'excel dashboard frontmatter name matches the folder' (([regex]::Match($bxText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'building-dashboard-from-excel')
+$bxDesc = ([regex]::Match($bxText, '(?m)^description:\s*(.+)$')).Groups[1].Value
+Assert 'excel dashboard description says when to open the skill' ($bxDesc -match '^Use when ')
+Assert 'excel dashboard description is a safe plain scalar' (-not ($bxDesc -match ': | #'))
+Assert 'excel dashboard ships requirements.txt' (Test-Path (Join-Path $BxDir 'scripts/requirements.txt'))
+foreach ($k in @('출처 설명', '표 정의', '등록 요청', 'query_requests.md', '응용화면', '구조 변경', '접근 제한', 'table_plan.json')) {
+    Assert "excel dashboard SKILL.md explains $k" ($bxText -match $k)
+}
+Assert 'excel dashboard runs scripts through uv, not python3' (($bxText -match 'uv run') -and -not ($bxText -match '\bpython3\b'))
+Assert 'the plugin description names the excel dashboard skill' ($pluginJson.description -match 'building-dashboard-from-excel')
+
 Write-Host '--- extracting-excel-queries ---'
 # The query extractor ships every script SKILL.md runs, and not the macro rebuild tool.
 $QxDir  = Join-Path $PluginDir 'skills/extracting-excel-queries'
