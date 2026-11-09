@@ -71,8 +71,8 @@
 
   --text-primary: #1A1A1A;
   --text-secondary: #5D5D5D;
-  --text-tertiary: #8E8E8E;
-  --link: #5D5D5D;
+  --text-tertiary: #6E6E6E;
+  --link: #2A5FA0;
   --link-hover: var(--accent);
   --focus: #2A5FA0;
   --disabled: #8E8E8E;
@@ -97,9 +97,12 @@
   --ok: var(--accent);
   --ok-weak: var(--accent-weak);
   --warn: #E98B33;
-  --warn-weak: #FCEFE2;
-  --bad: #C93A3A;
-  --bad-weak: #F9E7E7;
+  --warn-weak: #FFC98A;
+  --warn-ink: #4F2800;
+  --warn-text: #F26A00;
+  --bad: #E5202B;
+  --bad-weak: #FFB3AE;
+  --bad-ink: #6B0F12;
   /* 마감 알림 면 위의 글자(알림 종 건수 배지). 밤의 --bad 는 밝아 흰 글자가 묻히므로 밤에는 어둡게 둔다 */
   --on-bad: #FFFFFF;
 
@@ -107,7 +110,7 @@
      자금 유입과 유출도 등락이므로 같은 값을 쓴다.
      글자는 --rise · --fall 을 쓰고, 흰 글자를 얹는 면과 도형은 --rise-fill · --fall-fill 을
      쓴다. 밤에는 면 위에 흰 글자를 얹지 않으므로 둘이 같은 값이다 */
-  --rise: #C93A3A;
+  --rise: #E5202B;
   --fall: #2A5FA0;
   --rise-fill: #B0453F;
   --fall-fill: #3F6FA8;
@@ -143,6 +146,11 @@
   --w-bold: 700;
 
   --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+  /* 표 칸 여백처럼 위 단계 사이의 값 */
+  --sp-12: 12px; --sp-20: 20px;
+
+  /* 글자 크기. 쓰임은 kw-design 스킬의 글자 크기 표를 따른다 */
+  --fs-metric: 17px; --fs-body: 14px; --fs-sub: 13px; --fs-label: 12px; --fs-badge: 11px; --fs-note: 10px;
 
   --rail-w: 238px;
   /* 사이드바 머리 칸과 상태바의 높이. 둘은 따로 정한다 */
@@ -193,8 +201,8 @@
 
     --text-primary: #F2F4F7;
     --text-secondary: #A8B0BC;
-    --text-tertiary: #7C8490;
-    --link: #A8B0BC;
+    --text-tertiary: #98A0AC;
+    --link: #6FB0FF;
     --focus: #6FB0FF;
     --disabled: #7C8490;
 
@@ -205,12 +213,15 @@
     --th-ink: #12161C;
 
     --warn: #E08A4E;
-    --warn-weak: #2E2622;
-    --bad: #FF7A6E;
-    --bad-weak: #322426;
+    --warn-weak: #FFC07A;
+    --warn-ink: #3D2000;
+    --warn-text: #FF9A4D;
+    --bad: #FF5A50;
+    --bad-weak: #FF9C94;
+    --bad-ink: #4A0B0E;
     --on-bad: #12161C;
 
-    --rise: #FF7A6E;
+    --rise: #FF5A50;
     --fall: #6FB0FF;
     --rise-fill: #FF7A6E;
     --fall-fill: #6FB0FF;
@@ -261,8 +272,8 @@
 
   --text-primary: #F2F4F7;
   --text-secondary: #A8B0BC;
-  --text-tertiary: #7C8490;
-  --link: #A8B0BC;
+  --text-tertiary: #98A0AC;
+  --link: #6FB0FF;
   --focus: #6FB0FF;
   --disabled: #7C8490;
 
@@ -273,12 +284,15 @@
   --th-ink: #12161C;
 
   --warn: #E08A4E;
-  --warn-weak: #2E2622;
-  --bad: #FF7A6E;
-  --bad-weak: #322426;
+  --warn-weak: #FFC07A;
+  --warn-ink: #3D2000;
+  --warn-text: #FF9A4D;
+  --bad: #FF5A50;
+  --bad-weak: #FF9C94;
+  --bad-ink: #4A0B0E;
   --on-bad: #12161C;
 
-  --rise: #FF7A6E;
+  --rise: #FF5A50;
   --fall: #6FB0FF;
   --rise-fill: #FF7A6E;
   --fall-fill: #6FB0FF;
@@ -372,6 +386,13 @@
   --font-weight-regular: var(--w-regular);
   --font-weight-bold: var(--w-bold);
 
+  --text-metric: var(--fs-metric);
+  --text-body: var(--fs-body);
+  --text-sub: var(--fs-sub);
+  --text-label: var(--fs-label);
+  --text-badge: var(--fs-badge);
+  --text-note: var(--fs-note);
+
   --radius-table: var(--table-radius);
   --radius-panel: var(--panel-radius);
 
@@ -385,8 +406,11 @@
   --color-status-ok-weak: var(--ok-weak);
   --color-status-warn: var(--warn);
   --color-status-warn-weak: var(--warn-weak);
+  --color-status-warn-ink: var(--warn-ink);
+  --color-status-warn-text: var(--warn-text);
   --color-status-bad: var(--bad);
   --color-status-bad-weak: var(--bad-weak);
+  --color-status-bad-ink: var(--bad-ink);
 
   --color-rise: var(--rise);
   --color-fall: var(--fall);
