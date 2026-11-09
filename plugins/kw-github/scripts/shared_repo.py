@@ -90,6 +90,10 @@ def is_feature_doc(path, feature):
     return path in (f"docs/{feature}.pdf", f"docs/{feature}.docx")
 
 
+def any_feature_doc(path):
+    return bool(DOC.fullmatch(path))
+
+
 def allowed(path, feature):
     return path.startswith(f"{FRONT}{feature}/") or path.startswith(f"{BACK}{feature}/") or is_feature_doc(path, feature)
 

@@ -196,6 +196,68 @@ gh api -X PATCH repos/<레포>/issues/<새 번호> -f type=Task
 
 이슈는 `upload` 의 `--task` 와 `--close` 로만 닫고, commit 메시지에 닫기 키워드를 직접 쓰지 않는다.
 
+## 검토 요청
+
+공유 레포에서 경계를 꼭 넘어야 한다고 정했거나, 충돌을 개발자와 함께 풀어도 해결되지 않으면 검토 요청(PR)을 올린다. 공유 레포와 기능 레포 모두 개발자가 원할 때도 올린다. 먼저 PR 양식을 받아 각 절을 채운 본문을 레포 밖 임시 폴더에 파일로 쓴다. 양식의 안내 주석(`<!-- -->`)은 지운다.
+
+```
+gh api -H "Accept: application/vnd.github.raw" repos/KiwoomAX/.github/contents/.github/PULL_REQUEST_TEMPLATE.md
+python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" open-pr --repo "<작업 폴더>" --feature <기능> --title "[<기능>] <한 줄>" --body-file "<본문 파일>"
+```
+
+기능 레포에서는 `--feature` 없이 지금 작업 branch 로 연다. 첫 업로드 전에는 쓰지 않는다. `other-owner` 면 `detail` 대로 묻고, 동의하면 `--allow-other-owner` 를 붙여 다시 실행한다.
+
+저장 스크립트는 공유 레포의 진행 중인 merge 를 취소하고, 비밀값·데이터 파일을 검사하고, 작업 branch 를 push 한 뒤 PR 을 만든다. 결과가 `pr-opened` 면 개발자에게 "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요." 라고 알린다. main 에는 merge 하지 않는다. 기능 레포에서는 main 으로 옮기고 PC 의 작업 branch 를 지운다. commit 은 GitHub 에 남아 있다.
+
+`switch-feature`·`commit`·`upload` 결과의 `closed_prs` 에 branch 가 있으면 그 검토 요청이 반영되지 않고 닫혔다. 개발자에게 "검토 요청이 반영되지 않고 닫혔습니다. AX팀에 문의해 주세요." 라고 알린다. 같은 branch 는 한 번만 알린다.
+
+## PR 추가 수정
+
+개발자가 검토 요청의 번호나 주소를 주며 수정을 요청하면 이 절을 따른다. 공유 레포와 기능 레포에 같이 쓴다. 번호가 없으면 `gh pr list` 로 고르게 한다. 작업 전 변경은 평소 절차로 commit 한다.
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-start --repo "<작업 폴더>" --number <번호>
+```
+
+`started` 면 PC 전용 branch `pr-review/<번호>` 로 옮겨졌다. 리뷰 코멘트는 `gh pr view <번호> --comments` 와 `gh api repos/<레포>/pulls/<번호>/comments` 로 읽는다. 고친 뒤 `--feature` 없이 `commit` 한다. 이 branch 에서는 기능 폴더 경계를 보지 않는다. 결과에 `pr_number` 가 있으면 "검토 요청 #N 에 올릴까요?" 라고 묻고, 동의하면 아래를 실행한다.
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-push --repo "<작업 폴더>"
+```
+
+개발자가 반영을 요청하면 "반영은 AX팀이 합니다." 라고 안내한다.
+
+`pr-start` 가 실패하면 리뷰 branch 로 옮겨지지 않았다. `message` 를 전하고 끝낸다. `remote-moved` 이고 `unpushed` 가 0 보다 크면 아래 질문을 한다.
+
+`pr-push` 가 `other-owner` 면 `detail` 대로 묻고, 동의하면 `--allow-other-owner` 를 붙여 다시 실행한다. 이 동의는 그 push 한 번에만 유효하다.
+
+`pr-push` 가 `remote-moved` 이거나 `message` 가 검토 요청을 확인하지 못했거나 닫혔다는 문장이면 그 `message` 를 전하고 `pr-leave` 로 나온다. `pr-leave` 는 무관한 작업을 시작할 때도 쓴다.
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-leave --repo "<작업 폴더>"
+```
+
+`pr-leave` 결과의 `unpushed` 가 0 보다 크면 올리지 않은 commit 이 남았다. 선택 창으로 "올리지 못한 수정이 PC 에 남아 있습니다. 지울까요?" 라고 묻는다. 지우기를 고르면 `pr-leave --repo "<작업 폴더>" --discard --number <번호>` 를 실행한다. 남기기를 고르면 AX팀에 확인을 요청하라고 안내한다.
+
+`excluded` 에 추적 파일이 있으면 위 「결과 처리」 대로 알린다. 그 수정은 PR 에 올라가지 않고 `pr-push` 뒤 작업 폴더에 남는다. 되돌리지 못하면 `detail` 대로 처리한다.
+
+`outside` 로 멈춘 upload 가 남아 `pr-start` 가 `failed` 면 그 upload 를 끝내거나 `open-pr` 로 올린 뒤 다시 실행한다.
+
+push 결과에 "이전 기록을 지우는 push(업로드)는 차단됩니다." 가 나오면 다시 시도하지 말고 그 문장을 전한다.
+
+## 남은 임시 보관
+
+세션 시작 안내나 `pr-push`·`pr-leave` 의 `detail` 이 남은 stash 를 알리면 이 절을 따른다. 끊긴 올리기가 보관해 둔 개발자의 수정이다.
+
+리뷰 branch 에서는 정리하지 않는다. PR 작업을 끝내고 `pr-push` 나 `pr-leave` 로 나온 뒤에 정리한다. 이 정리만을 위해 `pr-leave` 를 실행하지 않는다.
+
+안내가 올리기를 이어 갈지 물으라고 하면 먼저 묻는다. 이어 가면 `upload --continue` 가 stash 를 되돌리므로 이 절을 끝낸다.
+
+안내에 적힌 stash 만 다룬다. 다른 작업 폴더의 stash 가 함께 보일 수 있기 때문이다. PowerShell 은 `@{}` 를 해석하므로 `'stash@{0}'` 처럼 작은따옴표로 감싼다. `git stash show --include-untracked -p '<stash>'` 로 내용을 읽고, 어떤 파일이 어떻게 바뀌었는지 쉬운 말로 알린 뒤 선택 창으로 "앞선 올리기에서 임시 보관한 수정이 남아 있습니다. 어떻게 할까요?" 라고 묻는다. 선택지는 작업 폴더로 되돌리기, 버리기다.
+
+- 되돌리기를 고르면 `git stash pop '<stash>'` 를 실행한다. 성공하면 stash 는 없어진다. 실패하면 stash 는 남는다. 원인을 처리하고, 위에서 읽은 내용이 작업 폴더에 모두 있는지 확인한 뒤에만 `git stash drop '<stash>'` 한다.
+- 버리기를 고르면 `git stash drop '<stash>'` 를 실행한다. 되살릴 수 없으므로 개발자가 고르지 않으면 실행하지 않는다.
+
 ## 공유 대시보드 레포
 
 origin 이 `KiwoomAX/<이름>` 이고 이름이 `dashboard` 로 끝나는 레포는 여러 개발자가 기능별 폴더로 나누어 함께 쓰는 공유 대시보드 레포다(`dashboard-template` 은 아니다). 표식 파일이 없어도 이 절을 따른다. 위의 commit·push 절차 대신 아래를 쓴다. 공유 레포에서는 개발자에게 main 을 "공유 코드" 라고 하고, merge 는 "반영", PR 은 "검토 요청" 이라고 한다. 이슈는 말하지 않는다.
@@ -234,7 +296,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" add-copy --repo "<작업 폴
 python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴더>" --feature <기능> --message "<한 줄 설명>"
 ```
 
-결과의 `other_features` 에 다른 기능이 있으면 그 기능의 변경은 commit 되지 않았다. `switch-feature` 로 그 기능으로 옮겨 따로 commit 한다. 검토 요청을 기다리는 branch 에 commit 하려 하면 `failed` 다. `switch-feature` 로 새 작업 branch 를 만든다.
+결과의 `other_features` 에 다른 기능이 있으면 그 기능의 변경은 commit 되지 않았다. `switch-feature` 로 그 기능으로 옮겨 따로 commit 한다. 개발자가 그 수정을 함께 올리기로 정했으면 같은 명령에 `--include-others` 를 붙여 다시 commit 한다. 검토 요청을 기다리는 branch 에 commit 하려 하면 `failed` 다. `switch-feature` 로 새 작업 branch 를 만든다.
 
 ### 올리기 흐름
 
@@ -247,11 +309,11 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" check-boundary --repo "<작업 폴더>" --feature <기능>
    ```
 
-   `unsupported`·`invalid-feature`·`failed` 면 여기서 멈춘다.
+   `unsupported`·`invalid-feature`·`failed` 면 여기서 멈춘다. `outside` 면 아래 「기능 폴더 밖 수정」 대로 묻는다.
 3. 리뷰 시작 전에 개발자에게 "공유 코드에 반영하기 전에 다른 기능에 영향이 없는지 검토하고 있습니다. 잠시 기다려 주세요." 라고 알린다. 기능이 둘 이상이면 기능마다 "`<기능 이름>` 기능을 검토하고 있습니다." 라고 알린다. 그다음 `shared-repo-reviewer` 서브에이전트를 실행하고 결과를 기다린다. 기능이 둘 이상이면 차례로 실행한다. 넘기는 값은 레포 경로, 기능 이름, 2단계 결과 JSON, 개발자 요청 한 줄, 기능 이전 여부다.
 4. 셀프 리뷰어 결과를 "공유 코드에 반영하기 전에 확인할 점" 으로 보여 준다. `fixed` 가 있으면 고친 내용 목록을 먼저 보여 준다.
    - `findings` 가 없으면 "검토를 마쳤습니다. 공유 코드에 반영합니다." 라고 알리고 5단계로 간다.
-   - `findings` 가 있으면 "검토를 마쳤습니다. 반영하기 전에 확인할 점이 N개 있습니다." 라고 알린다(N 은 지적 수). 지적마다 무엇이 문제인지와 권장안을 적고, 설명이 필요한 항목은 하나씩 논의한다. 정한 수정을 commit 한다. `outside` 지적은 아래 「기능 폴더 밖 수정」 대로 처리한다.
+   - `findings` 가 있으면 "검토를 마쳤습니다. 반영하기 전에 확인할 점이 N개 있습니다." 라고 알린다(N 은 지적 수). 지적마다 무엇이 문제인지와 권장안을 적고, 설명이 필요한 항목은 하나씩 논의한다. 실제 동작 오류·데이터 손실·보안 문제와 개발자 요청 위반만 고친다. 드문 상황 대비, 구조 개선, 방어 코드 추가처럼 과한 지적은 고치지 않고, 고치지 않은 이유와 함께 의견으로 알린다. 정한 수정을 commit 한다. `outside` 지적은 아래 「기능 폴더 밖 수정」 대로 처리한다.
    - 셀프 리뷰어가 끝나지 않거나 JSON 을 돌려주지 않으면 "검토를 끝내지 못해 공유 코드에 반영하지 않았습니다. 잠시 뒤 다시 올려 주세요." 라고 알리고 멈춘다.
 5. 올린다. 위 「작업 이슈」 절에 따라 작업 이슈를 정해 번호를 넘긴다. 공유 레포에서는 `prepare-upload` 를 실행하지 않으므로 그 절의 값을 이렇게 바꿔 쓴다. `<레포>` 는 `git remote get-url origin` 의 `KiwoomAX/<이름>` 이고, 제목 앞머리는 `[<기능>] ` 이고, commit 목록은 2단계 `check-boundary` 결과의 `commits` 다. 본문에 `기능 이슈:` 줄은 쓰지 않는다. 공유 레포에는 기능 이슈가 없다.
 
@@ -259,7 +321,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" upload --repo "<작업 폴더>" --feature <기능> --task <작업 이슈 번호> --title "[<기능>] <한 줄>"
    ```
 
-   저장 스크립트는 먼저 기능 폴더 경계를 다시 검사한다. 경계를 벗어났으면 아무것도 올리지 않고 `outside` 로 멈춘다. 통과하면 작업 branch 를 push 하고 GitHub 에서 main 에 merge 한다. 충돌로 멈추면 위 「push 절차」 5단계대로 풀고 `upload --continue` 로 이어 간다. 403·404·422 나 시간 초과로 반영하지 못하면 "작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. 잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요." 라고 알린다. 잠시 뒤 `upload --continue` 로 이어 간다.
+   저장 스크립트는 먼저 기능 폴더 경계를 다시 검사한다. 경계를 벗어났으면 아무것도 올리지 않고 `outside` 로 멈춘다. 결과에 `command` 가 있으면 아래 「기능 폴더 밖 수정」 대로 한다. 통과하면 작업 branch 를 push 하고 GitHub 에서 main 에 merge 한다. 충돌로 멈추면 위 「push 절차」 5단계대로 풀고 `upload --continue` 로 이어 간다. 403·404·422 나 시간 초과로 반영하지 못하면 "작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. 잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요." 라고 알린다. 잠시 뒤 `upload --continue` 로 이어 간다.
 6. `uploaded` 로 끝나면 업로드 뒤 점검을 한다.
 
    ```
@@ -270,7 +332,10 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
 
 ### 기능 폴더 밖 수정
 
-`outside` 는 기능 폴더 밖의 파일을 고쳤다는 뜻이다. 개발자에게 "이번 수정 중 `<파일>` 은 내 기능 폴더 밖의 파일이라 공유 코드에 바로 반영할 수 없습니다." 라고 알리고 처리를 정한다.
+`outside` 는 공용 파일처럼 기능 폴더 밖의 파일을 고쳤다는 뜻이다. `message` 와 `outside_detail` 의 파일별 마지막 수정자를 보여 주고, 선택 창으로 "공용 파일을 수정합니다. 다른 개발자의 코드와 다른 기능에 영향을 줄 수 있고, 공유 코드에 검토 없이 바로 반영됩니다. 의도한 수정이 맞습니까?" 라고 묻는다. 선택지는 올리기, 되돌리기, 기능 폴더로 옮기기, 검토 요청 올리기다.
+
+- 올리기를 고르면 올리기 흐름 3~5단계를 이어 간다. 5단계의 `upload` 가 `outside` 와 `command` 를 돌려주면 `command` 를 코드 블록으로 보여 주고 "이 명령을 복사해 터미널에서 직접 실행하고, 끝나면 결과를 알려 주세요." 라고 안내한다. Claude 는 이 명령을 실행하지 않는다. 동의는 실행마다 받으므로 `upload --continue` 도 `outside` 면 같은 절차를 다시 한다.
+- 개발자가 끝났다고 알리면 `review-upload` 를 실행한다. 공유 코드에 들어갔으면 올리기 흐름 6단계를 따르고, 들어가지 않았으면 개발자가 전한 출력으로 처리한다.
 
 - 공유 코드에 없던 새 파일이고 이 기능만 그 파일을 쓰면, 그 파일을 기능 폴더로 옮기는 안을 먼저 권한다. 동의하면 옮기고 import 를 고쳐 commit 한다.
 - 되돌리기로 하면 아래를 실행한다. 지정한 파일을 공유 코드의 상태로 되돌리는 commit 이 생긴다. 공유 코드에 없던 파일은 지워진다.
@@ -280,20 +345,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
   ```
 
 - 기능 이전에서 셀프 리뷰어가 줄 번호를 적어 낸 지적은 그 줄만 `origin/main` 의 내용으로 고쳐 `commit --feature <기능> --intake` 로 commit 한다. `revert-outside` 는 파일 전체를 되돌리므로 쓰지 않는다.
-- 경계를 꼭 넘어야 하면 아래 「검토 요청」 절에 따라 한다.
-
-### 검토 요청
-
-경계를 꼭 넘어야 한다고 정했거나, 충돌을 개발자와 함께 풀어도 해결되지 않으면 검토 요청(PR)을 올린다. 먼저 PR 양식을 받아 각 절을 채운 본문을 레포 밖 임시 폴더에 파일로 쓴다. 양식의 안내 주석(`<!-- -->`)은 지운다.
-
-```
-gh api -H "Accept: application/vnd.github.raw" repos/KiwoomAX/.github/contents/.github/PULL_REQUEST_TEMPLATE.md
-python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" open-pr --repo "<작업 폴더>" --feature <기능> --title "[<기능>] <한 줄>" --body-file "<본문 파일>"
-```
-
-저장 스크립트는 진행 중인 merge 를 취소하고 작업 branch 를 push 한 뒤 PR 을 만든다. 결과가 `pr-opened` 면 개발자에게 "공유 코드에 바로 반영할 수 없어 검토 요청을 올렸습니다. AX팀에 문의해 주세요." 라고 알린다. main 에는 merge 하지 않는다.
-
-`switch-feature`·`commit`·`upload` 결과의 `closed_prs` 에 branch 가 있으면 그 검토 요청이 반영되지 않고 닫혔다. 개발자에게 "검토 요청이 반영되지 않고 닫혔습니다. AX팀에 문의해 주세요." 라고 알린다. 같은 branch 는 한 번만 알린다.
+- 검토 요청 올리기를 고르면 위 「검토 요청」 절에 따라 한다.
 
 ### 기능 이전 업로드
 
