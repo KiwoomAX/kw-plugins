@@ -52,7 +52,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 - 서체는 SUIT 다. `templates/fonts` 폴더를 복사해 `suit.css` 를 불러오고, 바탕 요소 하나에만
   `font-family: 'SUIT', 'Malgun Gothic', sans-serif` 를 준다. 화면마다 다시 주지 않는다. 폴더 안의 라이선스
   파일 `OFL.txt` 도 함께 복사한다.
-- 내용은 중앙 정렬(`mx-auto` · `margin: 0 auto`)이 기본이고, 왼쪽에 붙여도 된다. 폭 상한은 기능마다 정한다.
+- 내용 정렬은 화면마다 자유롭게 정한다. 제안값은 중앙 정렬(`mx-auto` · `margin: 0 auto`)이다. 폭 상한은 기능마다 정한다.
   대시보드에 붙이면 셸이 내용 폭을 정한다.
 - 화면에서 부르는 API 는 `/api/<기능 이름>` 아래에 둔다. 대시보드에 붙일 때 주소를 바꾸지 않아도 된다.
 - 대시보드에 붙이기 전에 그 대시보드에서 한 번 실행해 본다. 대시보드는 화면 전체를 0.9배로 줄이고 내용만
@@ -180,9 +180,9 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 - 레이아웃 폭을 고정 px(`w-[800px]`)로 묶지 않는다. 대시보드는 알림 서랍이 열리면 내용 구획이 340px
   좁아지고, 사이드바를 접으면 200px 넓어진다. 그리드 비율과 `minmax` 로 폭을 나눈다. 너무 넓어지지 않게
   `max-w-*` 로 상한을 두는 것은 괜찮다.
-- 내용은 중앙 정렬이 기본이다. 왼쪽에 붙여도 되고, 정렬을 바꿀 때는 사람에게 이유를 확인하지 않는다. 대시보드는
-  셸이 내용 구획을 중앙에 두고, 페이지가 `DashboardLayout` 에 `contentAlign="left"` 를 넘기면 왼쪽에 붙는다.
-  목업은 `<template data-align="left" …>` 로 적는다.
+- 내용 정렬은 화면마다 자유롭게 정하고, 사람에게 이유를 확인하지 않는다. 제안값은 중앙 정렬이다. 대시보드는
+  셸이 내용 구획을 제안값인 중앙에 두고, 페이지가 `DashboardLayout` 에 `contentAlign="left"` 나 `"right"` 를 넘겨
+  위치를 바꾼다. 목업은 `<template data-align="left" …>` 처럼 적는다. 구획 안쪽 내용의 정렬도 페이지가 자유롭게 정한다.
 - 모서리는 `rounded-sm`(6px)과 `rounded-md`(10px)를 쓴다. 표는 `rounded-lg`(12px), 오른쪽 상세 패널은
   `rounded-xl`(18px)를 쓴다. 토큰 값으로 풀린다. Tailwind 를 빌드하지 않는 HTML 에서는 `var(--radius-lg)` 처럼 쓴다.
 - 모서리 반경과 테두리는 같은 요소에 준다. `rounded-md overflow-hidden` 상자 안에 테두리 있는 표를 넣으면
