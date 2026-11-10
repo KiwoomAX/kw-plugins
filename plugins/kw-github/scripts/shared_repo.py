@@ -51,6 +51,12 @@ def _origin(top):
     return (match.group(1), match.group(2)) if match else None
 
 
+def is_kiwoomax(top):
+    """origin 이 회사 GitHub(KiwoomAX) 레포면 True 다."""
+    origin = _origin(top)
+    return bool(origin) and origin[0].casefold() == "kiwoomax"
+
+
 def repo_kind(top):
     if marker_tracked(top):
         return "feature"
@@ -185,9 +191,18 @@ def template_blobs(deadline=None):
     return {item["path"]: item["sha"] for item in tree if item.get("path") in STRUCTURE_FILES}
 
 
+DEPLOY_NAMES = ("docker-compose", "Dockerfile", "Jenkinsfile", "kiwoom-deploy")
+
+
+def is_deploy(path):
+    """배포·CI 파일이다. 새 파일도 여기에 해당한다. .github 아래의 workflow 는 저장소 secret 으로 실행된다."""
+    name = path.rsplit("/", 1)[-1]
+    return path in DEPLOY_FILES or path.startswith(".github/") or name.startswith(DEPLOY_NAMES)
+
+
 def _result(status, reason="", new_feature=False, outside=(), why=None):
     return {"status": status, "reason": reason, "new_feature": new_feature, "outside": list(outside),
-            "why": why or {}, "deploy": [path for path in outside if path in DEPLOY_FILES]}
+            "why": why or {}, "deploy": [path for path in outside if is_deploy(path)]}
 
 
 def _developer_email(top, deadline=None):
@@ -198,7 +213,7 @@ def _developer_email(top, deadline=None):
 
 def _free_to_change(top, path, main_blobs, email, deadline):
     """기능 폴더 밖이어도 묻지 않고 올리는 파일이다. main 에 없던 새 파일과 본인이 마지막으로 고친 파일이다."""
-    if path in DEPLOY_FILES or path in SHARED_IMPACT_FILES:
+    if is_deploy(path) or path in SHARED_IMPACT_FILES:
         return False
     if path not in main_blobs:
         return True

@@ -3,7 +3,9 @@
 명령 문자열을 먼저 보고, 살펴볼 명령이 없으면 git 을 부르지 않고 통과시킨다. 이 훅은 보안 경계가
 아니다. Claude 가 실수로 저장 스크립트의 검사를 건너뛰지 않게 하는 장치다. 로컬 브랜치 작업과 merge 는
 거부하지 않는다. 직접 commit·push 는 기능 레포와, 기능별 폴더 구조를 갖춘 공유 대시보드 레포에서만 거부한다.
-이전 commit 기록을 지우는 명령은 모든 공유 대시보드 레포에서 거부하고, 회사 GitHub 대상이면 폴더와 무관하게 거부한다.
+이전 commit 기록을 지우는 push 는 origin 이 회사 GitHub(KiwoomAX)인 모든 레포에서 거부한다. 회사 GitHub 의 ref 를
+지우거나 바꾸는 gh 명령은 폴더와 무관하게 거부한다. 사람의 터미널은 pre-push 훅이 맡고, 그 훅은 기능 레포와 공유
+대시보드 레포에만 설치된다.
 """
 import json
 import os
@@ -275,8 +277,9 @@ def main():
             if top is None:
                 continue  # 레포가 아닌 폴더에서는 git push 가 실행되지 않는다
             # 지원 구조가 아닌 대시보드의 일반 push 는 막지 않는다(사용자 결정 2026-10-21). 기록 삭제만 막는다.
-            if save_work.is_feature_repo(top) or (shared_repo.repo_kind(top) == "shared"
-                                                  and (reason == HISTORY_REASON or shared_repo.supported(top))):
+            # 기록 삭제는 KiwoomAX 의 모든 레포에서 막는다(사용자 결정 2026-11-10).
+            if (reason == HISTORY_REASON and shared_repo.is_kiwoomax(top)) or save_work.is_feature_repo(top) or (
+                    shared_repo.repo_kind(top) == "shared" and shared_repo.supported(top)):
                 _deny(reason)
                 return 0
     except Exception as exc:  # noqa: BLE001 — 판단하지 못하면 통과시키지 않는다

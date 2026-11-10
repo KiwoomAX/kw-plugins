@@ -120,7 +120,8 @@ def _pr_start(top, number, deadline):
     if pr.get("isCrossRepository"):
         return _failed(f"검토 요청 #{number} 은 다른 레포의 branch 에서 왔다. 이 레포에서 commit 을 추가할 수 없다.")
     review, current = f"{PREFIX}{number}", save_work.current_branch(top, deadline)
-    if current != review and gitcmd.git(top, "status", "--porcelain", deadline=deadline).strip():
+    # commit 이 빼는 규칙 해당 파일은 commit 해도 남으므로 보지 않는다.
+    if current != review and save_work.plain_changes(top, rules.load(save_work.RULES_PATH), deadline):
         return _failed("commit 하지 않은 변경이 있다. 먼저 commit 한 뒤 다시 실행하라.")
     gitcmd.git(top, *FETCH, deadline=deadline)
     remote_ref = f"refs/remotes/origin/{pr['headRefName']}"
@@ -205,14 +206,6 @@ def pr_start(repo, number):
         return _failed(save_work.COMMAND_DETAIL.format(exc=exc))
 
 
-def plain_changes(top, data, deadline):
-    """남은 변경 중 규칙 해당 파일과 설계 문서를 뺀 경로다. 이 변경이 있으면 먼저 commit 해야 한다."""
-    trees = save_work._intake_trees(top, deadline)
-    return [path for path in save_work.changed_paths(top, deadline)
-            if not path.startswith(save_work.DESIGN_DOCS)
-            and save_work.pr_file_verdict(top, data, path, deadline, trees) is None]
-
-
 def _return_target(top, deadline):
     """돌아갈 곳의 git switch 인자다."""
     if shared_repo.repo_kind(top) == "shared":
@@ -259,7 +252,7 @@ def _on_review(repo, deadline):
 
 
 def _plain_stop(top, deadline):
-    left = plain_changes(top, rules.load(save_work.RULES_PATH), deadline)
+    left = save_work.plain_changes(top, rules.load(save_work.RULES_PATH), deadline)
     return _failed(f"commit 하지 않은 변경이 있다: {', '.join(left)}. 먼저 commit 하라.") if left else None
 
 

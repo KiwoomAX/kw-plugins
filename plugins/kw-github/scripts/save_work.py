@@ -4,6 +4,7 @@ commit 은 로컬에서만 작업 브랜치에 커밋한다. push 는 개발자�
 스킬과 훅은 이 파일만 부른다.
 """
 import argparse
+import functools
 import hashlib
 import json
 import re
@@ -2062,16 +2063,32 @@ def add_copy(repo, feature, summary):
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
 
-def _shared_pr_branch(top, feature, deadline, notes):
-    """공유 레포에서 PR 로 올릴 기능 branch 로 옮긴다. 없으면 None 이다."""
+def plain_changes(top, data, deadline):
+    """남은 변경 중 규칙 해당 파일과 설계 문서를 뺀 경로다. 이 변경이 있으면 먼저 commit 해야 한다."""
+    trees = _intake_trees(top, deadline)
+    return [path for path in changed_paths(top, deadline)
+            if not path.startswith(DESIGN_DOCS) and pr_file_verdict(top, data, path, deadline, trees) is None]
+
+
+def _enter_shared_pr_branch(top, branch, deadline, notes):
+    """공유 레포에서 PR 로 올릴 기능 branch 로 옮긴다. 검사를 통과한 뒤에만 실행한다."""
     if (git_dir(top, deadline) / "MERGE_HEAD").exists():
         # 풀지 못한 충돌은 PR 에서 AX팀이 푼다.
         gitcmd.git(top, "merge", "--abort", deadline=deadline)
         notes.append("진행 중이던 merge 를 취소했다.")
-    branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"], deadline=deadline)
-    if branch is not None and current_branch(top, deadline) != branch:
+    if current_branch(top, deadline) != branch:
         gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
-    return branch
+
+
+def _drop_upload_state(top, branch, deadline):
+    """이번 PR branch 의 끊긴 upload 상태만 지운다. 다른 기능의 상태는 그 upload 를 이어 가도록 남긴다."""
+    path = _state_path(top, deadline)
+    try:
+        owner = json.loads(path.read_text(encoding="utf-8")).get("branch")
+    except (OSError, ValueError, AttributeError):
+        return
+    if owner == branch:
+        path.unlink(missing_ok=True)
 
 
 def _feature_pr_stop(top, allow_other_owner, deadline):
@@ -2081,7 +2098,7 @@ def _feature_pr_stop(top, allow_other_owner, deadline):
         return _shared_failed(MSG_FAILED, f"지금 branch({branch or 'HEAD'})가 작업 branch 가 아니라 검토 요청을 올리지 않았다.")
     if not _ref_exists(top, REMOTE_REF, deadline):
         return _shared_failed(MSG_FAILED, "GitHub 에 main 이 없다. 첫 업로드를 먼저 하라.")
-    if gitcmd.git(top, "status", "--porcelain", deadline=deadline).strip():
+    if plain_changes(top, rules.load(RULES_PATH), deadline):
         return _shared_failed(MSG_FAILED, "commit 하지 않은 변경이 있다. 먼저 commit 하라.")
     url = None if allow_other_owner else other_owner_url(top, deadline)
     if url:
@@ -2119,7 +2136,8 @@ def open_pr(repo, feature, title, body_file, allow_other_owner=False):
         if shared:
             if not feature:
                 return _shared_failed(MSG_FAILED, "공유 대시보드 레포에서는 --feature 가 필요하다.")
-            branch = _shared_pr_branch(top, feature, deadline, notes)
+            branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"],
+                                    deadline=deadline)
             if branch is None:
                 return _shared_failed(MSG_FAILED, f"{feature} 기능의 작업 branch 가 없어 검토 요청을 올리지 않았다.")
         else:
@@ -2131,12 +2149,14 @@ def open_pr(repo, feature, title, body_file, allow_other_owner=False):
         if hits:
             return _shared_failed(MSG_FAILED, f"올릴 commit 에 비밀값·데이터 파일이 있어 push 하지 않았다: {', '.join(hits)}. "
                                               "그 파일을 고치는 commit 을 저장 스크립트로 만든 뒤 다시 실행하라.")
+        if shared:
+            _enter_shared_pr_branch(top, branch, deadline, notes)
         gitcmd.git(top, "push", "-q", "origin", branch, deadline=deadline)
         out = gitcmd.gh("pr", "create", "-R", _full_name(top), "--base", BRANCH, "--head", branch, "--title", title,
                         "--body-file", str(body_file), "--assignee", "@me", deadline=deadline)
         url = (out.strip().splitlines() or [""])[-1]
         # PR 은 이미 열렸으므로 아래 단계가 실패해도 결과는 pr-opened 로 두고 detail 에 적는다.
-        _state_path(top, deadline).unlink(missing_ok=True)
+        _drop_upload_state(top, branch, deadline)
         gitcmd.git_try(top, "fetch", "-q", "origin", deadline=deadline)
         (_after_shared_pr if shared else _after_feature_pr)(top, branch, deadline, notes)
         restored = restore_upload_stash(top, deadline)
@@ -2441,8 +2461,11 @@ def _print(payload):
 
 def main(argv=None):
     sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="기능 레포의 작업을 검사해 commit 하고, 승인받은 작업을 push 한다.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    # 축약 인자를 받지 않는다. git_guard 는 --allow-outside 를 전체 이름으로만 알아본다.
+    parser = argparse.ArgumentParser(description="기능 레포의 작업을 검사해 commit 하고, 승인받은 작업을 push 한다.",
+                                     allow_abbrev=False)
+    sub = parser.add_subparsers(dest="command", required=True,
+                                parser_class=functools.partial(argparse.ArgumentParser, allow_abbrev=False))
     commit_cmd = sub.add_parser("commit", help="로컬에서만 작업 브랜치에 커밋한다")
     commit_cmd.add_argument("--repo", required=True)
     mode = commit_cmd.add_mutually_exclusive_group(required=True)
