@@ -4,6 +4,7 @@ commit 은 로컬에서만 작업 브랜치에 커밋한다. push 는 개발자�
 스킬과 훅은 이 파일만 부른다.
 """
 import argparse
+import functools
 import hashlib
 import json
 import re
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import github_merge
 import gitcmd
+import history_guard
 import main_branch
 import rules
 import scan_history
@@ -313,13 +315,14 @@ def ensure_gitignore(top):
         handle.write(prefix + "\n".join(missing) + "\n")
 
 
-def stage(top, data, deadline=None, scope=None):
+def stage(top, data, deadline=None, scope=None, include_others=False):
     """인덱스를 HEAD 로 되돌린 뒤 검사를 통과한 변경만 스테이징한다. excluded 목록을 돌려준다.
 
     scope 가 (기능, 기능 이전 여부) 이면 공유 레포 규칙으로 stage 하고 (excluded, other_features) 를 돌려준다.
+    include_others 가 참이면 다른 기능 폴더의 변경도 stage 한다.
     """
     if scope is not None:
-        return _stage_shared(top, data, scope[0], scope[1], deadline)
+        return _stage_shared(top, data, scope[0], scope[1], deadline, include_others)
     reset_index(top, deadline)
     ensure_gitignore(top)
     # 인덱스를 HEAD 로 되돌렸으므로 ls-files 는 이미 올라간 파일 목록이다.
@@ -561,7 +564,17 @@ def restore_upload_stash(top, deadline=None, timeout=None):
     return None
 
 
-def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False):
+def upload_stash_ref(top, deadline=None):
+    """앞선 upload 가 남긴 이 작업 폴더의 stash 참조다. 없으면 None 이다."""
+    listing = gitcmd.git(top, "stash", "list", "--format=%gd %gs", deadline=deadline)
+    for line in listing.splitlines():
+        ref, _, subject = line.partition(" ")
+        if _own_upload_stash(top, subject, deadline, None):
+            return ref
+    return None
+
+
+def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False, include_others=False):
     """로컬에서만 커밋하고 결과 JSON 을 돌려준다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     if catch_up:
         message = CATCH_UP_TEMPLATE.format(stamp=datetime.now().strftime("%Y-%m-%d %H:%M"))
@@ -569,8 +582,12 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
     progress = {"committed": False, "excluded": [], "branch": None}
     try:
         top = locate(Path(repo))
+        import pr_review  # 맨 위에서 불러오면 두 파일이 서로를 기다린다
+
+        if pr_review.is_review(top, deadline):
+            return pr_review.commit_review(top, message, branch, feature, deadline, progress)
         if top is not None and shared_repo.repo_kind(top) == "shared":
-            payload = _commit_shared(top, message, feature, intake, deadline, progress)
+            payload = _commit_shared(top, message, feature, intake, deadline, progress, include_others)
             payload.setdefault("closed_prs", progress.get("closed_prs", []))
             if payload["status"] in ("committed", "nothing"):
                 payload["unpushed"] = unpushed(top, deadline, pending=progress.get("pending"))
@@ -629,9 +646,9 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
                    "AX팀에 기능별 폴더 구조로 전환을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
-MSG_OUTSIDE = "이번 수정 중 {files} 은 내 기능 폴더 밖의 파일이라 공유 코드에 바로 반영할 수 없습니다."
-MSG_PR_OPENED = "공유 코드에 바로 반영할 수 없어 검토 요청을 올렸습니다. AX팀에 문의해 주세요."
-PR_REVIEWER = "isarah0917"
+MSG_OUTSIDE = "이번 수정 중 {files} 은 다른 분이 작업했거나 여러 기능이 함께 쓰는 파일입니다."
+MSG_INTAKE_OUTSIDE = "이번 기능 이전에서 {files} 은 고칠 수 없는 파일입니다."
+MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 반영되기 전까지 공유 코드에는 들어가지 않습니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
 SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
 BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
 COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 뒤 다시 실행하라. {exc}"
@@ -672,6 +689,12 @@ def _on_github(top, branch, deadline):
 GH_ERRORS = (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing)
 
 
+def _behind_merged_head(top, tip, head, deadline):
+    """PC 의 branch 가 다른 개발자가 PR 에 올린 commit 때문에 뒤처졌을 뿐인가. head 가 PC 에 없으면 거짓이다."""
+    known = gitcmd.git_try(top, "cat-file", "-e", f"{head}^{{commit}}", deadline=deadline)[0] == 0
+    return known and _is_ancestor(top, tip, head, deadline)
+
+
 def pending_filter(top, deadline=None, strict=False, record=True):
     """검토 요청(PR)을 기다리거나 닫힌 작업 branch 를 후보에서 뺀다. merge 된 PR 의 branch 는 지운다.
 
@@ -693,7 +716,7 @@ def pending_filter(top, deadline=None, strict=False, record=True):
             continue
         if pr["state"] == "MERGED":
             tip = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
-            if tip != pr["head"]:
+            if tip != pr["head"] and not _behind_merged_head(top, tip, pr["head"], deadline):
                 result["merged_with_extra"].append(branch)
             elif not record:
                 result["excluded"].append(branch)
@@ -780,15 +803,36 @@ def switch_feature(repo, feature, summary=None, intake=False):
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
 
-def _boundary_payload(result, commits=()):
+def _boundary_payload(result, commits=(), intake=False):
     status = result["status"]
     if status == "outside":
-        message = MSG_OUTSIDE.format(files=", ".join(result["outside"]))
+        message = (MSG_INTAKE_OUTSIDE if intake else MSG_OUTSIDE).format(files=", ".join(result["outside"]))
     elif status == "failed":
         message = MSG_FAILED
     else:
         message = BOUNDARY_MESSAGES.get(status, "")
     return {**result, "commits": list(commits), "message": message}
+
+
+def outside_detail(top, paths, deadline):
+    """기능 폴더 밖 파일마다 경로와 GitHub main 의 마지막 수정자다. main 에 없는 파일은 수정자가 빈 문자열이다."""
+    return [{"path": path,
+             "author": gitcmd.git(top, "log", "-1", "--format=%an", REMOTE_REF, "--", path, deadline=deadline).strip()}
+            for path in paths]
+
+
+def _ps_quote(text):
+    """PowerShell 작은따옴표 문자열이다. PowerShell 은 곡선 작은따옴표도 작은따옴표로 읽으므로 함께 두 번 쓴다."""
+    return "'" + re.sub("(['\u2018\u2019\u201a\u201b])", r"\1\1", str(text)) + "'"
+
+
+def outside_command(top):
+    """기능 폴더 밖 수정을 올릴 때 개발자가 PowerShell 에서 직접 실행할 명령이다. Claude 는 실행하지 않는다.
+
+    제목 같은 입력값은 상태 파일에 있으므로 명령에 넣지 않는다. 사람이 실행하는 명령에서 해석될 값을 없애기 위해서다.
+    """
+    script = Path(__file__).resolve()
+    return f"& {_ps_quote(sys.executable)} {_ps_quote(script)} upload --repo {_ps_quote(top)} --continue --allow-outside"
 
 
 def _boundary_of(top, feature, head, intake, deadline):
@@ -812,7 +856,10 @@ def check_boundary(repo, feature, intake=False):
         head = feature_branch(top, feature, exclude=waiting, deadline=deadline) or "HEAD"
         result = _boundary_of(top, feature, head, intake, deadline)
         commits = gitcmd.git(top, "log", f"{REMOTE_REF}..{head}", "--format=%s", deadline=deadline).splitlines()
-        return _boundary_payload(result, commits)
+        payload = _boundary_payload(result, commits, intake)
+        if result["status"] == "outside":
+            payload["outside_detail"] = outside_detail(top, result["outside"], deadline)
+        return payload
     except BranchChoiceError as exc:
         return _shared_failed(MSG_FAILED, str(exc))
     except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
@@ -904,7 +951,7 @@ def rules_max_bytes(data):
     return int(data["data"]["file_max_mib"] * 1024 * 1024)
 
 
-def _stage_shared(top, data, feature, intake, deadline):
+def _stage_shared(top, data, feature, intake, deadline, include_others=False):
     reset_index(top, deadline)
     tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
     changed = changed_paths(top, deadline)
@@ -913,7 +960,7 @@ def _stage_shared(top, data, feature, intake, deadline):
     staged, excluded, untrack, hide, others = [], [], [], [], []
     for path in changed:
         owner = shared_repo.feature_of(path)
-        if owner and owner != feature:
+        if owner and owner != feature and not include_others:
             others.append(owner)
             continue
         if path.startswith(DESIGN_DOCS):
@@ -958,7 +1005,7 @@ def _shared_commit_result(status, message, detail="", excluded=None, committed=F
     return payload
 
 
-def _commit_shared(top, message, feature, intake, deadline, progress):
+def _commit_shared(top, message, feature, intake, deadline, progress, include_others=False):
     progress["other_features"] = []
     branch = current_branch(top, deadline)
     if not shared_repo.supported(top):
@@ -990,7 +1037,7 @@ def _commit_shared(top, message, feature, intake, deadline, progress):
     restored = restore_upload_stash(top, deadline)
     if restored:
         return _shared_commit_result("failed", MSG_FAILED, restored, branch=branch)
-    excluded, others = stage(top, data, deadline, scope=(feature, intake))
+    excluded, others = stage(top, data, deadline, scope=(feature, intake), include_others=include_others)
     progress["excluded"], progress["other_features"] = excluded, others
     if not has_staged_changes(top, deadline):
         return _shared_commit_result("nothing", with_notes(MSG_NOTHING, excluded), "", excluded, branch=branch,
@@ -1059,7 +1106,7 @@ def _commit_intake_merge(top, message, feature, data, deadline, progress):
     result = shared_repo.boundary(top, feature, paths, "HEAD", set(paths), intake=True, deadline=deadline)
     if result["status"] != "inside":
         payload = _shared_commit_result(result["status"] if result["status"] != "outside" else "failed",
-                                        _boundary_payload(result)["message"] or MSG_FAILED,
+                                        _boundary_payload(result, intake=True)["message"] or MSG_FAILED,
                                         f"기능 이전 merge 결과가 경계 검사를 통과하지 못했다: {result}", branch=branch)
         payload["outside"] = result["outside"]
         payload["reason"] = result["reason"]
@@ -1388,6 +1435,7 @@ def _stash_leftovers(top, deadline, progress):
         progress["stashed"] = True
 
 
+INTAKE_OUTSIDE_DETAIL = "기능 이전에는 --allow-outside 와 --allow-others 를 쓰지 않는다. 기능 이전 절차를 따르라."
 MSG_NOT_MERGED_FEATURE = ("작업을 GitHub 에 push(업로드)했지만 팀이 함께 보는 main 에 반영하지 못했습니다. "
                           "잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요.")
 MSG_NOT_MERGED_SHARED = ("작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. "
@@ -1427,8 +1475,13 @@ def _push_branch(top, branch, state, deadline, progress):
     progress["pushed"] = True
 
 
-def _precheck(top, branch, state, deadline):
-    """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다."""
+def _precheck(top, branch, state, deadline, progress=None):
+    """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다.
+
+    개발자가 --allow-outside 로 직접 실행했으면 경계 검사만 생략한다. --allow-others 는 배포 설정이 없을 때만 생략한다.
+    두 값은 progress 에만 있고 상태 파일에 적지 않는다.
+    """
+    progress = progress or {}
     feature = state.get("feature")
     leaked = _branch_hits(top, branch, feature, state.get("intake", False), deadline)
     if leaked:
@@ -1436,15 +1489,23 @@ def _precheck(top, branch, state, deadline):
                 "reason": "history-hits" if state.get("intake") else "",
                 "detail": f"올릴 commit 에 비밀값·데이터 파일이 있어 push 하지 않았다: {', '.join(leaked)}. 그 파일을 "
                           "고치는 commit 을 저장 스크립트로 만든 뒤 다시 올려라."}
-    if not feature:
+    if not feature or progress.get("allow_outside"):
         return None
     intake = state.get("intake", False)
     result = _boundary_of(top, feature, branch, intake, deadline)
     if result["status"] == "inside":
         return _history_hits(top, branch, feature, deadline) if intake else None
-    payload = _boundary_payload(result)
-    return {"status": result["status"], "message": payload["message"], "outside": result["outside"],
+    if result["status"] == "outside" and not intake and progress.get("allow_others") and not result["deploy"]:
+        return None
+    payload = _boundary_payload(result, intake=intake)
+    stop = {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
+    if result["status"] == "outside" and not intake:
+        stop["outside_detail"] = outside_detail(top, result["outside"], deadline)
+        stop["deploy"] = result["deploy"]
+        if result["deploy"]:
+            stop["command"] = outside_command(top)
+    return stop
 
 
 def _branch_hits(top, branch, feature, intake, deadline):
@@ -1468,6 +1529,43 @@ def _branch_hits(top, branch, feature, intake, deadline):
     return found
 
 
+def _is_doc_exception(top, path, size, data):
+    """공유 레포의 docs/<기능>.pdf·.docx 는 크기 상한 안에서 어느 기능이든 올릴 수 있다."""
+    return (shared_repo.repo_kind(top) == "shared" and shared_repo.any_feature_doc(path)
+            and size <= rules_max_bytes(data))
+
+
+def pr_content_hits(top, base_ref, head, deadline):
+    """base_ref 에서 갈라진 뒤 바뀐 파일의 최종 내용을 검사한다. origin/main 과 같은 파일은 보지 않는다."""
+    data = rules.load(RULES_PATH)
+    base = gitcmd.git(top, "merge-base", base_ref, head, deadline=deadline).strip()
+    head_blobs = shared_repo.tree_blobs(top, head, deadline)
+    main_blobs = shared_repo.tree_blobs(top, REMOTE_REF, deadline)
+    found = []
+    for path in shared_repo.changed_paths(top, base, head, deadline):
+        blob = head_blobs.get(path)
+        if blob is None or blob == main_blobs.get(path):
+            continue
+        raw = gitcmd.git_bytes(top, "cat-file", "blob", blob, deadline=deadline)
+        if _is_doc_exception(top, path, len(raw), data):
+            continue
+        if rules.judge(data, path, len(raw), lambda raw=raw: raw) is not None:
+            found.append(path)
+    return found
+
+
+def pr_file_verdict(top, data, path, deadline, trees):
+    """작업 폴더 파일에 pr_content_hits 와 같은 판정을 한다. 통과하면 None, 아니면 (규칙 종류, 규칙) 이다.
+
+    지운 파일은 올라가는 내용이 없으므로 통과한다. 리뷰에서 데이터 파일을 빼 달라는 수정이 여기에 해당한다.
+    """
+    if not (top / path).exists():
+        return None
+    if _is_doc_exception(top, path, _size(top / path), data) or _same_as_main(top, path, deadline, trees):
+        return None
+    return _judge(top, data, path)
+
+
 def _history_hits(top, branch, feature, deadline):
     """기능 이전 branch 에만 있는 commit 전체를 검사한다. 기능 레포 중간 commit 의 비밀값을 잡기 위해서다."""
     commits = gitcmd.git(top, "rev-list", f"{REMOTE_REF}..{branch}", deadline=deadline).split()
@@ -1482,8 +1580,9 @@ def _history_hits(top, branch, feature, deadline):
 
 def _stopped(stop, progress):
     """_precheck 가 돌려준 결과에 upload 공통 칸을 채운다."""
+    extra = {key: stop[key] for key in ("outside_detail", "deploy", "command") if key in stop}
     return {**_upload_result(stop["status"], stop["message"], stop["detail"], progress),
-            "outside": stop["outside"], "reason": stop["reason"]}
+            "outside": stop["outside"], "reason": stop["reason"], **extra}
 
 
 def _ask_github(top, full, branch, state, deadline, progress):
@@ -1520,7 +1619,7 @@ def _pc_merge(top, branch, state, deadline, progress):
 
 def _after_pc_merge(top, full, branch, state, deadline, progress):
     """4단계 뒷부분이다. 다시 검사하고 push 한 뒤 3단계를 한 번 다시 한다."""
-    stop = _precheck(top, branch, state, deadline)
+    stop = _precheck(top, branch, state, deadline, progress)
     if stop is not None:
         github_merge.delete_remote(top, branch, state.get("pushed_sha") or "", deadline)
         return _stopped(stop, progress)
@@ -1537,7 +1636,7 @@ def _after_pc_merge(top, full, branch, state, deadline, progress):
 
 def _github_merge(top, full, branch, state, deadline, progress):
     """spec 「GitHub 에서 merge」 1~5단계다."""
-    stop = _precheck(top, branch, state, deadline)
+    stop = _precheck(top, branch, state, deadline, progress)
     if stop is not None:
         return _stopped(stop, progress)
     _push_branch(top, branch, state, deadline, progress)
@@ -1662,6 +1761,10 @@ def _resume(top, full, state, deadline, progress):
     local = gitcmd.git(top, "rev-parse", branch, deadline=deadline).strip()
     if _remote_tip(top, branch, deadline) == local:
         state["pushed_sha"] = local
+        # 기능 폴더 밖 수정의 동의는 실행마다 받으므로 push 뒤 이어 갈 때도 경계를 다시 본다.
+        stop = _precheck(top, branch, state, deadline, progress)
+        if stop is not None:
+            return _stopped(stop, progress)
         answer = _ask_github(top, full, branch, state, deadline, progress)
         if answer == "merged":
             return _cleanup(top, branch, state, deadline, progress)
@@ -1672,11 +1775,14 @@ def _resume(top, full, state, deadline, progress):
 
 
 def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False, feature=None,
-           intake=False):
+           intake=False, allow_outside=False, allow_others=False):
     """승인받은 작업을 GitHub 공유 코드에 올린다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     deadline = gitcmd.Deadline(INTAKE_UPLOAD_SECONDS if intake else SAVE_SECONDS)
-    progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": []}
+    progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": [],
+                "allow_outside": allow_outside, "allow_others": allow_others}
     try:
+        if intake and (allow_outside or allow_others):
+            raise UploadStop(INTAKE_OUTSIDE_DETAIL)
         top = locate(Path(repo))
         if top is not None and shared_repo.repo_kind(top) == "shared":
             progress["shared"] = True
@@ -1822,6 +1928,8 @@ def _upload_shared(top, task, title, close, resume, feature, intake, deadline, p
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["feature"] = state.get("feature") or _kw_feature(top, state.get("branch") or "", deadline)
         if state.get("intake"):
+            if progress.get("allow_outside") or progress.get("allow_others"):
+                raise UploadStop(INTAKE_OUTSIDE_DETAIL)
             deadline.seconds = INTAKE_UPLOAD_SECONDS
         progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
         return _resume(top, full, state, deadline, progress)
@@ -1955,37 +2063,102 @@ def add_copy(repo, feature, summary):
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
 
-def open_pr(repo, feature, title, body_file):
-    """경계를 넘어야 하거나 충돌을 풀지 못한 작업을 검토 요청(PR)으로 올린다. main 에는 merge 하지 않는다."""
+def plain_changes(top, data, deadline):
+    """남은 변경 중 규칙 해당 파일과 설계 문서를 뺀 경로다. 이 변경이 있으면 먼저 commit 해야 한다."""
+    trees = _intake_trees(top, deadline)
+    return [path for path in changed_paths(top, deadline)
+            if not path.startswith(DESIGN_DOCS) and pr_file_verdict(top, data, path, deadline, trees) is None]
+
+
+def _enter_shared_pr_branch(top, branch, deadline, notes):
+    """공유 레포에서 PR 로 올릴 기능 branch 로 옮긴다. 검사를 통과한 뒤에만 실행한다."""
+    if (git_dir(top, deadline) / "MERGE_HEAD").exists():
+        # 풀지 못한 충돌은 PR 에서 AX팀이 푼다.
+        gitcmd.git(top, "merge", "--abort", deadline=deadline)
+        notes.append("진행 중이던 merge 를 취소했다.")
+    if current_branch(top, deadline) != branch:
+        gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+
+
+def _drop_upload_state(top, branch, deadline):
+    """이번 PR branch 의 끊긴 upload 상태만 지운다. 다른 기능의 상태는 그 upload 를 이어 가도록 남긴다."""
+    path = _state_path(top, deadline)
+    try:
+        owner = json.loads(path.read_text(encoding="utf-8")).get("branch")
+    except (OSError, ValueError, AttributeError):
+        return
+    if owner == branch:
+        path.unlink(missing_ok=True)
+
+
+def _feature_pr_stop(top, allow_other_owner, deadline):
+    """기능 레포에서 PR 을 열 수 없으면 그 결과를, 열 수 있으면 None 을 돌려준다."""
+    branch = current_branch(top, deadline) or ""
+    if not branch.startswith(WORK_PREFIXES):
+        return _shared_failed(MSG_FAILED, f"지금 branch({branch or 'HEAD'})가 작업 branch 가 아니라 검토 요청을 올리지 않았다.")
+    if not _ref_exists(top, REMOTE_REF, deadline):
+        return _shared_failed(MSG_FAILED, "GitHub 에 main 이 없다. 첫 업로드를 먼저 하라.")
+    if plain_changes(top, rules.load(RULES_PATH), deadline):
+        return _shared_failed(MSG_FAILED, "commit 하지 않은 변경이 있다. 먼저 commit 하라.")
+    url = None if allow_other_owner else other_owner_url(top, deadline)
+    if url:
+        return {"status": "other-owner", "reason": "", "message": MSG_OTHER_OWNER,
+                "detail": OTHER_OWNER_DETAIL.format(url=url)}
+    return None
+
+
+def _after_shared_pr(top, branch, deadline, notes):
+    # 같은 기능의 다음 수정이 PR branch 에 쌓이지 않게 한다.
+    code, out, err = gitcmd.git_try(top, "switch", "-q", "--detach", REMOTE_REF, deadline=deadline)
+    if code != 0:
+        notes.append(f"HEAD 를 GitHub main 으로 떼어 두지 못해 {branch} 에 남아 있다. 다음 수정 전에 "
+                     f"switch-feature 로 새 작업 branch 를 만들어라. {(err or out).strip()}")
+
+
+def _after_feature_pr(top, branch, deadline, notes):
+    # 이 branch 가 남으면 다음 작업이 PR branch 에 쌓이거나 upload 가 main 에 merge 한다. commit 은 GitHub 에 있다.
+    code, out, err = gitcmd.git_try(top, "switch", "-q", BRANCH, deadline=deadline)
+    if code == 0:
+        code, out, err = gitcmd.git_try(top, "branch", "-q", "-D", branch, deadline=deadline)
+    if code != 0:
+        notes.append(f"main 으로 옮겨 {branch} 를 지우지 못했다. 다음 작업 전에 처리하라. {(err or out).strip()}")
+
+
+def open_pr(repo, feature, title, body_file, allow_other_owner=False):
+    """개발자가 요청했거나 충돌을 풀지 못한 작업을 검토 요청(PR)으로 올린다. main 에는 merge 하지 않는다."""
     deadline = gitcmd.Deadline(SAVE_SECONDS)
     try:
         top = locate(Path(repo))
-        if top is None or shared_repo.repo_kind(top) != "shared":
-            return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
+        shared = top is not None and shared_repo.repo_kind(top) == "shared"
+        if top is None or not (shared or is_feature_repo(top)):
+            return _shared_failed(MSG_FAILED, "공유 대시보드 레포나 기능 레포가 아니다.")
         notes = []
-        if (git_dir(top, deadline) / "MERGE_HEAD").exists():
-            # 풀지 못한 충돌은 PR 에서 AX팀이 푼다.
-            gitcmd.git(top, "merge", "--abort", deadline=deadline)
-            notes.append("진행 중이던 merge 를 취소했다.")
-        branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"], deadline=deadline)
-        if branch is None:
-            return _shared_failed(MSG_FAILED, f"{feature} 기능의 작업 branch 가 없어 검토 요청을 올리지 않았다.")
-        if current_branch(top, deadline) != branch:
-            gitcmd.git(top, "switch", "-q", branch, deadline=deadline)
+        if shared:
+            if not feature:
+                return _shared_failed(MSG_FAILED, "공유 대시보드 레포에서는 --feature 가 필요하다.")
+            branch = feature_branch(top, feature, exclude=pending_filter(top, deadline)["excluded"],
+                                    deadline=deadline)
+            if branch is None:
+                return _shared_failed(MSG_FAILED, f"{feature} 기능의 작업 branch 가 없어 검토 요청을 올리지 않았다.")
+        else:
+            stop = _feature_pr_stop(top, allow_other_owner, deadline)
+            if stop is not None:
+                return stop
+            branch = current_branch(top, deadline)
+        hits = pr_content_hits(top, REMOTE_REF, branch, deadline)
+        if hits:
+            return _shared_failed(MSG_FAILED, f"올릴 commit 에 비밀값·데이터 파일이 있어 push 하지 않았다: {', '.join(hits)}. "
+                                              "그 파일을 고치는 commit 을 저장 스크립트로 만든 뒤 다시 실행하라.")
+        if shared:
+            _enter_shared_pr_branch(top, branch, deadline, notes)
         gitcmd.git(top, "push", "-q", "origin", branch, deadline=deadline)
-        args = ["pr", "create", "-R", _full_name(top), "--base", BRANCH, "--head", branch, "--title", title,
-                "--body-file", str(body_file), "--assignee", "@me"]
-        if gitcmd.gh_login(deadline) != PR_REVIEWER:
-            args += ["--reviewer", PR_REVIEWER]
-        out = gitcmd.gh(*args, deadline=deadline)
+        out = gitcmd.gh("pr", "create", "-R", _full_name(top), "--base", BRANCH, "--head", branch, "--title", title,
+                        "--body-file", str(body_file), "--assignee", "@me", deadline=deadline)
         url = (out.strip().splitlines() or [""])[-1]
         # PR 은 이미 열렸으므로 아래 단계가 실패해도 결과는 pr-opened 로 두고 detail 에 적는다.
+        _drop_upload_state(top, branch, deadline)
         gitcmd.git_try(top, "fetch", "-q", "origin", deadline=deadline)
-        # 같은 기능의 다음 수정이 PR branch 에 쌓이지 않게 한다.
-        code, out, err = gitcmd.git_try(top, "switch", "-q", "--detach", REMOTE_REF, deadline=deadline)
-        if code != 0:
-            notes.append(f"HEAD 를 GitHub main 으로 떼어 두지 못해 {branch} 에 남아 있다. 다음 수정 전에 "
-                         f"switch-feature 로 새 작업 branch 를 만들어라. {(err or out).strip()}")
+        (_after_shared_pr if shared else _after_feature_pr)(top, branch, deadline, notes)
         restored = restore_upload_stash(top, deadline)
         if restored:
             notes.append(restored)
@@ -1994,6 +2167,8 @@ def open_pr(repo, feature, title, body_file):
                 "detail": " ".join(filter(None, notes))}
     except BranchChoiceError as exc:
         return _shared_failed(MSG_FAILED, str(exc))
+    except rules.RulesError as exc:
+        return _shared_failed(MSG_RULES, rules.failure_detail(exc))
     except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
@@ -2259,6 +2434,25 @@ def sync_main(repo, mode=None):
     return result
 
 
+def ensure_history_guard(repo):
+    """기능 레포와 공유 레포에 기록 삭제 차단 훅을 설치한다. 실패해도 명령은 이어 간다."""
+    try:
+        top = locate(Path(repo))
+        if top is None or not (is_feature_repo(top) or shared_repo.repo_kind(top) == "shared"):
+            return
+        installed = history_guard.install(top)
+    except Exception:  # noqa: BLE001 — 설치는 부가 단계다
+        installed = False
+    if not installed:
+        print(history_guard.INSTALL_FAILED_NOTE, file=sys.stderr)
+
+
+def _print_text(payload):
+    """개발자가 터미널에서 직접 실행한 명령의 결과다. JSON 대신 읽을 수 있는 글로 내보낸다."""
+    print("\n".join(filter(None, [payload.get("message"), payload.get("detail")])))
+    return 1 if payload["status"] == "failed" else 0
+
+
 def _print(payload):
     # ASCII 로만 내보낸다. cp949 로 설정된 PowerShell 이 출력을 담아도 한글이 깨지지 않는다.
     print(json.dumps(payload))
@@ -2267,8 +2461,11 @@ def _print(payload):
 
 def main(argv=None):
     sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="기능 레포의 작업을 검사해 commit 하고, 승인받은 작업을 push 한다.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    # 축약 인자를 받지 않는다. git_guard 는 --allow-outside 를 전체 이름으로만 알아본다.
+    parser = argparse.ArgumentParser(description="기능 레포의 작업을 검사해 commit 하고, 승인받은 작업을 push 한다.",
+                                     allow_abbrev=False)
+    sub = parser.add_subparsers(dest="command", required=True,
+                                parser_class=functools.partial(argparse.ArgumentParser, allow_abbrev=False))
     commit_cmd = sub.add_parser("commit", help="로컬에서만 작업 브랜치에 커밋한다")
     commit_cmd.add_argument("--repo", required=True)
     mode = commit_cmd.add_mutually_exclusive_group(required=True)
@@ -2277,6 +2474,7 @@ def main(argv=None):
     commit_cmd.add_argument("--branch")
     commit_cmd.add_argument("--feature", help="공유 대시보드 레포에서 고친 기능 이름")
     commit_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    commit_cmd.add_argument("--include-others", action="store_true", help="다른 기능 폴더의 변경도 commit 한다")
     prepare_cmd = sub.add_parser("prepare-upload", help="원격 레포와 기능 이슈를 맞춘다")
     prepare_cmd.add_argument("--repo", required=True)
     prepare_cmd.add_argument("--allow-other-owner", action="store_true")
@@ -2290,6 +2488,8 @@ def main(argv=None):
     upload_cmd.add_argument("--allow-other-owner", action="store_true")
     upload_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
     upload_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    upload_cmd.add_argument("--allow-outside", action="store_true", help="개발자가 터미널에서 직접 실행할 때만 쓴다")
+    upload_cmd.add_argument("--allow-others", action="store_true", help="개발자가 다른 분의 파일 수정에 동의했을 때 쓴다")
     review_cmd = sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다")
     review_cmd.add_argument("--repo", required=True)
     review_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올린 기능 이름")
@@ -2307,11 +2507,22 @@ def main(argv=None):
     revert_cmd.add_argument("--repo", required=True)
     revert_cmd.add_argument("--feature", required=True)
     revert_cmd.add_argument("--paths", nargs="+", required=True)
-    pr_cmd = sub.add_parser("open-pr", help="공유 대시보드 레포에서 검토 요청(PR)을 올린다")
+    pr_cmd = sub.add_parser("open-pr", help="검토 요청(PR)을 올린다")
     pr_cmd.add_argument("--repo", required=True)
-    pr_cmd.add_argument("--feature", required=True)
+    pr_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
     pr_cmd.add_argument("--title", required=True)
     pr_cmd.add_argument("--body-file", required=True)
+    pr_cmd.add_argument("--allow-other-owner", action="store_true")
+    start_cmd = sub.add_parser("pr-start", help="열린 검토 요청의 branch 를 받아 옮긴다")
+    start_cmd.add_argument("--repo", required=True)
+    start_cmd.add_argument("--number", type=int, required=True)
+    push_cmd = sub.add_parser("pr-push", help="리뷰 branch 의 commit 을 검토 요청에 올린다")
+    push_cmd.add_argument("--allow-other-owner", action="store_true")
+    push_cmd.add_argument("--repo", required=True)
+    leave_cmd = sub.add_parser("pr-leave", help="리뷰 branch 를 떠난다")
+    leave_cmd.add_argument("--repo", required=True)
+    leave_cmd.add_argument("--discard", action="store_true", help="올리지 못한 commit 까지 지운다")
+    leave_cmd.add_argument("--number", type=int)
     main_cmd = sub.add_parser("normalize-main", help="기본 branch 를 main 으로 맞춘다")
     main_cmd.add_argument("--repo", required=True)
     choice = main_cmd.add_mutually_exclusive_group()
@@ -2327,12 +2538,25 @@ def main(argv=None):
     sync_mode.add_argument("--continue", dest="sync_mode", action="store_const", const="continue")
     sync_mode.add_argument("--abort", dest="sync_mode", action="store_const", const="abort")
     args = parser.parse_args(argv)
+    ensure_history_guard(args.repo)
+    import pr_review  # 맨 위에서 불러오면 두 파일이 서로를 기다린다
+
+    refused = pr_review.refuse_on_review(args.repo, args.command)
+    if refused is not None:
+        return _print(refused)
+    if args.command == "pr-start":
+        return _print(pr_review.pr_start(args.repo, args.number))
+    if args.command == "pr-push":
+        return _print(pr_review.pr_push(args.repo, allow_other_owner=args.allow_other_owner))
+    if args.command == "pr-leave":
+        return _print(pr_review.pr_leave(args.repo, discard=args.discard, number=args.number))
     if args.command == "sync-main":
         return _print(sync_main(args.repo, mode=args.sync_mode))
     if args.command == "normalize-main":
         return _print(normalize_main(args.repo, merge_old=args.merge_old, discard_old=args.discard_old))
     if args.command == "open-pr":
-        return _print(open_pr(args.repo, args.feature, args.title, args.body_file))
+        return _print(open_pr(args.repo, args.feature, args.title, args.body_file,
+                              allow_other_owner=args.allow_other_owner))
     if args.command == "add-copy":
         return _print(add_copy(args.repo, args.feature, args.summary))
     if args.command == "check-boundary":
@@ -2344,15 +2568,20 @@ def main(argv=None):
     if args.command == "review-upload":
         return _print(review_upload(args.repo, feature=args.feature, intake=args.intake))
     if args.command == "upload":
-        return _print(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
-                             allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake))
+        show = _print_text if args.allow_outside else _print
+        return show(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
+                           allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake,
+                           allow_outside=args.allow_outside, allow_others=args.allow_others))
     if args.command == "commit":
         return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
-                                  feature=args.feature, intake=args.intake))
+                                  feature=args.feature, intake=args.intake, include_others=args.include_others))
     if args.command == "prepare-upload":
         return _print(prepare_upload(args.repo, allow_other_owner=args.allow_other_owner, body_file=args.body_file))
     return 2
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # pr_review 가 쓰는 save_work 와 같은 모듈로 실행한다. 아니면 예외 클래스가 둘이 되어 받지 못한다.
+    import save_work
+
+    raise SystemExit(save_work.main())

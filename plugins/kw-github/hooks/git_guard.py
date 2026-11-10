@@ -1,8 +1,11 @@
 """기능 레포에서 saving-work 를 건너뛰는 직접 commit·push 를 거부한다.
 
 명령 문자열을 먼저 보고, 살펴볼 명령이 없으면 git 을 부르지 않고 통과시킨다. 이 훅은 보안 경계가
-아니다. Claude 가 실수로 저장 스크립트의 검사를 건너뛰지 않게 하는 장치다. 브랜치·merge 는 거부하지
-않는다. 기능 레포와, 기능별 폴더 구조를 갖춘 공유 대시보드 레포에서만 거부한다.
+아니다. Claude 가 실수로 저장 스크립트의 검사를 건너뛰지 않게 하는 장치다. 로컬 브랜치 작업과 merge 는
+거부하지 않는다. 직접 commit·push 는 기능 레포와, 기능별 폴더 구조를 갖춘 공유 대시보드 레포에서만 거부한다.
+이전 commit 기록을 지우는 push 는 origin 이 회사 GitHub(KiwoomAX)인 모든 레포에서 거부한다. 회사 GitHub 의 ref 를
+지우거나 바꾸는 gh 명령은 폴더와 무관하게 거부한다. 사람의 터미널은 pre-push 훅이 맡고, 그 훅은 기능 레포와 공유
+대시보드 레포에만 설치된다.
 """
 import json
 import os
@@ -15,6 +18,9 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 SAVE_REASON = "commit과 push는 saving-work 로 한다."
+# scripts/history_guard.py 와 같은 문장이다. 이 파일 맨 위에서 불러오면 불러오기 실패가 거부로 바뀌지 않는다.
+HISTORY_REASON = "이전 기록을 지우는 push(업로드)는 차단됩니다. AX팀에 문의해 주세요."
+OUTSIDE_REASON = "기능 폴더 밖 수정은 개발자가 터미널에서 직접 올린다."
 
 SEPARATOR_CHARS = ";&|"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -26,6 +32,13 @@ GH_API_VALUE_OPTS = {
 }
 GH_API_BODY_OPTS = {"-f", "--raw-field", "-F", "--field", "--input"}
 WRITE_METHODS = {"PUT", "POST", "PATCH", "DELETE"}
+PUSH_HISTORY_OPTS = ("--force", "--mirror", "--no-verify", "--delete", "--prune")
+API_HOST = re.compile(r"^https?://api\.github\.com/", re.IGNORECASE)
+PUSH_SHORT_OPTS = re.compile(r"-[a-zA-Z]*[fd][a-zA-Z]*")
+ANY_REFS = re.compile(r"/?repos/[^/]+/[^/]+/git/refs(/|$)", re.IGNORECASE)
+COMPANY_REFS = re.compile(r"/?repos/kiwoomax/[^/]+/git/refs(/|$)", re.IGNORECASE)
+COMPANY_REPO = re.compile(r"/?repos/kiwoomax/[^/]+/?", re.IGNORECASE)
+GRAPHQL_REF_WRITE = re.compile(r"\b(updateRefs?|deleteRef)\b")
 
 
 def segments(command):
@@ -81,6 +94,32 @@ def _program(word):
     return name[:-len(".exe")] if name.endswith(".exe") else name
 
 
+def _history_push_word(word):
+    return word.startswith(PUSH_HISTORY_OPTS) or word.startswith(("+", ":")) or bool(PUSH_SHORT_OPTS.fullmatch(word))
+
+
+def _history_git_reason(words):
+    """이전 기록을 지우거나 pre-push 훅을 끄는 git 명령이면 그 이유를 돌려준다."""
+    index = 1
+    while index < len(words) and words[index].startswith("-"):
+        if words[index] not in GIT_VALUE_OPTS:
+            index += 1
+            continue
+        if words[index] == "-c" and words[index + 1:index + 2] and \
+                words[index + 1].lower().startswith("core.hookspath="):
+            return HISTORY_REASON
+        index += 2
+    rest = words[index:]
+    if rest[:1] == ["push"] and any(_history_push_word(word) for word in rest[1:]):
+        return HISTORY_REASON
+    if rest[:1] == ["config"]:
+        values = [word for word in rest[1:] if not word.startswith("-")]
+        values = values[1:] if values[:1] == ["set"] else values  # git config set <이름> <값>
+        if len(values) >= 2 and values[0].lower() == "core.hookspath":
+            return HISTORY_REASON
+    return None
+
+
 def _git_reason(words):
     """git 명령 한 조각을 본다. (기능 레포에서 막을 이유, -C 로 준 폴더) 를 돌려준다."""
     index, workdir = 1, None
@@ -93,15 +132,12 @@ def _git_reason(words):
             index += 1
     if index >= len(words):
         return None, workdir
-    return (SAVE_REASON if words[index] in ("commit", "push") else None), workdir
+    reason = _history_git_reason(words) or (SAVE_REASON if words[index] in ("commit", "push") else None)
+    return reason, workdir
 
 
-def _gh_reason(words):
-    """gh 명령 한 조각을 본다. 기능 레포에서 막을 이유를 돌려준다."""
-    if words[1:3] == ["repo", "create"]:
-        return SAVE_REASON if "--push" in words else None
-    if len(words) < 2 or words[1] != "api":
-        return None
+def _gh_api_call(words):
+    """gh api 조각의 (대문자 메서드, 대상 경로) 를 돌려준다."""
     method, target, has_body, index = "", "", False, 2
     while index < len(words):
         word = words[index]
@@ -122,13 +158,49 @@ def _gh_reason(words):
             target = word
         index += 1
     # gh api 는 -f 나 -F 로 본문을 주면 -X 가 없어도 POST 로 보낸다.
-    method = (method or ("POST" if has_body else "GET")).upper()
+    return (method or ("POST" if has_body else "GET")).upper(), API_HOST.sub("", target).lstrip("/")
+
+
+def _gh_reason(words):
+    """gh 명령 한 조각을 본다. 기능 레포에서 막을 이유를 돌려준다."""
+    if words[1:3] == ["repo", "create"]:
+        return SAVE_REASON if "--push" in words else None
+    if len(words) < 2 or words[1] != "api":
+        return None
+    method, target = _gh_api_call(words)
     if method not in WRITE_METHODS:
         return None
+    if ANY_REFS.match(target):
+        return HISTORY_REASON
     parts = target.lstrip("/").split("/")
     # 이슈 요청은 코드를 올리지 않는다. 작업 이슈와 기능 이슈의 Issue Type 설정이 이 요청을 쓴다.
     is_issue = parts[0] == "repos" and len(parts) > 3 and parts[3] == "issues"
     return SAVE_REASON if parts[0] == "repos" and not is_issue else None
+
+
+def _gh_anywhere(words):
+    if words[1:3] == ["repo", "delete"]:
+        return HISTORY_REASON
+    if len(words) < 2 or words[1] != "api":
+        return None
+    method, target = _gh_api_call(words)
+    if target == "graphql":
+        return HISTORY_REASON if GRAPHQL_REF_WRITE.search(" ".join(words)) else None
+    if method in WRITE_METHODS and COMPANY_REFS.match(target):
+        return HISTORY_REASON
+    return HISTORY_REASON if method == "DELETE" and COMPANY_REPO.fullmatch(target) else None
+
+
+def anywhere_reason(command):
+    """셸의 현재 폴더와 무관하게 막을 이유를 돌려준다. git 을 부르지 않는다."""
+    if "save_work.py" in command and "--allow-outside" in command:
+        return OUTSIDE_REASON
+    for words in segments(command):
+        words = _strip_assignments(words)
+        reason = _gh_anywhere(words) if words and _program(words[0]) == "gh" else None
+        if reason:
+            return reason
+    return None
 
 
 def blocked_commands(command, cwd):
@@ -186,6 +258,10 @@ def main():
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
         command = (payload.get("tool_input") or {}).get("command") or ""
         _mark_session(payload)
+        anywhere = anywhere_reason(command)
+        if anywhere:
+            _deny(anywhere)
+            return 0
         found = blocked_commands(command, payload.get("cwd") or os.getcwd())
         if not found:
             return 0
@@ -200,9 +276,10 @@ def main():
                 return 0  # git 이 없으면 막으려던 명령도 실행되지 않는다
             if top is None:
                 continue  # 레포가 아닌 폴더에서는 git push 가 실행되지 않는다
-            # 지원 구조가 아닌 대시보드는 kw-github 로 올릴 수 없으므로 막지 않는다(사용자 결정 2026-10-21).
-            if save_work.is_feature_repo(top) or (shared_repo.repo_kind(top) == "shared"
-                                                  and shared_repo.supported(top)):
+            # 지원 구조가 아닌 대시보드의 일반 push 는 막지 않는다(사용자 결정 2026-10-21). 기록 삭제만 막는다.
+            # 기록 삭제는 KiwoomAX 의 모든 레포에서 막는다(사용자 결정 2026-11-10).
+            if (reason == HISTORY_REASON and shared_repo.is_kiwoomax(top)) or save_work.is_feature_repo(top) or (
+                    shared_repo.repo_kind(top) == "shared" and shared_repo.supported(top)):
                 _deny(reason)
                 return 0
     except Exception as exc:  # noqa: BLE001 — 판단하지 못하면 통과시키지 않는다

@@ -3,6 +3,7 @@ import json
 import re
 
 import gitcmd
+import history_guard
 
 STATUS_LINE = re.compile(r"^HTTP/\S+ (\d{3})", re.M)
 STATUS_ERR = re.compile(r"\(HTTP (\d{3})\)")
@@ -38,5 +39,6 @@ def merge(full, head_sha, message, deadline=None):
 def delete_remote(top, branch, sha, deadline=None):
     """push 한 SHA 를 기대값으로 원격 작업 branch 를 지운다. 같은 이름의 남의 branch 는 지우지 않는다."""
     code, _, _ = gitcmd.git_try(top, "push", "-q", "origin", "--delete",
-                                f"--force-with-lease=refs/heads/{branch}:{sha}", branch, deadline=deadline)
+                                f"--force-with-lease=refs/heads/{branch}:{sha}", branch, deadline=deadline,
+                                env={history_guard.DELETE_ENV: "1"})
     return code == 0

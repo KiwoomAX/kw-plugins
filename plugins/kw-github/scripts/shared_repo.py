@@ -16,6 +16,12 @@ INTAKE_FILES = ("pyproject.toml", "uv.lock", "src/frontend/package.json", "src/f
                 "docker-compose.yml", "Jenkinsfile")
 STRUCTURE_FILES = ("src/backend/feature_loader.py", "src/backend/main.py", "src/backend/tests/test_health.py",
                    "src/frontend/src/feature-menu.ts", "src/frontend/src/routes.tsx")
+# 고치면 모든 기능의 빌드와 배포가 영향을 받는다. 본인이 고친 파일이어도 경계 검사에서 멈춘다.
+DEPLOY_FILES = ("docker-compose.yml", "kiwoom-deploy.yml", "Jenkinsfile", "src/backend/Dockerfile",
+                "src/frontend/Dockerfile", "src/frontend/nginx.conf")
+# 여러 기능이 함께 쓰는 구조·의존성 파일이다. 본인이 마지막으로 고쳤어도 묻는다. 동의하면 Claude 가 올린다.
+SHARED_IMPACT_FILES = STRUCTURE_FILES + ("pyproject.toml", "uv.lock", "src/frontend/package.json",
+                                         "src/frontend/package-lock.json")
 RESERVED = {"src", "docs", "frontend", "backend", "shell", "features"}
 WINDOWS_RESERVED = {"con", "nul", "aux", "prn"} | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)}
 NAME = re.compile(r"[A-Za-z0-9_-]+")
@@ -43,6 +49,12 @@ def _origin(top):
     code, url, _ = gitcmd.git_try(top, "config", "--get", "remote.origin.url")
     match = ORIGIN.search(url.strip()) if code == 0 else None
     return (match.group(1), match.group(2)) if match else None
+
+
+def is_kiwoomax(top):
+    """origin 이 회사 GitHub(KiwoomAX) 레포면 True 다."""
+    origin = _origin(top)
+    return bool(origin) and origin[0].casefold() == "kiwoomax"
 
 
 def repo_kind(top):
@@ -88,6 +100,10 @@ def feature_status(top, feature, ref=REMOTE_REF):
 
 def is_feature_doc(path, feature):
     return path in (f"docs/{feature}.pdf", f"docs/{feature}.docx")
+
+
+def any_feature_doc(path):
+    return bool(DOC.fullmatch(path))
 
 
 def allowed(path, feature):
@@ -175,9 +191,34 @@ def template_blobs(deadline=None):
     return {item["path"]: item["sha"] for item in tree if item.get("path") in STRUCTURE_FILES}
 
 
+DEPLOY_NAMES = ("docker-compose", "Dockerfile", "Jenkinsfile", "kiwoom-deploy")
+
+
+def is_deploy(path):
+    """배포·CI 파일이다. 새 파일도 여기에 해당한다. .github 아래의 workflow 는 저장소 secret 으로 실행된다."""
+    name = path.rsplit("/", 1)[-1]
+    return path in DEPLOY_FILES or path.startswith(".github/") or name.startswith(DEPLOY_NAMES)
+
+
 def _result(status, reason="", new_feature=False, outside=(), why=None):
     return {"status": status, "reason": reason, "new_feature": new_feature, "outside": list(outside),
-            "why": why or {}}
+            "why": why or {}, "deploy": [path for path in outside if is_deploy(path)]}
+
+
+def _developer_email(top, deadline=None):
+    """본인 판정에 쓰는 메일이다. 이름은 다른 사람과 같을 수 있어 쓰지 않는다."""
+    code, out, _ = gitcmd.git_try(top, "config", "user.email", deadline=deadline)
+    return out.strip().casefold() if code == 0 else ""
+
+
+def _free_to_change(top, path, main_blobs, email, deadline):
+    """기능 폴더 밖이어도 묻지 않고 올리는 파일이다. main 에 없던 새 파일과 본인이 마지막으로 고친 파일이다."""
+    if is_deploy(path) or path in SHARED_IMPACT_FILES:
+        return False
+    if path not in main_blobs:
+        return True
+    author = gitcmd.git(top, "log", "-1", "--format=%ae", REMOTE_REF, "--", path, deadline=deadline).strip()
+    return bool(email) and author.casefold() == email
 
 
 def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
@@ -191,12 +232,15 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
         return _result("invalid-feature")
     template = None
     outside, why = [], {}
+    email = "" if intake else _developer_email(top, deadline)
     main_blobs, head_blobs = tree_blobs(top, REMOTE_REF, deadline), tree_blobs(top, head, deadline)
     for path in dict.fromkeys(paths):
         blob = final_blob(top, head, path, dirty, deadline) if path in dirty else head_blobs.get(path)
         if blob == main_blobs.get(path):
             continue  # origin/main 과 같으면 변경이 아니다
         if allowed(path, feature):
+            continue
+        if not intake and _free_to_change(top, path, main_blobs, email, deadline):
             continue
         if intake and path in INTAKE_FILES:
             continue

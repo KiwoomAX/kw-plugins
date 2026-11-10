@@ -38,14 +38,14 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
   ```
 
   기능 이전이면 `--intake` 를 함께 넘겨라.
-- 기능 폴더 밖의 파일은 고치지 마라. `findings` 에 종류 `outside` 로 내라.
+- 기능 폴더 밖의 파일은 고치지 마라. 문제가 있으면 `findings` 에 내고, `check-boundary` 의 `outside` 목록에 있는 파일은 종류 `outside` 로 내라.
 - 비밀값을 출력에 적지 마라. 파일과 줄 번호만 적어라.
 - 서브에이전트를 실행하지 마라.
 - branch 를 바꾸지 마라. `git switch`·`git checkout`·`git merge` 를 실행하지 마라.
 
 ## 기능 폴더 밖의 새 파일
 
-`origin/main` 에 없던 파일이 기능 폴더 밖에 새로 생겼고 이 기능의 코드만 그 파일을 import 하면, 그 파일을 기능 폴더로 옮기는 권장안을 적은 `outside` 지적으로 내라. 직접 옮기지 마라. 옮길지는 본 대화가 개발자와 정한다.
+기능 이전에서 `origin/main` 에 없던 파일이 기능 폴더 밖에 새로 생겼고 이 기능의 코드만 그 파일을 import 하면, 그 파일을 기능 폴더로 옮기는 권장안을 적은 `outside` 지적으로 내라. 직접 옮기지 마라. 옮길지는 본 대화가 개발자와 정한다.
 
 ## 기능 이전일 때
 

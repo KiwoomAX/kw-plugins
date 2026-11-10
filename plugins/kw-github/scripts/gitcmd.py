@@ -36,13 +36,14 @@ class Deadline:
         return self.remaining() <= 0
 
 
-def _env():
+def _env(extra=None):
     env = dict(os.environ)
     # 훅 안에서는 로그인 질문에 답할 사람이 없어 시간만 흐른다. 묻지 말고 실패하게 한다.
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GCM_INTERACTIVE"] = "never"
     # 경로에 든 * ? [ 를 패턴으로 읽지 않고 글자 그대로 다룬다.
     env["GIT_LITERAL_PATHSPECS"] = "1"
+    env.update(extra or {})
     return env
 
 
@@ -69,12 +70,12 @@ def _kill_tree(proc):
         proc.kill()
 
 
-def run(args, cwd=None, deadline=None, timeout=None, stdin=None):
+def run(args, cwd=None, deadline=None, timeout=None, stdin=None, env=None):
     """명령을 실행해 (종료 코드, 표준 출력 bytes, 표준 오류 문자열) 을 돌려준다."""
     limit = _limit(args, deadline, timeout)
     try:
         proc = subprocess.Popen(
-            args, cwd=cwd, env=_env(),
+            args, cwd=cwd, env=_env(env),
             stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_NO_WINDOW,
         )
@@ -103,13 +104,13 @@ def _fail(args, code, out, err):
     return GitError(f"{_show(args)} 실패(종료 코드 {code}): {err.strip() or out.strip()}")
 
 
-def git_try(repo, *args, deadline=None, timeout=None, stdin=None):
-    code, out, err = run(_git_args(args), cwd=str(repo), deadline=deadline, timeout=timeout, stdin=stdin)
+def git_try(repo, *args, deadline=None, timeout=None, stdin=None, env=None):
+    code, out, err = run(_git_args(args), cwd=str(repo), deadline=deadline, timeout=timeout, stdin=stdin, env=env)
     return code, out.decode("utf-8", "replace"), err
 
 
-def git(repo, *args, deadline=None, timeout=None, stdin=None, check=True):
-    code, out, err = git_try(repo, *args, deadline=deadline, timeout=timeout, stdin=stdin)
+def git(repo, *args, deadline=None, timeout=None, stdin=None, check=True, env=None):
+    code, out, err = git_try(repo, *args, deadline=deadline, timeout=timeout, stdin=stdin, env=env)
     if check and code != 0:
         raise _fail(_git_args(args), code, out, err)
     return out

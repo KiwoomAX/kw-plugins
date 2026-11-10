@@ -5,6 +5,7 @@
 """
 import gitcmd
 import github_merge
+import history_guard
 from reset_history import is_history_branch
 
 MAIN = "main"
@@ -137,7 +138,7 @@ def _delete_old(top, old, deadline):
     if _exists(top, remote, deadline):
         sha = _sha(top, remote, deadline)
         gitcmd.git(top, "push", "-q", "origin", "--delete", f"--force-with-lease=refs/heads/{old}:{sha}", old,
-                   deadline=deadline)
+                   deadline=deadline, env={history_guard.DELETE_ENV: "1"})
     if _exists(top, f"refs/heads/{old}", deadline):
         if _head(top, deadline) == old:
             gitcmd.git(top, "switch", "-q", MAIN, deadline=deadline)

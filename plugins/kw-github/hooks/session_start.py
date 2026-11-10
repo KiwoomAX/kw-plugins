@@ -13,6 +13,8 @@ SCRIPTS = PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import gitcmd  # noqa: E402
+import history_guard  # noqa: E402
+import pr_review  # noqa: E402
 import main_branch  # noqa: E402
 import repo_setup  # noqa: E402
 import save_work  # noqa: E402
@@ -139,6 +141,16 @@ INTAKE_BRANCH_NOTE = (
     "commit 하지 않은 변경도 기능별로 commit 하지 마라. kw-dashboard 기능 이전 절차의 「다시 실행 판정」부터 이어 가고, "
     "업로드 승인은 그 절차가 공유 코드 반영 직전에 하는 질문으로 받아라."
 )
+PR_BRANCH_NOTE = (
+    "[kw-github] 지금 branch 는 검토 요청 #{number} 을 고치는 리뷰 branch 다. 개발자에게 지금 검토 요청 #{number} 을 고치는 "
+    "중이라고 알려라. 요청이 이 검토 요청과 무관하면 save_work.py pr-leave 로 나온 뒤 진행하라. 이어서 고치면 saving-work 의 "
+    "「PR 추가 수정」 절을 따라라."
+)
+STASH_NOTE = (
+    "[kw-github] 끊긴 올리기가 임시 보관한 수정이 남아 있다(stash: {ref}). saving-work 의 「남은 임시 보관」 절에 "
+    "따라 내용을 확인해 개발자와 정리하라."
+)
+STASH_UPLOAD_NOTE = "[kw-github] 끊긴 올리기의 상태도 남아 있다. 개발자에게 올리기를 이어 갈지 먼저 물어라."
 UNSUPPORTED_NOTE = (
     "[kw-github] 이 공유 대시보드 레포는 아직 기능별 폴더 구조가 아니라 kw-github 가 commit 과 업로드를 하지 않는다. "
     "개발자가 올리기를 원하면 AX팀에 기능별 폴더 구조로 전환을 요청하라고 안내하라."
@@ -334,7 +346,10 @@ def shared_context(top, session_id=None):
     if session_id:
         session_mark.touch(top, session_id)
     current = save_work.current_branch(top)
-    if current and save_work.is_intake_branch(top, current):
+    number = pr_review.review_number(current)
+    if number is not None:
+        notes.append(PR_BRANCH_NOTE.format(number=number))
+    elif current and save_work.is_intake_branch(top, current):
         # 기능 이전 중에는 이전 절차만 commit·업로드하므로 기능별 commit 안내를 넣지 않는다.
         notes.append(INTAKE_BRANCH_NOTE)
     # 지원 구조가 아니면 경로를 기능별로 묶을 기준이 없고, commit 도 하지 않는다.
@@ -351,7 +366,41 @@ def shared_context(top, session_id=None):
     return "\n".join(notes) + "\n\n" + GIT_TERMS_PATH.read_text(encoding="utf-8")
 
 
+def history_guard_note(cwd):
+    """기록 삭제 차단 훅을 설치하고, 설치하지 못하면 안내 문장을 돌려준다. git 이 없는 상황은 아래 안내가 맡는다."""
+    try:
+        top = save_work.locate(cwd)
+        if top is None or not (save_work.is_feature_repo(top) or shared_repo.repo_kind(top) == "shared"):
+            return ""
+        return "" if history_guard.install(top) else history_guard.INSTALL_FAILED_NOTE
+    except Exception:  # noqa: BLE001 — 설치는 부가 단계다. 세션 시작 안내를 잃지 않는다
+        return ""
+
+
+def stash_note(cwd):
+    """끊긴 upload 가 남긴 stash 를 알리는 문장이다. merge 충돌을 푸는 중이면 그 흐름이 되돌리므로 알리지 않는다."""
+    try:
+        top = save_work.locate(cwd)
+        if top is None or not (save_work.is_feature_repo(top) or shared_repo.repo_kind(top) == "shared"):
+            return ""
+        gdir = save_work.git_dir(top)
+        ref = None if (gdir / "MERGE_HEAD").exists() else save_work.upload_stash_ref(top)
+        if ref is None:
+            return ""
+        stopped = (gdir / save_work.UPLOAD_STATE).exists()
+        return "\n".join(filter(None, [STASH_NOTE.format(ref=ref), STASH_UPLOAD_NOTE if stopped else ""]))
+    except Exception:  # noqa: BLE001 — 안내는 부가 단계다. 세션 시작 안내를 잃지 않는다
+        return ""
+
+
 def context_for(cwd, session_id=None, source="startup"):
+    note = history_guard_note(cwd)
+    context = _context_for(cwd, session_id, source)
+    # 기능 레포의 세션 시작 commit 이 stash 를 되돌릴 수 있으므로 그 뒤에 본다.
+    return "\n".join(filter(None, [note, context, stash_note(cwd)])) or None
+
+
+def _context_for(cwd, session_id=None, source="startup"):
     try:
         top = save_work.locate(cwd)
         if top is not None and shared_repo.repo_kind(top) == "shared":
@@ -375,7 +424,9 @@ def context_for(cwd, session_id=None, source="startup"):
         notes = sync_feature(top, source, elsewhere)
     except Exception as exc:  # noqa: BLE001 — 동기화는 부가 단계다. 앞서 만든 commit 알림을 버리지 않는다
         notes = [FF_FAILED_NOTE.format(detail=f"{exc.__class__.__name__}: {exc}")]
-    context = "\n".join(filter(None, [context, *notes]))
+    number = pr_review.review_number(save_work.current_branch(top))
+    pr_note = PR_BRANCH_NOTE.format(number=number) if number is not None else ""
+    context = "\n".join(filter(None, [context, *notes, pr_note]))
     return _with_rules(context) if context else None
 
 
