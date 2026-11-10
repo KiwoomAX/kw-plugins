@@ -645,7 +645,8 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
                    "AX팀에 기능별 폴더 구조로 전환을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
-MSG_OUTSIDE = "이번 수정 중 {files} 은 다른 분이 작업했거나 배포에 쓰는 파일입니다."
+MSG_OUTSIDE = "이번 수정 중 {files} 은 다른 분이 작업했거나 여러 기능이 함께 쓰는 파일입니다."
+MSG_INTAKE_OUTSIDE = "이번 기능 이전에서 {files} 은 고칠 수 없는 파일입니다."
 MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 반영되기 전까지 공유 코드에는 들어가지 않습니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
 SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
 BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
@@ -801,10 +802,10 @@ def switch_feature(repo, feature, summary=None, intake=False):
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
 
-def _boundary_payload(result, commits=()):
+def _boundary_payload(result, commits=(), intake=False):
     status = result["status"]
     if status == "outside":
-        message = MSG_OUTSIDE.format(files=", ".join(result["outside"]))
+        message = (MSG_INTAKE_OUTSIDE if intake else MSG_OUTSIDE).format(files=", ".join(result["outside"]))
     elif status == "failed":
         message = MSG_FAILED
     else:
@@ -854,7 +855,7 @@ def check_boundary(repo, feature, intake=False):
         head = feature_branch(top, feature, exclude=waiting, deadline=deadline) or "HEAD"
         result = _boundary_of(top, feature, head, intake, deadline)
         commits = gitcmd.git(top, "log", f"{REMOTE_REF}..{head}", "--format=%s", deadline=deadline).splitlines()
-        payload = _boundary_payload(result, commits)
+        payload = _boundary_payload(result, commits, intake)
         if result["status"] == "outside":
             payload["outside_detail"] = outside_detail(top, result["outside"], deadline)
         return payload
@@ -1104,7 +1105,7 @@ def _commit_intake_merge(top, message, feature, data, deadline, progress):
     result = shared_repo.boundary(top, feature, paths, "HEAD", set(paths), intake=True, deadline=deadline)
     if result["status"] != "inside":
         payload = _shared_commit_result(result["status"] if result["status"] != "outside" else "failed",
-                                        _boundary_payload(result)["message"] or MSG_FAILED,
+                                        _boundary_payload(result, intake=True)["message"] or MSG_FAILED,
                                         f"기능 이전 merge 결과가 경계 검사를 통과하지 못했다: {result}", branch=branch)
         payload["outside"] = result["outside"]
         payload["reason"] = result["reason"]
@@ -1495,7 +1496,7 @@ def _precheck(top, branch, state, deadline, progress=None):
         return _history_hits(top, branch, feature, deadline) if intake else None
     if result["status"] == "outside" and not intake and progress.get("allow_others") and not result["deploy"]:
         return None
-    payload = _boundary_payload(result)
+    payload = _boundary_payload(result, intake=intake)
     stop = {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
     if result["status"] == "outside" and not intake:

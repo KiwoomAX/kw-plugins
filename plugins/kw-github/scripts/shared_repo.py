@@ -19,6 +19,9 @@ STRUCTURE_FILES = ("src/backend/feature_loader.py", "src/backend/main.py", "src/
 # 고치면 모든 기능의 빌드와 배포가 영향을 받는다. 본인이 고친 파일이어도 경계 검사에서 멈춘다.
 DEPLOY_FILES = ("docker-compose.yml", "kiwoom-deploy.yml", "Jenkinsfile", "src/backend/Dockerfile",
                 "src/frontend/Dockerfile", "src/frontend/nginx.conf")
+# 여러 기능이 함께 쓰는 구조·의존성 파일이다. 본인이 마지막으로 고쳤어도 묻는다. 동의하면 Claude 가 올린다.
+SHARED_IMPACT_FILES = STRUCTURE_FILES + ("pyproject.toml", "uv.lock", "src/frontend/package.json",
+                                         "src/frontend/package-lock.json")
 RESERVED = {"src", "docs", "frontend", "backend", "shell", "features"}
 WINDOWS_RESERVED = {"con", "nul", "aux", "prn"} | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)}
 NAME = re.compile(r"[A-Za-z0-9_-]+")
@@ -187,19 +190,20 @@ def _result(status, reason="", new_feature=False, outside=(), why=None):
             "why": why or {}, "deploy": [path for path in outside if path in DEPLOY_FILES]}
 
 
-def _developer_name(top, deadline=None):
-    code, out, _ = gitcmd.git_try(top, "config", "user.name", deadline=deadline)
-    return out.strip() if code == 0 else ""
+def _developer_email(top, deadline=None):
+    """본인 판정에 쓰는 메일이다. 이름은 다른 사람과 같을 수 있어 쓰지 않는다."""
+    code, out, _ = gitcmd.git_try(top, "config", "user.email", deadline=deadline)
+    return out.strip().casefold() if code == 0 else ""
 
 
-def _free_to_change(top, path, main_blobs, name, deadline):
+def _free_to_change(top, path, main_blobs, email, deadline):
     """기능 폴더 밖이어도 묻지 않고 올리는 파일이다. main 에 없던 새 파일과 본인이 마지막으로 고친 파일이다."""
-    if path in DEPLOY_FILES:
+    if path in DEPLOY_FILES or path in SHARED_IMPACT_FILES:
         return False
     if path not in main_blobs:
         return True
-    author = gitcmd.git(top, "log", "-1", "--format=%an", REMOTE_REF, "--", path, deadline=deadline).strip()
-    return bool(name) and author == name
+    author = gitcmd.git(top, "log", "-1", "--format=%ae", REMOTE_REF, "--", path, deadline=deadline).strip()
+    return bool(email) and author.casefold() == email
 
 
 def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
@@ -213,7 +217,7 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
         return _result("invalid-feature")
     template = None
     outside, why = [], {}
-    name = "" if intake else _developer_name(top, deadline)
+    email = "" if intake else _developer_email(top, deadline)
     main_blobs, head_blobs = tree_blobs(top, REMOTE_REF, deadline), tree_blobs(top, head, deadline)
     for path in dict.fromkeys(paths):
         blob = final_blob(top, head, path, dirty, deadline) if path in dirty else head_blobs.get(path)
@@ -221,7 +225,7 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
             continue  # origin/main 과 같으면 변경이 아니다
         if allowed(path, feature):
             continue
-        if not intake and _free_to_change(top, path, main_blobs, name, deadline):
+        if not intake and _free_to_change(top, path, main_blobs, email, deadline):
             continue
         if intake and path in INTAKE_FILES:
             continue
