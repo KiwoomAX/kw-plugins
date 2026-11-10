@@ -645,8 +645,8 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
                    "AX팀에 기능별 폴더 구조로 전환을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
-MSG_OUTSIDE = "이번 수정 중 {files} 은 내 기능 폴더 밖의 공용 파일입니다."
-MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
+MSG_OUTSIDE = "이번 수정 중 {files} 은 다른 분이 작업했거나 배포에 쓰는 파일입니다."
+MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 반영되기 전까지 공유 코드에는 들어가지 않습니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
 SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
 BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
 COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 뒤 다시 실행하라. {exc}"
@@ -1433,7 +1433,7 @@ def _stash_leftovers(top, deadline, progress):
         progress["stashed"] = True
 
 
-INTAKE_OUTSIDE_DETAIL = "기능 이전에는 --allow-outside 를 쓰지 않는다. 기능 이전 절차를 따르라."
+INTAKE_OUTSIDE_DETAIL = "기능 이전에는 --allow-outside 와 --allow-others 를 쓰지 않는다. 기능 이전 절차를 따르라."
 MSG_NOT_MERGED_FEATURE = ("작업을 GitHub 에 push(업로드)했지만 팀이 함께 보는 main 에 반영하지 못했습니다. "
                           "잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요.")
 MSG_NOT_MERGED_SHARED = ("작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. "
@@ -1476,7 +1476,8 @@ def _push_branch(top, branch, state, deadline, progress):
 def _precheck(top, branch, state, deadline, progress=None):
     """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다.
 
-    개발자가 --allow-outside 로 직접 실행했으면 경계 검사만 생략한다. 그 값은 progress 에만 있고 상태 파일에 적지 않는다.
+    개발자가 --allow-outside 로 직접 실행했으면 경계 검사만 생략한다. --allow-others 는 배포 설정이 없을 때만 생략한다.
+    두 값은 progress 에만 있고 상태 파일에 적지 않는다.
     """
     progress = progress or {}
     feature = state.get("feature")
@@ -1492,12 +1493,16 @@ def _precheck(top, branch, state, deadline, progress=None):
     result = _boundary_of(top, feature, branch, intake, deadline)
     if result["status"] == "inside":
         return _history_hits(top, branch, feature, deadline) if intake else None
+    if result["status"] == "outside" and not intake and progress.get("allow_others") and not result["deploy"]:
+        return None
     payload = _boundary_payload(result)
     stop = {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
     if result["status"] == "outside" and not intake:
         stop["outside_detail"] = outside_detail(top, result["outside"], deadline)
-        stop["command"] = outside_command(top)
+        stop["deploy"] = result["deploy"]
+        if result["deploy"]:
+            stop["command"] = outside_command(top)
     return stop
 
 
@@ -1573,7 +1578,7 @@ def _history_hits(top, branch, feature, deadline):
 
 def _stopped(stop, progress):
     """_precheck 가 돌려준 결과에 upload 공통 칸을 채운다."""
-    extra = {key: stop[key] for key in ("outside_detail", "command") if key in stop}
+    extra = {key: stop[key] for key in ("outside_detail", "deploy", "command") if key in stop}
     return {**_upload_result(stop["status"], stop["message"], stop["detail"], progress),
             "outside": stop["outside"], "reason": stop["reason"], **extra}
 
@@ -1768,13 +1773,13 @@ def _resume(top, full, state, deadline, progress):
 
 
 def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False, feature=None,
-           intake=False, allow_outside=False):
+           intake=False, allow_outside=False, allow_others=False):
     """승인받은 작업을 GitHub 공유 코드에 올린다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     deadline = gitcmd.Deadline(INTAKE_UPLOAD_SECONDS if intake else SAVE_SECONDS)
     progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": [],
-                "allow_outside": allow_outside}
+                "allow_outside": allow_outside, "allow_others": allow_others}
     try:
-        if intake and allow_outside:
+        if intake and (allow_outside or allow_others):
             raise UploadStop(INTAKE_OUTSIDE_DETAIL)
         top = locate(Path(repo))
         if top is not None and shared_repo.repo_kind(top) == "shared":
@@ -1921,7 +1926,7 @@ def _upload_shared(top, task, title, close, resume, feature, intake, deadline, p
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["feature"] = state.get("feature") or _kw_feature(top, state.get("branch") or "", deadline)
         if state.get("intake"):
-            if progress.get("allow_outside"):
+            if progress.get("allow_outside") or progress.get("allow_others"):
                 raise UploadStop(INTAKE_OUTSIDE_DETAIL)
             deadline.seconds = INTAKE_UPLOAD_SECONDS
         progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
@@ -2460,6 +2465,7 @@ def main(argv=None):
     upload_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
     upload_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
     upload_cmd.add_argument("--allow-outside", action="store_true", help="개발자가 터미널에서 직접 실행할 때만 쓴다")
+    upload_cmd.add_argument("--allow-others", action="store_true", help="개발자가 다른 분의 파일 수정에 동의했을 때 쓴다")
     review_cmd = sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다")
     review_cmd.add_argument("--repo", required=True)
     review_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올린 기능 이름")
@@ -2541,7 +2547,7 @@ def main(argv=None):
         show = _print_text if args.allow_outside else _print
         return show(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
                            allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake,
-                           allow_outside=args.allow_outside))
+                           allow_outside=args.allow_outside, allow_others=args.allow_others))
     if args.command == "commit":
         return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
                                   feature=args.feature, intake=args.intake, include_others=args.include_others))
