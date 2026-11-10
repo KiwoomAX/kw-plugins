@@ -71,7 +71,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 | 셸 강조(사이드바 · 상태바) | `brand` · `on-brand` | `--brand` · `--on-brand` |
 | 표 머리 | `bg-th` · `text-on-th` | `--th-bg` · `--th-ink` |
 | 고른 행 | `bg-row-sel` | `--row-sel` |
-| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak` | `--ok` · `--warn` · `--bad` 와 각각의 `-weak` |
+| 상태(진행 중 · 확인 필요 · 마감 알림) | `status-ok` · `status-warn` · `status-bad` 와 각각의 `-weak`(옅은 면), 진한 면 `status-warn-fill` · `status-bad-fill`, 면 위 글자 `status-warn-ink` · `status-bad-ink`, 면 없는 안내문 글자 `status-warn-text` | `--ok` · `--warn` · `--bad` 와 각각의 `-weak`, `--warn-fill` · `--bad-fill`, `--warn-ink` · `--bad-ink`, `--warn-text` |
 | 등락(상승은 붉은 계열 · 하락은 푸른 계열) | `rise` · `fall` · `rise-fill` · `fall-fill` · `rise-weak` · `fall-weak` | 같은 이름의 `--rise` · `--fall` 등 |
 | 차트 | `chart-1`~`chart-4` · `chart-gray-1`~`chart-gray-3` · `grid` | `--chart-1`~`--chart-4` · `--chart-gray-1`~`--chart-gray-3` · `--grid-line` |
 | 링크 · 포커스 · 비활성 | `text-link` · `outline-focus` · `text-disabled` | `--link` · `--focus` · `--disabled` |
@@ -110,7 +110,10 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 - 상태 3색은 뜻이 정해져 있다. `status-ok` 는 진행 중, `status-warn` 은 확인 필요, `status-bad` 는 마감 알림과
   실패다. 초록과 노랑은 쓰지 않는다. 흰 면에서 맑은 노랑은 대비가 2.2 까지 떨어지고, 초록은 대비가 낮 3.09,
   밤 10.2 로 테마에 따라 눈에 띄는 정도가 크게 달라진다.
-- 확인이 필요한 것만 굵은 글씨에 옅은 면(`-weak`)을 준다. 진행과 완료는 보통 굵기에 면 없이 글자만 둔다.
+- 확인이 필요한 것만 굵은 글씨에 면을 준다. 상태 표시의 면은 `-fill`, 그 위의 글자는 `-ink` 를 쓴다. `-weak` 는 이전 화면이 쓰던 옅은 면이며, 그 위에는 `status-warn` · `status-bad` 글자를 쓴다.
+- 화면 폭으로 넓게 보이는 안내문(저장 실패 · 확인 요청 등)에는 면과 테두리와 밑줄을 쓰지 않는다. 반드시 처리해야 하는 안내(저장 실패 · 마감 · 권한 문제 등)는 `--bad` 색 아이콘과 `status-bad` 글자로, 알아 두면 좋은 안내(확인 요청 · 주의 등)는 `--warn` 색 아이콘과 `status-warn-text` 글자로 적는다. 아이콘은 lucide 경고 아이콘을 쓰고, 글자는 굵게, 폭은 글자 길이만큼 둔다.
+- `status-warn-text` 는 흰 면 대비가 약 3.1 이라 굵은 안내문 글자에만 쓴다. 본문 크기의 보통 굵기 글자에는 쓰지 않는다.
+- 링크는 `text-link` 색에 밑줄(`underline underline-offset-3`)을 둔다. 링크 색이 하락색 `fall` 과 같아서, 밑줄이 없으면 링크 걸린 숫자가 하락값처럼 보인다. 진행과 완료는 보통 굵기에 면 없이 글자만 둔다.
 - 색은 과하지 않게 쓴다. 한 화면에 색감은 2가지를 권장하고, 화면에 필요하면 3가지를 넘겨도 된다. 차트 안의
   계열은 이 셈에서 빼고 아래 차트 규칙으로 센다.
 - 겹치지 않는 차트(도넛 · 단일 막대)는 `chart-1` · `chart-2` 와 회색 3개만 쓴다. 색감이 3가지 이상 필요하면
@@ -123,8 +126,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
   조각 위로 올라타 한 곳만 간격이 사라진다. 조각 길이는 비율에서 계산하고 조각마다 간격만큼 뺀다.
 - 등락에 `status-ok` · `status-bad` 를 빌려 쓰지 않는다. 상태와 등락은 뜻이 다르다. 자금 유입과 유출은
   등락이므로 `rise` · `fall` 을 쓴다.
-- 옅은 면은 투명도로 만들지 않고, 그 색을 낮에는 흰 면에, 밤에는 카드 면에 12% 섞은 고정값으로 둔다. 그래야
-  대비를 계산할 수 있다.
+- 면 색은 투명도로 만들지 않고 고정값으로 둔다. 그래야 대비를 계산할 수 있다.
 - `#333` 이나 `red-500` 같은 값을 직접 쓰지 않는다. 새 색이 필요하면 자기 CSS 파일에 토큰을 정의한다. 낮
   (`:root`), OS 설정의 밤(`@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme="light"])`),
   사용자가 고른 밤(`:root[data-theme="dark"]`) 3곳에 모두 적는다. 그다음 `@theme inline` 에
@@ -136,18 +138,33 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 
 | 쓰임 | 크기 | 적는 법 |
 |---|---|---|
-| 큰 수치(지표 값) | 17px | `text-[17px]` |
-| 본문 · 표 내용 · 카드 제목(굵게) | 14px | `text-[14px]` |
-| 부제 · 보조 설명 · 표 머리 | 13px | `text-[13px]` |
-| 라벨 | 12px | `text-[12px]` |
-| 뱃지 · 각주 | 11px | `text-[11px]` |
-| 부가 설명 | 10px | `text-[10px]` |
+| 큰 수치(지표 값) | 17px | `text-metric` · `var(--fs-metric)` |
+| 본문 · 표 내용 · 카드 제목(굵게) | 14px | `text-body` · `var(--fs-body)` |
+| 부제 · 보조 설명 · 표 머리 | 13px | `text-sub` · `var(--fs-sub)` |
+| 라벨 | 12px | `text-label` · `var(--fs-label)` |
+| 뱃지 · 각주 | 11px | `text-badge` · `var(--fs-badge)` |
+| 부가 설명 | 10px | `text-note` · `var(--fs-note)` |
 
 - 서체는 SUIT 이고 파일을 스킬과 대시보드 저장소에 함께 둔다. 대시보드는 셸이 정하므로 화면에서 `font-family` 를
   다시 주지 않는다. SUIT 에 없는 드문 한글은 맑은 고딕으로 그려진다. 굵기는 보통과 굵게 두 가지만 쓴다.
-- 표에 없는 크기는 쓰지 않는다. Tailwind 기본 크기 중 `text-base` · `text-lg` · `text-xl` · `text-2xl` 은 표에
+- 표에 없는 크기는 쓰지 않는다. 셸(사이드바 · 상태바 · 알림 배지)의 9px 와 15px 는 셸 전용 예외다. Tailwind 기본 크기 중 `text-base` · `text-lg` · `text-xl` · `text-2xl` 은 표에
   없는 크기다. 같은 쓰임은 화면이 달라도 같은 크기로 둔다.
 - 표의 값은 CSS 에 적는 값이고 화면에도 그 크기로 보인다. 본문 14px 는 대시보드와 일반 기능 모두 14px 로 보인다.
+
+## 간격과 그림자
+
+- 여백과 간격은 `--sp-xs`(4) · `--sp-sm`(8) · `--sp-12`(12) · `--sp-md`(16) · `--sp-20`(20) · `--sp-lg`(24) · `--sp-xl`(32) 을 쓴다. Tailwind 에서는 `p-1` · `p-2` · `p-3` · `p-4` · `p-5` · `p-6` · `p-8` 이 같은 값이다.
+- 그림자는 `--elev-sm` · `--elev-md` 두 가지만 쓴다. Tailwind 에서는 `shadow-sm` · `shadow-md` 다.
+
+## 공용 컴포넌트
+
+단추 · 입력칸 · 카드 · 대화상자는 새로 만들지 않고 공용 컴포넌트 `Button` · `Input` · `Card` · `Modal` 을 쓴다. 이 페이지 전용 단추를 만들지 않는다.
+
+- 대시보드는 `src/frontend/src/shell/ui` 에서 불러온다. 셸 파일이므로 고치지 않는다.
+- 일반 기능은 [templates/components/index.ts](templates/components/index.ts) 가 있는 `templates/components` 폴더를 `src/components/ui` 로 복사해 쓴다. 대시보드에 붙일 때 불러오는 주소를 `shell/ui` 로 바꾼다.
+- 변형은 `variant`(`primary` · `outline` · `ghost`) 와 `size`(`md` · `sm`) 로 정한다. `primary` 는 상대에게 바로 나가는 동작에만 쓴다.
+- 목업에서는 같은 모양의 클래스(`kw-btn kw-btn--outline kw-btn--md` · `kw-input` · `kw-card`)를 쓴다.
+- 화면 컴포넌트에서 `fetch` 를 직접 호출하지 않는다. 데이터 호출은 기능 폴더의 별도 파일에 두고, 화면은 값과 상태를 props 로 받는다. 그래야 디자인을 바꿔도 데이터 호출 코드는 그대로다.
 
 ## 아이콘
 
@@ -164,7 +181,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 |---|---|
 | 불러오는 중 | 그 구획의 크기를 유지하고 「불러오는 중입니다」를 보조 글자색 13px 로 적는다. 비워 두면 화면이 흔들린다 |
 | 값이 없음 | 같은 구획에 「아직 값이 없습니다」를 보조 글자색 13px 로 적는다. 왜 없는지 아는 때는 한 줄로 덧붙인다 |
-| 불러오지 못함 | `status-bad` 로 적고 옅은 면을 준다. 다시 받을 수 있으면 단추를 함께 둔다 |
+| 불러오지 못함 | 「색」의 넓은 안내문 중 반드시 처리해야 하는 안내 모양으로 적는다. 다시 받을 수 있으면 단추를 함께 둔다 |
 | 권한이 없음 | 보조 글자색으로 적고 누구에게 물어야 하는지 함께 적는다 |
 
 - 숫자는 자릿수 정렬(`tabular-nums`)로 둔다. 대시보드는 셸이 화면 전체에 적용하고 표에 `font-kerning: none` 도
@@ -240,7 +257,7 @@ AI 가 기본값으로 만드는 장식이다. 정보를 더하지 않고 화면
 - **꾸미는 그라데이션을 쓰지 않는다.** 남색→보라 그라데이션과 그라데이션 글자(`bg-clip-text`)를 쓰지 않는다.
   카드 면과 배경을 꾸미는 그라데이션도 쓰지 않는다. 차트 채움과 색 척도처럼 값을 보이는 그라데이션은 쓴다.
 - **배경 장식을 두지 않는다.** 카드를 반투명 블러(`backdrop-blur`)로 만들지 않고, 배경에 흐린 원(blob)과
-  줄무늬를 두지 않는다. 대화상자 뒤를 어둡게 덮는 층은 셸이 정하므로 이 항목과 관계없다.
+  줄무늬를 두지 않는다. 대화상자 뒤를 어둡게 덮는 층은 `--scrim` 을 쓰며 이 항목과 관계없다.
 - **장식으로 이모지를 붙이지 않는다.** 제목 · 단추 · 목록 · 안내문에 🚀 ✨ 💡 같은 이모지를 두지 않고, AI 기능
   단추에도 ✨ 를 붙이지 않는다. 표시가 필요하면 lucide 아이콘을 쓴다. 화면이 붙이는 장식만
   해당하고, 데이터 속 이모지(사람이 입력한 글 등)는 그대로 보인다.
