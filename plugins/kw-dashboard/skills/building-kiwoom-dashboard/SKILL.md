@@ -107,7 +107,9 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 `routes.tsx` 와 `main.py` 는 고치지 않는다.
 
 1. 화면은 `src/frontend/src/features/<기능 이름>/` 에 둔다. 페이지 컴포넌트의 내용을 `DashboardLayout` 으로 감싸고,
-   상태바에 보일 값은 이 컴포넌트의 props 로만 넘긴다(아래 「상태바 값」).
+   상태바에 보일 값은 이 컴포넌트의 props 로만 넘긴다(아래 「상태바 값」). 화면 컴포넌트에서 `fetch` 를 직접
+   호출하지 않는다. 데이터 호출은 같은 기능 폴더의 별도 파일에 두고, 화면은 값과 상태를 props 로 받는다. 그래야
+   디자인을 바꿔도 데이터 호출 코드는 그대로다.
 2. 같은 폴더의 `menu.ts` 에 메뉴 항목을 적는다. `name` 은 메뉴 이름, `page` 는 페이지 컴포넌트, `cat` 은 카테고리,
    `path` 는 주소다. `path` 를 비우면 `/<기능 이름>` 이 된다. 메뉴 순서를 정하는 칸은 없다. 템플릿의 `buildMenu`
    가 순서를 정한다. `manualMenu` 의 낱개 항목이 적은 순서대로 먼저 오고, 카테고리 없는 기능이 폴더 이름순으로
