@@ -18,6 +18,7 @@ from pathlib import Path
 import github_merge
 import gitcmd
 import history_guard
+import import_check
 import main_branch
 import rules
 import scan_history
@@ -648,6 +649,7 @@ MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
 MSG_OUTSIDE = "이번 수정 중 {files} 은 다른 분이 작업했거나 여러 기능이 함께 쓰는 파일입니다."
 MSG_INTAKE_OUTSIDE = "이번 기능 이전에서 {files} 은 고칠 수 없는 파일입니다."
+MSG_BROKEN_IMPORT = "다른 코드가 쓰는 파일이나 이름이 없어져 공유 코드에 반영하지 않았습니다. 없어진 파일과 이름은 `detail` 에 적었습니다."
 MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 반영되기 전까지 공유 코드에는 들어가지 않습니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
 SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
 BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
@@ -756,6 +758,33 @@ def _feature_dirty(top, feature, deadline):
 def _shared_failed(message, detail, **extra):
     return {"status": "failed", "reason": "", "message": message, "detail": detail, **extra}
 
+
+
+def _broken_imports(top, head, deadline):
+    """head 트리에서만 해석되지 않는 import 다. origin/main 에 이미 있던 깨진 import 는 빼고, 줄 번호는 비교하지 않는다."""
+    files = import_check.tree_files(top, head, deadline)
+    items = import_check.unresolved(files) - import_check.unresolved(import_check.tree_files(top, REMOTE_REF, deadline))
+    return import_check.locate(files, items)
+
+
+def _imports_payload(broken):
+    if not broken:
+        return {"status": "ok", "reason": "", "broken_imports": [], "message": "", "detail": ""}
+    detail = "\n".join(f"{i['file']}:{i['line']} {i['target']} {i['name']}".rstrip() for i in broken)
+    return {"status": "broken", "reason": "", "broken_imports": broken, "message": MSG_BROKEN_IMPORT, "detail": detail}
+
+
+def check_imports(repo, head="HEAD", deadline=None):
+    """head 가 origin/main 에 없던 깨진 import 를 만드는지 확인한다. fetch 는 하지 않는다."""
+    deadline = deadline or gitcmd.Deadline(SAVE_SECONDS)
+    try:
+        top = locate(repo)
+        if top is None or shared_repo.repo_kind(top) != "shared" or not shared_repo.supported(top):
+            return {"status": "not-shared-repo", "reason": "", "broken_imports": [], "message": "",
+                    "detail": "기능별 폴더 구조의 공유 대시보드 레포가 아니다."}
+        return _imports_payload(_broken_imports(top, head, deadline))
+    except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc), broken_imports=[])
 
 def switch_feature(repo, feature, summary=None, intake=False):
     """그 기능의 작업 branch 로 옮긴다. 없으면 최신 origin/main 에서 원격 추적 설정 없이 만든다.
@@ -2459,6 +2488,15 @@ def _print(payload):
     return 1 if payload["status"] == "failed" else 0
 
 
+def _cli_check_imports(repo):
+    top = locate(repo)
+    if top is not None:
+        code, _, err = gitcmd.git_try(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SAVE_SECONDS))
+        if code != 0:
+            return _shared_failed(MSG_FAILED, f"GitHub 에서 최신 공유 코드를 받지 못했다: {err.strip()}", broken_imports=[])
+    return check_imports(repo)
+
+
 def main(argv=None):
     sys.stdout.reconfigure(encoding="utf-8")
     # 축약 인자를 받지 않는다. git_guard 는 --allow-outside 를 전체 이름으로만 알아본다.
@@ -2494,6 +2532,8 @@ def main(argv=None):
     review_cmd.add_argument("--repo", required=True)
     review_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올린 기능 이름")
     review_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
+    imports_cmd = sub.add_parser("check-imports", help="공유 대시보드 레포에서 다른 코드가 쓰는 파일·이름이 없어졌는지 확인한다")
+    imports_cmd.add_argument("--repo", required=True)
     boundary_cmd = sub.add_parser("check-boundary", help="공유 대시보드 레포에서 기능 폴더 경계를 검사한다")
     boundary_cmd.add_argument("--repo", required=True)
     boundary_cmd.add_argument("--feature", required=True)
@@ -2559,6 +2599,8 @@ def main(argv=None):
                               allow_other_owner=args.allow_other_owner))
     if args.command == "add-copy":
         return _print(add_copy(args.repo, args.feature, args.summary))
+    if args.command == "check-imports":
+        return _print(_cli_check_imports(args.repo))
     if args.command == "check-boundary":
         return _print(check_boundary(args.repo, args.feature, intake=args.intake))
     if args.command == "switch-feature":
