@@ -75,22 +75,46 @@ def _mapped(table, rows):
     return out
 
 
-def fetch_winus(plan, winus, base_date, parameters):
-    """(표별 행, 실패 응답). 하나라도 실패하면 그 기준일은 저장하지 않는다."""
+def _each_values(each, lists):
+    """query_each 의 목록 표에서 호출할 값. 빈 값과 중복은 빼고, 처음 나온 순서를 지킨다."""
+    out = []
+    for row in lists.get(each["table"], []):
+        value = str(row.get(each["column"]) or "").strip()
+        value = value.zfill(each["pad"]) if value and each.get("pad") else value
+        if value and value not in out:
+            out.append(value)
+    return out
+
+
+def _arg_sets(t, args, lists):
+    each = t.get("query_each")
+    return [{**args, each["arg"]: v} for v in _each_values(each, lists)] if each else [args]
+
+
+def fetch_winus(plan, winus, base_date, parameters, lists=None):
+    """(표별 행, 실패 응답). 하나라도 실패하면 그 기준일은 저장하지 않는다.
+    query_each 가 있는 표는 lists({표 이름: 행 목록})의 그 열 값마다 한 번씩 순서대로 호출하고 응답을 합친다."""
     out = {}
     values = {"base_date": base_date, "yyyymmdd": base_date.replace("-", ""), **{k: str(v) for k, v in (parameters or {}).items()}}
     for t in by_stage(plan, "raw_winus"):
         args = {k: v.format(**values) for k, v in t.get("query_args", {}).items()}
-        try:
-            rows = winus.fetch(t["query_id"], args)
-        except winus_errors.WinusRefused:
-            return None, result("failed", REFUSED)
-        except winus_errors.WinusStopped:
-            return None, result("failed", f"{t['name'].rsplit('__', 1)[-1]} 데이터를 받지 못했습니다. 아무것도 저장하지 않았습니다. 잠시 뒤 다시 올려 주십시오")
-        if not rows:
+        rows = []
+        for one in _arg_sets(t, args, lists or {}):
+            try:
+                rows += winus.fetch(t["query_id"], one)
+            except winus_errors.WinusRefused:
+                return None, result("failed", REFUSED)
+            except winus_errors.WinusStopped:
+                return None, result("failed", f"{t['name'].rsplit('__', 1)[-1]} 데이터를 받지 못했습니다. 아무것도 저장하지 않았습니다. 잠시 뒤 다시 올려 주십시오")
+        if not rows:  # 값 하나의 0건은 넘어가고, 합친 결과가 0건일 때만 멈춘다
             return None, result("failed", NO_DATA)
         out[t["name"]] = _mapped(t, rows)
     return out, None
+
+
+def list_tables(plan):
+    """query_each 가 목록으로 읽는 표 이름."""
+    return {t["query_each"]["table"] for t in by_stage(plan, "raw_winus") if t.get("query_each")}
 
 
 def calculated(plan, calculate, tables, base_date):
@@ -160,11 +184,11 @@ def _process(store, winus, plan, calculate, data, base_date, user, confirm):
         return result("same", "바뀐 값이 없어 저장된 결과를 보입니다")
     if state != "없음" and not confirm:
         return result("needs_confirm", OVERWRITE)
-    if not store.hourly and state == "완료":
+    if not store.hourly and state == "완료" and not list_tables(plan) & set(changed):  # 호출 목록이 바뀌면 WINUS 를 다시 받는다
         winus_rows = {t["name"]: store.read(t["name"], base_date) for t in by_stage(plan, "raw_winus")}
         fresh = []
     else:
-        winus_rows, failed = fetch_winus(plan, winus, base_date, checked["parameters"])
+        winus_rows, failed = fetch_winus(plan, winus, base_date, checked["parameters"], checked["tables"])
         if failed:
             return failed
         fresh = list(winus_rows)

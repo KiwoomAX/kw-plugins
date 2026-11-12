@@ -5,10 +5,10 @@ import upload
 
 
 def _process(store, winus, plan, calculate, base_date, user):
-    winus_rows, failed = upload.fetch_winus(plan, winus, base_date, {})
+    editable = {t["name"]: store.read(t["name"], base_date) for t in upload.by_stage(plan, "raw_manual", "raw_external")}
+    winus_rows, failed = upload.fetch_winus(plan, winus, base_date, {}, editable)
     if failed:
         return failed  # 조회가 실패하거나 0건이면 저장된 값을 그대로 둔다
-    editable = {t["name"]: store.read(t["name"], base_date) for t in upload.by_stage(plan, "raw_manual", "raw_external")}
     inputs = {**editable, **winus_rows, **{t["name"]: store.read_all(t["name"]) for t in upload.by_stage(plan, "fixed")}}
     results, failed = upload.calculated(plan, calculate, inputs, base_date)
     if failed:
