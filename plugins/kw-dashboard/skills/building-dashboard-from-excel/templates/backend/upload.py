@@ -76,7 +76,9 @@ def _mapped(table, rows):
 
 
 def _each_values(each, lists):
-    """query_each 의 목록 표에서 호출할 값. 빈 값과 중복은 빼고, 처음 나온 순서를 지킨다."""
+    """query_each 의 호출 값. values 가 있으면 그 고정 목록을 쓰고, 없으면 목록 표에서 빈 값과 중복을 빼고 처음 나온 순서로 읽는다."""
+    if "values" in each:
+        return list(each["values"])
     out = []
     for row in lists.get(each["table"], []):
         value = str(row.get(each["column"]) or "").strip()
@@ -114,7 +116,7 @@ def fetch_winus(plan, winus, base_date, parameters, lists=None):
 
 def list_tables(plan):
     """query_each 가 목록으로 읽는 표 이름."""
-    return {t["query_each"]["table"] for t in by_stage(plan, "raw_winus") if t.get("query_each")}
+    return {t["query_each"]["table"] for t in by_stage(plan, "raw_winus") if t.get("query_each", {}).get("table")}
 
 
 def calculated(plan, calculate, tables, base_date):
