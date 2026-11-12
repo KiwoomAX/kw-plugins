@@ -105,7 +105,8 @@ def _check_sheet(table, ws, previous, errors):
             if reason:
                 errors.append({"sheet": name, "cell": f"{get_column_letter(i + 2)}{r}", "reason": reason})
         rows.append(row)
-    errors += [{"sheet": name, "cell": f"행 ID {x}", "reason": "지워진 행이 있습니다"} for x in previous if x not in seen]
+    if not table.get("row_config"):  # 행을 추가하는 시트는 행을 지워도 된다. 지운 행은 이 기준일에서 빠지고 지난 기준일 값은 남는다
+        errors += [{"sheet": name, "cell": f"행 ID {x}", "reason": "지워진 행이 있습니다"} for x in previous if x not in seen]
     return rows
 
 
