@@ -219,6 +219,7 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 없다. 잘리는 요소에 `title` 속성으로 전체 글을 준다(`title={text}`). 잘리지 않는 글에는 달지 않는다. 같은 글이
 화면에 이미 전부 보이는데 툴팁이 또 뜨면 방해가 된다.
 
+## 값이 없을 때와 숫자
 
 값이 있을 때의 화면만 만들지 않는다. 아래 4가지 상태의 화면도 함께 만든다.
 
