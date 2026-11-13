@@ -209,6 +209,10 @@ try {
     $context = ($ctx | ConvertFrom-Json).hookSpecificOutput.additionalContext
     Assert 'the session start hook commits leftovers and asks before uploading' ($context -match [regex]::Escape('「push 질문」 절'))
     Assert 'the session start hook never pushes' ((Invoke-Git $remote @('rev-parse', 'main')).Trim() -eq $before)
+    # 규칙 문서는 훅이 그대로 싣으므로 플러그인 폴더 자리표시를 실제 경로로 바꿔야 Claude 가 AX 팀 문의 안내를 열 수 있다.
+    $inquiryDoc = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $Hooks) 'ax-inquiry.md')).Replace('\', '/')
+    Assert 'the session start rules point at the AX inquiry guide by its real path' (
+        $context -match [regex]::Escape($inquiryDoc) -and $context -notmatch [regex]::Escape('${CLAUDE_PLUGIN_ROOT}'))
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Host '--- two work branches ---'

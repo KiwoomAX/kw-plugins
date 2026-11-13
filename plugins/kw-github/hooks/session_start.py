@@ -81,7 +81,9 @@ def build_context(result, elsewhere=False):
 
 
 def code_rules():
-    return CODE_RULES_PATH.read_text(encoding="utf-8")
+    # 훅이 싣는 글에는 플러그인 폴더 자리표시가 풀리지 않으므로 실제 경로로 바꾼다(AX 팀 문의 안내 경로).
+    # 뒤에 붙는 `/ax-inquiry.md` 와 구분자를 맞추려고 / 로 쓴다.
+    return CODE_RULES_PATH.read_text(encoding="utf-8").replace("${CLAUDE_PLUGIN_ROOT}", PLUGIN_ROOT.as_posix())
 
 
 def _with_rules(text):
