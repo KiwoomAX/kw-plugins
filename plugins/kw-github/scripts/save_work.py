@@ -647,7 +647,7 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
                    "AX팀에 기능별 폴더 구조로 전환을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
-MSG_OUTSIDE = "이번 수정 중 {files} 은 다른 분이 작업했거나 여러 기능이 함께 쓰는 파일입니다."
+MSG_OUTSIDE = "배포 설정 파일({files})을 고쳤습니다. 이 파일은 직접 반영해야 합니다."
 MSG_INTAKE_OUTSIDE = "이번 기능 이전에서 {files} 은 고칠 수 없는 파일입니다."
 MSG_BROKEN_IMPORT = "다른 코드가 쓰는 파일이나 이름이 없어져 공유 코드에 반영하지 않았습니다. 없어진 파일과 이름은 `detail` 에 적었습니다."
 MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 반영되기 전까지 공유 코드에는 들어가지 않습니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
@@ -843,13 +843,6 @@ def _boundary_payload(result, commits=(), intake=False):
     return {**result, "commits": list(commits), "message": message}
 
 
-def outside_detail(top, paths, deadline):
-    """기능 폴더 밖 파일마다 경로와 GitHub main 의 마지막 수정자다. main 에 없는 파일은 수정자가 빈 문자열이다."""
-    return [{"path": path,
-             "author": gitcmd.git(top, "log", "-1", "--format=%an", REMOTE_REF, "--", path, deadline=deadline).strip()}
-            for path in paths]
-
-
 def _ps_quote(text):
     """PowerShell 작은따옴표 문자열이다. PowerShell 은 곡선 작은따옴표도 작은따옴표로 읽으므로 함께 두 번 쓴다."""
     return "'" + re.sub("(['\u2018\u2019\u201a\u201b])", r"\1\1", str(text)) + "'"
@@ -885,10 +878,7 @@ def check_boundary(repo, feature, intake=False):
         head = feature_branch(top, feature, exclude=waiting, deadline=deadline) or "HEAD"
         result = _boundary_of(top, feature, head, intake, deadline)
         commits = gitcmd.git(top, "log", f"{REMOTE_REF}..{head}", "--format=%s", deadline=deadline).splitlines()
-        payload = _boundary_payload(result, commits, intake)
-        if result["status"] == "outside":
-            payload["outside_detail"] = outside_detail(top, result["outside"], deadline)
-        return payload
+        return _boundary_payload(result, commits, intake)
     except BranchChoiceError as exc:
         return _shared_failed(MSG_FAILED, str(exc))
     except (gitcmd.GitError, gitcmd.CommandTimeout, gitcmd.ToolMissing) as exc:
@@ -1530,7 +1520,6 @@ def _precheck(top, branch, state, deadline, progress=None):
     stop = {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
     if result["status"] == "outside" and not intake:
-        stop["outside_detail"] = outside_detail(top, result["outside"], deadline)
         stop["deploy"] = result["deploy"]
         if result["deploy"]:
             stop["command"] = outside_command(top)
@@ -1609,7 +1598,7 @@ def _history_hits(top, branch, feature, deadline):
 
 def _stopped(stop, progress):
     """_precheck 가 돌려준 결과에 upload 공통 칸을 채운다."""
-    extra = {key: stop[key] for key in ("outside_detail", "deploy", "command") if key in stop}
+    extra = {key: stop[key] for key in ("deploy", "command") if key in stop}
     return {**_upload_result(stop["status"], stop["message"], stop["detail"], progress),
             "outside": stop["outside"], "reason": stop["reason"], **extra}
 
