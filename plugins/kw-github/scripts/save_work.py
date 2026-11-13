@@ -668,7 +668,7 @@ MSG_OUTSIDE = "배포 설정 파일({files})을 고쳤습니다. 이 파일은 �
 MSG_INTAKE_OUTSIDE = "이번 기능 이전에서 {files} 은 고칠 수 없는 파일입니다."
 MSG_MAIN_MOVED = "올리는 사이 공유 코드가 바뀌었습니다. 최신 공유 코드를 반영한 상태로 다시 확인한 뒤 올리겠습니다."
 MSG_BROKEN_IMPORT = "다른 코드가 쓰는 파일이나 이름이 없어져 공유 코드에 반영하지 않았습니다. 없어진 파일과 이름은 `detail` 에 적었습니다."
-MSG_PR_OPENED = "검토 요청을 올렸습니다. 반영은 AX팀이 합니다. 반영되기 전까지 공유 코드에는 들어가지 않습니다. 확인이 어려우면 AX팀에 확인을 요청해 주세요."
+MSG_PR_OPENED = "검토 요청을 올렸습니다. Claude 가 검토한 뒤 반영합니다."
 SHARED_BRANCH = "feat/{feature}-{login}-{summary}"
 BOUNDARY_MESSAGES = {"unsupported": MSG_UNSUPPORTED, "invalid-feature": MSG_INVALID_FEATURE}
 COMMAND_DETAIL = "명령이 실패했다. 출력을 읽고 원인을 처리한 뒤 다시 실행하라. {exc}"
@@ -2617,6 +2617,11 @@ def main(argv=None):
     push_cmd = sub.add_parser("pr-push", help="리뷰 branch 의 commit 을 검토 요청에 올린다")
     push_cmd.add_argument("--allow-other-owner", action="store_true")
     push_cmd.add_argument("--repo", required=True)
+    merge_cmd = sub.add_parser("pr-merge", help="열린 검토 요청을 확인한 뒤 반영한다")
+    merge_cmd.add_argument("--repo", required=True)
+    merge_cmd.add_argument("--number", type=int, required=True)
+    merge_cmd.add_argument("--task", type=int)
+    merge_cmd.add_argument("--close", type=int, action="append", default=[])
     leave_cmd = sub.add_parser("pr-leave", help="리뷰 branch 를 떠난다")
     leave_cmd.add_argument("--repo", required=True)
     leave_cmd.add_argument("--discard", action="store_true", help="올리지 못한 commit 까지 지운다")
@@ -2646,6 +2651,8 @@ def main(argv=None):
         return _print(pr_review.pr_start(args.repo, args.number))
     if args.command == "pr-push":
         return _print(pr_review.pr_push(args.repo, allow_other_owner=args.allow_other_owner))
+    if args.command == "pr-merge":
+        return _print(pr_review.pr_merge(args.repo, args.number, task=args.task, close=tuple(args.close)))
     if args.command == "pr-leave":
         return _print(pr_review.pr_leave(args.repo, discard=args.discard, number=args.number))
     if args.command == "sync-main":

@@ -16,9 +16,14 @@ ALLOWED_COMMANDS = ("commit", "pr-start", "pr-push", "pr-leave", "sync-main", "c
 MSG_PR_CHECK = "검토 요청을 확인하지 못했습니다. AX팀에 확인을 요청해 주세요."
 MSG_PR_CLOSED = "이 검토 요청은 이미 닫혔습니다. AX팀에 확인을 요청해 주세요."
 MSG_PR_MOVED = "다른 사람이 같은 검토 요청을 먼저 수정했습니다. AX팀에 확인을 요청해 주세요."
-MSG_PR_PUSHED = "검토 요청에 수정을 올렸습니다. 반영은 AX팀이 합니다."
+MSG_PR_PUSHED = "검토 요청에 수정을 올렸습니다."
 MSG_PR_NOTHING = "검토 요청에 올릴 새 수정이 없습니다."
 MSG_PR_LEFT = "검토 요청 수정을 마치고 이전 작업으로 돌아왔습니다."
+MSG_PR_NOT_ALLOWED = ("다른 분이 연 검토 요청은 작성자나 AX팀이 반영합니다. 수정한 내용은 검토 요청에 올렸으니 작성자에게 "
+                      "반영을 요청해 주세요.")
+MSG_PR_MERGED = "검토 요청을 반영했습니다."
+MSG_PR_HEAD_MOVED = "검토 요청에 아직 올리지 않은 수정이 있어 반영하지 않았습니다."
+AX_MEMBERSHIP = "orgs/KiwoomAX/teams/ax/memberships/{login}"
 FETCH = ("fetch", "-q", "--prune", "origin")
 
 
@@ -365,6 +370,118 @@ def pr_push(repo, allow_other_owner=False):
     """리뷰 branch 의 commit 을 PR 에 올리고 돌아간다. 개발자가 동의한 뒤에만 실행한다."""
     deadline = gitcmd.Deadline(save_work.SAVE_SECONDS)
     return _guarded(lambda: _pr_push(repo, allow_other_owner, deadline))
+
+
+def _is_ax_member(login, deadline=None):
+    """login 이 KiwoomAX 의 ax 팀 활성 구성원인가. 조회하지 못하면 아니라고 본다."""
+    try:
+        code, out, _ = gitcmd.gh_try("api", AX_MEMBERSHIP.format(login=login), deadline=deadline)
+        return code == 0 and json.loads(out).get("state") == "active"
+    except (*save_work.GH_ERRORS, ValueError, AttributeError):
+        return False
+
+
+def _merge_body(top, task, close):
+    """merge commit 본문이다. save_work._merge_message 에서 제목 줄만 뺀 형식이다. 제목은 commit_title 로 보낸다."""
+    numbers = ([task] if task is not None else []) + list(close)
+    lines = [f"closes #{number}" for number in numbers]
+    issue = save_work.read_marker(top).get("issue")
+    if issue and int(issue) not in close:
+        lines.append(f"#{issue}")
+    return "\n".join(lines)
+
+
+def _head_moved(top, number, head_ref, sha, deadline):
+    """PC 에 PR head 와 다른 commit 이 있는가. 있으면 pr-push 를 먼저 해야 한다."""
+    review = f"{PREFIX}{number}"
+    if save_work.current_branch(top, deadline) == review and unpushed_count(top, review, deadline):
+        return True
+    local = f"refs/heads/{head_ref}"
+    return save_work._ref_exists(top, local, deadline) and gitcmd.git(
+        top, "rev-parse", local, deadline=deadline).strip() != sha
+
+
+def _stop(status, message, detail="", **extra):
+    return {"status": status, "reason": "", "message": message, "detail": detail, **extra}
+
+
+def _merge_cleanup(top, number, head_ref, sha, shared, deadline):
+    """merge 뒤 정리다. 이미 반영했으므로 실패해도 결과를 바꾸지 않고 문장만 돌려준다."""
+    notes = []
+    try:
+        if not save_work.github_merge.delete_remote(top, head_ref, sha, deadline):
+            notes.append(f"GitHub 의 {head_ref} 를 지우지 못했다.")
+        gitcmd.git(top, *FETCH, deadline=deadline)
+        review = f"{PREFIX}{number}"
+        if save_work.current_branch(top, deadline) == review:
+            back = _go_back(top, deadline)
+            notes.append(back["note"])
+            if back["moved"]:
+                _delete_review(top, review, deadline)
+        local = f"refs/heads/{head_ref}"
+        if save_work._ref_exists(top, local, deadline) and save_work._contains(top, local, deadline):
+            if save_work.current_branch(top, deadline) == head_ref:
+                if shared:
+                    gitcmd.git(top, "switch", "-q", "--detach", save_work.REMOTE_REF, deadline=deadline)
+                else:
+                    notes.append(save_work._move_head(top, deadline))
+            gitcmd.git(top, "branch", "-q", "-D", head_ref, deadline=deadline)
+    except save_work.GH_ERRORS as exc:
+        notes.append(f"반영한 뒤 branch 를 정리하지 못했다. {exc}")
+    return " ".join(note for note in notes if note)
+
+
+def _pr_merge(repo, number, task, close, deadline):
+    top = _top(repo)
+    if top is None:
+        return _failed("기능 레포나 공유 대시보드 레포가 아니다.")
+    stop = _precondition(top, deadline)
+    if stop is not None:
+        return stop
+    full = save_work._full_name(top)
+    gitcmd.git(top, *FETCH, deadline=deadline)
+    try:
+        pr = json.loads(gitcmd.gh("pr", "view", str(number), "-R", full, "--json",
+                                  "state,headRefName,headRefOid,author,title,url", deadline=deadline))
+        me = gitcmd.gh_login(deadline)
+    except (*save_work.GH_ERRORS, ValueError) as exc:
+        return _failed(str(exc), MSG_PR_CHECK)
+    url = pr.get("url", "")
+    if pr.get("state") != "OPEN":
+        return _stop("not-open", MSG_PR_CLOSED, f"검토 요청 #{number} 의 상태는 {pr.get('state')} 다.", url=url)
+    author = (pr.get("author") or {}).get("login", "")
+    if author != me and not _is_ax_member(me, deadline):
+        return _stop("not-allowed", MSG_PR_NOT_ALLOWED, f"작성자는 {author} 이고 지금 계정 {me} 는 ax 팀 활성 구성원이 아니다.",
+                     url=url)
+    head_ref, sha = pr["headRefName"], pr["headRefOid"]
+    gitcmd.git(top, "fetch", "-q", "origin", f"pull/{number}/head", deadline=deadline)
+    if _head_moved(top, number, head_ref, sha, deadline):
+        return _stop("head-moved", MSG_PR_HEAD_MOVED, "PC 에 검토 요청에 올리지 않은 commit 이 있다. pr-push 로 먼저 올려라.",
+                     url=url)
+    if not save_work._is_ancestor(top, save_work.REMOTE_REF, sha, deadline):
+        return _stop("main-moved", save_work.MSG_MAIN_MOVED, "검토 요청이 최신 GitHub main 을 포함하지 않는다. pr-start 뒤 "
+                     "sync-main 으로 반영하고 pr-push 한 뒤 다시 실행하라.", url=url)
+    shared = shared_repo.repo_kind(top) == "shared"
+    if shared:
+        found = save_work.check_imports(top, sha, deadline)
+        if found["status"] == "broken":
+            return _stop("broken-import", save_work.MSG_BROKEN_IMPORT, found["detail"],
+                         broken_imports=found["broken_imports"], url=url)
+        if found["status"] != "ok":
+            return _failed(found["detail"])
+    code, out, err = gitcmd.gh_try("api", "-X", "PUT", f"repos/{full}/pulls/{number}/merge", "-f", f"sha={sha}",
+                                   "-f", "merge_method=merge", "-f", f"commit_title={pr.get('title', '')} (#{number})",
+                                   "-f", f"commit_message={_merge_body(top, task, close)}", deadline=deadline)
+    if code != 0:
+        return _failed(f"GitHub 가 반영을 거부했다: {(err or out).strip()}", url=url)
+    note = _merge_cleanup(top, number, head_ref, sha, shared, deadline)
+    return _stop("merged", MSG_PR_MERGED, note, url=url)
+
+
+def pr_merge(repo, number, task=None, close=(), deadline=None):
+    """열린 PR 을 확인한 뒤 GitHub 에서 merge 한다. 작성자이거나 ax 팀 구성원일 때만 merge 한다."""
+    deadline = deadline or gitcmd.Deadline(save_work.SAVE_SECONDS)
+    return _guarded(lambda: _pr_merge(repo, number, task, tuple(close), deadline))
 
 
 def pr_leave(repo, discard=False, number=None):
