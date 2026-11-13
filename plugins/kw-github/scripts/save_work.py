@@ -316,14 +316,14 @@ def ensure_gitignore(top):
         handle.write(prefix + "\n".join(missing) + "\n")
 
 
-def stage(top, data, deadline=None, scope=None, include_others=False):
+def stage(top, data, deadline=None, scope=None, include_others=False, paths=None):
     """인덱스를 HEAD 로 되돌린 뒤 검사를 통과한 변경만 스테이징한다. excluded 목록을 돌려준다.
 
     scope 가 (기능, 기능 이전 여부) 이면 공유 레포 규칙으로 stage 하고 (excluded, other_features) 를 돌려준다.
-    include_others 가 참이면 다른 기능 폴더의 변경도 stage 한다.
+    include_others 가 참이면 다른 기능 폴더의 변경도 stage 한다. paths 가 있으면 그 경로 안의 변경만 stage 한다.
     """
     if scope is not None:
-        return _stage_shared(top, data, scope[0], scope[1], deadline, include_others)
+        return _stage_shared(top, data, scope[0], scope[1], deadline, include_others, paths)
     reset_index(top, deadline)
     ensure_gitignore(top)
     # 인덱스를 HEAD 로 되돌렸으므로 ls-files 는 이미 올라간 파일 목록이다.
@@ -575,7 +575,20 @@ def upload_stash_ref(top, deadline=None):
     return None
 
 
-def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False, include_others=False):
+PATHS_DETAIL = "--paths 는 공유 레포 작업 branch 에서만 쓴다"
+
+
+def _within(path, paths):
+    """path 가 paths 의 한 경로와 같거나 그 폴더 아래이면 참이다."""
+    return any(path == item or path.startswith(item.rstrip("/") + "/") for item in paths)
+
+
+def _normal_paths(paths):
+    return None if paths is None else [item.replace("\\", "/") for item in paths]
+
+
+def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False, include_others=False,
+                paths=None):
     """로컬에서만 커밋하고 결과 JSON 을 돌려준다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     if catch_up:
         message = CATCH_UP_TEMPLATE.format(stamp=datetime.now().strftime("%Y-%m-%d %H:%M"))
@@ -585,10 +598,14 @@ def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake
         top = locate(Path(repo))
         import pr_review  # 맨 위에서 불러오면 두 파일이 서로를 기다린다
 
+        shared = top is not None and shared_repo.repo_kind(top) == "shared"
+        if paths is not None and (not shared or pr_review.is_review(top, deadline)):
+            return _failed(progress, MSG_FAILED, PATHS_DETAIL)
         if pr_review.is_review(top, deadline):
             return pr_review.commit_review(top, message, branch, feature, deadline, progress)
-        if top is not None and shared_repo.repo_kind(top) == "shared":
-            payload = _commit_shared(top, message, feature, intake, deadline, progress, include_others)
+        if shared:
+            payload = _commit_shared(top, message, feature, intake, deadline, progress, include_others,
+                                     _normal_paths(paths))
             payload.setdefault("closed_prs", progress.get("closed_prs", []))
             if payload["status"] in ("committed", "nothing"):
                 payload["unpushed"] = unpushed(top, deadline, pending=progress.get("pending"))
@@ -885,9 +902,10 @@ def check_boundary(repo, feature, intake=False):
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc))
 
 
-def revert_outside(repo, feature, paths):
-    """지정한 경로를 GitHub main 의 상태로 되돌리는 새 commit 을 만든다."""
+def revert_paths(repo, feature, paths):
+    """지정한 경로를 GitHub main 의 상태로 되돌리는 새 commit 을 만든다. 이번 기능 폴더 안 경로도 되돌린다."""
     deadline = gitcmd.Deadline(SAVE_SECONDS)
+    paths = _normal_paths(paths)
     try:
         top = locate(repo)
         if top is None or shared_repo.repo_kind(top) != "shared":
@@ -896,9 +914,6 @@ def revert_outside(repo, feature, paths):
         if not current or _kw_feature(top, current, deadline) != feature:
             return _shared_failed(MSG_FAILED, f"지금 branch 가 {feature} 기능의 작업 branch 가 아니라 되돌리지 않았다. "
                                               f"switch-feature --feature {feature} 로 먼저 옮겨라.")
-        inside = [path for path in paths if shared_repo.allowed(path, feature)]
-        if inside:
-            return _shared_failed(MSG_FAILED, f"{', '.join(inside)} 는 {feature} 기능 폴더 안의 파일이라 되돌리지 않았다.")
         if shared_repo.worktree_paths(top, deadline):
             return _shared_failed(MSG_FAILED, "commit 하지 않은 변경이 있어 되돌리지 않았다. 먼저 commit 하라.")
         gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
@@ -910,7 +925,7 @@ def revert_outside(repo, feature, paths):
         if not has_staged_changes(top, deadline):
             return {"status": "nothing", "reason": "", "message": MSG_NOTHING, "detail": ""}
         ensure_author(top, deadline)
-        gitcmd.git(top, "commit", "-q", "-m", "기능 폴더 밖 수정 되돌림: " + ", ".join(paths), deadline=deadline)
+        gitcmd.git(top, "commit", "-q", "-m", "필요 없는 수정 되돌림: " + ", ".join(paths), deadline=deadline)
         return {"status": "committed", "reason": "", "message": MSG_COMMITTED, "detail": ""}
     except AuthorMissing:
         return {"status": "needs-author", "reason": "", "message": MSG_NEEDS_AUTHOR, "detail": AUTHOR_DETAIL}
@@ -970,14 +985,14 @@ def rules_max_bytes(data):
     return int(data["data"]["file_max_mib"] * 1024 * 1024)
 
 
-def _stage_shared(top, data, feature, intake, deadline, include_others=False):
+def _stage_shared(top, data, feature, intake, deadline, include_others=False, paths=None):
     reset_index(top, deadline)
     tracked = set(gitcmd.git_z(top, "ls-files", "-z", deadline=deadline))
     changed = changed_paths(top, deadline)
     trees = _intake_trees(top, deadline) if intake else None
     full_check = content_check_due(top, data, deadline)
     staged, excluded, untrack, hide, others = [], [], [], [], []
-    for path in changed:
+    for path in changed if paths is None else [path for path in changed if _within(path, paths)]:
         owner = shared_repo.feature_of(path)
         if owner and owner != feature and not include_others:
             others.append(owner)
@@ -1006,7 +1021,8 @@ def _stage_shared(top, data, feature, intake, deadline, include_others=False):
             "secret-content-tracked" if found == "secret-content" else found)
         excluded.append(_excluded(path, reason, rule))
         # 추적 끊기는 내 기능 폴더 안 파일에만 한다. 남의 파일을 지우는 commit 을 만들지 않기 위해서다.
-        if found != "secret-content" and shared_repo.allowed(path, feature):
+        # paths 가 있으면 그 경로 밖 파일은 이번 commit 에 넣지 않으므로 추적도 끊지 않는다.
+        if found != "secret-content" and shared_repo.allowed(path, feature) and (paths is None or _within(path, paths)):
             untrack.append(path)
     add_to_exclude(top, [DESIGN_DOCS] + [ignore_line(path) for path in untrack + hide], deadline)
     if untrack:
@@ -1024,7 +1040,7 @@ def _shared_commit_result(status, message, detail="", excluded=None, committed=F
     return payload
 
 
-def _commit_shared(top, message, feature, intake, deadline, progress, include_others=False):
+def _commit_shared(top, message, feature, intake, deadline, progress, include_others=False, paths=None):
     progress["other_features"] = []
     branch = current_branch(top, deadline)
     if not shared_repo.supported(top):
@@ -1056,7 +1072,7 @@ def _commit_shared(top, message, feature, intake, deadline, progress, include_ot
     restored = restore_upload_stash(top, deadline)
     if restored:
         return _shared_commit_result("failed", MSG_FAILED, restored, branch=branch)
-    excluded, others = stage(top, data, deadline, scope=(feature, intake), include_others=include_others)
+    excluded, others = stage(top, data, deadline, scope=(feature, intake), include_others=include_others, paths=paths)
     progress["excluded"], progress["other_features"] = excluded, others
     if not has_staged_changes(top, deadline):
         return _shared_commit_result("nothing", with_notes(MSG_NOTHING, excluded), "", excluded, branch=branch,
@@ -2502,6 +2518,7 @@ def main(argv=None):
     commit_cmd.add_argument("--feature", help="공유 대시보드 레포에서 고친 기능 이름")
     commit_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
     commit_cmd.add_argument("--include-others", action="store_true", help="다른 기능 폴더의 변경도 commit 한다")
+    commit_cmd.add_argument("--paths", nargs="+", help="공유 레포에서 이 경로 안의 변경만 commit 한다")
     prepare_cmd = sub.add_parser("prepare-upload", help="원격 레포와 기능 이슈를 맞춘다")
     prepare_cmd.add_argument("--repo", required=True)
     prepare_cmd.add_argument("--allow-other-owner", action="store_true")
@@ -2532,7 +2549,7 @@ def main(argv=None):
     switch_cmd.add_argument("--feature", required=True)
     switch_cmd.add_argument("--summary")
     switch_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 branch 로 표시한다")
-    revert_cmd = sub.add_parser("revert-outside", help="기능 폴더 밖 수정을 GitHub main 상태로 되돌린다")
+    revert_cmd = sub.add_parser("revert-paths", help="지정한 경로의 수정을 GitHub main 상태로 되돌린다")
     revert_cmd.add_argument("--repo", required=True)
     revert_cmd.add_argument("--feature", required=True)
     revert_cmd.add_argument("--paths", nargs="+", required=True)
@@ -2594,8 +2611,8 @@ def main(argv=None):
         return _print(check_boundary(args.repo, args.feature, intake=args.intake))
     if args.command == "switch-feature":
         return _print(switch_feature(args.repo, args.feature, summary=args.summary, intake=args.intake))
-    if args.command == "revert-outside":
-        return _print(revert_outside(args.repo, args.feature, args.paths))
+    if args.command == "revert-paths":
+        return _print(revert_paths(args.repo, args.feature, args.paths))
     if args.command == "review-upload":
         return _print(review_upload(args.repo, feature=args.feature, intake=args.intake))
     if args.command == "upload":
@@ -2605,7 +2622,8 @@ def main(argv=None):
                            allow_outside=args.allow_outside, allow_others=args.allow_others))
     if args.command == "commit":
         return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
-                                  feature=args.feature, intake=args.intake, include_others=args.include_others))
+                                  feature=args.feature, intake=args.intake, include_others=args.include_others,
+                                  paths=args.paths))
     if args.command == "prepare-upload":
         return _print(prepare_upload(args.repo, allow_other_owner=args.allow_other_owner, body_file=args.body_file))
     return 2
