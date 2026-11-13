@@ -21,6 +21,7 @@ SAVE_REASON = "commit과 push는 saving-work 로 한다."
 # scripts/history_guard.py 와 같은 문장이다. 이 파일 맨 위에서 불러오면 불러오기 실패가 거부로 바뀌지 않는다.
 HISTORY_REASON = "이전 기록을 지우는 push(업로드)는 차단됩니다. AX팀에 문의해 주세요."
 OUTSIDE_REASON = "기능 폴더 밖 수정은 개발자가 터미널에서 직접 올린다."
+PR_MERGE_REASON = "검토 요청 반영은 saving-work 의 pr-merge 로 한다."
 
 SEPARATOR_CHARS = ";&|"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -39,6 +40,8 @@ ANY_REFS = re.compile(r"/?repos/[^/]+/[^/]+/git/refs(/|$)", re.IGNORECASE)
 COMPANY_REFS = re.compile(r"/?repos/kiwoomax/[^/]+/git/refs(/|$)", re.IGNORECASE)
 COMPANY_REPO = re.compile(r"/?repos/kiwoomax/[^/]+/?", re.IGNORECASE)
 GRAPHQL_REF_WRITE = re.compile(r"\b(updateRefs?|deleteRef)\b")
+COMPANY_REPO_ARG = re.compile(r"^((https?://)?github\.com/)?kiwoomax/", re.IGNORECASE)
+PR_MERGE_API = re.compile(r"^/?repos/([^/]+)/[^/]+/pulls/\d+/merge/?$", re.IGNORECASE)
 
 
 def segments(command):
@@ -163,6 +166,12 @@ def _gh_api_call(words):
 
 def _gh_reason(words):
     """gh 명령 한 조각을 본다. 기능 레포에서 막을 이유를 돌려준다."""
+    if _pr_merge_repo(words) == "":
+        return PR_MERGE_REASON  # 레포를 적지 않으면 지금 폴더의 레포를 merge 한다
+    if len(words) > 1 and words[1] == "api":
+        method, target = _gh_api_call(words)
+        if method in WRITE_METHODS and PR_MERGE_API.match(target):
+            return PR_MERGE_REASON  # {owner} 를 쓰면 지금 폴더의 레포를 merge 한다
     if words[1:3] == ["repo", "create"]:
         return SAVE_REASON if "--push" in words else None
     if len(words) < 2 or words[1] != "api":
@@ -178,12 +187,34 @@ def _gh_reason(words):
     return SAVE_REASON if parts[0] == "repos" and not is_issue else None
 
 
+def _pr_merge_repo(words):
+    """gh pr merge 조각이면 -R/--repo 값(없으면 빈 문자열)을, 아니면 None 을 돌려준다."""
+    if words[1:3] != ["pr", "merge"]:
+        return None
+    for index, word in enumerate(words):
+        if word in ("-R", "--repo") and index + 1 < len(words):
+            return words[index + 1]
+        if word.startswith("--repo="):
+            return word[len("--repo="):]
+        if word.startswith("-R") and len(word) > 2:
+            return word[2:].lstrip("=")
+    for word in words[3:]:
+        if re.match(r"^(https?://)?github\.com/", word, re.IGNORECASE):
+            return word  # 레포 대신 검토 요청 주소를 적었다
+    return ""
+
+
 def _gh_anywhere(words):
+    if COMPANY_REPO_ARG.match(_pr_merge_repo(words) or ""):
+        return PR_MERGE_REASON
     if words[1:3] == ["repo", "delete"]:
         return HISTORY_REASON
     if len(words) < 2 or words[1] != "api":
         return None
     method, target = _gh_api_call(words)
+    merge = PR_MERGE_API.match(target)
+    if method in WRITE_METHODS and merge and merge.group(1).lower() == "kiwoomax":
+        return PR_MERGE_REASON
     if target == "graphql":
         return HISTORY_REASON if GRAPHQL_REF_WRITE.search(" ".join(words)) else None
     if method in WRITE_METHODS and COMPANY_REFS.match(target):
@@ -277,8 +308,8 @@ def main():
             if top is None:
                 continue  # 레포가 아닌 폴더에서는 git push 가 실행되지 않는다
             # 지원 구조가 아닌 대시보드의 일반 push 는 막지 않는다(사용자 결정 2026-10-21). 기록 삭제만 막는다.
-            # 기록 삭제는 KiwoomAX 의 모든 레포에서 막는다(사용자 결정 2026-11-10).
-            if (reason == HISTORY_REASON and shared_repo.is_kiwoomax(top)) or save_work.is_feature_repo(top) or (
+            # 기록 삭제는 KiwoomAX 의 모든 레포에서 막는다(사용자 결정 2026-11-10). 검토 요청 merge 도 같다(2026-11-12).
+            if (reason in (HISTORY_REASON, PR_MERGE_REASON) and shared_repo.is_kiwoomax(top)) or save_work.is_feature_repo(top) or (
                     shared_repo.repo_kind(top) == "shared" and shared_repo.supported(top)):
                 _deny(reason)
                 return 0

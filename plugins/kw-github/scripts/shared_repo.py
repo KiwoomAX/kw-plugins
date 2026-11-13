@@ -19,9 +19,6 @@ STRUCTURE_FILES = ("src/backend/feature_loader.py", "src/backend/main.py", "src/
 # 고치면 모든 기능의 빌드와 배포가 영향을 받는다. 본인이 고친 파일이어도 경계 검사에서 멈춘다.
 DEPLOY_FILES = ("docker-compose.yml", "kiwoom-deploy.yml", "Jenkinsfile", "src/backend/Dockerfile",
                 "src/frontend/Dockerfile", "src/frontend/nginx.conf")
-# 여러 기능이 함께 쓰는 구조·의존성 파일이다. 본인이 마지막으로 고쳤어도 묻는다. 동의하면 Claude 가 올린다.
-SHARED_IMPACT_FILES = STRUCTURE_FILES + ("pyproject.toml", "uv.lock", "src/frontend/package.json",
-                                         "src/frontend/package-lock.json")
 RESERVED = {"src", "docs", "frontend", "backend", "shell", "features"}
 WINDOWS_RESERVED = {"con", "nul", "aux", "prn"} | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)}
 NAME = re.compile(r"[A-Za-z0-9_-]+")
@@ -200,25 +197,10 @@ def is_deploy(path):
     return path in DEPLOY_FILES or path.startswith(".github/") or name.startswith(DEPLOY_NAMES)
 
 
-def _result(status, reason="", new_feature=False, outside=(), why=None):
+def _result(status, reason="", new_feature=False, outside=(), why=None, outside_files=None):
     return {"status": status, "reason": reason, "new_feature": new_feature, "outside": list(outside),
-            "why": why or {}, "deploy": [path for path in outside if is_deploy(path)]}
-
-
-def _developer_email(top, deadline=None):
-    """본인 판정에 쓰는 메일이다. 이름은 다른 사람과 같을 수 있어 쓰지 않는다."""
-    code, out, _ = gitcmd.git_try(top, "config", "user.email", deadline=deadline)
-    return out.strip().casefold() if code == 0 else ""
-
-
-def _free_to_change(top, path, main_blobs, email, deadline):
-    """기능 폴더 밖이어도 묻지 않고 올리는 파일이다. main 에 없던 새 파일과 본인이 마지막으로 고친 파일이다."""
-    if is_deploy(path) or path in SHARED_IMPACT_FILES:
-        return False
-    if path not in main_blobs:
-        return True
-    author = gitcmd.git(top, "log", "-1", "--format=%ae", REMOTE_REF, "--", path, deadline=deadline).strip()
-    return bool(email) and author.casefold() == email
+            "why": why or {}, "deploy": [path for path in outside if is_deploy(path)],
+            "outside_files": list(outside if outside_files is None else outside_files)}
 
 
 def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
@@ -231,8 +213,7 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
     if intake and not new_feature:
         return _result("invalid-feature")
     template = None
-    outside, why = [], {}
-    email = "" if intake else _developer_email(top, deadline)
+    outside, why, outside_files = [], {}, []
     main_blobs, head_blobs = tree_blobs(top, REMOTE_REF, deadline), tree_blobs(top, head, deadline)
     for path in dict.fromkeys(paths):
         blob = final_blob(top, head, path, dirty, deadline) if path in dirty else head_blobs.get(path)
@@ -240,7 +221,11 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
             continue  # origin/main 과 같으면 변경이 아니다
         if allowed(path, feature):
             continue
-        if not intake and _free_to_change(top, path, main_blobs, email, deadline):
+        if not intake:
+            # 기능 이전이 아니면 기능 폴더 밖 수정은 셀프 리뷰가 보고, 배포 설정만 개발자가 직접 반영한다.
+            outside_files.append(path)
+            if is_deploy(path):
+                outside.append(path)
             continue
         if intake and path in INTAKE_FILES:
             continue
@@ -254,4 +239,5 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
                 continue
             why[path] = "템플릿과 다르다"
         outside.append(path)
-    return _result("outside" if outside else "inside", "", new_feature, outside, why)
+    return _result("outside" if outside else "inside", "", new_feature, outside, why,
+                   outside if intake else outside_files)
