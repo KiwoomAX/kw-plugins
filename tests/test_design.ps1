@@ -59,7 +59,7 @@ Assert 'no skill file calls python3' (-not ($text -match '\bpython3\b'))
 Assert 'skill document carries no build-history notes' (-not ($text -match '\b20\d\d-\d\d-\d\d\b|\(실측|실측\)'))
 
 # A template that SKILL.md does not link is never opened.
-foreach ($t in @('templates/dashboard-mockup.html', 'templates/feature-mockup.html', 'templates/tokens.css', 'templates/fonts/suit.css', 'templates/components/index.ts')) {
+foreach ($t in @('templates/dashboard-mockup.html', 'templates/feature-mockup.html', 'templates/tokens.css', 'templates/components/index.ts')) {
     Assert "$t ships" (Test-Path (Join-Path $SkillDir $t))
     Assert "SKILL.md links $t" ($text -match [regex]::Escape("]($t)"))
 }
@@ -81,15 +81,15 @@ $tokBody = ($tokText -split "\*/`n", 2)[1]
 $tokSha  = if ($tokBody) { [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($tokBody))).Replace('-', '').ToLower() } else { '' }
 $tplSha  = ([regex]::Match($dash, 'name="kw-tokens-sha256" content="([0-9a-f]{64})"')).Groups[1].Value
 Assert 'tokens.css and the dashboard template come from the same tokens' ($tplSha -and $tokSha -eq $tplSha)
-Assert 'the dashboard template carries the font license notice' ($dash -match 'SIL Open Font License')
-# The feature mockup is also a single file: tokens and both font weights live inside it.
+Assert 'the dashboard template embeds no font file' (-not ($dash -match 'data:font/'))
+# The feature mockup is also a single file: the tokens live inside it. The font is the PC's Malgun Gothic.
 $feature = (Read-TextOrEmpty (Join-Path $SkillDir 'templates/feature-mockup.html')) -replace "`r`n", "`n"
 Assert 'the feature template starts with a doctype' ($feature -match '^\s*<!doctype html>')
 $featureOutside = @([regex]::Matches($feature, '(?:src|href)="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } |
                     Where-Object { -not ($_ -match '^(data:|#)') })
 Assert 'the feature template loads nothing from outside the file' ($featureOutside.Count -eq 0)
-Assert 'the feature template embeds both SUIT weights' ([regex]::Matches($feature, 'data:font/woff2;base64,').Count -eq 2)
-Assert 'the feature template carries the font license notice' ($feature -match 'SIL Open Font License')
+Assert 'the feature template embeds no font file' (-not ($feature -match 'data:font/'))
+Assert 'the feature template uses Malgun Gothic' ($feature -match "font-family: 'Malgun Gothic'")
 Assert 'the feature template carries the same tokens as tokens.css' ($tokBody -and $feature.Contains($tokBody.Trim()))
 # The shared components are a hand copy too. The dashboard template records their sha256.
 $uiDir = Join-Path $SkillDir 'templates/components'

@@ -1,8 +1,9 @@
 """DBGateway 에서 쿼리 목차나 고른 쿼리의 상세를 받아 표준 출력에 낸다.
 
-인자 없이 실행하면 쿼리 단위 목차(id·이름·설명·사용 테이블)를 내고, --query 뒤에 쿼리 id 를 주면 그
-쿼리들의 이름·설명·사용 테이블·인자·등록된 SQL 을 낸다. 목차에는 SQL 이 없고, SQL 은 고른 id 만
-DBGateway 에 묻는다. 쓰지 않을 쿼리의 SQL 까지 사용자 PC 에 받지 않으려고 나눴다.
+인자 없이 실행하면 목차를 승인 쿼리와 테이블 쿼리 두 표로 낸다(id·이름·설명·사용 테이블, 테이블 쿼리는 종류도).
+--query 뒤에 쿼리 id 를 주면 그 쿼리들의 이름·설명·사용 테이블·인자·등록된 SQL 을 내고, 테이블 쿼리면 기간과
+출력 컬럼도 낸다. 목차에는 SQL 과 출력 컬럼이 없고, 둘은 고른 id 만 DBGateway 에 묻는다. 쓰지 않을 쿼리의 SQL 까지
+사용자 PC 에 받지 않고, 컬럼이 수백 개인 테이블 쿼리로 목차가 길어지지 않게 하려고 나눴다.
 
 요청마다 환경 변수 KIWOOM_ACCESS_KEY 의 접근 키를 함께 보낸다. 키가 없거나 DBGateway 가 키를 거절하면
 접근 키 화면을 알리고(Windows 에서는 브라우저로 열고) 멈춘다. 오래된 목차 복사본으로 건너뛰지 않는다.
@@ -35,6 +36,10 @@ TTL_SECONDS = 3600
 GATEWAY = os.environ.get("QUERY_GATEWAY_URL", "http://192.7.9.45:9101")
 KEY_ENV = "KIWOOM_ACCESS_KEY"
 KEY_PAGE = "http://192.7.9.45:3000/#access-key"
+# 승인 쿼리와 테이블 쿼리의 목차는 따로 있다(Kiwoom-DBgateway ADR-0054). 상세는 테이블 쿼리여도 승인 쿼리 경로가 답한다.
+QUERIES_PATH = "/winus/manifest/queries"
+TABLES_PATH = "/winus/manifest/tables"
+SQL_OK = "정상"
 # 다른 OS 에서 그래픽 브라우저가 없으면 webbrowser 가 터미널 브라우저(lynx 등)를 앞에서 실행해 명령이 멈출 수 있다.
 OPEN_BROWSER = sys.platform == "win32"
 
@@ -149,11 +154,12 @@ def get(path: str) -> dict:
         raise SystemExit(f"DBGateway 가 거절했다: {refusal_detail(e)}")
 
 
-def fetch_index() -> list[dict]:
-    rows = get("/winus/manifest")["queries"]
-    if not rows:
+def fetch_index() -> dict[str, list[dict]]:
+    """두 목차. 한쪽만 받으면 다른 쪽 쿼리가 없는 것처럼 보이므로 둘 다 받아야 성공이다."""
+    index = {"queries": get(QUERIES_PATH)["queries"], "tables": get(TABLES_PATH)["queries"]}
+    if not (index["queries"] or index["tables"]):
         raise ValueError("DBGateway 목차가 비어 있다")
-    return rows
+    return index
 
 
 def cache_age() -> float | None:
@@ -164,17 +170,19 @@ def cache_age() -> float | None:
         return None
 
 
-def read_cache(tag: str) -> list[dict] | None:
-    """이 키(확인값 tag)로 받은 복사본의 목차 행. 다른 키로 받았거나 키를 남기지 않은 이전 형식이면 None."""
+def read_cache(tag: str) -> dict[str, list[dict]] | None:
+    """이 키(확인값 tag)로 받은 복사본의 두 목차. 다른 키로 받았거나 이전 형식(키가 없음, 테이블 목차가 없음)이면 None."""
     try:
         saved = json.loads(CACHE.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
         return None
-    return saved["queries"] if isinstance(saved, dict) and saved.get("key") == tag else None
+    if not (isinstance(saved, dict) and saved.get("key") == tag and "tables" in saved):
+        return None
+    return {"queries": saved["queries"], "tables": saved["tables"]}
 
 
-def manifest(key: str, fetch=fetch_index) -> tuple[list[dict], str | None]:
-    """(목차 행, 경고). 경고가 있으면 오래된 복사본을 낸 것이다. key 는 접근 키이고 확인값만 복사본에 남긴다."""
+def manifest(key: str, fetch=fetch_index) -> tuple[dict[str, list[dict]], str | None]:
+    """(두 목차, 경고). 경고가 있으면 오래된 복사본을 낸 것이다. key 는 접근 키이고 확인값만 복사본에 남긴다."""
     OLD_CACHE.unlink(missing_ok=True)
     tag = key_tag(key)
     age = cache_age()
@@ -182,7 +190,7 @@ def manifest(key: str, fetch=fetch_index) -> tuple[list[dict], str | None]:
     if cached is not None and age < TTL_SECONDS:
         return cached, None
     try:
-        rows = fetch()
+        index = fetch()
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
         if cached is None:
@@ -192,31 +200,52 @@ def manifest(key: str, fetch=fetch_index) -> tuple[list[dict], str | None]:
     # 다른 세션이 반쯤 쓴 복사본을 읽지 않도록 임시 파일에 쓴 뒤 바꿔 끼운다. Windows 에서는 그 순간
     # 다른 세션이 복사본을 열고 있으면 교체가 거부되는데, 복사본은 다음 실행에 다시 받으면 되므로 건너뛴다.
     tmp = CACHE.with_name(f"{CACHE.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps({"key": tag, "queries": rows}, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps({"key": tag, **index}, ensure_ascii=False), encoding="utf-8")
     try:
         os.replace(tmp, CACHE)
     except OSError:
         tmp.unlink(missing_ok=True)
-    return rows, None
+    return index, None
 
 
 def cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
-def render_index(rows: list[dict]) -> str:
-    lines = ["# DBGateway 쿼리 목차", "", "| id | 이름 | 설명 | 사용 테이블 |", "|---|---|---|---|"]
+def render_index(index: dict[str, list[dict]]) -> str:
+    tables = index["tables"]
+    # DBGateway 는 스킬이 테이블 목차를 읽기 전까지 WFS 테이블 쿼리를 승인 쿼리 목차에도 싣는다. 한 번만 보이게 뺀다.
+    table_ids = {q["query_id"] for q in tables}
+    queries = [q for q in index["queries"] if q["query_id"] not in table_ids]
+    lines = ["# DBGateway 쿼리 목차", "", "## 승인 쿼리", "", "| id | 이름 | 설명 | 사용 테이블 |", "|---|---|---|---|"]
     lines += [f"| {q['query_id']} | {cell(q['query_name'])} | {cell(q['description'])} | {cell(', '.join(q['tables']))} |"
-              for q in rows]
+              for q in queries] or ["| (없음) | | | |"]
+    lines += ["", "## 테이블 쿼리", "", "| id | 이름 | 종류 | 설명 | 사용 테이블 |", "|---|---|---|---|---|"]
+    lines += [f"| {q['query_id']} | {cell(q['query_name'])} | {q['type']} | {cell(q['description'])}"
+              f" | {cell(', '.join(q['tables']))} |" for q in tables] or ["| (없음) | | | | |"]
     return "\n".join(lines)
 
 
 def render_detail(q: dict) -> str:
     args = ", ".join(f"`{a['name']}`({a['kind']}" + (f", 최대 {a['max_items']}개" if a.get("max_items") else "") + ")"
                      for a in q["arguments"]) or "없음"
-    return "\n".join([f"## id {q['query_id']} · {q['query_name']}", "", f"- 설명: {q['description']}",
-                      f"- 사용 테이블: {', '.join(q['tables'])}", f"- 인자: {args}", "- 등록된 SQL:", "",
-                      "```sql", q["sql"], "```", ""])
+    lines = [f"## id {q['query_id']} · {q['query_name']}", "", f"- 설명: {q['description']}",
+             f"- 사용 테이블: {', '.join(q['tables'])}"]
+    # 테이블 쿼리의 상세에만 종류가 있다.
+    if "type" in q:
+        lines.append(f"- 종류: 테이블 쿼리({q['type']})")
+    lines.append(f"- 인자: {args}")
+    lines += [f"- 기간: `{p['start']}`~`{p['end']}`, 종료일 − 시작일 최대 {p['max_days_between']}일"
+              for p in q.get("periods", [])]
+    if "type" in q:
+        columns = q.get("columns")
+        lines.append(f"- 출력 컬럼: {', '.join(columns)}" if columns else "- 출력 컬럼: 알 수 없음(SQL 이 `*`)")
+    if q["sql_analysis"] != SQL_OK:
+        lines.append(f"- SQL 해석: {q['sql_analysis']}")
+    problems = [*q["problems"], *q.get("table_query_problems", [])]
+    if problems:
+        lines.append(f"- 부를 수 없음: {' / '.join(problems)}")
+    return "\n".join(lines + ["- 등록된 SQL:", "", "```sql", q["sql"], "```", ""])
 
 
 def _selfcheck() -> None:
@@ -227,8 +256,10 @@ def _selfcheck() -> None:
     CACHE = Path(tempfile.mkdtemp()) / "manifest_index.json"
     OLD_CACHE = CACHE.with_name("query_index.json")
     boom = lambda: (_ for _ in ()).throw(RuntimeError("끊김"))
-    new = [{"query_id": 1, "query_name": "가", "description": "설명 | 하나", "tables": ["T_A", "T_B"]}]
-    other = [{"query_id": 2, "query_name": "나", "description": "둘", "tables": ["T_C"]}]
+    wfs = {"query_id": 3, "query_name": "다", "description": "셋", "tables": ["T_D"]}
+    new = {"queries": [{"query_id": 1, "query_name": "가", "description": "설명 | 하나", "tables": ["T_A", "T_B"]}, wfs],
+           "tables": [{**wfs, "type": "WFS", "columns": ["C1"]}]}
+    other = {"queries": [{"query_id": 2, "query_name": "나", "description": "둘", "tables": ["T_C"]}], "tables": []}
     try:
         OLD_CACHE.write_text("{}", encoding="utf-8")
         assert manifest("kwam_a", lambda: new) == (new, None), "복사본이 없으면 받아서 낸다"
@@ -239,16 +270,19 @@ def _selfcheck() -> None:
         os.utime(CACHE, (0, 0))
         assert manifest("kwam_b", lambda: new) == (new, None), "복사본이 오래되면 다시 받는다"
         os.utime(CACHE, (0, 0))
-        rows, warning = manifest("kwam_b", boom)
-        assert (rows, bool(warning)) == (new, True), "못 받으면 오래된 복사본을 내고 알린다"
+        index, warning = manifest("kwam_b", boom)
+        assert (index, bool(warning)) == (new, True), "못 받으면 오래된 복사본을 내고 알린다"
         try:
             manifest("kwam_c", boom)
         except SystemExit:
             pass
         else:
             raise AssertionError("다른 키로 받은 복사본은 못 받았을 때도 내지 않는다")
-        CACHE.write_text(json.dumps(new), encoding="utf-8")  # 키를 남기지 않은 이전 형식
+        CACHE.write_text(json.dumps(new["queries"]), encoding="utf-8")  # 키를 남기지 않은 이전 형식
         assert manifest("kwam_b", lambda: other) == (other, None), "이전 형식의 복사본은 다시 받는다"
+        # 테이블 목차를 남기지 않은 이전 형식
+        CACHE.write_text(json.dumps({"key": key_tag("kwam_b"), "queries": new["queries"]}), encoding="utf-8")
+        assert manifest("kwam_b", lambda: other) == (other, None), "테이블 목차가 없는 복사본은 다시 받는다"
         os.utime(CACHE, (0, 0))
         try:
             manifest("kwam_b", lambda: (_ for _ in ()).throw(SystemExit("DBGateway 가 거절했다: x")))
@@ -265,13 +299,25 @@ def _selfcheck() -> None:
             raise AssertionError("복사본이 없는데 못 받으면 멈춘다")
         out = render_index(new)
         assert "| 1 | 가 | 설명 \\| 하나 | T_A, T_B |" in out, out
-        d = render_detail({"query_id": 7, "query_name": "기준일", "description": "d", "tables": ["T"],
-                           "sql": "SELECT 1 FROM T", "arguments": [{"name": "오늘", "kind": "스칼라"},
-                                                                    {"name": "codes", "kind": "목록", "max_items": 100}]})
-        assert "## id 7 · 기준일" in d and "- 인자: `오늘`(스칼라), `codes`(목록, 최대 100개)" in d, d
+        assert out.count("| 3 | 다 |") == 1 and "| 3 | 다 | WFS | 셋 | T_D |" in out, "두 목차에 다 있는 쿼리는 테이블 쿼리 표에만 낸다"
+        assert "C1" not in out, "출력 컬럼은 목차에 내지 않는다"
+        assert "| (없음) | | | | |" in render_index(other), "테이블 쿼리가 없으면 (없음)"
+        plain = {"query_id": 7, "query_name": "기준일", "description": "d", "tables": ["T"], "sql": "SELECT 1 FROM T",
+                 "sql_analysis": SQL_OK, "problems": [],
+                 "arguments": [{"name": "오늘", "kind": "스칼라"}, {"name": "codes", "kind": "목록", "max_items": 30}]}
+        d = render_detail(plain)
+        assert "## id 7 · 기준일" in d and "- 인자: `오늘`(스칼라), `codes`(목록, 최대 30개)" in d, d
         assert "```sql\nSELECT 1 FROM T\n```" in d, d
-        assert "- 인자: 없음" in render_detail({"query_id": 1, "query_name": "a", "description": "",
-                                                 "tables": [], "sql": "", "arguments": []})
+        assert not any(w in d for w in ("SQL 해석", "부를 수 없음", "종류", "출력 컬럼", "기간")), d
+        assert "- 인자: 없음" in render_detail({**plain, "arguments": []})
+        d = render_detail({**plain, "sql_analysis": "구문 분석 실패", "problems": ["개수 조건이 둘"]})
+        assert "- SQL 해석: 구문 분석 실패" in d and "- 부를 수 없음: 개수 조건이 둘" in d, d
+        table = {**plain, "type": "WINUS", "columns": ["펀드코드", "평가금액"], "table_query_problems": ["폭 조건 없음"],
+                 "periods": [{"start": "from_dt", "end": "to_dt", "max_days_between": 31}]}
+        d = render_detail(table)
+        assert "- 종류: 테이블 쿼리(WINUS)" in d and "- 출력 컬럼: 펀드코드, 평가금액" in d, d
+        assert "- 기간: `from_dt`~`to_dt`, 종료일 − 시작일 최대 31일" in d and "- 부를 수 없음: 폭 조건 없음" in d, d
+        assert "- 출력 컬럼: 알 수 없음" in render_detail({**table, "columns": None})
         _selfcheck_registry()
         _selfcheck_key_and_http()
     finally:
@@ -406,13 +452,13 @@ def main() -> None:
         return
     key = access_key()  # 목차 복사본을 내는 경로도 키가 없으면 멈추게 요청보다 먼저 확인한다
     if args.query:
-        print("\n".join(render_detail(get(f"/winus/manifest/{i}")) for i in args.query))
+        print("\n".join(render_detail(get(f"{QUERIES_PATH}/{i}")) for i in args.query))
         return
-    rows, warning = manifest(key)
+    index, warning = manifest(key)
     if warning:
         print(f"경고: {warning}", file=sys.stderr)
         print(f"> **경고: {warning}**\n")
-    print(render_index(rows))
+    print(render_index(index))
 
 
 if __name__ == "__main__":
