@@ -25,6 +25,10 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 - **셸이 쓰는 클래스 이름을 내용 구획 CSS 에 다시 정의하지 않는다.** `.shell` · `.rail` · `.topbar` · `.side` ·
   `.nav-item` · `.content` 같은 이름이다. 겹치면 이름을 바꾼다.
 
+## AX 팀 요청
+
+이 스킬과 하위 문서가 AX 팀에 요청·문의하라고 하면 `${CLAUDE_PLUGIN_ROOT}/ax-inquiry.md` 대로 안내한다. 셸 변경, 저장소 권한, 화면 권한 설정, Jenkins 잡 정리는 「제공 인프라」, 기능 레포를 대시보드로 옮기다 멈춘 문의는 「기능 검토 문의」, 비밀 키 등록은 「환경변수(env) 등록」 유형이다.
+
 ## 새 대시보드 시작
 
 **repo 를 만들기 전에 이미 있는지 찾는다.** 담당자 PC 의 폴더를 먼저 보고, 없으면 조직을 본다. 찾지 않고

@@ -81,7 +81,7 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
      - `refused` 이고 `reason` 이 `detached`: 지금 폴더가 어느 branch 의 끝도 아닌 예전 시점이다. AskUserQuestion 으로 "지금 폴더가 예전 시점의 파일입니다. 최신 작업으로 돌아간 뒤 정리할까요?" 라고 묻는다. 선택지는 `branches` 의 branch 마다 하나와 "멈추기" 다. branch 를 고르면 `git switch <branch>` 로 돌아간 뒤 `reset_history.py` 를 다시 실행한다. "멈추기" 면 「AX팀 문의 문장」을 알리고 멈춘다.
      - 그 밖의 `refused`: 스크립트가 아무것도 바꾸지 않았다. 다시 실행하지 않고 「AX팀 문의 문장」을 알리고 멈춘다. `reason` 이 `in-progress` 면 진행 중인 git 작업이 있고, `connected` 면 이미 GitHub 에 연결된 폴더다.
 
-     「AX팀 문의 문장」은 "예전 기록을 정리하지 못해 GitHub 업로드 준비가 동작하지 않습니다. 작업은 이 PC 에 그대로 있습니다. AX팀에 문의해 주세요." 다. 이 문장과 함께 `detail` 의 원인을 AX팀에 전하라고 한다.
+     「AX팀 문의 문장」은 "예전 기록을 정리하지 못해 GitHub 업로드 준비가 동작하지 않습니다. 작업은 이 PC 에 그대로 있습니다. AX팀에 문의해 주세요." 다. 이 문장을 알린 뒤 `${CLAUDE_PLUGIN_ROOT}/ax-inquiry.md` 대로 「제공 인프라」 유형으로 안내하고, `detail` 의 원인을 안내 문구의 「확인한 값」에 적는다.
    - 마지막으로 현재 branch 이름을 확인한다. `reset_history.py` 를 실행했으면 이미 `main` 이다. 아니면 2단계 결과의 `branch` 가 `main` 이 아닐 때 `git branch -m main` 으로 이름을 바꾼다.
 
 6. **표식 파일을 만든다.** 최상위 폴더에 `.kiwoom-feature` 를 만들고 줄마다 `<키>=<값>` 을 적는다.
