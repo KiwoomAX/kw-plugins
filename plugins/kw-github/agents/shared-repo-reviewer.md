@@ -17,6 +17,7 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 - `save_work.py check-imports` 결과 JSON. 기능 이전이면 넘기지 않는다.
 - 개발자가 이번에 요청한 일 한 줄.
 - 기능 이전 여부. 기능 이전은 kw-dashboard 의 기능 이전 절차가 기능 레포를 대시보드로 옮기는 작업이다.
+- 리뷰 branch 여부. 이미 열린 검토 요청을 반영하려고 `pr-review/<번호>` branch 에서 검토할 때다. 이때는 `check-boundary` 결과가 없다.
 
 ## 검토 범위
 
@@ -46,6 +47,12 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 
   ```
   python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<폴더>" --feature <기능> --include-others --message "<한 줄 설명>" --paths <고친 파일> ...
+  ```
+
+  리뷰 branch 이면 `--feature`·`--include-others`·`--paths` 없이 commit 하라. 리뷰 branch 에는 개발자의 다른 작업이 없다.
+
+  ```
+  python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<폴더>" --message "<한 줄 설명>"
   ```
 
 - `unneeded` 는 고치지 말고 `findings` 에 내라. 되돌리기는 본 대화가 한다.

@@ -40,7 +40,8 @@ ANY_REFS = re.compile(r"/?repos/[^/]+/[^/]+/git/refs(/|$)", re.IGNORECASE)
 COMPANY_REFS = re.compile(r"/?repos/kiwoomax/[^/]+/git/refs(/|$)", re.IGNORECASE)
 COMPANY_REPO = re.compile(r"/?repos/kiwoomax/[^/]+/?", re.IGNORECASE)
 GRAPHQL_REF_WRITE = re.compile(r"\b(updateRefs?|deleteRef)\b")
-COMPANY_REPO_ARG = re.compile(r"^(https?://github\.com/)?kiwoomax/", re.IGNORECASE)
+COMPANY_REPO_ARG = re.compile(r"^((https?://)?github\.com/)?kiwoomax/", re.IGNORECASE)
+PR_MERGE_API = re.compile(r"^/?repos/([^/]+)/[^/]+/pulls/\d+/merge/?$", re.IGNORECASE)
 
 
 def segments(command):
@@ -167,6 +168,10 @@ def _gh_reason(words):
     """gh 명령 한 조각을 본다. 기능 레포에서 막을 이유를 돌려준다."""
     if _pr_merge_repo(words) == "":
         return PR_MERGE_REASON  # 레포를 적지 않으면 지금 폴더의 레포를 merge 한다
+    if len(words) > 1 and words[1] == "api":
+        method, target = _gh_api_call(words)
+        if method in WRITE_METHODS and PR_MERGE_API.match(target):
+            return PR_MERGE_REASON  # {owner} 를 쓰면 지금 폴더의 레포를 merge 한다
     if words[1:3] == ["repo", "create"]:
         return SAVE_REASON if "--push" in words else None
     if len(words) < 2 or words[1] != "api":
@@ -192,7 +197,10 @@ def _pr_merge_repo(words):
         if word.startswith("--repo="):
             return word[len("--repo="):]
         if word.startswith("-R") and len(word) > 2:
-            return word[2:]
+            return word[2:].lstrip("=")
+    for word in words[3:]:
+        if re.match(r"^(https?://)?github\.com/", word, re.IGNORECASE):
+            return word  # 레포 대신 검토 요청 주소를 적었다
     return ""
 
 
@@ -204,6 +212,9 @@ def _gh_anywhere(words):
     if len(words) < 2 or words[1] != "api":
         return None
     method, target = _gh_api_call(words)
+    merge = PR_MERGE_API.match(target)
+    if method in WRITE_METHODS and merge and merge.group(1).lower() == "kiwoomax":
+        return PR_MERGE_REASON
     if target == "graphql":
         return HISTORY_REASON if GRAPHQL_REF_WRITE.search(" ".join(words)) else None
     if method in WRITE_METHODS and COMPANY_REFS.match(target):

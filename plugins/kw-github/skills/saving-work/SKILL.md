@@ -232,6 +232,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-merge --repo "<작업 폴
 - `head-moved`: PC 에 검토 요청에 올리지 않은 commit 이 있다. `pr-push` 로 올린 뒤 `pr-merge` 를 다시 실행한다.
 - `main-moved`: 검토 요청이 최신 GitHub main 을 포함하지 않는다. 아래 「PR 추가 수정」대로 `pr-start` 로 옮겨 「올리기 흐름」 3~6단계를 한 뒤 `pr-push` 와 `pr-merge` 를 실행한다. 다시 한 뒤에도 `main-moved` 면 아래 「멈춤과 안내」대로 한다.
 - `broken-import`: 다른 코드가 쓰는 파일이나 이름이 없어졌다. `pr-start` 로 옮겨 고친 뒤 `pr-push` 와 `pr-merge` 를 실행한다. 고치지 못하면 「멈춤과 안내」대로 한다.
+- `outside`: 검토 요청이 배포 설정 파일을 고쳤다. `message` 를 전하고 아래 「기능 폴더 밖 수정」의 배포 설정 절차를 따른다.
 - `not-open` 과 그 밖의 `failed`: `message` 를 전하고 끝낸다.
 
 ## PR 추가 수정
@@ -248,7 +249,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-start --repo "<작업 폴
 python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-push --repo "<작업 폴더>"
 ```
 
-개발자가 이미 열린 검토 요청의 반영을 요청하면 `pr-start` 로 리뷰 branch 에 옮기고, 공유 레포이면 아래 「올리기 흐름」 3~6단계를 한다. 리뷰 branch 에서는 `check-boundary` 와 `--feature` 를 쓰지 않으므로 4단계는 `check-imports` 만 실행하고, 셀프 리뷰어에 넘기는 기능 이름은 검토 요청이 고친 기능 폴더 이름이다. 고친 것이 있으면 `pr-push` 를 먼저 실행하고 그다음 위 「검토 요청 반영」대로 `pr-merge` 를 실행한다. 기능 레포에서는 3단계만 하고 셀프 리뷰는 생략한다.
+개발자가 이미 열린 검토 요청의 반영을 요청하면 `pr-start` 로 리뷰 branch 에 옮기고, 공유 레포이면 아래 「올리기 흐름」 3~6단계를 한다. 리뷰 branch 에서는 `switch-feature`·`check-boundary` 를 쓰지 않으므로 3단계는 `sync-main` 만, 4단계는 `check-imports` 만 실행한다. 고친 파일은 `--feature`·`--paths` 없이 `commit` 하고, 필요 없는 수정은 `revert-paths` 로 되돌린다. 셀프 리뷰어에 넘기는 기능 이름은 검토 요청이 고친 기능 폴더 이름이고, 리뷰 branch 라는 것도 함께 넘긴다. 고친 것이 있으면 `pr-push` 를 먼저 실행하고 그다음 위 「검토 요청 반영」대로 `pr-merge` 를 실행한다. 기능 레포에서는 3단계만 하고 셀프 리뷰는 생략한다.
 
 `pr-start` 가 실패하면 리뷰 branch 로 옮겨지지 않았다. `message` 를 전하고 끝낸다. `remote-moved` 이고 `unpushed` 가 0 보다 크면 아래 질문을 한다.
 
@@ -333,9 +334,10 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
 
 1. 남은 변경을 기능별로 commit 한다. 이 단계 뒤에는 commit 하지 않은 변경이 없다.
 2. 작업 이슈 제목을 `[<기능>] <이번에 한 일을 쉬운 말로 한 줄>` 로 정한다.
-3. 최신 GitHub main 을 합친다. 아래 「최신 main 합치기」 절에 따라 한다.
+3. 그 기능의 작업 branch 로 옮긴 뒤 최신 GitHub main 을 합친다. 아래 「최신 main 합치기」 절에 따라 한다.
 
    ```
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" switch-feature --repo "<작업 폴더>" --feature <기능>
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" sync-main --repo "<작업 폴더>"
    ```
 

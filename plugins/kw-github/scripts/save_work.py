@@ -912,7 +912,10 @@ def revert_paths(repo, feature, paths):
         if top is None or shared_repo.repo_kind(top) != "shared":
             return _shared_failed(MSG_FAILED, "공유 대시보드 레포가 아니다.")
         current = current_branch(top, deadline)
-        if not current or _kw_feature(top, current, deadline) != feature:
+        import pr_review  # 맨 위에서 불러오면 두 파일이 서로를 기다린다
+
+        on_review = pr_review.is_review(top, deadline)
+        if not current or (not on_review and _kw_feature(top, current, deadline) != feature):
             return _shared_failed(MSG_FAILED, f"지금 branch 가 {feature} 기능의 작업 branch 가 아니라 되돌리지 않았다. "
                                               f"switch-feature --feature {feature} 로 먼저 옮겨라.")
         if shared_repo.worktree_paths(top, deadline):
@@ -1559,6 +1562,8 @@ def _shared_freshness(top, branch, deadline):
     if found["status"] == "broken":
         return {"status": "broken-import", "message": MSG_BROKEN_IMPORT, "outside": [], "reason": "",
                 "broken_imports": found["broken_imports"], "detail": found["detail"]}
+    if found["status"] != "ok":
+        return {"status": "failed", "message": MSG_FAILED, "outside": [], "reason": "", "detail": found["detail"]}
     return None
 
 
@@ -2185,7 +2190,7 @@ def _after_feature_pr(top, branch, deadline, notes):
 
 
 def open_pr(repo, feature, title, body_file, allow_other_owner=False):
-    """개발자가 요청했거나 충돌을 풀지 못한 작업을 검토 요청(PR)으로 올린다. main 에는 merge 하지 않는다."""
+    """개발자가 요청한 작업을 검토 요청(PR)으로 올린다. main 에는 merge 하지 않는다."""
     deadline = gitcmd.Deadline(SAVE_SECONDS)
     try:
         top = locate(Path(repo))
@@ -2547,7 +2552,10 @@ def _print(payload):
 
 
 def _cli_check_imports(repo):
-    top = locate(repo)
+    try:
+        top = locate(repo)
+    except gitcmd.ToolMissing as exc:
+        return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc), broken_imports=[])
     if top is not None:
         code, _, err = gitcmd.git_try(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SAVE_SECONDS))
         if code != 0:

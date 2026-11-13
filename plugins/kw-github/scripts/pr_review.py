@@ -12,7 +12,8 @@ import save_work
 import shared_repo
 
 PREFIX = "pr-review/"
-ALLOWED_COMMANDS = ("commit", "pr-start", "pr-push", "pr-leave", "sync-main", "check-imports", "pr-merge")
+ALLOWED_COMMANDS = ("commit", "pr-start", "pr-push", "pr-leave", "sync-main", "check-imports", "pr-merge",
+                    "revert-paths")
 MSG_PR_CHECK = "검토 요청을 확인하지 못했습니다. AX팀에 확인을 요청해 주세요."
 MSG_PR_CLOSED = "이 검토 요청은 이미 닫혔습니다. AX팀에 확인을 요청해 주세요."
 MSG_PR_MOVED = "다른 사람이 같은 검토 요청을 먼저 수정했습니다. AX팀에 확인을 요청해 주세요."
@@ -392,13 +393,12 @@ def _merge_body(top, task, close):
 
 
 def _head_moved(top, number, head_ref, sha, deadline):
-    """PC 에 PR head 와 다른 commit 이 있는가. 있으면 pr-push 를 먼저 해야 한다."""
+    """PC 에 PR head 에 없는 commit 이 있는가. 있으면 pr-push 를 먼저 해야 한다."""
     review = f"{PREFIX}{number}"
     if save_work.current_branch(top, deadline) == review and unpushed_count(top, review, deadline):
         return True
     local = f"refs/heads/{head_ref}"
-    return save_work._ref_exists(top, local, deadline) and gitcmd.git(
-        top, "rev-parse", local, deadline=deadline).strip() != sha
+    return save_work._ref_exists(top, local, deadline) and not save_work._is_ancestor(top, local, sha, deadline)
 
 
 def _stop(status, message, detail="", **extra):
@@ -463,6 +463,11 @@ def _pr_merge(repo, number, task, close, deadline):
                      "sync-main 으로 반영하고 pr-push 한 뒤 다시 실행하라.", url=url)
     shared = shared_repo.repo_kind(top) == "shared"
     if shared:
+        deploy = [path for path in shared_repo.changed_paths(top, save_work.REMOTE_REF, sha, deadline)
+                  if shared_repo.is_deploy(path)]
+        if deploy:
+            return _stop("outside", save_work.MSG_OUTSIDE.format(files=", ".join(deploy)),
+                         "배포 설정 파일은 개발자가 배포 절차로 직접 반영한다.", outside=deploy, deploy=deploy, url=url)
         found = save_work.check_imports(top, sha, deadline)
         if found["status"] == "broken":
             return _stop("broken-import", save_work.MSG_BROKEN_IMPORT, found["detail"],
