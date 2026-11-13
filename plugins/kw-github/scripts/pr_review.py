@@ -12,7 +12,7 @@ import save_work
 import shared_repo
 
 PREFIX = "pr-review/"
-ALLOWED_COMMANDS = ("commit", "pr-start", "pr-push", "pr-leave")
+ALLOWED_COMMANDS = ("commit", "pr-start", "pr-push", "pr-leave", "sync-main", "check-imports", "pr-merge")
 MSG_PR_CHECK = "검토 요청을 확인하지 못했습니다. AX팀에 확인을 요청해 주세요."
 MSG_PR_CLOSED = "이 검토 요청은 이미 닫혔습니다. AX팀에 확인을 요청해 주세요."
 MSG_PR_MOVED = "다른 사람이 같은 검토 요청을 먼저 수정했습니다. AX팀에 확인을 요청해 주세요."

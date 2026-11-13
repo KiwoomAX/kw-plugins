@@ -2371,12 +2371,13 @@ def _sync_rollback(progress):
         return f"{UPLOAD_STASH} stash 를 되돌리지 못했다. git stash list 로 확인하라. {exc}"
 
 
-def _sync_start(top, deadline, progress):
+def _sync_start(top, deadline, progress, shared=False):
     gdir = git_dir(top, deadline)
     if (gdir / "MERGE_HEAD").exists() or (gdir / UPLOAD_STATE).exists():
         return _sync_result("failed", MSG_SYNC_FAILED, "진행 중인 merge 나 업로드가 있다. 그 작업을 먼저 끝내라.")
     (gdir / SYNC_STATE).unlink(missing_ok=True)  # 앞선 merge 를 git 으로 직접 끝냈으면 표식만 남는다
-    check_head(top, deadline)
+    if not shared:
+        check_head(top, deadline)  # 공유 레포의 branch 는 sync_main 이 _shared_sync_refusal 로 먼저 본다
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
     if not _ref_exists(top, REMOTE_REF, deadline) or _is_ancestor(top, REMOTE_REF, "HEAD", deadline):
         return _sync_result("nothing", MSG_SYNC_NOTHING)
@@ -2406,7 +2407,7 @@ def _sync_start(top, deadline, progress):
     return _sync_failed(top, deadline, f"git merge 실패: {(err or out).strip()}")
 
 
-def _sync_continue(top, deadline):
+def _sync_continue(top, deadline, shared=False):
     if not sync_merge_in_progress(top, deadline):
         return _sync_result("failed", MSG_SYNC_FAILED, "이어서 끝낼 sync-main 의 merge 가 없다.")
     files = _unmerged(top, deadline)
@@ -2418,7 +2419,15 @@ def _sync_continue(top, deadline):
         return _sync_result("conflict", MSG_SYNC_CONFLICT,
                             f"충돌 표시 줄이 남은 파일이 있다: {', '.join(marked)}. 풀고 git add 한 뒤 다시 실행하라.")
     data = rules.load(RULES_PATH)
-    found = [path for path, raw in resolved if rules.judge(data, path, len(raw), lambda raw=raw: raw) is not None]
+    feature = _kw_feature(top, current_branch(top, deadline), deadline) if shared else ""
+
+    def judged(path, raw):
+        # 공유 레포는 _shared_judge 와 같이 이번 기능의 설명 문서를 뺀다. commit 될 인덱스 내용으로 본다.
+        if shared and shared_repo.is_feature_doc(path, feature) and len(raw) <= rules_max_bytes(data):
+            return None
+        return rules.judge(data, path, len(raw), lambda: raw)
+
+    found = [path for path, raw in resolved if judged(path, raw) is not None]
     if found:
         return _sync_result("failed", MSG_SYNC_FAILED,
                             f"검사에서 빠질 파일이 merge 결과에 있어 commit 하지 않았다: {', '.join(found)}. 비밀값과 "
@@ -2437,19 +2446,37 @@ def _sync_abort(top, deadline):
     return _sync_result("aborted", MSG_SYNC_ABORTED, restored)
 
 
+def _shared_sync_refusal(top, deadline):
+    """공유 레포에서 sync-main 을 쓸 수 없는 branch 이면 그 이유를, 쓸 수 있으면 "" 를 돌려준다."""
+    if not shared_repo.supported(top):
+        return "지원하지 않는 공유 레포 구조라 sync-main 을 쓰지 않는다."
+    current = current_branch(top, deadline)
+    if not current:
+        return "분리된 HEAD(detached)에서는 sync-main 을 쓰지 않는다. 작업 branch 로 옮겨라."
+    if current == BRANCH:
+        return "공유 레포의 main 에서는 sync-main 을 쓰지 않는다. switch-feature 로 작업 branch 로 옮겨라."
+    if is_intake_branch(top, current, deadline):
+        return "기능 이전 branch 에서는 sync-main 을 쓰지 않는다. 기능 이전 절차를 따르라."
+    return ""
+
+
 def sync_main(repo, mode=None):
-    """기능 레포의 작업에 GitHub main 을 반영한다. mode 는 None·'continue'·'abort' 다. 예외는 failed 로 바꾼다."""
+    """기능 레포나 공유 레포의 작업·리뷰 branch 에 GitHub main 을 반영한다. mode 는 None·'continue'·'abort' 다. 예외는 failed 로 바꾼다."""
     deadline = gitcmd.Deadline(SAVE_SECONDS)
     progress = {"top": None, "stashed": False}
     try:
         top = progress["top"] = locate(Path(repo))
-        if top is None or shared_repo.repo_kind(top) == "shared" or not is_feature_repo(top):
-            return _sync_result("failed", MSG_NOT_FEATURE, "기능 레포가 아니다. 공유 레포에는 sync-main 을 쓰지 않는다.")
+        shared = top is not None and shared_repo.repo_kind(top) == "shared"
+        if top is None or not (shared or is_feature_repo(top)):
+            return _sync_result("failed", MSG_NOT_FEATURE, "기능 레포나 공유 레포가 아니다.")
+        refusal = _shared_sync_refusal(top, deadline) if shared else ""
+        if refusal:
+            return _sync_result("failed", MSG_SYNC_FAILED, refusal)
         if mode == "continue":
-            return _sync_continue(top, deadline)
+            return _sync_continue(top, deadline, shared)
         if mode == "abort":
             return _sync_abort(top, deadline)
-        return _sync_start(top, deadline, progress)
+        return _sync_start(top, deadline, progress, shared)
     except BranchChoiceError as exc:
         result = _sync_result("failed", MSG_SYNC_FAILED, str(exc))
     except AuthorMissing:
