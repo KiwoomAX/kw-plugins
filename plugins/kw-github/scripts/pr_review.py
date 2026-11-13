@@ -23,6 +23,7 @@ MSG_PR_LEFT = "검토 요청 수정을 마치고 이전 작업으로 돌아왔�
 MSG_PR_NOT_ALLOWED = ("다른 분이 연 검토 요청은 작성자나 AX팀이 반영합니다. 수정한 내용은 검토 요청에 올렸으니 작성자에게 "
                       "반영을 요청해 주세요.")
 MSG_PR_MERGED = "검토 요청을 반영했습니다."
+MSG_PR_SECRET = "검토 요청에 비밀값이나 데이터 파일이 있어 반영하지 않았습니다. 그 파일을 고친 뒤 다시 요청해 주세요."
 MSG_PR_HEAD_MOVED = "검토 요청에 아직 올리지 않은 수정이 있어 반영하지 않았습니다."
 AX_MEMBERSHIP = "orgs/KiwoomAX/teams/ax/memberships/{login}"
 FETCH = ("fetch", "-q", "--prune", "origin")
@@ -461,6 +462,10 @@ def _pr_merge(repo, number, task, close, deadline):
     if not save_work._is_ancestor(top, save_work.REMOTE_REF, sha, deadline):
         return _stop("main-moved", save_work.MSG_MAIN_MOVED, "검토 요청이 최신 GitHub main 을 포함하지 않는다. pr-start 뒤 "
                      "sync-main 으로 반영하고 pr-push 한 뒤 다시 실행하라.", url=url)
+    # 다른 사람이 GitHub 에 바로 올린 commit 도 반영 전에 검사한다(사용자 결정 2026-11-13).
+    hits = save_work.pr_content_hits(top, save_work.REMOTE_REF, sha, deadline)
+    if hits:
+        return _stop("secret-found", MSG_PR_SECRET, f"비밀값·데이터 파일: {', '.join(hits)}", url=url)
     shared = shared_repo.repo_kind(top) == "shared"
     if shared:
         deploy = [path for path in shared_repo.changed_paths(top, save_work.REMOTE_REF, sha, deadline)

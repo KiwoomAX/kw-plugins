@@ -232,6 +232,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-merge --repo "<작업 폴
 - `head-moved`: PC 에 검토 요청에 올리지 않은 commit 이 있다. `pr-push` 로 올린 뒤 `pr-merge` 를 다시 실행한다.
 - `main-moved`: 검토 요청이 최신 GitHub main 을 포함하지 않는다. 아래 「PR 추가 수정」대로 `pr-start` 로 옮겨 「올리기 흐름」 3~6단계를 한 뒤 `pr-push` 와 `pr-merge` 를 실행한다. 다시 한 뒤에도 `main-moved` 면 아래 「멈춤과 안내」대로 한다.
 - `broken-import`: 다른 코드가 쓰는 파일이나 이름이 없어졌다. `pr-start` 로 옮겨 고친 뒤 `pr-push` 와 `pr-merge` 를 실행한다. 고치지 못하면 「멈춤과 안내」대로 한다.
+- `secret-found`: 검토 요청에 비밀값이나 데이터 파일이 있다. `message` 를 전하고 끝낸다. 파일 이름은 `detail` 에 있다.
 - `outside`: 검토 요청이 배포 설정 파일을 고쳤다. `message` 를 전하고 아래 「기능 폴더 밖 수정」의 배포 설정 절차를 따른다.
 - `not-open` 과 그 밖의 `failed`: `message` 를 전하고 끝낸다.
 
