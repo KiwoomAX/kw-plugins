@@ -129,12 +129,12 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py"
 
 답을 받으면 차례로 한다.
 
-1. 비밀 키가 있으면 「AX 팀에 등록 요청 보내기」로 환경변수 등록 요청을 보낸다.
+1. 비밀 키가 있으면 「AX 팀에 요청하기」대로 환경변수 등록을 안내한다.
 2. [compose-and-env.md](compose-and-env.md) 와 [secrets.md](secrets.md) 를 끝까지 읽고 `docker-compose.yml` 과,
    필요하면 덮어쓰기 파일과 Dockerfile 수정을 쓴다.
 3. 처음 올리는 서비스면 방금 쓴 compose 의 `container_name` 으로 2단계의 포트를 **지금 등록한다.** 명령은
    5단계의 `--register` 줄이다. 「남이 먼저 잡았다」고 하면 2단계로 돌아가 다시 고르고 compose 의 포트를 고친다.
-   미루면 push 와 빌드와 AX 팀 회신을 기다리는 동안 다른 사람이 같은 포트를 고른다. 배포를 그만두면 이 줄이
+   미루면 push 와 빌드와 AX 팀 등록을 기다리는 동안 다른 사람이 같은 포트를 고른다. 배포를 그만두면 이 줄이
    등록부에 남으므로, 담당자에게 AX 팀에 그 줄의 삭제를 요청하라고 알린다.
 4. [jenkinsfile.md](jenkinsfile.md) 대로 KiwoomAX 는 `kiwoom-deploy.yml` 을, KiwoomAM 은 `Jenkinsfile` 을 쓴다.
 5. `.gitignore` 에 `.env` 와 `/certs/` 를 넣는다. `/` 를 빼면 `docker/certs/` 같은 다른 폴더까지 가려진다.
@@ -188,22 +188,23 @@ python "${CLAUDE_SKILL_DIR}/scripts/pick_port.py" --register <포트> <컨테이
 실행 시간을 담당자에게 묻는다. Vercel 같은 다른 곳에서도 돌고 있으면 어느 쪽에 둘지 함께 묻는다. 돌리겠다고 한
 것마다 스케줄 등록 요청을 보낸다.
 
-## AX 팀에 등록 요청 보내기
+## AX 팀에 요청하기
 
-**담당자는 Jenkins 자격증명과 서버를 볼 수 없으므로 두 등록을 AX 팀에 메일로 요청한다.** 확인 없이 바로 보낸다.
-**보내기 전에 [ax-requests.md](ax-requests.md) 를 읽는다** — 준비할 것, 제목과 본문, 종료 코드별 대응이 거기 있다.
+**담당자는 Jenkins 자격증명과 서버를 볼 수 없으므로 등록과 정리는 AX 팀에 요청한다.** 이 스킬과 하위 문서가 AX 팀에
+요청·전달·문의하라고 하면 스케줄 등록은 메일로 보내고, 그 밖은 `${CLAUDE_PLUGIN_ROOT}/ax-inquiry.md` 대로 안내한다. 하위 문서가 답을
+받은 뒤에 진행하라고 한 곳(이미 도는 서비스의 마운트 경로)이 아니면 안내한 뒤 답변을 기다리지 않고 배포 절차를 이어 간다.
 
-| 요청 | 언제 보내나 |
-|---|---|
-| 환경변수 등록 요청 | 3단계 확인 직후. 비밀 키가 없으면 보내지 않는다. 6단계에서 스케줄에만 쓰는 키가 생기면 한 통 더 |
-| 스케줄 등록 요청 | 6단계에서 돌리겠다고 한 스케줄마다 한 통 |
+| 요청 | 언제 | 어떻게 |
+|---|---|---|
+| 환경변수 등록 | 3단계 확인 직후. 비밀 키가 없으면 하지 않는다. 6단계에서 스케줄에만 쓰는 키가 생기면 그 키만 한 번 더 | 「환경변수(env) 등록」 유형. 저장소, 조직, 컨테이너, 자격증명 `env-<서비스>`, 키 이름과 용도(코드가 그 키로 하는 일 한 줄)를 적어 준다. 값은 담당자가 값이 든 파일을 보고 양식에 직접 넣는다. 파일 키는 secrets.md 대로 `<이름>_B64` 줄을 먼저 만든다 |
+| 스케줄 등록 | 6단계에서 돌리겠다고 한 스케줄마다 한 통 | AX 팀에 메일로 요청한다. 확인 없이 바로 보낸다. 보내기 전에 [ax-requests.md](ax-requests.md) 를 읽는다. 준비할 것, 제목과 본문, 종료 코드별 대응이 거기 있다 |
+| 그 밖의 등록·정리 | 포트 등록부 줄 삭제, 호스트 폴더 경로 등록, 컨테이너 정리, 마운트 경로 확인처럼 각 절이 요청하라고 할 때 | 「제공 인프라」 유형 |
+
+스케줄 등록 요청은 아래 줄로 보낸다. 메일이 실패해도 배포 절차는 멈추지 않는다.
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>" -EnvSource "<값이 든 파일>" -EnvKeys "<키1>,<키2>"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/scripts/request-ax.ps1" -Subject "<제목>" -BodyPath "<본문.json>"
 ```
-
-키 이름만 넘기면 스크립트가 값이 든 파일에서 그 키만 뽑아 첨부하고 화면에는 키 이름만 찍는다. 스케줄 등록 요청은
-`-EnvSource`·`-EnvKeys` 를 빼고 부른다. 메일이 실패해도 배포 절차는 멈추지 않는다.
 
 ## 증상으로 찾을 때
 

@@ -51,7 +51,12 @@ print(json.loads(urlopen(req).read())['token'])") && \
 ```
 
 **파일 키는 경로 대신 환경변수를 받게 코드를 고친다.** 이미지에 JSON 을 복사하고 경로로 읽던 코드라면 이렇게 바꾼다.
-값을 만들어 환경변수 등록 요청에 싣는 법은 ax-requests.md 의 「보내는 법」에 있다.
+**값은 base64 한 줄로 바꿔 값이 든 파일에 붙인다.** 담당자에게 키 파일(서비스 계정 JSON 같은 것)의 경로만 받고 그
+파일은 열지 않는다. 아래 명령은 값을 화면에 찍지 않는다. 붙인 `<이름>_B64` 는 환경변수 등록 문의의 키 이름에 함께 적는다.
+
+```powershell
+Add-Content -LiteralPath "<값이 든 파일>" -Value ("`n<이름>_B64=" + [Convert]::ToBase64String([IO.File]::ReadAllBytes("<키 파일>")))
+```
 
 ```python
 creds = Credentials.from_service_account_info(

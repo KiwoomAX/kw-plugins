@@ -91,6 +91,18 @@ $axDoc = if (Test-Path $axDocPath) { [IO.File]::ReadAllText($axDocPath) } else {
 $examples = @([regex]::Matches($axDoc, '(?s)```json\r?\n(.*?)```') | ForEach-Object { $_.Groups[1].Value })
 $badExamples = @($examples | Where-Object { try { $null = $_ | ConvertFrom-Json; $false } catch { $true } })
 Assert 'ax-requests.md example bodies parse as JSON' ($examples.Count -gt 0 -and $badExamples.Count -eq 0)
+
+# AX 팀 요청은 플러그인 폴더의 문의 안내로 모은다. 스케줄 등록만 메일로 보내고 환경변수 등록 메일은 없앴다.
+$inquiryPath = Join-Path $PluginDir 'ax-inquiry.md'
+Assert 'the AX inquiry guide ships at the plugin root' (Test-Path $inquiryPath)
+Assert 'SKILL.md sends AX-team requests through the inquiry guide' ($text -match [regex]::Escape('${CLAUDE_PLUGIN_ROOT}/ax-inquiry.md'))
+Assert 'env registration goes to the env inquiry type' ($text -match [regex]::Escape('「환경변수(env) 등록」'))
+Assert 'no skill file mails env values any more' (-not ($allText -match '-EnvSource|-EnvKeys'))
+Assert 'a key file is still turned into a base64 env line' ($refText -match 'ToBase64String')
+# 세 플러그인은 따로 설치될 수 있어 같은 안내를 플러그인마다 둔다. 한쪽만 고치면 안내가 갈라진다.
+$copies = @('kw-devops', 'kw-dashboard', 'kw-github') | ForEach-Object { Join-Path $Repo "plugins/$_/ax-inquiry.md" }
+Assert 'the three plugin copies of the inquiry guide are the same' (@($copies | Where-Object { Test-Path $_ }).Count -eq 3 -and @($copies | ForEach-Object { (Get-FileHash $_).Hash } | Select-Object -Unique).Count -eq 1)
+Assert 'the inquiry guide names the service address and the env type' (([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('http://192.7.9.45:9999') -and ([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('환경변수(env) 등록'))
 # The port is registered with the container_name the compose file actually carries, before push.
 # Registering at step 5 left days between picking and registering, and two people could pick the same port.
 Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
