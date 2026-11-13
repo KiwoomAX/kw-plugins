@@ -413,6 +413,35 @@ Assert 'searching-document names no write endpoint' (-not ($sdText -match '/upse
 Assert 'searching-document escapes the file path' ($sdText -match 'EscapeDataString')
 Assert 'searching-document does not overwrite an existing PDF' ($sdText -match 'Test-Path -LiteralPath \$dest')
 
+Write-Host '--- using-filegateway ---'
+# Splits a network path into a share name and relative path, downloads the file with the user's
+# access key and compares it with the local copy. Read-only, and it stores nothing.
+$fgDir  = Join-Path $PluginDir 'skills/using-filegateway'
+$fgMd   = Join-Path $fgDir 'SKILL.md'
+$fgPy   = Join-Path $fgDir 'scripts/filegw.py'
+Assert 'using-filegateway ships SKILL.md and filegw.py and nothing else' (@($fgMd, $fgPy | Where-Object { Test-Path $_ }).Count -eq 2 -and @(Get-ChildItem $fgDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '__pycache__' }).Count -eq 2)
+$fgText = if (Test-Path $fgMd) { [IO.File]::ReadAllText($fgMd) } else { '' }
+$fgPyText = if (Test-Path $fgPy) { [IO.File]::ReadAllText($fgPy) } else { '' }
+$fgAll = $fgText + "`n" + $fgPyText
+Assert 'using-filegateway frontmatter name matches the folder' (([regex]::Match($fgText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'using-filegateway')
+Assert 'using-filegateway files point at no personal skills folder' (-not ($fgAll -match '~/\.claude/skills'))
+Assert 'using-filegateway files call no python3' (-not ($fgAll -match '\bpython3\b'))
+Assert 'using-filegateway files carry no build-history notes' (-not ($fgAll -match '\b20\d\d-\d\d-\d\d\b|실측'))
+Assert 'using-filegateway scripts declare no script dependencies' (-not ($fgAll -match '(?m)^# /// script'))
+$fgCalls = [regex]::Matches($fgText, '(?m)^python\b.*filegw\.py.*$')
+Assert 'filegw.py is called through CLAUDE_SKILL_DIR' ($fgCalls.Count -gt 0 -and @($fgCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
+Assert 'filegw.py pins its output to UTF-8' ($fgPyText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $fgPyText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
+# The access-key handling is shared with searching-winus; both skills ship in this one plugin.
+Assert 'filegw.py imports fetch_manifest from searching-winus' ($fgPyText -match 'searching-winus' -and $fgPyText -match 'import fetch_manifest' -and (Test-Path $dbFetch))
+Assert 'using-filegateway docs use no em dash' (-not ($fgText -match '—'))
+# A developer key on the server would hand every user that developer's files.
+Assert 'using-filegateway keeps the access key off the server' ($fgText -match 'FILEGW_DEV_ACCESS_KEY' -and $fgText -match 'X-Auth-Access-Token')
+# The repo is public: share names and the file server address must not ship with the skill.
+Assert 'using-filegateway ships no share list and no file server address' (-not (Test-Path (Join-Path $fgDir 'shares.tsv')) -and -not ($fgAll -match '192\.7\.12\.'))
+# Offline self-check: path splitting and the compare outcomes. No network, no registry.
+$fgSelf = & python $fgPy --selfcheck 2>&1 | Out-String
+Assert 'filegw.py --selfcheck passes' ($LASTEXITCODE -eq 0 -and $fgSelf -match 'selfcheck ok')
+
 # 마켓플레이스 전체 검증은 tests/test_control_tower.ps1 이 한 번 실행한다.
 
 Write-Host ''
