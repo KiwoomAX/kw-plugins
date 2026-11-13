@@ -213,7 +213,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" open-pr --repo "<작업 폴�
 
 기능 레포에서는 `--feature` 없이 지금 작업 branch 로 연다. 첫 업로드 전에는 쓰지 않는다. `other-owner` 면 `detail` 대로 묻고, 동의하면 `--allow-other-owner` 를 붙여 다시 실행한다.
 
-저장 스크립트는 공유 레포의 진행 중인 merge 를 취소하고, 비밀값·데이터 파일을 검사하고, 작업 branch 를 push 한 뒤 PR 을 만든다. 결과가 `pr-opened` 면 개발자에게 "검토 요청을 올렸습니다. Claude 가 검토한 뒤 반영합니다." 라고 알린다. `open-pr` 은 main 에 merge 하지 않는다. 기능 레포에서는 main 으로 옮기고 PC 의 작업 branch 를 지운다. commit 은 GitHub 에 남아 있다.
+저장 스크립트는 공유 레포의 진행 중인 merge 를 취소하고, 비밀값·데이터 파일을 검사하고, 작업 branch 를 push 한 뒤 PR 을 만든다. 결과가 `pr-opened` 면 개발자에게 "검토 요청을 올렸습니다. Claude 가 검토한 뒤 반영합니다." 라고 알린다. 개발자가 다른 사람의 확인을 기다리겠다고 했으면 대신 "검토 요청을 올렸습니다. 반영을 원하시면 말씀해 주세요." 라고 알린다. `open-pr` 은 main 에 merge 하지 않는다. 기능 레포에서는 main 으로 옮기고 PC 의 작업 branch 를 지운다. commit 은 GitHub 에 남아 있다.
 
 이어서 결과의 `url` 끝 숫자를 번호로 아래 「검토 요청 반영」 절에 따라 반영한다. 개발자가 다른 사람의 확인을 기다리겠다고 하면 반영하지 않고, 개발자가 반영을 요청할 때 반영한다.
 
