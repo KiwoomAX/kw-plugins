@@ -236,7 +236,7 @@ try {
     # 조용히 사라져, 목록과 다른 PC 를 정상으로 본다. 동기화는 이때 멈추고 알리지만, 이 훅은
     # 세션을 어지럽히지 않도록 기록만 남기고 종료한다.
     foreach ($k in @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')) {
+                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'defaultModel')) {
         if ($null -eq $manifest.PSObject.Properties[$k]) { throw "목록에 항목 없음: $k ($root\manifest.json)" }
     }
 
@@ -577,12 +577,14 @@ try {
         Add-Note 1 "마켓플레이스 교체에 실패해 남은 폴더가 있습니다: $(($leftover | ForEach-Object Name) -join ', ')"
     }
 
-    # --- 질문 17. 전역 설정의 모델 허용 목록이 목록과 같은가 ----------------
-    # 질문 15 와 달리 값이 달라도 알린다. 동기화 단계 9 가 사용자가 바꾼 값도 목록의 값으로 되돌리기 때문이다.
+    # --- 질문 17. 전역 설정에 기본 모델이 있고, 이전 모델 허용 목록이 남아 있지 않나 ---
+    # 질문 15 와 같이 model 항목이 없을 때만 목록과 다르다고 본다. 항목이 있으면 사용자가 정한 것이다.
+    # 이전 버전의 동기화가 적은 모델 허용 목록(opus, sonnet, haiku)이 남아 있으면 단계 9 가 제거한다.
+    # 모델 제한을 없앴기 때문이다(2026-11-13 사용자 결정). 사용자가 직접 적은 다른 값은 말하지 않는다.
     # settings.json 이 없으면 고칠 대상이 없으므로 말하지 않는다. 이미 읽은 파일이라 읽는 파일 수가 늘지 않는다.
-    if ($null -ne $settings -and
-        (@(Get-Prop $settings 'availableModels') -join ',') -cne (@($manifest.availableModels) -join ',')) {
-        Add-Note 9 '전역 설정의 모델 허용 목록이 목록과 다릅니다.'
+    if ($null -ne $settings) {
+        if ($null -eq $settings.PSObject.Properties['model']) { Add-Note 9 '전역 설정에 기본 모델(model)이 없습니다.' }
+        if ((@(Get-Prop $settings 'availableModels') -join ',') -ceq 'opus,sonnet,haiku') { Add-Note 9 '전역 설정에 이전 모델 허용 목록이 남아 있습니다.' }
     }
 }
 catch {

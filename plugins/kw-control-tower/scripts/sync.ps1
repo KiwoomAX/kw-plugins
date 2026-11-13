@@ -357,7 +357,7 @@ if ($null -eq $manifest) { Write-Error "목록 없음: $root\manifest.json"; exi
 # 읽을 수 있고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다. 있어야 할 항목이
 # 다 있는지 확인하고 없으면 멈춘다. 값이 비어 있는 것은 정상이라 개수는 확인하지 않는다.
 $required = @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'availableModels')
+              'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'defaultModel')
 $missing = @($required | Where-Object { $null -eq $manifest.PSObject.Properties[$_] })
 if ($missing.Count -gt 0) {
     Write-Error "목록에 항목 없음: $($missing -join ', ') ($root\manifest.json)"
@@ -1002,22 +1002,28 @@ try {
 Save-State
 
 # ---------------------------------------------------------------- 단계 9
-Show '9. 전역 설정의 모델 허용 목록을 확인합니다.'
+Show '9. 전역 설정의 기본 모델을 확인합니다.'
 if (Want 9) {
 try {
-    # 단계 8 과 달리 사용자가 바꾼 값도 목록의 값으로 되돌린다. 사내 표준 모델만 허용하는 설정이라
-    # 사용자 값을 그대로 두면 표준 밖의 모델을 넣은 사람에게 허용 목록이 적용되지 않는다(2026-10-28 결정).
+    # 단계 8 과 같이 model 항목이 없을 때만 목록의 기본 모델을 넣는다. 항목이 있으면 사용자가 /model 로
+    # 고른 것이라 그대로 둔다. 이전 버전의 동기화가 적은 모델 허용 목록(opus, sonnet, haiku)은 제거한다.
+    # 모델 제한을 없앴기 때문이다(2026-11-13 사용자 결정). 사용자가 직접 적은 다른 값은 그대로 둔다.
     # 파일이 없거나 형식 오류가 있으면 쓰지 않는다. 형식 오류면 Read-Json 이 오류로 멈춰 실패로 남는다.
-    $models = @($manifest.availableModels)
     $settings = Read-Json $settingsPath
-    if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 유자.' }
-    elseif ((@(Get-Prop $settings 'availableModels') -join ',') -ceq ($models -join ',')) { Say '이미 목록과 같습니다. 그대로 유지.' }
+    if ($null -eq $settings) { Say 'settings.json 이 없어 그대로 둡니다.' }
     else {
-        if (-not $WhatIfOnly) {
-            $settings | Add-Member -NotePropertyName 'availableModels' -NotePropertyValue $models -Force
-            Save-Json $settings $settingsPath
+        $addModel = ($null -eq $settings.PSObject.Properties['model'])
+        $dropList = ((@(Get-Prop $settings 'availableModels') -join ',') -ceq 'opus,sonnet,haiku')
+        if (-not $addModel -and -not $dropList) { Say "이미 '$($settings.model)' 입니다. 그대로 둡니다." }
+        else {
+            if (-not $WhatIfOnly) {
+                if ($addModel) { $settings | Add-Member -NotePropertyName 'model' -NotePropertyValue $manifest.defaultModel }
+                if ($dropList) { $settings.PSObject.Properties.Remove('availableModels') }
+                Save-Json $settings $settingsPath
+            }
+            if ($addModel) { Note "전역 설정에 `"model`": `"$($manifest.defaultModel)`" 를 적용했습니다(백업: $settingsPath.kw.bak). 다른 모델은 /model 로 고르십시오." }
+            if ($dropList) { Note "전역 설정에서 이전 모델 허용 목록(`"availableModels`")을 제거했습니다(백업: $settingsPath.kw.bak)." }
         }
-        Note "전역 설정의 `"availableModels`" 를 $($models -join ', ') 로 동기화(백업: $settingsPath.kw.bak). 이 목록에 없는 모델은 고를 수 없습니다."
     }
 } catch { Fail '9' $_.Exception.Message }
 } else { Say '이 단계는 고칠 것이 없어 건너뜁니다.' }

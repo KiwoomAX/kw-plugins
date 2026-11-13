@@ -471,7 +471,7 @@ Check '폐기한 훅은 이름과 경로를 함께 적는다' {
 }
 # JSON 형식이 맞는 것과 목록의 형식이 맞는 것은 다르다. 항목 이름을 하나 잘못 적으면 JSON 형식
 # 오류는 없고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다.
-$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','availableModels')
+$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','defaultModel')
 Check '목록에 있어야 할 항목이 모두 있다' {
     @($manifestKeys | Where-Object { $null -eq $mf.PSObject.Properties[$_] }).Count -eq 0
 }
@@ -1717,7 +1717,7 @@ Remove-Item -LiteralPath $sy -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 Write-Host '출력 스타일'
 # 동기화의 앞머리와 단계 8 부터 마무리까지만 떼어 가짜 홈에서 실행한다. 클로드를 다루는 단계가 없어
-# 테스트용 가짜 프로그램이 필요 없다. 아래 모델 허용 목록 검사도 같은 복사본으로 단계 9 를 실행한다.
+# 테스트용 가짜 프로그램이 필요 없다. 아래 기본 모델 검사도 같은 복사본으로 단계 9 를 실행한다.
 $os = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-os-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path $os | Out-Null
 $cut1 = $syncText.IndexOf('# ---------------------------------------------------------------- 단계 1')
@@ -1774,32 +1774,36 @@ function Invoke-HookWith([string]$Settings) {
 Check '점검이 outputStyle 항목이 없으면 알린다' { (Invoke-HookWith '{}') -match 'outputStyle 이 없습니다' }
 Check '점검이 outputStyle 항목이 있으면 말하지 않는다' { (Invoke-HookWith '{ "outputStyle": "default" }') -notmatch 'outputStyle' }
 
-# --- 모델 허용 목록 -----------------------------------------------------------
+# --- 기본 모델 ---------------------------------------------------------------
 Write-Host ''
-Write-Host '모델 허용 목록'
-Check '목록의 모델 허용 목록에 Fable 이 없다' { @($mf.availableModels | Where-Object { $_ -match 'fable' }).Count -eq 0 }
-$models = @($mf.availableModels)
-$modelsJson = ($models | ForEach-Object { "`"$_`"" }) -join ', '
-$r = Invoke-OutputStyle '{ "model": "opus", "enabledPlugins": { "a@b": true } }' -Step '9'
-Check '항목이 없으면 목록의 값을 넣고 다른 항목은 그대로 둔다' {
+Write-Host '기본 모델'
+Check '목록에 모델 허용 목록이 없고 기본 모델이 있다' { ($null -eq $mf.PSObject.Properties['availableModels']) -and $mf.defaultModel }
+$r = Invoke-OutputStyle '{ "enabledPlugins": { "a@b": true } }' -Step '9'
+Check 'model 항목이 없으면 목록의 기본 모델을 넣고 다른 항목은 그대로 둔다' {
     $j = $r.Text | ConvertFrom-Json
-    ((@($j.availableModels) -join ',') -ceq ($models -join ',')) -and ($j.model -eq 'opus') -and ($j.enabledPlugins.'a@b' -eq $true)
+    ($j.model -ceq $mf.defaultModel) -and ($j.enabledPlugins.'a@b' -eq $true)
 }
 Check '넣기 전에 백업을 남기고 한 줄로 알린다' {
-    $r.Bak -and ($r.Out -match '(?m)^  - 전역 설정의 "availableModels" 를 .+ 로 맞췄습니다\(백업: .+settings\.json\.kw\.bak\)\.')
+    $r.Bak -and ($r.Out -match '(?m)^  - 전역 설정에 "model": ".+" 를 적용했습니다\(백업: .+settings\.json\.kw\.bak\)\.')
 }
-# 단계 8 과 달리 사용자가 바꾼 값도 되돌린다. Fable 을 넣은 사람에게 제한이 사라지지 않게 하기 위해서다.
-$r = Invoke-OutputStyle '{ "availableModels": ["opus", "fable"] }' -Step '9'
-Check '사용자가 바꾼 값을 목록의 값으로 되돌린다' { (@(($r.Text | ConvertFrom-Json).availableModels) -join ',') -ceq ($models -join ',') }
-$r = Invoke-OutputStyle "{ `"availableModels`": [$modelsJson] }" -Step '9'
-Check '이미 목록과 같으면 그대로 두고 말하지 않는다' { -not $r.Bak -and [string]::IsNullOrWhiteSpace($r.Out) }
-$r = Invoke-OutputStyle '{ "availableModels": ' -Step '9'
-Check '모델 허용 목록 단계는 JSON 이 깨져 있으면 고치지 않는다' { ($r.Text -eq '{ "availableModels": ') -and -not $r.Bak -and ($r.Code -ne 0) }
+$r = Invoke-OutputStyle '{ "model": "sonnet", "availableModels": ["opus", "fable"] }' -Step '9'
+Check 'model 항목이 있고 사용자가 적은 허용 목록이면 그대로 두고 말하지 않는다' {
+    $j = $r.Text | ConvertFrom-Json
+    ($j.model -eq 'sonnet') -and ((@($j.availableModels) -join ',') -ceq 'opus,fable') -and -not $r.Bak -and [string]::IsNullOrWhiteSpace($r.Out)
+}
+# 이전 버전의 동기화가 적은 값이 남으면 모델 제한이 계속 적용되므로 제거한다.
+$r = Invoke-OutputStyle '{ "model": "sonnet", "availableModels": ["opus", "sonnet", "haiku"] }' -Step '9'
+Check '이전 동기화가 적은 모델 허용 목록을 제거하고 model 은 그대로 둔다' {
+    $j = $r.Text | ConvertFrom-Json
+    ($null -eq $j.PSObject.Properties['availableModels']) -and ($j.model -eq 'sonnet') -and $r.Bak -and ($r.Out -match '이전 모델 허용 목록\("availableModels"\)을 제거했습니다')
+}
+$r = Invoke-OutputStyle '{ "model": ' -Step '9'
+Check '기본 모델 단계는 JSON 이 깨져 있으면 고치지 않는다' { ($r.Text -eq '{ "model": ') -and -not $r.Bak -and ($r.Code -ne 0) }
 $r = Invoke-OutputStyle $null -Step '9'
-Check '모델 허용 목록 단계는 settings.json 이 없으면 만들지 않는다' { ($null -eq $r.Text) -and [string]::IsNullOrWhiteSpace($r.Out) }
-Check '점검이 모델 허용 목록이 없으면 알린다' { (Invoke-HookWith '{}') -match '모델 허용 목록이 목록과 다릅니다' }
-Check '점검이 모델 허용 목록이 다르면 알린다' { (Invoke-HookWith '{ "availableModels": ["fable"] }') -match '모델 허용 목록이 목록과 다릅니다' }
-Check '점검이 모델 허용 목록이 같으면 말하지 않는다' { (Invoke-HookWith "{ `"availableModels`": [$modelsJson] }") -notmatch '모델 허용 목록' }
+Check '기본 모델 단계는 settings.json 이 없으면 만들지 않는다' { ($null -eq $r.Text) -and [string]::IsNullOrWhiteSpace($r.Out) }
+Check '점검이 model 항목이 없으면 알린다' { (Invoke-HookWith '{}') -match '기본 모델\(model\)이 없습니다' }
+Check '점검이 이전 모델 허용 목록이 남아 있으면 알린다' { (Invoke-HookWith '{ "model": "opus", "availableModels": ["opus", "sonnet", "haiku"] }') -match '이전 모델 허용 목록이 남아 있습니다' }
+Check '점검이 model 항목이 있으면 말하지 않는다' { (Invoke-HookWith '{ "model": "fable", "availableModels": ["fable"] }') -notmatch '모델' }
 
 Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 
