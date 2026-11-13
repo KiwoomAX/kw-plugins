@@ -344,7 +344,7 @@ Remove-Item -Recurse -Force "$env:TEMP\kw-intake-chrome" -ErrorAction SilentlyCo
 
 1. 중앙 레포에 commit 하지 않은 변경이 없는지 확인하라. 있으면 그 변경을 다룬 단계로 돌아가 commit 하라. 이어서 중앙 레포를 fetch 하라. 이전 branch 를 만든 뒤 `main` 에 새 commit 이 있으면 `git merge --no-commit origin/main` 으로 합치고 저장 명령 `--intake` 로 끝내라. 충돌이 나면 AX팀 문의로 멈춰라.
 2. 최신 `main` 을 합쳤으면 `uv lock --check` 와 `src/frontend` 의 `npm ci` 로 잠금 파일이 맞는지 확인하라. 맞지 않으면 멈춰라.
-3. kw-github `saving-work` 의 공유 레포 「올리기 흐름」에 따라 작업 이슈 제목을 정하고, `check-boundary --intake` 를 실행하고, 셀프 리뷰를 서브에이전트로 실행하고, 지적을 개발자와 논의하라. 셀프 리뷰어가 `docker-compose.yml`·`Jenkinsfile` 의 허용되지 않은 줄을 지적하고 개발자가 되돌리기로 하면, 그 줄만 중앙 레포 `main` 의 내용으로 고쳐 저장 명령 `--intake` 로 commit 하라. 기능 이전 중에는 kw-github 의 `revert-outside` 와 `open-pr` 를 쓰지 마라. 경계 검사나 셀프 리뷰가 지적하면 이 절차의 처분만 써라. 구조 파일이 「템플릿과 다르다」로 나오면 「시작 전: 다시 실행 판정」 3행대로 이전 branch 를 지우고 1단계부터 다시 하라. `docker-compose.yml`·`Jenkinsfile` 의 줄 지적은 위처럼 그 줄만 되돌려라. 그 밖의 경계 위반은 AX팀 문의로 멈춰라.
+3. kw-github `saving-work` 의 공유 레포 「올리기 흐름」에 따라 작업 이슈 제목을 정하고, `check-boundary --intake` 를 실행하고, 셀프 리뷰를 서브에이전트로 실행하고, 지적을 개발자와 논의하라. 셀프 리뷰어가 `docker-compose.yml`·`Jenkinsfile` 의 허용되지 않은 줄을 지적하고 개발자가 되돌리기로 하면, 그 줄만 중앙 레포 `main` 의 내용으로 고쳐 저장 명령 `--intake` 로 commit 하라. 기능 이전 중에는 kw-github 의 `revert-paths` 와 `open-pr` 를 쓰지 마라. 경계 검사나 셀프 리뷰가 지적하면 이 절차의 처분만 써라. 구조 파일이 「템플릿과 다르다」로 나오면 「시작 전: 다시 실행 판정」 3행대로 이전 branch 를 지우고 1단계부터 다시 하라. `docker-compose.yml`·`Jenkinsfile` 의 줄 지적은 위처럼 그 줄만 되돌려라. 그 밖의 경계 위반은 AX팀 문의로 멈춰라.
 4. 1번에서 `main` 을 합쳤거나 3번에서 코드가 바뀌었으면 8단계를 다시 하라. 9단계는 다시 하지 마라. 8단계가 4~7단계로 돌려보내면 고친 뒤 3번부터 다시 하라.
 5. 개발자에게 「공유 코드에 반영할까요?」라고 묻고, 동의할 때만 업로드 명령에 `--intake` 를 넘겨 실행하라. kw-github 는 기능 이전 업로드에서 승인을 따로 묻지 않으므로 이 질문이 승인이다. 동의하지 않으면 반영하지 말고 멈춰라. 허용 경로는 넘기지 마라.
 6. 반영되면 `review-upload --intake` 를 실행하라. 로컬 이전 branch 는 업로드 명령이 지운다.
