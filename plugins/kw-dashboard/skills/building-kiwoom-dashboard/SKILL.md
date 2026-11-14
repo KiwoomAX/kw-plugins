@@ -37,6 +37,20 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 - **셸이 쓰는 클래스 이름을 내용 구획 CSS 에 다시 정의하지 않는다.** `.shell` · `.rail` · `.topbar` · `.side` ·
   `.nav-item` · `.content` 같은 이름이다. 겹치면 이름을 바꾼다.
 
+## 핵심: 화면 안의 주소
+
+운영 대시보드는 포트가 아니라 게이트웨이 80번의 경로 `/<접두어>/` 아래에서 열린다(예: 임원실 `http://192.7.9.45/exec/`).
+로컬 실행(`npm run dev`)은 접두어가 `/` 라 아래 규칙을 어겨도 동작하고, 운영에서만 404 가 난다.
+
+- **화면이 자기 서버에 보내는 주소는 `withBase()` 로 감싼다.** `/api/…`·`/data/…` 로 시작하는 주소와 `public/` 의 파일 주소가
+  대상이다. `withBase()` 는 셸의 `src/frontend/src/shell/basePath.ts` 에 있다. 예: `fetch(withBase('/api/kpi/summary'))`.
+  `/auth/api/me`·`/auth/api/logout` 은 게이트웨이의 주소라 감싸지 않는다.
+- **`'/api'` 를 상수로 두고 뒤에 이어 붙이지 않는다.** 감싸지 않은 `/api/`·`/data/` 문자열은 `npm test` 의
+  `shell/basePath.test.ts` 가 파일과 줄로 알려 주는데, 이어 붙인 주소는 찾지 못한다. 배포는 테스트를 실행하지 않는다.
+- **화면 안 이동은 react-router 의 `<Link>`·`useNavigate` 로 한다.** 라우터가 접두어를 붙인다. `<a href="/…">` 나
+  `location.href = '/…'` 로 주소를 직접 적지 않는다.
+- 셸에 `basePath.ts` 가 없는 대시보드는 셸이 이전 버전이다. 셸을 고치지 말고 AX 팀에 셸 업데이트를 요청한다.
+
 ## 사이드바 카테고리와 상태바 경로
 
 메뉴는 카테고리 › 기능 › 하위 기능 세 단계까지 둘 수 있고, 세 단계 모두 필수가 아니다. 낱개 기능만 둬도 되고,
@@ -131,7 +145,9 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    ```
 
    설치할 목록은 `pyproject.toml` 의 `dependencies` 에 적혀 있다. 그 목록이 늘면 늘어난 것도 함께 설치한다.
-7. **서버 배포.** 서버 배포는 `deploying-kiwoom-service` 스킬로 한다.
+7. **서버 배포.** 서버 배포는 `deploying-kiwoom-service` 스킬로 한다. 대시보드는 게이트웨이 80번의 `/<접두어>/` 로 연다.
+   접두어(영문 소문자 한 단어)를 담당자와 정해 compose 의 화면 서비스 `build.args.BASE_PATH` 에 `/<접두어>/` 로 적고,
+   게이트웨이 경로 등록과 접근 권한은 AX 팀에 요청한다(「사람이 지키는 것」).
 
 ## 기능 붙이기
 
@@ -140,7 +156,8 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 1. 화면은 `src/frontend/src/features/<기능 이름>/` 에 둔다. 페이지 컴포넌트의 내용을 `DashboardLayout` 으로 감싸고,
    상태바에 보일 값은 이 컴포넌트의 props 로만 넘긴다(아래 「상태바 값」). 화면 컴포넌트에서 `fetch` 를 직접
-   호출하지 않는다. 데이터 호출은 같은 기능 폴더의 별도 파일에 두고, 화면은 값과 상태를 props 로 받는다. 그래야
+   호출하지 않는다. 데이터 호출은 같은 기능 폴더의 별도 파일에 두고(주소는 `withBase('/api/<기능 이름>/…')`, 위 「핵심: 화면 안의 주소」),
+   화면은 값과 상태를 props 로 받는다. 그래야
    디자인을 바꿔도 데이터 호출 코드는 그대로다.
 2. 같은 폴더의 `menu.ts` 에 메뉴 항목을 적는다. `name` 은 메뉴 이름, `page` 는 페이지 컴포넌트, `cat` 은 카테고리,
    `path` 는 주소다. `path` 를 비우면 `/<기능 이름>` 이 된다. `parent` 는 하위 기능이 될 때 묶을 기능 이름이다. `marker` 는 사이드바 이름 오른쪽에 붙일 숫자나
@@ -182,7 +199,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 
 ## 사람이 지키는 것
 
-- 권한 설정은 배포하기 전에 AX 팀에 요청한다. 누가 어느 대시보드와 기능을 보는지는 AX 팀이 정한다.
+- 권한 설정과 게이트웨이 경로(`/<접두어>/`) 등록은 배포하기 전에 AX 팀에 요청한다. 누가 어느 대시보드와 기능을 보는지는 AX 팀이 정한다.
 - 메뉴에 붙인 기능마다 설명 문서를 repo 의 `docs/` 에 둔다. 형식은 PDF 나 Word 이고 PDF 를 권장한다. 파일
   이름은 API 와 같은 기능 이름으로 짓는다(`/api/kpi` → `docs/kpi.pdf`). 화면 목적 · 데이터 출처와 갱신 주기 ·
   지표 정의(계산식) · 문의처를 적는다. 화면을 고치면 문서도 고친다.
@@ -223,7 +240,7 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 프로그램이 쓰고 있으면 화면 쪽이 3001번으로 올라가므로 콘솔에 찍힌 주소를 그대로 연다.
 확인이 끝나면 사람이 볼 수 있게 그 주소를 브라우저로 열어 주고, 낮과 밤을 모두 보였는지 함께 적는다.
 
-- [ ] `src/frontend` 에서 `npm test`(타입 검사와 테스트)가 통과한다
+- [ ] `src/frontend` 에서 `npm test`(타입 검사와 테스트)가 통과한다. 화면 코드의 `/api/`·`/data/` 주소가 모두 `withBase()` 를 거친다는 검사(`shell/basePath.test.ts`)도 여기 포함된다
 - [ ] 브라우저 개발자 도구의 Console 탭에 `[shell]` 경고와 오류가 없다
 - [ ] `git diff --stat -- src/frontend/src/shell src/frontend/index.html` 이 비어 있다
 - [ ] 낮과 밤에서 모두 보인다. 사이드바를 편 채 알림 서랍을 연 상태에서도 내용 구획이 깨지지 않는다
