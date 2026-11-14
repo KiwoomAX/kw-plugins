@@ -27,7 +27,7 @@ envCredIds: [env-<서비스>]
 | `services` | 배포할 compose 서비스 목록. 적지 않으면 `[backend]` 다. 서비스 키가 `backend` 하나가 아니면 반드시 적는다. cron 이 실행하는 수집기처럼 상시 뜨지 않는 서비스는 넣지 않는다 |
 | `composeFiles` | 적지 않으면 `[docker-compose.yml, docker-compose.jenkins.yml]` 이다. 덮어쓰기 파일이 없으면 `[docker-compose.yml]` 로 적는다. **저장소 최상위의 파일 이름만** 받는다 — `docker/compose.yml` 처럼 폴더 안 파일은 실패한다 |
 | `envCredIds` | 서비스 전용 비밀이 있을 때 `[env-<서비스>]`. `env-ax` 는 파이프라인이 붙이므로 적지 않는다. AM 공통 키는 받지 않는다 — 코드가 공통 키(Gemini 키 같은 것)를 쓰면 그 키를 `env-<서비스>` 에 넣어 달라고 AX 팀에 요청한다 |
-| `gatewayServices` | 게이트웨이(로그인) 뒤로 옮길 서비스. 그 서비스의 호스트 포트는 열리지 않는다 |
+| `gatewayServices` | 게이트웨이(로그인) 뒤로 옮길 서비스. 그 서비스의 호스트 포트는 열리지 않는다. 대시보드의 화면 서비스는 늘 적는다 — 운영 대시보드는 게이트웨이 80번의 `/<접두어>/` 로만 열린다 |
 
 **표에 없는 키는 빌드를 실패시킨다.** `service`·`conflictContainers`·`cronSchedule` 같은 `kiwoomDeploy` 파라미터도
 받지 않는다. 서비스가 하나여도 `services: [web]` 처럼 목록으로 적는다.
