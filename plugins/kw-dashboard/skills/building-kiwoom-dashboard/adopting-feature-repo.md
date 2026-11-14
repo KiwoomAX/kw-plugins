@@ -210,7 +210,7 @@ Intake-History: yes | no
 - 화면을 `DashboardLayout` 으로 감싸는 화면 파일을 프론트 기능 폴더 안에 만들고 `menu.ts` 의 `page` 가 그 파일을 가리키게 하라. 기능 레포의 `frontend/index.tsx` 는 고치지 말고 새 화면 파일이 import 하게 하라.
 - 기능 코드의 절대 import(`from backend.xxx`)를 기능 폴더 안 상대 import 로 고쳐라.
 - 시험 코드의 import 는 `importlib.import_module("src.backend.features.<기능 이름>.<모듈>")` 형태로 고치고, PC 실행용 앱(`dev_app` 등) 대신 중앙 레포 앱(`src.backend.main:app`)을 쓰게 고쳐라. 기능 이름에 하이픈이 들 수 있어 import 문으로는 기능 폴더를 가리킬 수 없다.
-- 화면 코드의 API 주소가 `/api/<기능 이름>/` 으로 시작하지 않으면 그 주소로 고쳐라.
+- 화면 코드의 API 주소가 `/api/<기능 이름>/` 으로 시작하지 않으면 그 주소로 고쳐라. 주소는 셸의 `withBase()` 로 감싸라(SKILL.md 「핵심: 화면 안의 주소」). 운영 대시보드는 `/<접두어>/` 아래에서 열려 감싸지 않은 주소는 404 다.
 
 백엔드만 있는 기능에는 `menu.ts` 를 만들지 말고 「API 만 붙고 사이드바 메뉴는 생기지 않습니다」라고 알려라. 프론트만 있는 기능에는 백엔드 기능 폴더를 만들지 마라.
 
