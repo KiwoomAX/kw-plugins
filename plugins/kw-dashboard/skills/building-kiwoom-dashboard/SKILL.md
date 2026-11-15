@@ -40,16 +40,26 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
 ## 핵심: 화면 안의 주소
 
 운영 대시보드는 포트가 아니라 게이트웨이 80번의 경로 `/<접두어>/` 아래에서 열린다(예: 임원실 `http://192.7.9.45/exec/`).
-로컬 실행(`npm run dev`)은 접두어가 `/` 라 아래 규칙을 어겨도 동작하고, 운영에서만 404 가 난다.
+로컬 실행(`npm run dev`)은 접두어가 `/` 라 아래 규칙을 어겨도 동작하고, 운영에서만 실패한다. 접두어가 빠진 `/api/`·`/data/`
+요청은 404 이고, 그림과 링크는 로그인 페이지를 받는다. 그래서 그림은 404 없이 깨진 채로 보인다.
 
 - **화면이 자기 서버에 보내는 주소는 `withBase()` 로 감싼다.** `/api/…`·`/data/…` 로 시작하는 주소와 `public/` 의 파일 주소가
   대상이다. `withBase()` 는 셸의 `src/frontend/src/shell/basePath.ts` 에 있다. 예: `fetch(withBase('/api/kpi/summary'))`.
-  `/auth/api/me`·`/auth/api/logout` 은 게이트웨이의 주소라 감싸지 않는다.
+  인자는 `/` 로 시작한다. `withBase('api/x')` 는 `/execapi/x` 가 된다. `/auth/api/me`·`/auth/api/logout` 은 게이트웨이의
+  주소라 감싸지 않는다.
+- **CSS 의 `url()` 과 `index.html` 의 주소는 빌드가 접두어를 붙이므로 그대로 둔다.** 코드에서 주소를 직접 만들거나 비교하는
+  곳은 접두어를 생각해 고친다. `window.open('/…')`, `location.pathname` 비교, CSS 속성 선택자 `[href="/mine"]` 가 그렇다.
+  선택자는 `[href$="/mine"]` 처럼 끝부분으로 비교한다.
 - **`'/api'` 를 상수로 두고 뒤에 이어 붙이지 않는다.** 감싸지 않은 `/api/`·`/data/` 문자열은 `npm test` 의
-  `shell/basePath.test.ts` 가 파일과 줄로 알려 주는데, 이어 붙인 주소는 찾지 못한다. 배포는 테스트를 실행하지 않는다.
+  `shell/basePath.test.ts` 가 파일과 줄로 알려 주는데, 이어 붙인 주소와 `fetch('api/x')` 같은 상대 주소, 그림 주소는 찾지
+  못한다. 배포는 테스트를 실행하지 않는다.
 - **화면 안 이동은 react-router 의 `<Link>`·`useNavigate` 로 한다.** 라우터가 접두어를 붙인다. `<a href="/…">` 나
   `location.href = '/…'` 로 주소를 직접 적지 않는다.
 - 셸에 `basePath.ts` 가 없는 대시보드는 셸이 이전 버전이다. 셸을 고치지 말고 AX 팀에 셸 업데이트를 요청한다.
+  **셸만 새 버전으로 바꿔서는 동작하지 않는다.** `src/frontend/src/main.tsx` 의 라우터 `basename` 과 `src/frontend/Dockerfile` 의
+  `ARG BASE_PATH`·`--base` 도 템플릿 버전과 같아야 한다. 두 파일은 대시보드에서 고쳤을 수 있으니 템플릿과 다른 줄을 먼저 확인한다.
+  Dockerfile 이 인자를 받지 않으면 화면이 빈 페이지가 되고, `basename` 이 없으면 「없는 주소」 페이지가 뜬다. 둘 다 `npm test` 로는
+  드러나지 않는다.
 
 ## 사이드바 카테고리와 상태바 경로
 
@@ -147,7 +157,11 @@ description: Use when working in a Kiwoom 본부 · 팀 dashboard repo made from
    설치할 목록은 `pyproject.toml` 의 `dependencies` 에 적혀 있다. 그 목록이 늘면 늘어난 것도 함께 설치한다.
 7. **서버 배포.** 서버 배포는 `deploying-kiwoom-service` 스킬로 한다. 대시보드는 게이트웨이 80번의 `/<접두어>/` 로 연다.
    접두어(영문 소문자 한 단어)를 담당자와 정해 compose 의 화면 서비스 `build.args.BASE_PATH` 에 `/<접두어>/` 로 적고,
-   게이트웨이 경로 등록과 접근 권한은 AX 팀에 요청한다(「사람이 지키는 것」).
+   배포 설정의 `gatewayServices` 에 화면 서비스를 적는다. 게이트웨이 경로 등록과 접근 권한은 AX 팀에 요청한다(「사람이 지키는 것」).
+   `auth`·`assets`·`images`·`fonts`·`api`·`data` 는 접두어로 쓰지 못하고, 이미 쓰는 접두어는 AX 팀에 확인한다.
+   compose 로 실행한 화면은 접두어가 붙어 게이트웨이 없이 열리지 않으므로, 로컬 화면 확인은 6단계의 `npm run dev` 로 한다.
+   **이미 포트로 운영 중인 대시보드는 `BASE_PATH` 변경을 AX 팀의 게이트웨이 전환과 같은 날 반영한다.** 먼저 배포하면
+   게이트웨이 경로가 열릴 때까지 기존 주소가 빈 화면이 된다.
 
 ## 기능 붙이기
 
