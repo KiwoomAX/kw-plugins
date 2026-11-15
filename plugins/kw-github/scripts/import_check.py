@@ -48,7 +48,7 @@ def _strip_py(text):
 
 
 def _text(files, path):
-    return files[path].decode("utf-8", "replace")
+    return files[path].decode("utf-8-sig", "replace")
 
 
 def _local(target):

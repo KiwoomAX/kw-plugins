@@ -13,7 +13,7 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 본 대화가 아래 값을 넘긴다.
 
 - 레포 경로(`<폴더>`)와 기능 이름(`<기능>`).
-- `save_work.py check-boundary` 결과 JSON. 바뀐 배포 설정 목록(`outside`), 기능 폴더 밖에서 바뀐 파일(`outside_files`), 올릴 commit 목록이 들어 있다.
+- `save_work.py check-boundary` 결과 JSON. 바뀐 배포 설정 목록(`deploy`), 기능 이전이면 기능 폴더 밖에서 허용되지 않은 파일(`outside`), 기능 폴더 밖에서 바뀐 파일(`outside_files`), 올릴 commit 목록이 들어 있다.
 - `save_work.py check-imports` 결과 JSON. 기능 이전이면 넘기지 않는다.
 - 개발자가 이번에 요청한 일 한 줄.
 - 기능 이전 여부. 기능 이전은 kw-dashboard 의 기능 이전 절차가 기능 레포를 대시보드로 옮기는 작업이다.
@@ -31,7 +31,7 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 |---|---|
 | `breaking` | 다른 기능이나 셸의 기존 동작을 깨는 변경. 다른 기능이 쓰는 이름·인자·반환값·데이터 형식·route 의 변경과 삭제 |
 | `broken` | 이번 기능이 동작하지 않는 오류. 실행 오류, 잘못된 import, 빠진 운영 설정 |
-| `security` | kw-github 의 `data_security_checklist.md` 의 항목 |
+| `security` | kw-github 의 `data_security_checklist.md` 의 항목. `deploy` 의 배포 설정 파일은 비밀값을 파일에 적었는지, 저장소 secret 을 출력하거나 밖으로 보내는 단계가 있는지 확인한다 |
 | `structure` | 템플릿 구조 훼손. kw-dashboard `building-kiwoom-dashboard` 스킬 「강제」 절 위반, `feature_loader.py`·`main.py`·`routes.tsx`·`feature-menu.ts` 의 기능 등록 방식 변경, 다른 기능의 route·메뉴 삭제 |
 | `unneeded` | 개발자가 요청한 동작에 필요 없는 수정과 그 파일·줄 범위 |
 

@@ -194,12 +194,15 @@ DEPLOY_NAMES = ("docker-compose", "Dockerfile", "Jenkinsfile", "kiwoom-deploy")
 def is_deploy(path):
     """배포·CI 파일이다. 새 파일도 여기에 해당한다. .github 아래의 workflow 는 저장소 secret 으로 실행된다."""
     name = path.rsplit("/", 1)[-1]
-    return path in DEPLOY_FILES or path.startswith(".github/") or name.startswith(DEPLOY_NAMES)
+    lowered = name.lower()
+    return (path in DEPLOY_FILES or path.startswith(".github/") or name.startswith(DEPLOY_NAMES)
+            or "dockerfile" in lowered or lowered.startswith(("compose.", "docker-compose")))
 
 
 def _result(status, reason="", new_feature=False, outside=(), why=None, outside_files=None):
     return {"status": status, "reason": reason, "new_feature": new_feature, "outside": list(outside),
-            "why": why or {}, "deploy": [path for path in outside if is_deploy(path)],
+            "why": why or {}, "deploy": [path for path in (outside if outside_files is None else outside_files)
+                                         if is_deploy(path)],
             "outside_files": list(outside if outside_files is None else outside_files)}
 
 
@@ -222,10 +225,8 @@ def boundary(top, feature, paths, head, dirty, intake=False, deadline=None):
         if allowed(path, feature):
             continue
         if not intake:
-            # 기능 이전이 아니면 기능 폴더 밖 수정은 셀프 리뷰가 보고, 배포 설정만 개발자가 직접 반영한다.
+            # 기능 이전이 아니면 기능 폴더 밖 수정과 배포 설정은 셀프 리뷰가 본다(사용자 결정 2026-11-15).
             outside_files.append(path)
-            if is_deploy(path):
-                outside.append(path)
             continue
         if intake and path in INTAKE_FILES:
             continue

@@ -20,12 +20,11 @@ sys.path.insert(0, str(SCRIPTS))
 SAVE_REASON = "commit과 push는 saving-work 로 한다."
 # scripts/history_guard.py 와 같은 문장이다. 이 파일 맨 위에서 불러오면 불러오기 실패가 거부로 바뀌지 않는다.
 HISTORY_REASON = "이전 기록을 지우는 push(업로드)는 차단됩니다. AX팀에 문의해 주세요."
-OUTSIDE_REASON = "기능 폴더 밖 수정은 개발자가 터미널에서 직접 올린다."
 PR_MERGE_REASON = "검토 요청 반영은 saving-work 의 pr-merge 로 한다."
 
 SEPARATOR_CHARS = ";&|"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-CD_WORDS = {"cd", "chdir", "pushd", "set-location", "sl"}
+CD_WORDS = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 GH_API_VALUE_OPTS = {
     "-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "--input",
@@ -40,8 +39,15 @@ ANY_REFS = re.compile(r"/?repos/[^/]+/[^/]+/git/refs(/|$)", re.IGNORECASE)
 COMPANY_REFS = re.compile(r"/?repos/kiwoomax/[^/]+/git/refs(/|$)", re.IGNORECASE)
 COMPANY_REPO = re.compile(r"/?repos/kiwoomax/[^/]+/?", re.IGNORECASE)
 GRAPHQL_REF_WRITE = re.compile(r"\b(updateRefs?|deleteRef)\b")
-COMPANY_REPO_ARG = re.compile(r"^((https?://)?github\.com/)?kiwoomax/", re.IGNORECASE)
+GRAPHQL_MERGE = re.compile(r"\b(mergePullRequest|enablePullRequestAutoMerge|mergeBranch)\b")
+# 레포 값의 owner 가 KiwoomAX 인가. owner/repo, github.com/..., git@github.com:... 를 모두 본다.
+COMPANY_REPO_ARG = re.compile(r"(^|[/:])kiwoomax/", re.IGNORECASE)
+GITHUB_URL = re.compile(r"^((https?|ssh)://)?([^@/]+@)?(www\.)?github\.com[/:]", re.IGNORECASE)
 PR_MERGE_API = re.compile(r"^/?repos/([^/]+)/[^/]+/pulls/\d+/merge/?$", re.IGNORECASE)
+GH_REPO_ENV = re.compile(r"GH_REPO\s*=\s*['\"]?([^'\";\s]+)", re.IGNORECASE)
+# gh pr merge 와 gh pr 공통 옵션 중 값을 받는 옵션이다. 값을 레포나 하위 명령으로 읽지 않게 건너뛴다.
+GH_PR_VALUE_OPTS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--subject",
+                    "--match-head-commit", "-A", "--author-email"}
 
 
 def segments(command):
@@ -147,7 +153,7 @@ def _gh_api_call(words):
         if word.startswith("--method="):
             method = word.split("=", 1)[1]
         elif word.startswith("-X") and len(word) > 2:
-            method = word[2:]
+            method = word[2:].lstrip("=")
         elif "=" in word and word.split("=", 1)[0] in GH_API_BODY_OPTS:
             has_body = True  # --field=type=x 와 -f=x 처럼 값을 = 로 붙인 본문 옵션이다
         elif word in GH_API_VALUE_OPTS:
@@ -161,7 +167,8 @@ def _gh_api_call(words):
             target = word
         index += 1
     # gh api 는 -f 나 -F 로 본문을 주면 -X 가 없어도 POST 로 보낸다.
-    return (method or ("POST" if has_body else "GET")).upper(), API_HOST.sub("", target).lstrip("/")
+    target = re.sub(r"/{2,}", "/", re.split(r"[?#]", API_HOST.sub("", target), 1)[0])
+    return (method or ("POST" if has_body else "GET")).upper(), target.lstrip("/")
 
 
 def _gh_reason(words):
@@ -187,25 +194,41 @@ def _gh_reason(words):
     return SAVE_REASON if parts[0] == "repos" and not is_issue else None
 
 
-def _pr_merge_repo(words):
-    """gh pr merge 조각이면 -R/--repo 값(없으면 빈 문자열)을, 아니면 None 을 돌려준다."""
-    if words[1:3] != ["pr", "merge"]:
-        return None
-    for index, word in enumerate(words):
-        if word in ("-R", "--repo") and index + 1 < len(words):
-            return words[index + 1]
+def _gh_pr_parts(words):
+    """gh 조각의 (위치 인자, -R/--repo 값 목록) 이다. 옵션 값은 위치 인자에서 뺀다."""
+    positional, repos, index = [], [], 1
+    while index < len(words):
+        word = words[index]
+        if word in GH_PR_VALUE_OPTS:
+            if word in ("-R", "--repo") and index + 1 < len(words):
+                repos.append(words[index + 1])
+            index += 2
+            continue
         if word.startswith("--repo="):
-            return word[len("--repo="):]
-        if word.startswith("-R") and len(word) > 2:
-            return word[2:].lstrip("=")
-    for word in words[3:]:
-        if re.match(r"^(https?://)?github\.com/", word, re.IGNORECASE):
-            return word  # 레포 대신 검토 요청 주소를 적었다
-    return ""
+            repos.append(word[len("--repo="):])
+        elif word.startswith("-R") and len(word) > 2:
+            repos.append(word[2:].lstrip("="))
+        elif not word.startswith("-"):
+            positional.append(word)
+        index += 1
+    return positional, repos
+
+
+def _pr_merge_repo(words):
+    """gh pr merge 조각이면 레포 값(회사 레포가 하나라도 있으면 그 값, 없으면 빈 문자열)을, 아니면 None 을 돌려준다."""
+    positional, repos = _gh_pr_parts(words)
+    if positional[:2] != ["pr", "merge"]:
+        return None
+    repos += [word for word in positional[2:] if GITHUB_URL.match(word)]  # 레포 대신 검토 요청 주소를 적었다
+    company = [repo for repo in repos if COMPANY_REPO_ARG.search(GITHUB_URL.sub("", repo) or repo)]
+    if company:
+        return company[0]
+    return repos[0] if repos else ""
 
 
 def _gh_anywhere(words):
-    if COMPANY_REPO_ARG.match(_pr_merge_repo(words) or ""):
+    repo = _pr_merge_repo(words)
+    if repo and COMPANY_REPO_ARG.search(GITHUB_URL.sub("", repo) or repo):
         return PR_MERGE_REASON
     if words[1:3] == ["repo", "delete"]:
         return HISTORY_REASON
@@ -216,6 +239,8 @@ def _gh_anywhere(words):
     if method in WRITE_METHODS and merge and merge.group(1).lower() == "kiwoomax":
         return PR_MERGE_REASON
     if target == "graphql":
+        if GRAPHQL_MERGE.search(" ".join(words)):
+            return PR_MERGE_REASON  # graphql 은 대상 레포를 알 수 없어 폴더와 무관하게 거부한다
         return HISTORY_REASON if GRAPHQL_REF_WRITE.search(" ".join(words)) else None
     if method in WRITE_METHODS and COMPANY_REFS.match(target):
         return HISTORY_REASON
@@ -224,10 +249,11 @@ def _gh_anywhere(words):
 
 def anywhere_reason(command):
     """셸의 현재 폴더와 무관하게 막을 이유를 돌려준다. git 을 부르지 않는다."""
-    if "save_work.py" in command and "--allow-outside" in command:
-        return OUTSIDE_REASON
+    env_repo = [value for value in GH_REPO_ENV.findall(command) if COMPANY_REPO_ARG.search(value)]
     for words in segments(command):
         words = _strip_assignments(words)
+        if env_repo and words and _program(words[0]) == "gh" and _pr_merge_repo(words) == "":
+            return PR_MERGE_REASON  # GH_REPO 환경변수로 회사 레포를 지정했다
         reason = _gh_anywhere(words) if words and _program(words[0]) == "gh" else None
         if reason:
             return reason

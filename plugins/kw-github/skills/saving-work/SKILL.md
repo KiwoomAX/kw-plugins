@@ -227,14 +227,15 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" pr-merge --repo "<작업 폴
 
 `--task` 는 「작업 이슈」 절에 따라 정한 작업 이슈 번호이고, 닫을 이슈가 더 있으면 번호마다 `--close <번호>` 를 넘긴다. 저장 스크립트는 검토 요청이 열려 있는지, 작성자가 지금 GitHub 계정이거나 지금 계정이 AX팀(`ax` 팀) 구성원인지, PC 에 올리지 않은 commit 이 없는지, 최신 GitHub main 을 포함하는지, 공유 레포이면 import 가 깨지지 않았는지를 차례로 확인한 뒤 GitHub 에서 merge 한다. `gh pr merge` 는 저장 가드가 거부하므로 쓰지 않는다. 결과의 `status` 에 따라 아래처럼 한다.
 
-- `merged`: `message` 를 전한다. 공유 레포이면 아래 「공용 파일 안내」대로 알린다.
+- `merged`: `message` 를 전한다. 공유 레포의 작업 branch 에서 올렸으면 아래 「공용 파일 안내」대로 알린다. 리뷰 branch 에서 반영했으면 `check-boundary` 결과가 없으므로 「공용 파일 안내」는 하지 않는다.
 - `not-allowed`: 다른 사람이 연 검토 요청이다. 고친 것이 있으면 `pr-push` 로 올리고 `message` 를 전한다. `message` 는 "다른 분이 연 검토 요청은 작성자나 AX팀이 반영합니다. 수정한 내용은 검토 요청에 올렸으니 작성자에게 반영을 요청해 주세요." 다.
 - `head-moved`: PC 에 검토 요청에 올리지 않은 commit 이 있다. `pr-push` 로 올린 뒤 `pr-merge` 를 다시 실행한다.
 - `main-moved`: 검토 요청이 최신 GitHub main 을 포함하지 않는다. 아래 「PR 추가 수정」대로 `pr-start` 로 옮겨 「올리기 흐름」 3~6단계를 한 뒤 `pr-push` 와 `pr-merge` 를 실행한다. 다시 한 뒤에도 `main-moved` 면 아래 「멈춤과 안내」대로 한다.
 - `broken-import`: 다른 코드가 쓰는 파일이나 이름이 없어졌다. `pr-start` 로 옮겨 고친 뒤 `pr-push` 와 `pr-merge` 를 실행한다. 고치지 못하면 「멈춤과 안내」대로 한다.
 - `secret-found`: 검토 요청에 비밀값이나 데이터 파일이 있다. `message` 를 전하고 끝낸다. 파일 이름은 `detail` 에 있다.
-- `outside`: 검토 요청이 배포 설정 파일을 고쳤다. `message` 를 전하고 아래 「기능 폴더 밖 수정」의 배포 설정 절차를 따른다.
 - `not-open` 과 그 밖의 `failed`: `message` 를 전하고 끝낸다.
+
+리뷰 branch 에서 `merged` 가 아닌 결과로 끝내면 `pr-leave` 를 실행해 리뷰 branch 에서 나온다. 개발자의 다음 저장이 남의 검토 요청에 섞이지 않게 하기 위해서다. `pr-leave` 결과의 `unpushed` 는 아래 「PR 추가 수정」대로 처리한다.
 
 ## PR 추가 수정
 
@@ -349,8 +350,8 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" check-imports --repo "<작업 폴더>"
    ```
 
-   `check-boundary` 가 `unsupported`·`invalid-feature`·`failed` 면 여기서 멈춘다. `outside` 면 배포 설정 파일을 고쳤다는 뜻이므로 아래 「기능 폴더 밖 수정」의 배포 설정 절차를 따른다. `outside_files` 는 기능 폴더 밖에서 바뀐 파일 전체이고 8단계 안내에 쓴다. `check-imports` 가 `broken` 이면 `broken_imports` 의 파일과 이름이 없어졌다는 뜻이다. Claude 가 먼저 고쳐 `--paths` 로 commit 하고 이 단계를 다시 한다.
-5. 셀프 리뷰를 한다. 개발자에게 "공유 코드에 반영하기 전에 다른 기능에 영향이 없는지 검토하고 있습니다. 잠시 기다려 주세요." 라고 알린다. 기능이 둘 이상이면 기능마다 "`<기능 이름>` 기능을 검토하고 있습니다." 라고 알린다. 그다음 `shared-repo-reviewer` 서브에이전트를 실행하고 결과를 기다린다. 기능이 둘 이상이면 차례로 실행한다. 넘기는 값은 레포 경로, 기능 이름, 4단계의 `check-boundary`·`check-imports` 결과 JSON, 개발자 요청 한 줄, 기능 이전 여부다.
+   `check-boundary` 가 `unsupported`·`invalid-feature`·`failed` 면 여기서 멈춘다. `deploy` 는 고친 배포 설정 파일 목록이고 5단계 셀프 리뷰어가 확인한다. `outside_files` 는 기능 폴더 밖에서 바뀐 파일 전체이고 8단계 안내에 쓴다. `check-imports` 가 `broken` 이면 `broken_imports` 의 파일과 이름이 없어졌다는 뜻이다. Claude 가 먼저 고쳐 `--paths` 로 commit 하고 이 단계를 다시 한다. `check-imports` 가 `failed` 면 「결과 처리」 절의 「그 밖의 오류」대로 한다.
+5. 셀프 리뷰를 한다. 개발자에게 "공유 코드에 반영하기 전에 다른 기능에 영향이 없는지 검토하고 있습니다. 잠시 기다려 주세요." 라고 알린다. 기능이 둘 이상이면 기능마다 "`<기능 이름>` 기능을 검토하고 있습니다." 라고 알린다. 그다음 `shared-repo-reviewer` 서브에이전트를 실행하고 결과를 기다린다. 셀프 리뷰어는 지금 branch 의 변경만 읽으므로 그 기능의 3단계 뒤에 그 기능만 검토하게 한다. 넘기는 값은 레포 경로, 기능 이름, 4단계의 `check-boundary`·`check-imports` 결과 JSON, 개발자 요청 한 줄, 기능 이전 여부다.
    - 셀프 리뷰어가 끝나지 않거나 JSON 을 돌려주지 않으면 "검토를 끝내지 못해 공유 코드에 반영하지 않았습니다. 잠시 뒤 다시 올려 주세요." 라고 알리고 멈춘다.
    - `findings` 가 없으면 "검토를 마쳤습니다. 공유 코드에 반영합니다." 라고 알리고 7단계로 간다.
    - `findings` 가 있으면 "검토를 마쳤습니다. 반영하기 전에 확인할 점이 N개 있습니다." 라고 알린다(N 은 지적 수). 지적마다 무엇이 문제인지와 처리를 한 줄로 적고 6단계로 간다. 개발자에게 처리 방법을 묻지 않는다.
@@ -361,10 +362,9 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
    python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" upload --repo "<작업 폴더>" --feature <기능> --task <작업 이슈 번호> --title "[<기능>] <한 줄>"
    ```
 
-   저장 스크립트는 올리기 전에 작업 branch 가 최신 GitHub main 을 포함하는지와 import 가 깨지지 않았는지 다시 확인하고, 배포 설정 파일을 고쳤는지 검사한다.
+   저장 스크립트는 올리기 전에 작업 branch 가 최신 GitHub main 을 포함하는지와 import 가 깨지지 않았는지 다시 확인한다.
    - `main-moved` 면 `message` 를 전하고 3단계부터 한 번 다시 한다. 올리는 사이 다른 개발자가 공유 코드를 바꿨거나 GitHub 가 충돌(409)로 거부했다는 뜻이다. 저장 스크립트는 이 PC 에서 합치지 않았고 GitHub 의 작업 branch 는 남겨 두었다. 다시 한 뒤에도 `main-moved` 면 「멈춤과 안내」대로 한다.
    - `broken-import` 면 4단계의 `check-imports` 가 `broken` 일 때와 같이 고친 뒤 4단계부터 다시 한다.
-   - `outside` 면 아래 「기능 폴더 밖 수정」의 배포 설정 절차를 따른다.
    - 403·404·422 나 시간 초과로 반영하지 못하면 "작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. 잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요." 라고 알린다. 잠시 뒤 `upload --continue` 로 이어 간다.
 8. `uploaded` 로 끝나면 아래 「공용 파일 안내」대로 알리고 업로드 뒤 점검을 한다.
 
@@ -378,7 +378,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
 
 공유 레포의 작업 branch 와 리뷰 branch 에서 `sync-main` 을 쓴다. 기능 이전 branch 와 main 에서는 `failed` 다. 결과의 `status` 는 위 「AX팀 변경 반영」 절과 같다. `nothing` 은 합칠 변경이 없었다는 뜻이고 `updated` 는 합쳤다는 뜻이다.
 
-`conflict` 면 Claude 는 양쪽 변경의 뜻을 모두 살리는 방향으로 푼다. 공유 레포에서는 개발자에게 A/B 로 묻지 않는다. 풀고 `git add` 한 뒤 `sync-main --repo "<작업 폴더>" --continue` 를 실행한다. 양쪽이 같은 동작을 서로 다르게 바꿔서 양쪽 뜻을 함께 살릴 수 없으면 `sync-main --repo "<작업 폴더>" --abort` 로 합치기를 취소하고 「멈춤과 안내」의 해결하지 못한 큰 문제로 간다.
+`conflict` 면 Claude 는 양쪽 변경의 뜻을 모두 살리는 방향으로 푼다. 공유 레포에서는 개발자에게 A/B 로 묻지 않는다. 풀고 `git add` 한 뒤 `sync-main --repo "<작업 폴더>" --continue` 를 실행한다. 양쪽이 같은 동작을 서로 다르게 바꿔서 양쪽 뜻을 함께 살릴 수 없으면 `sync-main --repo "<작업 폴더>" --abort` 로 합치기를 취소하고 「멈춤과 안내」의 해결하지 못한 큰 문제로 간다. 공유 레포에서는 `sync-main` 결과의 `message` 를 전하지 않고 「멈춤과 안내」 문장만 쓴다.
 
 ### 리뷰 결과 처리
 
@@ -399,7 +399,6 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
 - 해결하지 못한 큰 문제(충돌을 풀지 못했거나 `breaking`·`broken` 을 고치지 못함)와 import 확인 실패(Claude 가 고친 뒤에도 `broken_imports` 가 남음): "이대로 반영하면 `<기능>` 의 `<동작>` 이 깨집니다. 깨지는 코드를 작성한 `<이름>` 님과 이야기해 보셔야 합니다." 라고 알린다. import 확인 실패면 `<동작>` 은 깨진 import 의 파일과 이름이다.
 - 템플릿 구조 훼손(`structure` 를 되돌리거나 고치지 못함): "대시보드의 기본 구조(`<파일>`)를 바꾸는 수정이 있어 반영하지 않았습니다. 이 수정이 필요하면 AX팀에 문의해 주세요." 라고 알린다.
 - 보안 점검표 위반(`security` 를 고치지 못했거나 저장 검사가 거부함): 위 「결과 처리」 절의 저장 검사 안내와 같다.
-- 배포 설정 수정: 아래 「기능 폴더 밖 수정」의 배포 설정 절차를 따른다.
 - 다시 한 뒤에도 남은 지적: 남은 지적의 조건에 맞는 위 안내를 한다.
 - 다시 한 뒤에도 `main-moved`: "공유 코드가 계속 바뀌고 있어 반영하지 못했습니다. 잠시 뒤 다시 올려 주세요." 라고 알린다.
 
@@ -415,12 +414,10 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/save_work.py" commit --repo "<작업 폴�
 
 ### 기능 폴더 밖 수정
 
-기능 폴더 밖 파일을 고쳐도 배포 설정 파일이 아니면 멈추지 않는다. Claude 가 「올리기 흐름」 4~6단계로 확인하고 함께 올린 뒤 「공용 파일 안내」대로 알린다.
+기능 이전이 아니면 기능 폴더 밖 파일이나 배포 설정 파일을 고쳐도 멈추지 않는다. Claude 가 「올리기 흐름」 4~6단계로 확인하고 함께 올린 뒤 「공용 파일 안내」대로 알린다.
 
-- 배포 설정 파일을 고쳤으면 `check-boundary` 와 `upload` 가 `outside` 로 멈추고 `deploy` 에 그 파일을 적는다. `upload` 결과에는 `command` 가 있다. `command` 를 코드 블록으로 보여 주고 "이 명령을 복사해 터미널에서 직접 실행하고, 끝나면 결과를 알려 주세요." 라고 안내한다. Claude 는 이 명령을 실행하지 않는다. 동의는 실행마다 받으므로 `upload --continue` 도 `outside` 면 같은 절차를 다시 한다.
-- 개발자가 끝났다고 알리면 `review-upload` 를 실행한다. 공유 코드에 들어갔으면 「올리기 흐름」 8단계를 따르고, 들어가지 않았으면 개발자가 전한 출력으로 처리한다.
 - 기능 이전에서 공유 코드에 없던 새 파일이고 이 기능만 그 파일을 쓰면, 그 파일을 기능 폴더로 옮기는 안을 먼저 권한다. 동의하면 옮기고 import 를 고쳐 commit 한다.
-- 기능 이전에서 셀프 리뷰어가 낸 `outside` 지적을 되돌리기로 하면 `revert-paths` 로 그 파일을 공유 코드의 상태로 되돌린다. 셀프 리뷰어가 줄 번호를 적어 낸 지적은 그 줄만 `origin/main` 의 내용으로 고쳐 `commit --feature <기능> --intake` 로 commit 한다. `revert-paths` 는 파일 전체를 되돌리므로 이때는 쓰지 않는다.
+- 기능 이전에서 셀프 리뷰어가 낸 `outside` 지적은 kw-dashboard 기능 이전 절차의 처분대로 한다.
 
 ### 기능 이전 업로드
 

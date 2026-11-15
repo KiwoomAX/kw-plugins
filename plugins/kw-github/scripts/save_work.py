@@ -584,7 +584,7 @@ def _within(path, paths):
 
 
 def _normal_paths(paths):
-    return None if paths is None else [item.replace("\\", "/") for item in paths]
+    return None if paths is None else [item.replace("\\", "/").removeprefix("./") for item in paths]
 
 
 def commit_work(repo, message, branch=None, catch_up=False, feature=None, intake=False, include_others=False,
@@ -664,7 +664,6 @@ def _commit_work(repo, message, wanted, catch_up, deadline, progress):
 MSG_UNSUPPORTED = ("이 대시보드는 아직 기능별 폴더 구조로 옮겨지지 않아 공유 코드에 반영할 수 없습니다. "
                    "AX팀에 기능별 폴더 구조로 전환을 요청해 주세요.")
 MSG_INVALID_FEATURE = "어느 기능을 고치는지 확인하지 못했습니다. 기능 이름을 다시 알려 주세요."
-MSG_OUTSIDE = "배포 설정 파일({files})을 고쳤습니다. 이 파일은 직접 반영해야 합니다."
 MSG_INTAKE_OUTSIDE = "이번 기능 이전에서 {files} 은 고칠 수 없는 파일입니다."
 MSG_MAIN_MOVED = "올리는 사이 공유 코드가 바뀌었습니다. 최신 공유 코드를 반영한 상태로 다시 확인한 뒤 올리겠습니다."
 MSG_BROKEN_IMPORT = "다른 코드가 쓰는 파일이나 이름이 없어져 공유 코드에 반영하지 않았습니다. 없어진 파일과 이름은 `detail` 에 적었습니다."
@@ -853,26 +852,12 @@ def switch_feature(repo, feature, summary=None, intake=False):
 def _boundary_payload(result, commits=(), intake=False):
     status = result["status"]
     if status == "outside":
-        message = (MSG_INTAKE_OUTSIDE if intake else MSG_OUTSIDE).format(files=", ".join(result["outside"]))
+        message = MSG_INTAKE_OUTSIDE.format(files=", ".join(result["outside"]))
     elif status == "failed":
         message = MSG_FAILED
     else:
         message = BOUNDARY_MESSAGES.get(status, "")
     return {**result, "commits": list(commits), "message": message}
-
-
-def _ps_quote(text):
-    """PowerShell 작은따옴표 문자열이다. PowerShell 은 곡선 작은따옴표도 작은따옴표로 읽으므로 함께 두 번 쓴다."""
-    return "'" + re.sub("(['\u2018\u2019\u201a\u201b])", r"\1\1", str(text)) + "'"
-
-
-def outside_command(top):
-    """기능 폴더 밖 수정을 올릴 때 개발자가 PowerShell 에서 직접 실행할 명령이다. Claude 는 실행하지 않는다.
-
-    제목 같은 입력값은 상태 파일에 있으므로 명령에 넣지 않는다. 사람이 실행하는 명령에서 해석될 값을 없애기 위해서다.
-    """
-    script = Path(__file__).resolve()
-    return f"& {_ps_quote(sys.executable)} {_ps_quote(script)} upload --repo {_ps_quote(top)} --continue --allow-outside"
 
 
 def _boundary_of(top, feature, head, intake, deadline):
@@ -1474,7 +1459,6 @@ def _stash_leftovers(top, deadline, progress):
         progress["stashed"] = True
 
 
-INTAKE_OUTSIDE_DETAIL = "기능 이전에는 --allow-outside 를 쓰지 않는다. 기능 이전 절차를 따르라."
 MSG_NOT_MERGED_FEATURE = ("작업을 GitHub 에 push(업로드)했지만 팀이 함께 보는 main 에 반영하지 못했습니다. "
                           "잠시 뒤 다시 올려 주세요. 계속되면 AX팀에 문의해 주세요.")
 MSG_NOT_MERGED_SHARED = ("작업을 GitHub 에 push(업로드)했지만 공유 코드에 반영하지 못했습니다. "
@@ -1518,7 +1502,6 @@ def _precheck(top, branch, state, deadline, progress=None):
     """1단계 검사다. 통과하면 None, 실패하면 그대로 돌려줄 결과다. 공유 레포는 경계 검사를 더 한다.
 
     공유 레포 비이전 올리기는 최신 main 포함 여부와 import 를 먼저 확인한다. 이 두 멈춤은 상태 파일을 지운다.
-    개발자가 --allow-outside 로 직접 실행했으면 경계 검사만 생략한다. 이 값은 progress 에만 있고 상태 파일에 적지 않는다.
     """
     progress = progress or {}
     feature = state.get("feature")
@@ -1534,7 +1517,7 @@ def _precheck(top, branch, state, deadline, progress=None):
         if stop is not None:
             _state_path(top, deadline).unlink(missing_ok=True)
             return stop
-    if not feature or progress.get("allow_outside"):
+    if not feature:
         return None
     result = _boundary_of(top, feature, branch, intake, deadline)
     if result["status"] == "inside":
@@ -1542,10 +1525,6 @@ def _precheck(top, branch, state, deadline, progress=None):
     payload = _boundary_payload(result, intake=intake)
     stop = {"status": result["status"], "message": payload["message"], "outside": result["outside"],
             "reason": result.get("reason", ""), "detail": f"기능 폴더 경계 검사를 통과하지 못해 merge 하지 않았다: {result}"}
-    if result["status"] == "outside" and not intake:
-        stop["deploy"] = result["deploy"]
-        if result["deploy"]:
-            stop["command"] = outside_command(top)
     return stop
 
 
@@ -1840,14 +1819,11 @@ def _resume(top, full, state, deadline, progress):
 
 
 def upload(repo, task=None, title=None, close=(), resume=False, allow_other_owner=False, feature=None,
-           intake=False, allow_outside=False):
+           intake=False):
     """승인받은 작업을 GitHub 공유 코드에 올린다. 예외를 failed 로 바꾸는 곳은 여기 하나다."""
     deadline = gitcmd.Deadline(INTAKE_UPLOAD_SECONDS if intake else SAVE_SECONDS)
-    progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": [],
-                "allow_outside": allow_outside}
+    progress = {"top": None, "stashed": False, "merge_started": False, "pushed": False, "excluded": []}
     try:
-        if intake and allow_outside:
-            raise UploadStop(INTAKE_OUTSIDE_DETAIL)
         top = locate(Path(repo))
         if top is not None and shared_repo.repo_kind(top) == "shared":
             progress["shared"] = True
@@ -1993,8 +1969,6 @@ def _upload_shared(top, task, title, close, resume, feature, intake, deadline, p
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["feature"] = state.get("feature") or _kw_feature(top, state.get("branch") or "", deadline)
         if state.get("intake"):
-            if progress.get("allow_outside"):
-                raise UploadStop(INTAKE_OUTSIDE_DETAIL)
             deadline.seconds = INTAKE_UPLOAD_SECONDS
         progress["stashed"] = True  # 첫 실행이 남긴 stash 가 있으면 끝날 때 되돌린다
         return _resume(top, full, state, deadline, progress)
@@ -2404,10 +2378,15 @@ def _sync_rollback(progress):
 
 def _sync_start(top, deadline, progress, shared=False):
     gdir = git_dir(top, deadline)
+    if shared and not (gdir / "MERGE_HEAD").exists():
+        # 멈춘 upload 가 남긴 이 branch 의 상태다. 공유 레포는 3단계부터 다시 하므로 지운다.
+        _drop_upload_state(top, current_branch(top, deadline), deadline)
     if (gdir / "MERGE_HEAD").exists() or (gdir / UPLOAD_STATE).exists():
         return _sync_result("failed", MSG_SYNC_FAILED, "진행 중인 merge 나 업로드가 있다. 그 작업을 먼저 끝내라.")
     (gdir / SYNC_STATE).unlink(missing_ok=True)  # 앞선 merge 를 git 으로 직접 끝냈으면 표식만 남는다
-    if not shared:
+    import pr_review  # 맨 위에서 불러오면 두 파일이 서로를 기다린다
+
+    if not shared and pr_review.review_number(current_branch(top, deadline)) is None:
         check_head(top, deadline)  # 공유 레포의 branch 는 sync_main 이 _shared_sync_refusal 로 먼저 본다
     gitcmd.git(top, "fetch", "-q", "origin", deadline=deadline)
     if not _ref_exists(top, REMOTE_REF, deadline) or _is_ancestor(top, REMOTE_REF, "HEAD", deadline):
@@ -2539,12 +2518,6 @@ def ensure_history_guard(repo):
         print(history_guard.INSTALL_FAILED_NOTE, file=sys.stderr)
 
 
-def _print_text(payload):
-    """개발자가 터미널에서 직접 실행한 명령의 결과다. JSON 대신 읽을 수 있는 글로 내보낸다."""
-    print("\n".join(filter(None, [payload.get("message"), payload.get("detail")])))
-    return 1 if payload["status"] == "failed" else 0
-
-
 def _print(payload):
     # ASCII 로만 내보낸다. cp949 로 설정된 PowerShell 이 출력을 담아도 한글이 깨지지 않는다.
     print(json.dumps(payload))
@@ -2554,10 +2527,12 @@ def _print(payload):
 def _cli_check_imports(repo):
     try:
         top = locate(repo)
-    except gitcmd.ToolMissing as exc:
+        code, err = 0, ""
+        if top is not None:
+            code, _, err = gitcmd.git_try(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SAVE_SECONDS))
+    except (gitcmd.ToolMissing, gitcmd.CommandTimeout) as exc:
         return _shared_failed(MSG_FAILED, COMMAND_DETAIL.format(exc=exc), broken_imports=[])
     if top is not None:
-        code, _, err = gitcmd.git_try(top, "fetch", "-q", "origin", deadline=gitcmd.Deadline(SAVE_SECONDS))
         if code != 0:
             return _shared_failed(MSG_FAILED, f"GitHub 에서 최신 공유 코드를 받지 못했다: {err.strip()}", broken_imports=[])
     return check_imports(repo)
@@ -2593,7 +2568,6 @@ def main(argv=None):
     upload_cmd.add_argument("--allow-other-owner", action="store_true")
     upload_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올릴 기능 이름")
     upload_cmd.add_argument("--intake", action="store_true", help="kw-dashboard 기능 이전 업로드")
-    upload_cmd.add_argument("--allow-outside", action="store_true", help="개발자가 터미널에서 직접 실행할 때만 쓴다")
     review_cmd = sub.add_parser("review-upload", help="업로드 뒤 점검에 쓸 사실을 모은다")
     review_cmd.add_argument("--repo", required=True)
     review_cmd.add_argument("--feature", help="공유 대시보드 레포에서 올린 기능 이름")
@@ -2683,10 +2657,8 @@ def main(argv=None):
     if args.command == "review-upload":
         return _print(review_upload(args.repo, feature=args.feature, intake=args.intake))
     if args.command == "upload":
-        show = _print_text if args.allow_outside else _print
-        return show(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
-                           allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake,
-                           allow_outside=args.allow_outside))
+        return _print(upload(args.repo, task=args.task, title=args.title, close=args.close, resume=args.resume,
+                             allow_other_owner=args.allow_other_owner, feature=args.feature, intake=args.intake))
     if args.command == "commit":
         return _print(commit_work(args.repo, args.message, branch=args.branch, catch_up=args.catch_up,
                                   feature=args.feature, intake=args.intake, include_others=args.include_others,

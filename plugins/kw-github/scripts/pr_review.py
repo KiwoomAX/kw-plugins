@@ -9,6 +9,7 @@ from pathlib import Path
 import gitcmd
 import rules
 import save_work
+import scan_history
 import shared_repo
 
 PREFIX = "pr-review/"
@@ -366,6 +367,8 @@ def _guarded(run):
         return _failed(rules.failure_detail(exc), save_work.MSG_RULES)
     except save_work.GH_ERRORS as exc:
         return _failed(save_work.COMMAND_DETAIL.format(exc=exc))
+    except (KeyError, ValueError) as exc:  # GitHub 응답에 칸이 없거나 이슈 번호가 숫자가 아니다
+        return _failed(f"{exc.__class__.__name__}: {exc}")
 
 
 def pr_push(repo, allow_other_owner=False):
@@ -396,8 +399,8 @@ def _merge_body(top, task, close):
 def _head_moved(top, number, head_ref, sha, deadline):
     """PC 에 PR head 에 없는 commit 이 있는가. 있으면 pr-push 를 먼저 해야 한다."""
     review = f"{PREFIX}{number}"
-    if save_work.current_branch(top, deadline) == review and unpushed_count(top, review, deadline):
-        return True
+    if save_work._ref_exists(top, f"refs/heads/{review}", deadline) and unpushed_count(top, review, deadline):
+        return True  # 리뷰 branch 를 떠났어도 올리지 않은 수정은 남아 있다
     local = f"refs/heads/{head_ref}"
     return save_work._ref_exists(top, local, deadline) and not save_work._is_ancestor(top, local, sha, deadline)
 
@@ -423,7 +426,8 @@ def _merge_cleanup(top, number, head_ref, sha, shared, deadline):
         if save_work._ref_exists(top, local, deadline) and save_work._contains(top, local, deadline):
             if save_work.current_branch(top, deadline) == head_ref:
                 if shared:
-                    gitcmd.git(top, "switch", "-q", "--detach", save_work.REMOTE_REF, deadline=deadline)
+                    gitcmd.git(top, "switch", "-q", "--no-overwrite-ignore", "--detach", save_work.REMOTE_REF,
+                               deadline=deadline)
                 else:
                     notes.append(save_work._move_head(top, deadline))
             gitcmd.git(top, "branch", "-q", "-D", head_ref, deadline=deadline)
@@ -443,7 +447,7 @@ def _pr_merge(repo, number, task, close, deadline):
     gitcmd.git(top, *FETCH, deadline=deadline)
     try:
         pr = json.loads(gitcmd.gh("pr", "view", str(number), "-R", full, "--json",
-                                  "state,headRefName,headRefOid,author,title,url", deadline=deadline))
+                                  "state,baseRefName,headRefName,headRefOid,author,title,url", deadline=deadline))
         me = gitcmd.gh_login(deadline)
     except (*save_work.GH_ERRORS, ValueError) as exc:
         return _failed(str(exc), MSG_PR_CHECK)
@@ -454,8 +458,14 @@ def _pr_merge(repo, number, task, close, deadline):
     if author != me and not _is_ax_member(me, deadline):
         return _stop("not-allowed", MSG_PR_NOT_ALLOWED, f"작성자는 {author} 이고 지금 계정 {me} 는 ax 팀 활성 구성원이 아니다.",
                      url=url)
+    if pr.get("baseRefName") != save_work.BRANCH:
+        return _failed(f"검토 요청 #{number} 의 대상 branch 가 {save_work.BRANCH} 가 아니다.", url=url)
     head_ref, sha = pr["headRefName"], pr["headRefOid"]
     gitcmd.git(top, "fetch", "-q", "origin", f"pull/{number}/head", deadline=deadline)
+    if save_work.current_branch(top, deadline) in (f"{PREFIX}{number}", head_ref):
+        stop = _plain_stop(top, deadline)
+        if stop is not None:
+            return stop
     if _head_moved(top, number, head_ref, sha, deadline):
         return _stop("head-moved", MSG_PR_HEAD_MOVED, "PC 에 검토 요청에 올리지 않은 commit 이 있다. pr-push 로 먼저 올려라.",
                      url=url)
@@ -464,15 +474,15 @@ def _pr_merge(repo, number, task, close, deadline):
                      "sync-main 으로 반영하고 pr-push 한 뒤 다시 실행하라.", url=url)
     # 다른 사람이 GitHub 에 바로 올린 commit 도 반영 전에 검사한다(사용자 결정 2026-11-13).
     hits = save_work.pr_content_hits(top, save_work.REMOTE_REF, sha, deadline)
+    # merge 는 PR 의 commit 전체를 main 이력에 넣으므로 중간 commit 도 본다. 설명 문서는 최종 내용 검사가 맡는다.
+    commits = gitcmd.git(top, "rev-list", f"{save_work.REMOTE_REF}..{sha}", deadline=deadline).split()
+    hits += sorted({f"{hit['path']}({hit['commit']})" for hit in scan_history.scan(
+        top, rules.load(save_work.RULES_PATH), deadline, commits=commits, skip_ref=save_work.REMOTE_REF)
+        if not shared_repo.any_feature_doc(hit["path"]) and hit["path"] not in hits})
     if hits:
         return _stop("secret-found", MSG_PR_SECRET, f"비밀값·데이터 파일: {', '.join(hits)}", url=url)
     shared = shared_repo.repo_kind(top) == "shared"
     if shared:
-        deploy = [path for path in shared_repo.changed_paths(top, save_work.REMOTE_REF, sha, deadline)
-                  if shared_repo.is_deploy(path)]
-        if deploy:
-            return _stop("outside", save_work.MSG_OUTSIDE.format(files=", ".join(deploy)),
-                         "배포 설정 파일은 개발자가 배포 절차로 직접 반영한다.", outside=deploy, deploy=deploy, url=url)
         found = save_work.check_imports(top, sha, deadline)
         if found["status"] == "broken":
             return _stop("broken-import", save_work.MSG_BROKEN_IMPORT, found["detail"],
@@ -483,7 +493,10 @@ def _pr_merge(repo, number, task, close, deadline):
                                    "-f", "merge_method=merge", "-f", f"commit_title={pr.get('title', '')} (#{number})",
                                    "-f", f"commit_message={_merge_body(top, task, close)}", deadline=deadline)
     if code != 0:
-        return _failed(f"GitHub 가 반영을 거부했다: {(err or out).strip()}", url=url)
+        # 응답만 늦고 merge 는 됐을 수 있다. GitHub main 에 head 가 들어갔으면 정리로 이어 간다.
+        fetched = gitcmd.git_try(top, *FETCH, deadline=deadline)[0] == 0
+        if not (fetched and save_work._is_ancestor(top, sha, save_work.REMOTE_REF, deadline)):
+            return _failed(f"GitHub 가 반영을 거부했다: {(err or out).strip()}", url=url)
     note = _merge_cleanup(top, number, head_ref, sha, shared, deadline)
     return _stop("merged", MSG_PR_MERGED, note, url=url)
 
