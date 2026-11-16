@@ -102,7 +102,9 @@ Assert 'a key file is still turned into a base64 env line' ($refText -match 'ToB
 # 세 플러그인은 따로 설치될 수 있어 같은 안내를 플러그인마다 둔다. 한쪽만 고치면 안내가 갈라진다.
 $copies = @('kw-devops', 'kw-dashboard', 'kw-github') | ForEach-Object { Join-Path $Repo "plugins/$_/ax-inquiry.md" }
 Assert 'the three plugin copies of the inquiry guide are the same' (@($copies | Where-Object { Test-Path $_ }).Count -eq 3 -and @($copies | ForEach-Object { (Get-FileHash $_).Hash } | Select-Object -Unique).Count -eq 1)
-Assert 'the inquiry guide names the service address and the env type' (([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('http://192.7.9.45:9999') -and ([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('환경변수(env) 등록'))
+Assert 'the inquiry guide names the service address and the env type' (([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('http://192.7.9.45/ax/') -and ([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('환경변수(env) 등록'))
+Assert 'the inquiry guide no longer opens the old port address' (([IO.File]::ReadAllText($inquiryPath)) -notmatch '192\.7\.9\.45:9999')
+Assert 'the inquiry guide asks before writing a draft' (([IO.File]::ReadAllText($inquiryPath)) -match [regex]::Escape('문의 초안을 작성해 드릴까요?'))
 # The port is registered with the container_name the compose file actually carries, before push.
 # Registering at step 5 left days between picking and registering, and two people could pick the same port.
 Assert 'the port is registered right after compose is written' ($text -match '방금 쓴 compose 의 `container_name` 으로')
