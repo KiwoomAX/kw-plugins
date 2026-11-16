@@ -111,7 +111,10 @@ function ConvertFrom-JsonElement($E) {
         'String' {
             $s = $E.GetString()
             $dt = [datetime]::MinValue
-            if ($s.Length -ge 19 -and $s[10] -eq 'T' -and $E.TryGetDateTime([ref]$dt)) { return $dt }
+            if ($s -cmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,7})?(Z|[+-][0-9]{2}:[0-9]{2})?$' -and
+                $E.TryGetDateTime([ref]$dt)) { return $dt }
+            # 위 형식 밖의 날짜 비슷한 문자열은 두 해석기의 판정이 다를 수 있어 ConvertFrom-Json 에 맡긴다.
+            if (($s.Length -ge 16 -and $s[10] -eq 'T' -and [char]::IsDigit($s[0])) -or $s.StartsWith('/Date(')) { throw "날짜 형식 확인 필요: $s" }
             return $s
         }
         'Number' {
@@ -635,10 +638,13 @@ try {
     $mkRoot = Join-PathText $plugins 'marketplaces'
     $mkNames = @(if ($null -ne $known) { $known.PSObject.Properties.Name })
     $leftover = @(if ([System.IO.Directory]::Exists($mkRoot)) {
-        foreach ($dir in [System.IO.DirectoryInfo]::new($mkRoot).EnumerateDirectories()) {
-            if (($dir.Name -match '(\.bak|\.\.clone)$') -and ($mkNames -notcontains $dir.Name) -and
-                (([datetime]::Now - $dir.LastWriteTime).TotalMinutes -ge 10)) { $dir }
-        }
+        # 이전 Get-ChildItem -ErrorAction SilentlyContinue 처럼 폴더를 읽지 못하면 남은 폴더 0개로 본다.
+        try {
+            foreach ($dir in [System.IO.DirectoryInfo]::new($mkRoot).EnumerateDirectories()) {
+                if (($dir.Name -match '(\.bak|\.\.clone)$') -and ($mkNames -notcontains $dir.Name) -and
+                    (([datetime]::Now - $dir.LastWriteTime).TotalMinutes -ge 10)) { $dir }
+            }
+        } catch { }
     })
     if ($leftover.Count -gt 0) {
         Add-Note 1 "마켓플레이스 교체에 실패해 남은 폴더가 있습니다: $(($leftover | ForEach-Object Name) -join ', ')"

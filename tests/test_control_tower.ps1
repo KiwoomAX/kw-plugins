@@ -651,7 +651,7 @@ function Read-JsonOld([string]$Path) {
 }
 $jsonCases = @(
     '{"a":1,"b":3000000000,"c":1.5,"d":1e3,"e":99999999999999999999,"f":-0.25}',
-    '{"z":"2026-11-16T10:00:00.000Z","o":"2026-11-16T10:00:00+09:00","d":"2026-11-16","m":"2026-11-16T10:00","f":"2026-11-16T10:00:00.1234567","s":"2026-11-16 x","h":"한글 \"따옴표\" \\ 경로"}',
+    '{"z":"2026-11-16T10:00:00.000Z","o":"2026-11-16T10:00:00+09:00","d":"2026-11-16","f":"2026-11-16T10:00:00.1234567","s":"2026-11-16 x","h":"한글 \"따옴표\" \\ 경로"}',
     '{"e":[],"one":[1],"n":null,"t":true,"f":false,"nest":{"arr":[[],[{"k":[]}],{"x":null}]}}',
     '{"enabledPlugins":{"kw-control-tower@kiwoom-ax":true},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"pwsh -File C:\\x\\corp-certs\\a.ps1"}]}]}}'
 )
@@ -667,7 +667,9 @@ Check '훅의 JSON 읽기가 ConvertFrom-Json 과 같은 결과를 낸다' {
 }
 Check '훅의 JSON 읽기가 해석하지 못한 파일은 ConvertFrom-Json 의 판정을 따른다' {
     $jd = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-json-" + [guid]::NewGuid().ToString('n').Substring(0,8) + '.json')
-    $verdict = foreach ($j in @('{"a":1,"A":2}', '{ not json', '{"a":1} // 주석', "", "  `n ", '{"a":[1,2,],}')) {
+    $verdict = foreach ($j in @('{"a":1,"A":2}', '{ not json', '{"a":1} // 주석', "", "  `n ", '{"a":[1,2,],}',
+            '{"d":"2026-11-16T10:00+09:00"}', '{"d":"2026-11-16T10:00:00+0900"}', '{"d":"\/Date(1700000000000)\/"}',
+            '{"d":"2026-11-16T10:00:00.12345678901Z"}', '{"d":"2026-11-16T10:00:00z"}', '{"d":"2026-13-16T10:00:00"}', '{"d":"2026-11-16T10:00"}')) {
         [System.IO.File]::WriteAllText($jd, $j, $script:U8)
         $slow = try { $o = Read-JsonOld $jd; 'ok:' + ($o | ConvertTo-Json -Depth 5 -Compress) } catch { 'error' }
         $fast = try { $o = Read-Json $jd; 'ok:' + ($o | ConvertTo-Json -Depth 5 -Compress) } catch { 'error' }
@@ -1143,6 +1145,13 @@ function Invoke-Scenario {
     }
     if ($State) { $State | Set-Content (Join-Path $home2 '.claude\kw-control-tower.state') }
     foreach ($lo in $Leftover) {
+        # '!dangling' 은 대상이 지워진 junction 이다. 있다고 나오지만 목록을 읽으면 오류가 난다.
+        if ($lo -eq '!dangling') {
+            $gone = New-Item -ItemType Directory -Force -Path (Join-Path $home2 'gone')
+            New-Item -ItemType Junction -Path (Join-Path $pd 'marketplaces') -Target $gone.FullName | Out-Null
+            Remove-Item -LiteralPath $gone.FullName -Force
+            continue
+        }
         # '이름|fresh' 는 방금 바뀐 폴더다. 그 밖에는 15분 전에 바뀐 것으로 둔다.
         $n, $age = $lo -split '\|'
         $dir = New-Item -ItemType Directory -Force -Path (Join-Path $pd "marketplaces\$n")
@@ -1195,6 +1204,9 @@ Check '마켓플레이스 교체에 실패해 남은 폴더를 알린다' {
 }
 Check '방금 바뀐 교체 폴더와 등록된 이름의 폴더는 알리지 않는다' {
     (Invoke-Scenario -Installed $shaNew -Remote $shaNew -Leaf '811b47e87fec' -Leftover 'other.bak|fresh', 'kiwoom-ax') -notmatch '남은 폴더'
+}
+Check '마켓플레이스 폴더를 읽지 못해도 나머지 알림을 전달한다' {
+    (Invoke-Scenario -Installed $shaOld -Remote $shaNew -Leftover '!dangling') -match $late
 }
 # 세션마다 업데이트를 시도한다(2026-10-12 사용자 결정). 이전 버전이 적은 실패 기록이 남아 있어도 건너뛰지 않는다.
 Check '같은 최신 버전으로 실패한 기록이 있어도 다시 시도한다' {
