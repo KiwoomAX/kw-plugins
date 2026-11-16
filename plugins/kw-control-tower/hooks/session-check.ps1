@@ -668,7 +668,7 @@ try {
     # node 를 실행하지 않고 node.exe 파일의 버전 정보를 읽는다. node --version 은 이 PC 에서 93밀리초라
     # 고르지 않았다. 읽는 파일이 하나 늘어나는 것은 2026-10-29 사용자 승인이다.
     # Get-Command 는 쓰지 않는다. node 가 없으면 모듈까지 찾느라 이 PC 에서 첫 호출이 1.8초, 이후 150밀리초였다.
-    # PATH 의 폴더를 차례로 보는 것은 있든 없든 20밀리초 안이었다. Join-PathText 는 없는 드라이브에서 오류를 내므로 문자열로 잇는다.
+    # PATH 의 폴더를 차례로 보는 것은 있든 없든 20밀리초 안이었다. Join-Path 는 없는 드라이브에서 오류를 내므로 문자열로 잇는다.
     $script:Budget.Files++
     $nodeExe = $null
     foreach ($d in ($env:PATH -split ';')) {

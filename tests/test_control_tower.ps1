@@ -963,6 +963,11 @@ Check 'README 가 코드와 같은 수로 센다' {
     $m = [regex]::Match($readme, '단계는 (\d+)개이고')
     $m.Success -and ([int]$m.Groups[1].Value -eq $codeSteps.Count)
 }
+Check 'README 가 훅의 질문 수와 같은 수로 센다' {
+    $q = @([regex]::Matches($hookSrc, '# --- 질문 (\d+)(?:[과와] (\d+))?')) | ForEach-Object { [int]$_.Groups[1].Value; if ($_.Groups[2].Success) { [int]$_.Groups[2].Value } }
+    $m = [regex]::Match($readme, '(\d+)가지를 확인한다')
+    $m.Success -and ([int]$m.Groups[1].Value -eq ($q | Measure-Object -Maximum).Maximum)
+}
 # 설계 문서는 살아 있는 설계다. 코드가 바뀌었는데 이전 문장이 남으면 다음 사람이 이전 규칙을 따른다.
 Check '설계 문서에 바뀐 규칙의 이전 문장이 남아 있지 않다' {
     ($spec -notmatch '사내 것은 필수라 없으면 알리고') -and
