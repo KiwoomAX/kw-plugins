@@ -7,7 +7,7 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
 
 이 스킬은 개발을 시작하는 폴더를 기능 레포로 준비한다. GitHub 에는 아무것도 만들지 않는다. 원격 레포와 기능 이슈는 개발자가 처음 push 를 승인할 때 `saving-work` 가 만든다.
 
-개발자는 git 과 GitHub 에 익숙하지 않다고 본다. 개발자에게 하는 말은 `${CLAUDE_PLUGIN_ROOT}/git_terms.md` 를 따른다. commit·push·main·branch 만 영어로 쓰고 그 행동의 결과를 같은 문장에 붙인다. 나머지 git 용어는 쉬운 말로 바꾸거나 말하지 않는다. 예: "commit 해 두었습니다. 이 시점으로 코드를 되돌릴 수 있습니다."
+개발자는 git 과 GitHub 에 익숙하지 않다고 본다. 개발자에게 하는 말은 `${CLAUDE_PLUGIN_ROOT}/git_terms.md` 를 Read 해 따른다.
 
 아래에서 `<폴더>` 는 지금 작업 폴더다. 스크립트는 모두 `${CLAUDE_PLUGIN_ROOT}/scripts/` 아래에 있고 UTF-8 JSON 한 개를 출력한다.
 
@@ -25,7 +25,7 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
    python "${CLAUDE_PLUGIN_ROOT}/scripts/repo_setup.py" check-rules
    ```
 
-   `ok` 가 `false` 면 아무것도 만들지 않고 멈춘다. `${CLAUDE_PLUGIN_ROOT}/skills/saving-work/SKILL.md` 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 업데이트하고 개발자에게 알린다. 알리는 문장의 "저장 규칙 파일을 읽지 못해" 는 "저장 규칙 파일을 읽지 못해 준비를 멈췄고" 로 바꾼다. 이어서 폴더를 확인한다.
+   `ok` 가 `false` 면 아무것도 만들지 않고 멈춘다. `${CLAUDE_PLUGIN_ROOT}/skills/saving-work/references/rules-error.md` 대로 kw-github 를 업데이트하고, 준비를 멈췄다는 사실과 함께 개발자에게 알린다. 이어서 폴더를 확인한다.
 
    ```
    python "${CLAUDE_PLUGIN_ROOT}/scripts/repo_setup.py" check-folder --path "<폴더>"
@@ -40,12 +40,12 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
    ```
 
    `state` 에 따라 처리한다. `inspect` 는 표식 파일로 기능 레포를 판정하고, 원격이 있는지는 `has_remote` 로 따로 알린다.
-   - `feature` 는 이미 기능 레포라는 뜻이다. 개발자에게 "이 폴더는 이미 작업 폴더로 준비되어 있습니다." 라고만 알리고 끝낸다.
-   - `company-no-marker` 는 대시보드 레포처럼 회사의 다른 레포다. 멈추고 "이 폴더는 회사의 다른 프로젝트 폴더라 여기서는 새 기능을 준비하지 않습니다. 새 기능은 새 폴더에서 시작해 주세요." 라고 알린다.
-   - `other-remote` 는 회사 밖 주소와 연결된 폴더다. 멈추고 "이 폴더는 회사 GitHub가 아닌 곳과 연결되어 있어 작업 폴더로 준비하지 않았습니다." 라고 알린다.
+   - `feature` 는 이미 기능 레포라는 뜻이다. 개발자에게 이미 작업 폴더로 준비되어 있다고 알리고 끝낸다.
+   - `company-no-marker` 는 대시보드 레포처럼 회사의 다른 레포다. 멈추고, 회사의 다른 프로젝트 폴더라 여기서는 새 기능을 준비하지 않으니 새 폴더에서 시작해 달라고 알린다.
+   - `other-remote` 는 회사 밖 주소와 연결된 폴더다. 멈추고, 회사 GitHub 가 아닌 곳과 연결된 폴더라 작업 폴더로 준비하지 않았다고 알린다.
    - `not-git` 과 `local-only` 는 다음 단계로 간다. 다만 `top` 이 `<폴더>` 와 다르면 위쪽 폴더가 이미 레포라는 뜻이므로, 멈추고 개발자에게 어느 폴더에서 작업할지 묻는다.
 
-3. **기능 이름과 레포 이름을 정한다.** "어떤 기능을 만드시나요? 한국어로 짧게 알려 주세요." 라고 한 번만 묻는다. 규칙에 맞는 레포 이름을 제안하고 확인받는다. 그다음 `gh repo view KiwoomAX/<이름> --json name` 을 실행한다. 성공하면 같은 이름의 레포가 이미 있으므로 "같은 이름으로 등록된 기능이 있습니다. 이어서 작업하던 기능인가요?" 라고 묻는다.
+3. **기능 이름과 레포 이름을 정한다.** 어떤 기능을 만드는지 한국어로 짧게 알려 달라고 한 번만 묻는다. 규칙에 맞는 레포 이름을 제안하고 확인받는다. 그다음 `gh repo view KiwoomAX/<이름> --json name` 을 실행한다. 성공하면 같은 이름의 레포가 이미 있으므로, 같은 이름으로 등록된 기능이 있다고 알리고 이어서 작업하던 기능인지 묻는다.
    - 그렇다고 하면 새로 준비하지 않는다. `<폴더>` 옆에 새 폴더를 정해 `gh repo clone KiwoomAX/<이름> "<새 폴더>"` 로 내려받고, 그 폴더에서 클로드 코드를 다시 열라고 안내하고 끝낸다.
    - 아니라고 하면 다른 이름을 제안한다.
 
@@ -57,31 +57,11 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
    gh api user/teams --jq '.[] | [.organization.login, .slug, .name] | @tsv'
    ```
 
-   출력은 줄마다 `조직 slug 이름` 이다. 첫 열이 `KiwoomAX` 인 줄만 쓴다. 큰따옴표가 없는 jq 식을 쓰는 이유는 Windows PowerShell 5.1 이 인자 안의 큰따옴표를 깨뜨리기 때문이다. 팀이 있으면 "이 기능을 같은 본부(<팀 이름>) 팀원도 볼 수 있도록 팀을 추가할까요?" 라고 한 번 묻는다. 팀이 여럿이면 팀 이름을 모두 보여 주고 고르게 한다. 팀이 없으면 묻지 않는다. 권한은 첫 GitHub 업로드 때 `prepare-upload` 가 준다.
+   출력은 줄마다 `조직 slug 이름` 이다. 첫 열이 `KiwoomAX` 인 줄만 쓴다. 큰따옴표가 없는 jq 식을 쓰는 이유는 Windows PowerShell 5.1 이 인자 안의 큰따옴표를 깨뜨리기 때문이다. 팀이 있으면 같은 본부(팀 이름) 팀원도 이 기능을 볼 수 있게 할지 한 번 묻는다. 팀이 여럿이면 팀 이름을 모두 보여 주고 고르게 한다. 팀이 없으면 묻지 않는다. 권한은 첫 GitHub 업로드 때 `prepare-upload` 가 준다.
 
 5. **이 폴더의 기록을 준비한다.**
    - `state` 가 `not-git` 이면 `git init -b main` 을 실행한다.
-   - `state` 가 `local-only` 이고 `has_commits` 가 `true` 면 예전 기록을 검사한다.
-
-     ```
-     python "${CLAUDE_PLUGIN_ROOT}/scripts/scan_history.py" --repo "<폴더>"
-     ```
-
-     `status` 가 `clean` 이면 기록을 그대로 둔다. `hits` 나 `timeout` 이면 개발자에게 묻지 않고 아래를 실행한다. 예전 기록은 이 PC 의 `local-history` 에 남고 GitHub 에는 올라가지 않는다. `local-history` 는 지우지 않는다.
-
-     ```
-     python "${CLAUDE_PLUGIN_ROOT}/scripts/reset_history.py" --repo "<폴더>"
-     ```
-
-     `scan_history.py` 의 `status` 가 `failed` 이고 `detail` 이 규칙 파일 오류면 saving-work 「결과 처리」의 「규칙 파일 오류」대로 한다. 그 밖의 `failed` 면 한 번만 다시 실행한다. 다시 실행해도 `failed` 면 아래 「AX팀 문의 문장」을 알리고 멈춘다.
-
-     `reset_history.py` 는 이미 있는 `local-history` 와 다른 branch 를 `local-history-<이름>` 으로 보관한 뒤 정리한다. branch 이름은 한 번에 함께 바뀌므로, 실패하면 하나도 바뀌지 않는다. 결과의 `status` 에 따라 아래대로 한다. 정리하지 않고 이어 가면 비밀값이 포함된 예전 기록이 첫 업로드 때 GitHub 에 올라가므로, `reset` 이 아니면 다음 단계로 가지 않는다.
-     - `reset`: 정리를 마쳤다. 결과의 `kept` 가 비어 있지 않으면 개발자에게 "다른 branch 의 예전 작업은 이 PC 의 `<kept 의 새 이름들>` 에 보관했습니다. GitHub 에는 올리지 않습니다." 라고 알린다.
-     - `failed`: 한 번만 다시 실행한다. 앞선 실행이 branch 를 옮긴 뒤 멈췄으면 다시 실행이 남은 단계를 마친다. 다시 실행해도 `reset` 이 아니면 「AX팀 문의 문장」을 알리고 멈춘다.
-     - `refused` 이고 `reason` 이 `detached`: 지금 폴더가 어느 branch 의 끝도 아닌 예전 시점이다. AskUserQuestion 으로 "지금 폴더가 예전 시점의 파일입니다. 최신 작업으로 돌아간 뒤 정리할까요?" 라고 묻는다. 선택지는 `branches` 의 branch 마다 하나와 "멈추기" 다. branch 를 고르면 `git switch <branch>` 로 돌아간 뒤 `reset_history.py` 를 다시 실행한다. "멈추기" 면 「AX팀 문의 문장」을 알리고 멈춘다.
-     - 그 밖의 `refused`: 스크립트가 아무것도 바꾸지 않았다. 다시 실행하지 않고 「AX팀 문의 문장」을 알리고 멈춘다. `reason` 이 `in-progress` 면 진행 중인 git 작업이 있고, `connected` 면 이미 GitHub 에 연결된 폴더다.
-
-     「AX팀 문의 문장」은 "예전 기록을 정리하지 못해 GitHub 업로드 준비가 동작하지 않습니다. 작업은 이 PC 에 그대로 있습니다. AX팀에 문의해 주세요." 다. 이 문장과 함께 `detail` 의 원인을 AX팀에 전하라고 한다.
+   - `state` 가 `local-only` 이고 `has_commits` 가 `true` 면 이미 git 기록이 있는 폴더다. `${CLAUDE_PLUGIN_ROOT}/skills/starting-feature-repo/references/history-reset.md` 를 Read 해 예전 기록을 검사하고 정리한다. 정리 결과가 `reset` 이 아니면 다음 단계로 가지 않는다. 정리하지 않고 이어 가면 비밀값이 포함된 예전 기록이 첫 업로드 때 GitHub 에 올라가기 때문이다.
    - 마지막으로 현재 branch 이름을 확인한다. `reset_history.py` 를 실행했으면 이미 `main` 이다. 아니면 2단계 결과의 `branch` 가 `main` 이 아닐 때 `git branch -m main` 으로 이름을 바꾼다.
 
 6. **표식 파일을 만든다.** 최상위 폴더에 `.kiwoom-feature` 를 만들고 줄마다 `<키>=<값>` 을 적는다.
@@ -105,6 +85,6 @@ description: 사내 개발자가 새 기능·앱·화면·스크립트를 만들
 
    예전 기록 검사가 `clean` 이어서 commit 이 이미 있는 폴더면 위 명령에 `--branch feat/<영문 요약>` 을 붙인다. 이 commit 은 그 작업 branch에 들어간다.
 
-8. **개발자에게 알린다.** 7단계의 `status` 가 `committed` 일 때만 "이 폴더를 `<기능 이름>` 작업 폴더로 준비했습니다. 작업이 끝나면 GitHub에 올릴지 여쭙겠습니다." 라고 알린다. 다른 결과면 준비를 마쳤다고 알리지 않고 `saving-work` 스킬의 「결과 처리」 절에 따라 처리한다.
+8. **개발자에게 알린다.** 7단계의 `status` 가 `committed` 일 때만, 이 폴더를 그 기능의 작업 폴더로 준비했고 작업이 끝나면 GitHub 에 올릴지 묻겠다고 알린다. 다른 결과면 준비를 마쳤다고 알리지 않고 `saving-work` 스킬의 「결과 처리」 절에 따라 처리한다.
 
 9. **개발을 이어 간다.** 개발자가 처음에 요청한 기능을 만든다. 기능 단위가 끝나면 개발자에게 묻지 않고 commit 한다. 방법은 `saving-work` 스킬의 「commit」 절에 있다. "저장해줘" 같은 요청을 기다리지 않는다. commit 결과의 `unpushed` 가 참이면 같은 스킬의 「push 질문」 절에 따라 선택 창을 열어 묻는다.

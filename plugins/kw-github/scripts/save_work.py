@@ -2299,7 +2299,10 @@ def review_upload(repo, feature=None, intake=False):
                      "ours": bool(me) and item["title"].startswith(prefix)
                              and (item.get("author") or {}).get("login") == me,
                      "template_only": template_only(item["title"], item.get("body")),
-                     "no_assignee": not item.get("assignees")} for item in listed],
+                     "no_assignee": not item.get("assignees"),
+                     # 끝난 기능 이슈를 닫을지 묻는 대상이다(사용자 결정, 2026-11-16).
+                     "assigned_to_me": bool(me) and any(a.get("login") == me for a in item.get("assignees") or [])}
+                    for item in listed],
         )
     except Exception as exc:  # noqa: BLE001 — 스킬은 어떤 경우에도 JSON 을 받아야 한다
         payload["detail"] = f"점검하지 못했다: {exc.__class__.__name__}: {exc}"

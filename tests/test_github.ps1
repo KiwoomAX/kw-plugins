@@ -139,6 +139,9 @@ foreach ($skill in @('starting-feature-repo', 'saving-work')) {
     $text = Read-TextOrEmpty (Join-Path $PluginDir "skills/$skill/SKILL.md")
     $name = ([regex]::Match($text, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value
     Assert "$skill frontmatter name matches the folder" ($name -eq $skill)
+    # The reference files under references/ are part of the skill and call scripts too.
+    Get-ChildItem -LiteralPath (Join-Path $PluginDir "skills/$skill/references") -Filter *.md -ErrorAction SilentlyContinue |
+        ForEach-Object { $text += "`n" + (Read-TextOrEmpty $_.FullName) }
     Assert "$skill does not call python3" (-not ($text -match '\bpython3\b'))
     $called = @([regex]::Matches($text, '\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([\w.]+\.py)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     foreach ($f in $called) { Assert "$skill calls a script that ships: $f" (Test-Path (Join-Path $Scripts $f)) }

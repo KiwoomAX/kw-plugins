@@ -28,10 +28,10 @@ class RulesError(Exception):
 
 # 재설치를 안내한 kw-github 버전을 적는 파일이다. 같은 버전에서 재설치 안내가 세션마다 반복되지 않게 하기 위해서다.
 REINSTALL_MARK = Path.home() / ".claude" / "kw-github-reinstalled"
-REINSTALL_DETAIL = ("규칙 파일 오류다. saving-work 「결과 처리」의 「규칙 파일 오류」대로 kw-github 를 업데이트하고, "
+REINSTALL_DETAIL = ("규칙 파일 오류다. saving-work 의 references/rules-error.md 대로 kw-github 를 업데이트하고, "
                     "이미 최신이면 다시 설치하라. {exc}")
 GIVE_UP_DETAIL = ("규칙 파일 오류다. 이 버전의 kw-github 는 이미 다시 설치해 보았다. 다시 설치하지 말고 saving-work "
-                  "「결과 처리」의 「규칙 파일 오류」대로 AX팀 문의를 안내하라. {exc}")
+                  "의 references/rules-error.md 대로 AX팀 문의를 안내하라. {exc}")
 
 
 def failure_detail(exc):

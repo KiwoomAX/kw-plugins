@@ -103,7 +103,7 @@ def _change_default(full, old, has_main, deadline):
             account = "확인하지 못함"
         return _result("failed", old, reason="no-permission", account=account,
                        detail=f"{full} 의 기본 branch 가 {old} 다. GitHub 계정 {account} 에는 이 설정을 바꿀 관리자 "
-                              "권한이 없다. saving-work 「기본 branch 맞추기」의 no-permission 문장으로 알려라.")
+                              "권한이 없다. saving-work 의 references/main-branch.md 의 no-permission 문장으로 알려라.")
     raise gitcmd.GitError(f"gh {' '.join(args)} 실패: {(err or out).strip()}")
 
 
