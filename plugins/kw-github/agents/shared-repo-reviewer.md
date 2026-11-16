@@ -38,7 +38,7 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 - `check-imports` 는 정규식으로 읽으므로 템플릿 문자열 import, f-string 모듈 이름, CSS `@import`, `routes.tsx` 의 `import.meta.glob` 메뉴 등록, `feature_loader.py` 의 `importlib` router 등록, `tsconfig.json` `baseUrl` 기준 import, import 없이 함께 쓰는 데이터 파일과 Redis 키는 확인하지 못한다. 이 결합은 네가 직접 확인하라.
 - 드문 상황 대비, 구조 개선, 이름 바꾸기는 지적하지 마라. 요청하지 않은 개선을 넣지 않기 위해서다(YAGNI).
 - `structure` 를 판정하려면 kw-dashboard 의 `building-kiwoom-dashboard` 스킬을 Skill 도구로 열어 「강제」 절을 읽어라.
-- 기능 이전이면 위 기준과 함께 superpowers 플러그인의 `skills/requesting-code-review/code-reviewer.md` 파일을 Read 로 열어 그 검토 항목을 적용하라(기능 이전일 때만 적용하고, 그 스킬은 호출하지 마라. 그 스킬은 다른 서브에이전트를 실행한다). kw-dashboard 「내보내기 전 확인」 절과 kw-github `feature_code_rules.md` 「기술 구성」 절도 기능 이전일 때만 적용하라.
+- 기능 이전이면 위 기준과 함께 superpowers 플러그인의 `skills/requesting-code-review/code-reviewer.md` 파일을 Read 로 열어 그 검토 항목을 적용하라(기능 이전일 때만 적용하고, 그 스킬은 호출하지 마라. 그 스킬은 다른 서브에이전트를 실행한다). kw-dashboard 「내보내기 전 확인」 절과 kw-github `feature_code_rules.md` 「기술 구성」 절도 기능 이전일 때만 적용하라. 기능 이전인데 `code-reviewer.md` 파일이 없으면 위 다섯 기준만 적용하고, 지적의 `problem` 에 "코드 리뷰 기준 파일 없음" 을 적어라.
 
 ## 고치는 범위
 
@@ -74,7 +74,7 @@ tools: Read, Grep, Glob, Bash, Edit, Skill
 
 ## 기능 이전일 때
 
-이전 허용 파일(`pyproject.toml`, `uv.lock`, `src/frontend/package.json`, `src/frontend/package-lock.json`, `docker-compose.yml`, `Jenkinsfile`)과 구조 파일(`src/backend/feature_loader.py`, `src/backend/main.py`, `src/backend/tests/test_health.py`, `src/frontend/src/feature-menu.ts`, `src/frontend/src/routes.tsx`)의 바뀐 줄을 하나씩 읽어라.
+기능 폴더 밖에서 바뀐 파일(`check-boundary` 결과의 `outside_files`)의 바뀐 줄을 하나씩 읽어라. 이전 허용 파일과 구조 파일 목록은 `shared_repo.py` 가 정한다.
 
 - 구조 파일은 `KiwoomAX/dashboard-template` main 과 같아야 한다. `check-boundary` 결과의 `outside` 에 구조 파일이 있으면 템플릿과 다르다는 뜻이다.
 - `docker-compose.yml` 은 환경 변수 줄만 바뀌었는지 확인하라.
