@@ -354,14 +354,11 @@ try {
     Assert 'a change inside the fund folder is inside' (($cb | ConvertFrom-Json).status -eq 'inside')
     Assert 'check-boundary prints ASCII JSON' ($cb.Trim() -and ($cb -cmatch '^[\x00-\x7F]*$'))
 
-    $null = Invoke-Git $repo3 @('config', 'user.email', 'other@example.com')
-    [IO.File]::AppendAllText((Join-Path $repo3 'src/frontend/src/routes.tsx'), "// shared change`n")
-    $null = Invoke-SaveWork $remote3 @('commit', '--repo', $repo3, '--feature', 'fund', '--message', 'fund 목록')
-    $before3 = (Invoke-Git $remote3 @('rev-parse', 'main')).Trim()
-    $up3 = Invoke-SaveWork $remote3 @('upload', '--repo', $repo3, '--feature', 'fund', '--task', '1', '--title', 'x')
-    Assert 'upload stops as outside when a shared file changed' (($up3 | ConvertFrom-Json).status -eq 'outside')
-    Assert 'upload prints ASCII JSON' ($up3.Trim() -and ($up3 -cmatch '^[\x00-\x7F]*$'))
-    Assert 'an outside upload leaves GitHub main as it was' ((Invoke-Git $remote3 @('rev-parse', 'main')).Trim() -eq $before3)
+    # 기능 이전이 아니면 배포 설정 수정도 멈추지 않고 셀프 리뷰어가 확인한다(사용자 결정 2026-11-15).
+    [IO.File]::WriteAllText((Join-Path $repo3 'docker-compose.yml'), "services: {}`n")
+    $cb3 = (Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'check-boundary', '--repo', $repo3, '--feature', 'fund')) | ConvertFrom-Json
+    Assert 'a deploy setting change is not stopped' ($cb3.status -eq 'inside')
+    Assert 'check-boundary lists the deploy setting' (@($cb3.deploy) -contains 'docker-compose.yml')
 } finally { Remove-Item -LiteralPath $work3 -Recurse -Force -ErrorAction SilentlyContinue }
 $help = Invoke-Py @((Join-Path $Scripts 'save_work.py'), 'upload', '--help')
 Assert 'upload --help lists --intake' ($help -match '--intake')
