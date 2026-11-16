@@ -148,7 +148,9 @@ $Recipient = ([regex]::Match($axText, '(?m)^\$Recipient\s*=\s*''([^'']+)''')).Gr
 Assert 'request-ax.ps1 names one recipient' ($Recipient -match '^[^@\s]+@[^@\s]+$')
 # Two failure paths are hard to provoke from a test; check the code carries them.
 Assert 'a failed work-folder delete warns without changing the exit code' ($axText -match '\[경고\] 작업 폴더를 지우지 못했다')
-Assert 'work-folder setup and attachment writing both map to exit 7' ([regex]::Matches($axText, '\$script:Stage = 7').Count -ge 2)
+Assert 'work-folder setup maps to exit 7' ([regex]::Matches($axText, '\$script:Stage = 7').Count -ge 1)
+# 환경변수 등록은 문의 화면으로 옮겼다. 메일 스크립트는 .env 를 받지도 첨부하지도 않는다.
+Assert 'request-ax.ps1 no longer takes an env file' ($axText -notmatch 'EnvSource|EnvKeys|Attach')
 
 $Fake         = Join-Path ([IO.Path]::GetTempPath()) ('kwdevops-test-' + [guid]::NewGuid().ToString('N'))
 $FakeRenderer = Join-Path $Fake 'renderer'
@@ -197,15 +199,10 @@ foreach ($a in $Attach) { Copy-Item -LiteralPath $a (Join-Path $env:FAKE_CAPTURE
 
 $Body    = Join-Path $Fake 'body.json'
 $NotJson = Join-Path $Fake 'not-json.json'
-$EnvOk   = Join-Path $Fake 'ok.env'
-$EnvOpen = Join-Path $Fake 'open-quote.env'
 $Blocker = Join-Path $Fake 'blocker.txt'
 [IO.File]::WriteAllText($Body, '{"blocks":[{"type":"p","text":"시험 본문"}]}', $Utf8NoBom)
 [IO.File]::WriteAllText($NotJson, 'this is not json', $Utf8NoBom)
 [IO.File]::WriteAllText($Blocker, 'a file, so nothing can be created beneath it', $Utf8NoBom)
-$envLines = @('# 주석 줄', 'A_KEY=alpha-secret', 'API_KEY=first-secret', 'export B_KEY = "값 1"', '', 'API_KEY=second-secret', 'UNRELATED=unrelated-secret', 'EMPTY_KEY=')
-[IO.File]::WriteAllText($EnvOk, (($envLines -join "`r`n") + "`r`n"), $Utf8NoBom)
-[IO.File]::WriteAllText($EnvOpen, "Q_KEY=`"open-secret`r`n", $Utf8NoBom)
 
 $PsExe = 'pwsh'
 function Invoke-Ax([hashtable]$EnvOverride, [string[]]$ArgList) {
@@ -237,16 +234,6 @@ try {
     Assert 'blank -Subject exits 2'          ((Invoke-Ax @{} @('-Subject', ' ', '-BodyPath', $Body)).Code -eq 2)
     Assert 'missing -BodyPath file exits 2'  ((Invoke-Ax @{} @('-Subject', 'x', '-BodyPath', (Join-Path $Fake 'none.json'))).Code -eq 2)
     Assert 'a body that is not JSON exits 2' ((Invoke-Ax @{} @('-Subject', 'x', '-BodyPath', $NotJson)).Code -eq 2)
-    Assert '-EnvSource alone exits 2'        ((Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk))).Code -eq 2)
-    Assert '-EnvKeys alone exits 2'          ((Invoke-Ax @{} ($okArgs + @('-EnvKeys', 'A_KEY'))).Code -eq 2)
-    Assert 'missing -EnvSource file exits 2' ((Invoke-Ax @{} ($okArgs + @('-EnvSource', (Join-Path $Fake 'none.env'), '-EnvKeys', 'A_KEY'))).Code -eq 2)
-
-    $h = [IO.File]::Open($EnvOk, 'Open', 'ReadWrite', 'None')
-    try { $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'A_KEY')) } finally { $h.Dispose() }
-    Assert 'an -EnvSource locked by another process exits 2' ($r.Code -eq 2)
-
-    $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOpen, '-EnvKeys', 'Q_KEY'))
-    Assert 'an unclosed quote exits 2 and names the key' ($r.Code -eq 2 -and $r.Out -match 'Q_KEY' -and $r.Out -notmatch 'open-secret')
 
     $noNode = (($env:Path -split ';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'node.exe')) }) -join ';'
     Assert 'no node on PATH exits 3'   ((Invoke-Ax @{ Path = $noNode } $okArgs).Code -eq 3)
@@ -263,8 +250,6 @@ try {
     $r = Invoke-Ax @{ FAKE_SEND_EXIT = '1' } $okArgs
     Assert 'a sender that exits non-zero exits 6 without claiming success' ($r.Code -eq 6 -and $r.Out -notmatch '발송 성공')
     Assert 'an unwritable TEMP exits 7' ((Invoke-Ax @{ TEMP = (Join-Path $Blocker 'sub') } $okArgs).Code -eq 7)
-    $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'NOPE_KEY'))
-    Assert 'no requested key in the source exits 8 and sends nothing' ($r.Code -eq 8 -and -not $r.Sent)
 
     $locked = Join-Path $ChildTemp 'kwdevops-mail-locked'
     $null = New-Item -ItemType Directory -Force $locked
@@ -278,7 +263,7 @@ try {
     $old = Join-Path $ChildTemp 'kwdevops-mail-old'
     $null = New-Item -ItemType Directory -Force $old
     (Get-Item $old).LastWriteTime = (Get-Date).AddHours(-2)
-    $r = Invoke-Ax @{} ($okArgs + @('-EnvSource', $EnvOk, '-EnvKeys', 'A_KEY,api_key,B_KEY,EMPTY_KEY,MISSING_KEY'))
+    $r = Invoke-Ax @{} $okArgs
     Assert 'a full request exits 0' ($r.Code -eq 0)
     $call = if ($r.Sent) { Get-Content -Raw -Encoding UTF8 (Join-Path $Capture 'call.json') | ConvertFrom-Json } else { $null }
     # The shared sender may read files next to itself, so it runs where it lives.
@@ -288,14 +273,7 @@ try {
     $bodyPath = Join-Path $Capture 'body.html'
     $bodyHtml = if (Test-Path $bodyPath) { [IO.File]::ReadAllText($bodyPath) } else { '' }
     Assert 'the rendered body uses the Gothic stack in place of the serif stack' ($bodyHtml -match 'Malgun Gothic' -and $bodyHtml -notmatch 'Georgia')
-    $attPath  = Join-Path $Capture 'attach.env'
-    $attBytes = if (Test-Path $attPath) { [IO.File]::ReadAllBytes($attPath) } else { @() }
-    $attText  = if (Test-Path $attPath) { [IO.File]::ReadAllText($attPath) } else { '' }
-    Assert 'the attachment holds only the requested keys, last value wins, key case from the source' ($attText -ceq "A_KEY=alpha-secret`nAPI_KEY=second-secret`nB_KEY=`"값 1`"`n")
-    Assert 'the attachment has no BOM and no CR' ($attBytes.Count -gt 3 -and -not ($attBytes[0] -eq 0xEF -and $attBytes[1] -eq 0xBB) -and -not ($attBytes -contains 13))
-    Assert 'keys left out are named' ($r.Out -match 'EMPTY_KEY' -and $r.Out -match 'MISSING_KEY')
-    $leaked = @('alpha-secret', 'first-secret', 'second-secret', '값 1', 'unrelated-secret') | Where-Object { $r.Out -match [regex]::Escape($_) }
-    Assert 'no value is printed' (@($leaked).Count -eq 0)
+    Assert 'nothing is attached to the mail' ($r.Sent -and -not (Test-Path (Join-Path $Capture 'attach.env')))
     Assert 'no work folder is left behind and the old one is gone' (@(Get-ChildItem $ChildTemp -Directory -Filter 'kwdevops-mail-*').Count -eq 0)
 } finally {
     $env:KW_DEVOPS_MAIL_RENDERER = $saved.R

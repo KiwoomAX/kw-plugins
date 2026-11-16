@@ -1,11 +1,9 @@
-# AX 팀에 배포 등록 요청 메일을 보낸다. 언제 부르는지와 종료 코드를 읽는 법은
-# SKILL.md 의 「AX 팀에 등록 요청 보내기」에 있다.
-# 종료 코드: 2 입력 · 3 의존성 · 4 렌더링 · 5 아웃룩 호환 검사 · 6 발송 · 7 작업 폴더·첨부 쓰기 · 8 요청한 키가 원본에 없음
+# AX 팀에 스케줄 등록 요청 메일을 보낸다. 언제 부르는지는 SKILL.md 의 「AX 팀에 요청하기」에,
+# 종료 코드를 읽는 법은 ax-requests.md 에 있다.
+# 종료 코드: 2 입력 · 3 의존성 · 4 렌더링 · 5 아웃룩 호환 검사 · 6 발송 · 7 작업 폴더 쓰기
 param(
     [string]$Subject = '',
-    [string]$BodyPath = '',
-    [string]$EnvSource = '',
-    [string]$EnvKeys = ''
+    [string]$BodyPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,15 +28,6 @@ try {
     if (-not $BodyPath -or -not (Test-Path -LiteralPath $BodyPath -PathType Leaf)) { throw "-BodyPath 파일이 없다: $BodyPath" }
     $BodyPath = (Resolve-Path -LiteralPath $BodyPath).ProviderPath
     if ($null -eq ([IO.File]::ReadAllText($BodyPath, $Utf8NoBom) | ConvertFrom-Json)) { throw '-BodyPath 가 비었다.' }
-    $wantEnv = [bool]$EnvSource
-    if ($wantEnv -ne [bool]$EnvKeys) { throw '-EnvSource 와 -EnvKeys 는 함께 줘야 한다.' }
-    $keys = @()
-    if ($wantEnv) {
-        if (-not (Test-Path -LiteralPath $EnvSource -PathType Leaf)) { throw "-EnvSource 파일이 없다: $EnvSource" }
-        $keys = @($EnvKeys.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-        if ($keys.Count -eq 0) { throw '-EnvKeys 에 키 이름이 없다.' }
-        $envText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $EnvSource).ProviderPath, [Text.Encoding]::UTF8)
-    }
 
     # 2. 의존성 확인
     $script:Stage = 3
@@ -48,7 +37,7 @@ try {
     if (-not (Test-Path -LiteralPath $Sender -PathType Leaf)) { $missing += "발송기 $Sender" }
     if ($missing.Count) { throw ('없는 것: ' + ($missing -join ', ')) }
 
-    # 3. 작업 폴더 준비 — 강제 종료로 남은 첨부부터 치운다. 치우지 못해도 발송은 막지 않는다.
+    # 3. 작업 폴더 준비 — 강제 종료로 남은 작업 폴더부터 치운다. 치우지 못해도 발송은 막지 않는다.
     $script:Stage = 7
     try {
         foreach ($d in @(Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter 'kwdevops-mail-*' |
@@ -62,39 +51,7 @@ try {
     # 렌더러만 복사한다. 5단계에서 tokens.js 를 고쳐야 하기 때문이다. 발송기는 곁의 파일을 읽을 수 있으니 원래 위치에서 부른다.
     Copy-Item -LiteralPath $Renderer -Destination (Join-Path $work 'renderer') -Recurse
 
-    # 4. 첨부 만들기 — 값은 파일에만 쓰고 화면에는 키 이름만 찍는다.
-    $attach = $null
-    if ($wantEnv) {
-        $script:Stage = 2
-        $found = @{}   # 대소문자를 가리지 않는 표다. 같은 키는 뒤 줄이 덮는다.
-        foreach ($line in ($envText -split "`n")) {
-            $line = $line.TrimEnd("`r")
-            if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
-                $found[$Matches[1]] = @{ Name = $Matches[1]; Value = $Matches[2] }
-            }
-        }
-        $lines = @()
-        $absent = @()
-        foreach ($k in $keys) {
-            $e = $found[$k]
-            if (-not $e -or $e.Value -eq '' -or $e.Value -eq '""' -or $e.Value -eq "''") { $absent += $k; continue }
-            $v = $e.Value
-            $q = $v.Substring(0, 1)
-            if (($q -eq '"' -or $q -eq "'") -and $v.IndexOf($q, 1) -lt 0) {
-                throw "따옴표가 같은 줄에서 닫히지 않는다: $($e.Name) — 여러 줄 값은 지원하지 않는다."
-            }
-            # 값은 원본 그대로 옮긴다. 파이프라인이 이 첨부를 .env 에 그대로 이어 붙이고 compose 가 같은 규칙
-            # (따옴표 없는 값의 ` #` 주석과 뒤 공백을 뗌)으로 읽으므로, 여기서 다듬으면 규칙이 두 벌이 된다.
-            $lines += "$($e.Name)=$v"
-        }
-        if ($absent.Count) { Write-Host ('[첨부 제외] 원본에 없거나 값이 빈 키: ' + ($absent -join ', ')) }
-        if ($lines.Count -eq 0) { $script:Stage = 8; throw '원본 .env 에 요청한 키가 하나도 없다. 보내지 않았다.' }
-        $script:Stage = 7
-        $attach = Join-Path $work '.env'
-        [IO.File]::WriteAllText($attach, (($lines -join "`n") + "`n"), $Utf8NoBom)
-    }
-
-    # 5. 렌더링과 아웃룩 호환 검사
+    # 4. 렌더링과 아웃룩 호환 검사
     $script:Stage = 4
     # 등록 요청 메일은 고딕 하나로 쓴다. 공유 렌더러의 명조(SERIF)를 작업 폴더 복사본에서만 고딕(SANS)으로 바꾼다.
     $tokens = Join-Path $work 'renderer\lib\tokens.js'
@@ -110,10 +67,9 @@ try {
     & node (Join-Path $work 'renderer\scripts\verify-outlook.js') $html
     if ($LASTEXITCODE -ne 0) { throw '아웃룩 호환 검사를 통과하지 못했다. 보내지 않았다.' }
 
-    # 6. 발송 — 보내는 주소는 발송기가 아웃룩 프로필에서 가져온다.
+    # 5. 발송 — 보내는 주소는 발송기가 아웃룩 프로필에서 가져온다.
     $script:Stage = 6
     $send = @{ To = @($Recipient); Subject = $Subject; HtmlPath = $html }
-    if ($attach) { $send.Attach = @($attach) }
     # 발송기는 throw 로 실패를 알리지만 exit 로 끝나도 성공으로 보고하지 않는다.
     $global:LASTEXITCODE = 0
     & $Sender @send
@@ -127,7 +83,7 @@ try {
     # 메일이 이미 나간 뒤라 삭제 실패는 종료 코드를 바꾸지 않는다. 실패로 알리면 같은 요청이 다시 나간다.
     if ($work -and (Test-Path -LiteralPath $work)) {
         try { Remove-Item -LiteralPath $work -Recurse -Force }
-        catch { Write-Host "[경고] 작업 폴더를 지우지 못했다. 첨부가 남았을 수 있다: $work" }
+        catch { Write-Host "[경고] 작업 폴더를 지우지 못했다: $work" }
     }
 }
 exit $code
