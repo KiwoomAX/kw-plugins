@@ -23,9 +23,16 @@ $ErrorActionPreference = 'Stop'
 # BOM 을 붙이지 않는다. 7 은 BOM 없이도 UTF-8 로 읽고, 5.1 로 잘못 호출하면 한글이 조용히
 # 깨지는 대신 문법 오류로 그 줄에서 드러난다. 출력 인코딩은 명시한다. 콘솔 코드페이지는
 # 7 에서도 윈도우 기본을 따르는 때가 있다.
-try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 
 $script:Budget = @{ Files = 0; Registry = 0 }
+
+# 점검은 PowerShell 의 경로·파일·JSON·날짜 명령 대신 .NET 을 직접 호출한다. 명령을 처음 쓰면 그 명령이
+# 든 모듈을 불러오는데, 2026-11-16 이 PC 에서 New-Object 하나가 pwsh 실행 시간을 0.9초에서 1.4초로 늘렸다.
+# 이 시간은 아래 $sw 에 잡히지 않는다. 동기화를 호출하는 쪽과 오류 기록은 드물게 실행되므로 명령을 그대로 쓴다.
+$script:U8 = [System.Text.UTF8Encoding]::new($false)
+function Join-PathText([string]$Parent, [string]$Child) { return $Parent.TrimEnd('\') + '\' + $Child }
+function Test-Exists([string]$Path) { return [System.IO.File]::Exists($Path) -or [System.IO.Directory]::Exists($Path) }
 
 function Get-CheapHash {
     # MD5 를 직접 호출한다. Get-FileHash 보다 9배 빠르다(8ms 대 72ms).
@@ -45,12 +52,12 @@ function Get-StuckPrint {
     param([string]$Root, [int]$Step)
     $md5 = [System.Security.Cryptography.MD5]::Create()
     try {
-        $bytes = New-Object System.Collections.Generic.List[byte]
+        $bytes = [System.Collections.Generic.List[byte]]::new()
         foreach ($f in @('manifest.json', 'requirements.txt')) {
-            $p = Join-Path $Root $f
-            if (Test-Path -LiteralPath $p) { $bytes.AddRange([System.IO.File]::ReadAllBytes($p)) }
+            $p = [System.IO.Path]::Combine($Root, $f)
+            if ([System.IO.File]::Exists($p)) { $bytes.AddRange([System.IO.File]::ReadAllBytes($p)) }
         }
-        $bytes.AddRange([System.Text.Encoding]::UTF8.GetBytes("step$Step " + (Get-Date -Format 'yyyy-MM-dd')))
+        $bytes.AddRange([System.Text.Encoding]::UTF8.GetBytes("step$Step " + [datetime]::Now.ToString('yyyy-MM-dd')))
         return [System.BitConverter]::ToString($md5.ComputeHash($bytes.ToArray())).Replace('-', '')
     } finally { $md5.Dispose() }
 }
@@ -59,11 +66,65 @@ function Read-Json {
     # 없는 것과 형식 오류를 구분한다. 없으면 $null 이고 그것은 정상일 수 있다.
     # 형식 오류면 오류로 멈춰 catch 가 기록을 남기게 한다. 오류를 무시하면 설정이 망가진 PC 와
     # 정상 PC 가 구별되지 않는다.
+    #
+    # System.Text.Json 으로 읽고 ConvertFrom-Json 과 같은 형태로 바꾼다. 읽지 못하면 ConvertFrom-Json 으로
+    # 다시 읽는다. 두 해석기가 받아들이는 형식이 조금 달라도 판정은 ConvertFrom-Json 의 결과를 따른다.
     param([string]$Path)
     $script:Budget.Files++
-    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    if (-not (Test-Exists $Path)) { return $null }
+    # 비어 있거나 공백뿐인 파일도 ConvertFrom-Json 으로 읽는다. 그때 무엇을 돌려주는지까지 이전과 같게 두기 위해서다.
+    try {
+        $text = [System.IO.File]::ReadAllText($Path, $script:U8)
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            $opt = [System.Text.Json.JsonDocumentOptions]::new()
+            $opt.CommentHandling = [System.Text.Json.JsonCommentHandling]::Skip
+            $opt.AllowTrailingCommas = $true
+            $doc = [System.Text.Json.JsonDocument]::Parse($text, $opt)
+            try { return (ConvertFrom-JsonElement $doc.RootElement) } finally { $doc.Dispose() }
+        }
+    } catch { }
     try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) }
     catch { throw "JSON 형식 오류: $Path" }
+}
+
+function ConvertFrom-JsonElement($E) {
+    # ConvertFrom-Json 과 같은 형태로 바꾼다. 객체는 PSCustomObject, 배열은 object[], 정수는 Int64(넘치면
+    # BigInteger), 소수는 Double, ISO 형식 날짜 문자열은 DateTime 이다. 배열은 , 를 붙여 돌려준다. 붙이지
+    # 않으면 PowerShell 이 펼쳐서 빈 배열은 $null 이, 원소 1개 배열은 그 원소가 된다. 대소문자만 다른 이름이
+    # 두 번 나오면 ConvertFrom-Json 은 오류를 내지만 Add 는 덮어쓰므로 직접 오류를 내고, Read-Json 이
+    # ConvertFrom-Json 으로 다시 읽어 그 판정을 따른다. 날짜는 시각까지 적힌 문자열만 바꾼다. 날짜만 적힌
+    # "2026-11-16" 은 ConvertFrom-Json 이 문자열로 둔다.
+    switch ($E.ValueKind) {
+        'Object' {
+            $o = [pscustomobject]@{}
+            foreach ($p in $E.EnumerateObject()) {
+                if ($null -ne $o.PSObject.Properties[$p.Name]) { throw "같은 이름: $($p.Name)" }
+                $o.PSObject.Properties.Add([System.Management.Automation.PSNoteProperty]::new($p.Name, (ConvertFrom-JsonElement $p.Value)))
+            }
+            return $o
+        }
+        'Array' {
+            $list = [System.Collections.Generic.List[object]]::new()
+            foreach ($x in $E.EnumerateArray()) { $list.Add((ConvertFrom-JsonElement $x)) }
+            return ,$list.ToArray()
+        }
+        'String' {
+            $s = $E.GetString()
+            $dt = [datetime]::MinValue
+            if ($s.Length -ge 19 -and $s[10] -eq 'T' -and $E.TryGetDateTime([ref]$dt)) { return $dt }
+            return $s
+        }
+        'Number' {
+            $n = [long]0
+            if ($E.TryGetInt64([ref]$n)) { return $n }
+            $raw = $E.GetRawText()
+            if ($raw -notmatch '[.eE]') { return [System.Numerics.BigInteger]::Parse($raw) }
+            return $E.GetDouble()
+        }
+        'True'  { return $true }
+        'False' { return $false }
+    }
+    return $null
 }
 
 function Get-Prop {
@@ -102,8 +163,8 @@ function Read-KwState([string]$Path) {
     # 상태 파일을 한 번만 읽어 여러 질문이 나눠 쓴다.
     $s = @{}
     $script:Budget.Files++
-    if (Test-Path -LiteralPath $Path) {
-        foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+    if (Test-Exists $Path) {
+        foreach ($line in [System.IO.File]::ReadAllLines($Path, $script:U8)) {
             $i = $line.IndexOf('=')
             if ($i -gt 0) { $s[$line.Substring(0, $i)] = $line.Substring($i + 1) }
         }
@@ -119,9 +180,9 @@ function Read-GitIdentity([string]$Path) {
     # 파일에 다시 적으므로 한 번 확인하면 안내가 멈춘다.
     $id = @{ Name = $null; Email = $null; Approved = $null }
     $script:Budget.Files++
-    if (-not (Test-Path -LiteralPath $Path)) { return $id }
+    if (-not (Test-Exists $Path)) { return $id }
     $section = ''
-    foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+    foreach ($line in [System.IO.File]::ReadAllLines($Path, $script:U8)) {
         $t = $line.Trim()
         if ($t -match '^\[\s*([^\]\s"]+)') { $section = $Matches[1].ToLowerInvariant(); continue }
         if ($t -notmatch '^([A-Za-z][\w-]*)\s*=\s*(.*)$') { continue }
@@ -141,24 +202,24 @@ function Get-MarketplaceHead {
     # git 으로 내려받은 마켓플레이스는 HEAD 가 가리키는 ref 파일에 체크포인트 번호가 있고,
     # git 이 아닌 마켓플레이스는 .gcs-sha 파일 하나에 적어 둔다. 두 형식이 모두 쓰이므로 둘 다 읽는다.
     param([string]$Dir)
-    $g = Join-Path $Dir '.git'
-    $h = Join-Path $g 'HEAD'
+    $g = Join-PathText $Dir '.git'
+    $h = Join-PathText $g 'HEAD'
     $script:Budget.Files++
-    if (Test-Path -LiteralPath $h) {
-        $line = (Get-Content -LiteralPath $h -Raw -Encoding UTF8).Trim()
+    if (Test-Exists $h) {
+        $line = [System.IO.File]::ReadAllText($h, $script:U8).Trim()
         if ($line.StartsWith('ref: ')) {
-            $refFile = Join-Path $g ($line.Substring(5))
+            $refFile = Join-PathText $g ($line.Substring(5))
             $script:Budget.Files++
-            if (Test-Path -LiteralPath $refFile) {
-                return (Get-Content -LiteralPath $refFile -Raw -Encoding UTF8).Trim()
+            if (Test-Exists $refFile) {
+                return [System.IO.File]::ReadAllText($refFile, $script:U8).Trim()
             }
             return $null
         }
         return $line
     }
-    $gcs = Join-Path $Dir '.gcs-sha'
+    $gcs = Join-PathText $Dir '.gcs-sha'
     $script:Budget.Files++
-    if (Test-Path -LiteralPath $gcs) { return (Get-Content -LiteralPath $gcs -Raw -Encoding UTF8).Trim() }
+    if (Test-Exists $gcs) { return [System.IO.File]::ReadAllText($gcs, $script:U8).Trim() }
     return $null
 }
 
@@ -200,22 +261,22 @@ function Get-RemoteHead {
 }
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$notes = New-Object System.Collections.ArrayList   # 동기화가 고칠 수 있는 것
-$noteSteps = New-Object System.Collections.ArrayList   # $notes 와 같은 순서로 동기화 단계 번호
+$notes = [System.Collections.ArrayList]::new()   # 동기화가 고칠 수 있는 것
+$noteSteps = [System.Collections.ArrayList]::new()   # $notes 와 같은 순서로 동기화 단계 번호
 function Add-Note([int[]]$Step, [string]$Text) {
     [void]$notes.Add($Text)
     [void]$noteSteps.Add($Step)
 }
-$asks  = New-Object System.Collections.ArrayList   # 사용자가 직접 해야 하는 것
-$heldSay = New-Object System.Collections.ArrayList   # 오늘 업데이트를 보류한 것
-$askHints = New-Object System.Collections.ArrayList   # $asks 와 같은 순서로 클로드에게만 주는 지시
+$asks  = [System.Collections.ArrayList]::new()   # 사용자가 직접 해야 하는 것
+$heldSay = [System.Collections.ArrayList]::new()   # 오늘 업데이트를 보류한 것
+$askHints = [System.Collections.ArrayList]::new()   # $asks 와 같은 순서로 클로드에게만 주는 지시
 function Add-Ask([string]$Text, [string]$Hint) {
     [void]$asks.Add($Text)
     [void]$askHints.Add($Hint)
 }
 # 화면에 내지 않고 클로드에게만 주는 규칙. 매 세션 전달되어도 대화를 끊지 않게, 클로드가 먼저
 # 언급하지 않고 해당하는 작업을 할 때만 지키도록 Send-Hook 이 머리말을 붙인다.
-$quietRules = New-Object System.Collections.ArrayList
+$quietRules = [System.Collections.ArrayList]::new()
 function Add-QuietRule([string]$Rule) { [void]$quietRules.Add($Rule) }
 $remoteOf = @{}          # 마켓플레이스 이름 → 최신 버전. 동기화에 전달한다
 $script:NetMs = 0        # 훅 자체의 실행 시간에 포함하지 않는 네트워크 시간
@@ -226,24 +287,24 @@ try {
     $root = $env:CLAUDE_PLUGIN_ROOT
     if ([string]::IsNullOrEmpty($root)) { exit 0 }
 
-    $cfg     = Join-Path $userHome '.claude'
-    $plugins = Join-Path $cfg 'plugins'
+    $cfg     = Join-PathText $userHome '.claude'
+    $plugins = Join-PathText $cfg 'plugins'
 
-    $manifest = Read-Json (Join-Path $root 'manifest.json')
+    $manifest = Read-Json (Join-PathText $root 'manifest.json')
     if ($null -eq $manifest) { exit 0 }   # 목록을 읽을 수 없으면 아무 말도 하지 않는다
 
     # 읽을 수 있는 것과 형식이 맞는 것은 다르다. 항목이 빠진 목록으로 판정하면 그 질문만
     # 조용히 사라져, 목록과 다른 PC 를 정상으로 본다. 동기화는 이때 멈추고 알리지만, 이 훅은
     # 세션을 어지럽히지 않도록 기록만 남기고 종료한다.
     foreach ($k in @('marketplaces', 'required', 'suggested', 'retiredPlugins',
-                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'defaultModel')) {
+                     'retiredMarketplaces', 'retiredSkills', 'retiredHooks', 'defaultModel', 'minNodeVersion')) {
         if ($null -eq $manifest.PSObject.Properties[$k]) { throw "목록에 항목 없음: $k ($root\manifest.json)" }
     }
 
-    $settings  = Read-Json (Join-Path $cfg     'settings.json')
-    $installed = Read-Json (Join-Path $plugins 'installed_plugins.json')
-    $known     = Read-Json (Join-Path $plugins 'known_marketplaces.json')
-    $kwState = Read-KwState (Join-Path $cfg 'kw-control-tower.state')
+    $settings  = Read-Json (Join-PathText $cfg     'settings.json')
+    $installed = Read-Json (Join-PathText $plugins 'installed_plugins.json')
+    $known     = Read-Json (Join-PathText $plugins 'known_marketplaces.json')
+    $kwState = Read-KwState (Join-PathText $cfg 'kw-control-tower.state')
 
     $enabled     = Get-Prop $settings  'enabledPlugins'
     $installedOf = Get-Prop $installed 'plugins'
@@ -251,8 +312,8 @@ try {
     # --- 질문 1과 2. 필수 플러그인이 설치되어 있나, 활성화되어 있나 --------
     # 두 질문은 답이 있는 파일도, 고치는 명령도 다르다. install 은 사용자가 비활성화한 것을
     # true 로 덮으므로 설치된 것에는 쓰지 않는다.
-    $missing  = New-Object System.Collections.ArrayList
-    $disabled = New-Object System.Collections.ArrayList
+    $missing  = [System.Collections.ArrayList]::new()
+    $disabled = [System.Collections.ArrayList]::new()
 
     foreach ($id in @($manifest.required)) {
         $entry = Get-Prop $installedOf $id
@@ -260,7 +321,7 @@ try {
         if ($null -ne $entry) {
             foreach ($scope in @($entry)) {
                 $p = Get-Prop $scope 'installPath'
-                if ($p -and (Test-Path -LiteralPath $p)) { $onDisk = $true }
+                if ($p -and (Test-Exists $p)) { $onDisk = $true }
             }
         }
         if (-not $onDisk) { [void]$missing.Add($id); continue }
@@ -277,7 +338,7 @@ try {
     }
 
     # --- 질문 3. 폐기한 플러그인이 남았나 ----------------------------------
-    $staleP = New-Object System.Collections.ArrayList
+    $staleP = [System.Collections.ArrayList]::new()
     foreach ($p in @($manifest.retiredPlugins)) {
         $id = Get-Prop $p 'id'
         if (-not $id) { continue }
@@ -288,7 +349,7 @@ try {
     }
 
     # --- 질문 4. 폐기한 마켓플레이스가 남았나 -----------------------------
-    $staleM = New-Object System.Collections.ArrayList
+    $staleM = [System.Collections.ArrayList]::new()
     foreach ($mk in @($manifest.retiredMarketplaces)) {
         $name = Get-Prop $mk 'name'
         if (-not $name) { continue }
@@ -301,7 +362,7 @@ try {
 
     # --- 질문 5. 우리 마켓플레이스의 자동 업데이트가 2곳 모두 활성화되어 있나 ---
     # 두 파일은 서로 값을 주고받지 않는다. 그래서 2곳 모두 본다.
-    $offAuto = New-Object System.Collections.ArrayList
+    $offAuto = [System.Collections.ArrayList]::new()
     foreach ($mk in @($manifest.marketplaces)) {
         if ((Get-Prop $mk 'ours') -ne $true) { continue }   # 외부 마켓플레이스는 검사하지 않는다
         $name = Get-Prop $mk 'name'
@@ -318,9 +379,9 @@ try {
     # --- 질문 6. 파이썬 라이브러리 목록이 바뀌었나 -------------------------
     # 제한 시간 안에서 이 PC 를 직접 읽을 수 없는 것은 이것 하나뿐이라 확인값으로 비교한다.
     # 확인값을 계산하는 대상은 파일이다. JSON 의 하위 트리로 계산하면 프로그램마다 값이 달라진다.
-    $reqFile   = Join-Path $root 'requirements.txt'
+    $reqFile   = Join-PathText $root 'requirements.txt'
     $script:Budget.Files++
-    if (Test-Path -LiteralPath $reqFile) {
+    if (Test-Exists $reqFile) {
         $now = Get-CheapHash $reqFile
         $was = $kwState['requirements']
         if ($now -ne $was) {
@@ -339,23 +400,23 @@ try {
     # --- 질문 8. CLAUDE.md 의 사내 지침이 템플릿과 같나 ---------------------
     # 버전이나 확인값이 아니라 글자를 비교한다. 줄바꿈 차이는 다름이 아니므로 통일한 뒤에
     # 비교한다.
-    $tpl = Join-Path $root 'templates\claude-md-ko.md'
-    $mem = Join-Path $cfg 'CLAUDE.md'
+    $tpl = Join-PathText $root 'templates\claude-md-ko.md'
+    $mem = Join-PathText $cfg 'CLAUDE.md'
     $script:Budget.Files += 2
-    $u8 = New-Object System.Text.UTF8Encoding($false)
+    $u8 = $script:U8
     # 블록은 kw-ax 의 복사본을 @import 로 불러온다. 복사본이 없으면 @import 가 알리지 않고
     # 아무것도 불러오지 않으며, 낡으면 이전 사내 지침을 불러온다. CLAUDE.md 만 보아서는 둘 다
     # 드러나지 않는다. 동기화가 Get-AxCopies 의 파일을 복사하므로 여기서도 같은 파일을 대조한다.
-    $memText = if (Test-Path -LiteralPath $mem) { [System.IO.File]::ReadAllText($mem, $u8) } else { '' }
-    if (Test-Path -LiteralPath $tpl) {
-        $stale = New-Object System.Collections.ArrayList
-        $tplDir = Split-Path -Parent $tpl
+    $memText = if (Test-Exists $mem) { [System.IO.File]::ReadAllText($mem, $u8) } else { '' }
+    if (Test-Exists $tpl) {
+        $stale = [System.Collections.ArrayList]::new()
+        $tplDir = [System.IO.Path]::GetDirectoryName($tpl)
         foreach ($name in @(Get-AxCopies)) {
-            $src  = Join-Path $tplDir $name
-            $copy = Join-Path (Join-Path $cfg 'kw-ax') $name
+            $src  = Join-PathText $tplDir $name
+            $copy = Join-PathText (Join-PathText $cfg 'kw-ax') $name
             $script:Budget.Files += 2
-            if (-not (Test-Path -LiteralPath $src)) { continue }
-            if (-not (Test-Path -LiteralPath $copy) -or
+            if (-not (Test-Exists $src)) { continue }
+            if (-not (Test-Exists $copy) -or
                 ([System.IO.File]::ReadAllText($copy, $u8) -ne [System.IO.File]::ReadAllText($src, $u8))) {
                 [void]$stale.Add($name)
             }
@@ -364,7 +425,7 @@ try {
             Add-Note 6 "CLAUDE.md 가 불러오는 사내 지침 복사본이 없거나 배포된 것과 다릅니다: $($stale -join ', ')"
         }
     }
-    if ((Test-Path -LiteralPath $tpl) -and (Test-Path -LiteralPath $mem)) {
+    if ((Test-Exists $tpl) -and (Test-Exists $mem)) {
         $now   = $memText
         $block = Get-AxBlock
         $re    = '(?ms)^#\s*BEGIN AX\b.*?^#\s*END AX[^\r\n]*'
@@ -383,11 +444,11 @@ try {
     }
 
     # --- 질문 9와 10. 폐기한 스킬과 훅이 남았나 ----------------------------
-    $staleS = New-Object System.Collections.ArrayList
+    $staleS = [System.Collections.ArrayList]::new()
     foreach ($s in @($manifest.retiredSkills)) {
         $name = Get-Prop $s 'name'
         if (-not $name) { continue }
-        if (Test-Path -LiteralPath (Join-Path (Join-Path $cfg 'skills') $name)) { [void]$staleS.Add($name) }
+        if (Test-Exists (Join-PathText (Join-PathText $cfg 'skills') $name)) { [void]$staleS.Add($name) }
     }
     if ($staleS.Count -gt 0) {
         Add-Note 7 "이전에 복사해 둔 스킬 가운데 더 이상 쓰지 않는 것이 남아 있습니다: $($staleS -join ', ')"
@@ -395,9 +456,13 @@ try {
 
     # 훅 연결은 파일 이름이 아니라 경로로 구분한다. 이 플러그인이 등록하는 훅의 파일 이름이
     # 이전 것과 같아서, 이름만 보면 자기 연결을 폐기한 연결로 오인한다.
-    $staleH = New-Object System.Collections.ArrayList
+    $staleH = [System.Collections.ArrayList]::new()
     $hookBlob = ''
-    try { $hookBlob = (Get-Prop $settings 'hooks' | ConvertTo-Json -Depth 20 -Compress) } catch { $hookBlob = '' }
+    # 대조할 것이 없으면 ConvertTo-Json 을 호출하지 않는다. 호출하면 그 모듈을 불러오느라 세션 시작이 느려진다.
+    $hooksVal = Get-Prop $settings 'hooks'
+    if ($null -ne $hooksVal -and @($manifest.retiredHooks).Count -gt 0) {
+        try { $hookBlob = ($hooksVal | ConvertTo-Json -Depth 20 -Compress) } catch { $hookBlob = '' }
+    }
     foreach ($h in @($manifest.retiredHooks)) {
         $file = Get-Prop $h 'file'
         $pathBit = Get-Prop $h 'pathContains'
@@ -423,14 +488,14 @@ try {
     # 제한 시간에 막혔으면 동기화가 updateFails 에 날짜와 횟수를 적고, 점검은 그날 업데이트를 건너뛴다.
     # 날짜가 바뀌면 다시 시도한다.
     $fDay, $fN = "$($kwState['updateFails'])" -split ';'
-    $heldToday = ($fDay -eq (Get-Date -Format 'yyyy-MM-dd')) -and ([int]$fN -ge 3)
-    $behind = New-Object System.Collections.ArrayList
+    $heldToday = ($fDay -eq [datetime]::Now.ToString('yyyy-MM-dd')) -and ([int]$fN -ge 3)
+    $behind = [System.Collections.ArrayList]::new()
     $cloneLate = $false
     foreach ($mk in @($manifest.marketplaces)) {
         if ((Get-Prop $mk 'ours') -ne $true) { continue }
         $mkName = Get-Prop $mk 'name'
         if (-not $mkName -or $null -eq $installedOf) { continue }
-        $head = Get-MarketplaceHead (Join-Path (Join-Path $plugins 'marketplaces') $mkName)
+        $head = Get-MarketplaceHead (Join-PathText (Join-PathText $plugins 'marketplaces') $mkName)
         $m = Test-Marketplace $settings $known $mkName
         $src = Get-Prop $m.Known 'source'
         if ($null -eq $src) { $src = Get-Prop $m.Settings 'source' }
@@ -449,7 +514,7 @@ try {
         # 내려받은 마켓플레이스가 최신 버전이 아닐 때만 마켓플레이스 업데이트(단계 1)가 필요하다.
         if ($remote -and $head -and -not $remote.StartsWith($head) -and -not $head.StartsWith($remote)) { $cloneLate = $true }
 
-        $late = New-Object System.Collections.ArrayList
+        $late = [System.Collections.ArrayList]::new()
         foreach ($pluginId in @($installedOf.PSObject.Properties.Name)) {
             if (-not $pluginId.EndsWith("@$mkName")) { continue }
             foreach ($scope in @(Get-Prop $installedOf $pluginId)) {
@@ -472,7 +537,7 @@ try {
         }
     }
     if ($behind.Count -gt 0) {
-        Add-Note $(if ($cloneLate) { @(1, 2) } else { @(2) }) "설치된 플러그인이 최신 버전이 아닙니다: $(($behind | Select-Object -Unique) -join ', ')"
+        Add-Note $(if ($cloneLate) { @(1, 2) } else { @(2) }) "설치된 플러그인이 최신 버전이 아닙니다: $([System.Linq.Enumerable]::Distinct([string[]]$behind) -join ', ')"
     }
 
     # --- 질문 12. 내려받은 마켓플레이스를 오래 업데이트하지 않았나 -----------
@@ -483,7 +548,7 @@ try {
     $refreshed = $kwState['refreshed']
     $stale = $true
     if ($refreshed) {
-        try { $stale = ([datetime]::Parse($refreshed) -lt (Get-Date).AddDays(-14)) } catch { $stale = $true }
+        try { $stale = ([datetime]::Parse($refreshed) -lt [datetime]::Now.AddDays(-14)) } catch { $stale = $true }
     }
     if ($stale) {
         Add-Note 1 '내려받은 마켓플레이스를 14일 넘게 업데이트하지 않았습니다.'
@@ -499,10 +564,10 @@ try {
     # 파일로 알 수 있는 것은 "로그인한 적 있다" 까지다. 토큰이 만료되거나 취소되어도 파일은
     # 남는다. 그것까지 확인하려면 gh 를 실행하고 네트워크에 나가야 한다.
     $script:Budget.Files++
-    $ghHosts = Join-Path (Join-Path $env:APPDATA 'GitHub CLI') 'hosts.yml'
+    $ghHosts = Join-PathText (Join-PathText $env:APPDATA 'GitHub CLI') 'hosts.yml'
     $loggedIn = $false
-    if (Test-Path -LiteralPath $ghHosts) {
-        foreach ($line in (Get-Content -LiteralPath $ghHosts -Encoding UTF8)) {
+    if (Test-Exists $ghHosts) {
+        foreach ($line in [System.IO.File]::ReadAllLines($ghHosts, $script:U8)) {
             if ($line -match '^\s*github\.com\s*:') { $loggedIn = $true; break }
         }
     }
@@ -522,7 +587,7 @@ try {
     # 이것도 $asks 로 간다. 무엇이 본인 메일인지는 사용자가 승인해야 하므로 동기화가 대신할 수
     # 없다. 로그인 전에는 GitHub 에서 메일을 읽을 수 없으므로 로그인 안내 하나만 내고,
     # 클로드가 로그인 뒤에 이어 간다. ~/.gitconfig 를 읽는 것은 2026-10-02 사용자 승인이다.
-    $gitId = Read-GitIdentity (Join-Path $userHome '.gitconfig')
+    $gitId = Read-GitIdentity (Join-PathText $userHome '.gitconfig')
     $idOk = $gitId.Name -and $gitId.Email -and ($gitId.Approved -eq $gitId.Email)
     # 로그인과 메일 읽기 권한 추가는 사람이 브라우저에서 승인할 때까지 끝나지 않아, 도구의 기본
     # 제한 시간 2분으로는 끊긴다. 이미 로그인한 직원은 모두 처음 한 번 권한을 추가하므로 명의 안내에도
@@ -530,7 +595,7 @@ try {
     $browserHint = "먼저 '열리는 브라우저 페이지에 Ctrl+V 로 코드를 붙여 넣고 승인하십시오'라고 본문에 알리고, 제한 시간을 10분으로 두고 실행하라."
     # 훅은 모두 -ExecutionPolicy Bypass 로 실행된다. 명의 스크립트는 클로드의 터미널에서 따로 실행되어
     # 그것을 물려받지 않으므로 같은 옵션을 적는다(PR #42 리뷰).
-    $idScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\git-identity.ps1'
+    $idScript = Join-PathText ([System.IO.Path]::GetDirectoryName($PSScriptRoot)) 'scripts\git-identity.ps1'
     $idHint = "git 명의는 pwsh -NoProfile -ExecutionPolicy Bypass -File `"$idScript`" 로 제안을 받아 지금 값과 제안 값을 본문에 보이고, " +
               '사용자가 승인한 뒤에만 같은 스크립트를 -Apply -Name -Email 로 실행하라. 대화 맥락에 있는 이름이나 메일로 채우지 말라. ' +
               "스크립트가 메일 읽기 권한을 추가하는 명령을 알리면 그 명령을 실행할 때도 $browserHint"
@@ -544,7 +609,7 @@ try {
         $hint = "로그인 명령을 대신 실행할 때는 $browserHint"
         if (-not $idOk) { $hint += " 로그인이 끝나면 git 명의 확인으로 이어 가라. $idHint" }
         Add-Ask "사내 GitHub 로그인이 필요합니다. 다음을 실행하고 열리는 페이지에 Ctrl+V 로 코드를 붙여 넣으십시오: $loginCommand" $hint
-    } elseif (-not $idOk -and (Get-Date).DayOfWeek -eq [DayOfWeek]::Monday) {
+    } elseif (-not $idOk -and [datetime]::Now.DayOfWeek -eq [DayOfWeek]::Monday) {
         # 월요일에만 안내한다. 근거와 부작용은 설계 문서 「명의 안내는 월요일에만 낸다」에 있다.
         $text = if ($gitId.Email) { "git 명의를 아직 확인하지 않았습니다(user.email: $($gitId.Email))." }
                 else { 'git 명의(user.name · user.email)가 비어 있습니다.' }
@@ -567,11 +632,13 @@ try {
     # 다음 교체를 멈춘다. 마켓플레이스를 구분하지 않고 본다(2026-10-12 사용자 결정). 10분 안에 바뀐 폴더는
     # 다른 창이 교체 중일 수 있어 세지 않는다. 동기화 단계 1 이 같은 기준으로 삭제한다.
     $script:Budget.Files++
-    $mkRoot = Join-Path $plugins 'marketplaces'
+    $mkRoot = Join-PathText $plugins 'marketplaces'
     $mkNames = @(if ($null -ne $known) { $known.PSObject.Properties.Name })
-    $leftover = @(Get-ChildItem -LiteralPath $mkRoot -Directory -Force -ErrorAction SilentlyContinue | Where-Object {
-        ($_.Name -match '(\.bak|\.\.clone)$') -and ($mkNames -notcontains $_.Name) -and
-        (((Get-Date) - $_.LastWriteTime).TotalMinutes -ge 10)
+    $leftover = @(if ([System.IO.Directory]::Exists($mkRoot)) {
+        foreach ($dir in [System.IO.DirectoryInfo]::new($mkRoot).EnumerateDirectories()) {
+            if (($dir.Name -match '(\.bak|\.\.clone)$') -and ($mkNames -notcontains $dir.Name) -and
+                (([datetime]::Now - $dir.LastWriteTime).TotalMinutes -ge 10)) { $dir }
+        }
     })
     if ($leftover.Count -gt 0) {
         Add-Note 1 "마켓플레이스 교체에 실패해 남은 폴더가 있습니다: $(($leftover | ForEach-Object Name) -join ', ')"
@@ -585,6 +652,44 @@ try {
     if ($null -ne $settings) {
         if ($null -eq $settings.PSObject.Properties['model']) { Add-Note 9 '전역 설정에 기본 모델(model)이 없습니다.' }
         if ((@(Get-Prop $settings 'availableModels') -join ',') -ceq 'opus,sonnet,haiku') { Add-Note 9 '전역 설정에 이전 모델 허용 목록이 남아 있습니다.' }
+    }
+
+    # --- 질문 18. Node.js 가 목록의 minNodeVersion 보다 낮은가 ----------------
+    # winget 이 설치한 Node.js 이면 동기화 단계 10 이 winget 을 별도 프로그램으로 띄운다. 단계 10 은 기다리지 않으므로
+    # 내려받기와 관리자 승인이 훅의 제한 시간 90초를 넘겨도 된다(2026-10-29 사용자 결정). 단계 10 이 오늘 이미 띄웠으면
+    # 상태 파일의 nodeUpdate 가 오늘 날짜이므로 알리지 않는다. 실행 중인 winget 을 다시 띄우지 않기 위해서다.
+    #
+    # node 를 실행하지 않고 node.exe 파일의 버전 정보를 읽는다. node --version 은 이 PC 에서 93밀리초라
+    # 고르지 않았다. 읽는 파일이 하나 늘어나는 것은 2026-10-29 사용자 승인이다.
+    # Get-Command 는 쓰지 않는다. node 가 없으면 모듈까지 찾느라 이 PC 에서 첫 호출이 1.8초, 이후 150밀리초였다.
+    # PATH 의 폴더를 차례로 보는 것은 있든 없든 20밀리초 안이었다. Join-PathText 는 없는 드라이브에서 오류를 내므로 문자열로 잇는다.
+    $script:Budget.Files++
+    $nodeExe = $null
+    foreach ($d in ($env:PATH -split ';')) {
+        if ($d -and [System.IO.File]::Exists($d.TrimEnd('\') + '\node.exe')) { $nodeExe = $d.TrimEnd('\') + '\node.exe'; break }
+    }
+    if ($nodeExe) {
+        # 제품 이름이 Node.js 인 파일만 판정한다. Volta·Scoop 의 대리 실행 파일도 이름이 node.exe 이지만
+        # 버전 정보는 자기 것이라, 판정하면 사용자가 없앨 수 없는 잘못된 알림이 세션마다 나온다.
+        $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($nodeExe)
+        $nodeVer = [version]::new($fv.FileMajorPart, $fv.FileMinorPart, $fv.FileBuildPart)
+        $minNode = $manifest.minNodeVersion
+        if ($fv.ProductName -eq 'Node.js' -and $nodeVer -lt [version]$minNode) {
+            # winget 은 자기가 설치한 위치(%ProgramFiles%\nodejs)의 Node.js 만 업데이트한다. 다른 곳의 node 에
+            # 실행하면 그 폴더에 두 번째 Node.js 를 설치하고 PATH 의 node 는 그대로 낮다. 이전 nvm-windows 는 그
+            # 폴더를 링크로 만들어 두므로 링크이면 winget 이 설치한 것으로 보지 않는다.
+            $msiDir = "$env:ProgramFiles\nodejs"
+            $byWinget = ($nodeExe -eq "$msiDir\node.exe") -and
+                -not ([System.IO.File]::GetAttributes($msiDir) -band [System.IO.FileAttributes]::ReparsePoint)
+            if ($byWinget) {
+                if ($kwState['nodeUpdate'] -ne [datetime]::Now.ToString('yyyy-MM-dd')) {
+                    Add-Note 10 "Node.js $nodeVer 이 기준 $minNode 보다 낮습니다."
+                }
+            } else {
+                Add-Ask "Node.js $nodeVer($nodeExe) 이 기준 $minNode 보다 낮습니다. 이 Node.js 를 설치한 도구로 업데이트하십시오." `
+                    'winget 으로 설치하지 마라. 두 번째 Node.js 가 생기고 PATH 의 node 는 그대로 낮다. NVM_HOME 환경 변수가 있으면 nvm install lts 와 nvm use lts 를 제안하고, 없으면 그 node 를 무엇으로 설치했는지 사용자에게 물어라.'
+            }
+        }
     }
 }
 catch {
@@ -612,10 +717,10 @@ $sw.Stop()
 # 실행마다 한 줄씩 계속 쌓인다. 디스크 캐시가 비어 있는 첫 세션은 제한 시간을 넘길 수 있다.
 if ($sw.ElapsedMilliseconds -gt 200) {
     try {
-        $over = Join-Path (Join-Path $env:USERPROFILE '.claude') 'kw-control-tower.slow'
+        $over = Join-PathText (Join-PathText $env:USERPROFILE '.claude') 'kw-control-tower.slow'
         [System.IO.File]::WriteAllText($over,
-            "$(Get-Date -Format o) $($sw.ElapsedMilliseconds)ms files=$($script:Budget.Files) net=$($script:NetMs)ms`r`n",
-            (New-Object System.Text.UTF8Encoding($false)))
+            "$([datetime]::Now.ToString('o')) $($sw.ElapsedMilliseconds)ms files=$($script:Budget.Files) net=$($script:NetMs)ms`r`n",
+            $script:U8)
     } catch { }
 }
 
@@ -625,7 +730,7 @@ if ($sw.ElapsedMilliseconds -gt 200) {
 # 사용자 화면에는 보이지 않는다. systemMessage 는 사용자에게 표시하고, 같은 문장을
 # additionalContext 로도 넣어 클로드가 첫 답에서 재시작이나 직접 할 일을 전하게 한다.
 # disciplined-coder 와 2026-09-25 에 이 형식으로 맞췄다.
-$say = New-Object System.Collections.ArrayList
+$say = [System.Collections.ArrayList]::new()
 $syncLog = $null   # 동기화를 호출했으면 그 진행 기록 파일. 클로드에게만 알린다.
 $restartLine = 'kw-control-tower: 다시 켜야 새 버전이 적용됩니다.'
 function Send-Hook {
@@ -647,7 +752,11 @@ function Send-Hook {
         $ctx += '다음 규칙은 사용자에게 먼저 언급하지 말고, 해당하는 작업을 할 때만 지켜라. ' + ($quietRules -join ' ')
     }
     $out.hookSpecificOutput.additionalContext = $ctx -join "`n`n"
-    $out | ConvertTo-Json -Depth 4 -Compress
+    # ConvertTo-Json 대신 System.Text.Json 으로 쓴다. 이유는 위 Join-PathText 의 주석과 같다.
+    # 한글을 \uXXXX 로 바꾸지 않도록 완화된 이스케이프를 쓴다. ConvertTo-Json 도 한글을 그대로 쓴다.
+    $opt = [System.Text.Json.JsonSerializerOptions]::new()
+    $opt.Encoder = [System.Text.Encodings.Web.JavaScriptEncoder]::UnsafeRelaxedJsonEscaping
+    [System.Text.Json.JsonSerializer]::Serialize($out, [hashtable], $opt)
 }
 
 # 다른 곳(클로드 코드의 자동 업데이트, disciplined-coder)이 업데이트한 플러그인은 알리지 않는다.
@@ -680,20 +789,22 @@ if ($notes.Count -eq 0) { Send-Hook; exit 0 }   # 동기화가 고칠 것이 없
 # 않는다. 실패해도 세션을 막지 않는다. 실패한 단계만 다음 세션에 다시 알리고 나머지는 조용하다.
 
 # 같은 원인으로 이미 실패한 단계는 다시 호출하지 않는다. 호출해도 같은 실패가 되풀이될 뿐이다.
-$runSteps = New-Object System.Collections.ArrayList
-$held     = New-Object System.Collections.ArrayList
-foreach ($n in @($noteSteps | ForEach-Object { $_ } | Sort-Object -Unique)) {
+$runSteps = [System.Collections.ArrayList]::new()
+$held     = [System.Collections.ArrayList]::new()
+$stepSet  = [System.Collections.Generic.SortedSet[int]]::new()
+foreach ($ns in $noteSteps) { foreach ($n in $ns) { [void]$stepSet.Add($n) } }
+foreach ($n in $stepSet) {
     if ($kwState["stuck-step$n"] -eq (Get-StuckPrint $root $n)) { [void]$held.Add($n) } else { [void]$runSteps.Add($n) }
 }
 if ($held.Count -gt 0) {
-    [void]$say.Add("kw-control-tower: 동기화가 단계 $($held -join ', ') 에서 같은 원인으로 이미 실패해 다시 시도하지 않았습니다. 기록: $(Join-Path $cfg 'kw-control-tower.sync.log')")
+    [void]$say.Add("kw-control-tower: 동기화가 단계 $($held -join ', ') 에서 같은 원인으로 이미 실패해 다시 시도하지 않았습니다. 기록: $(Join-PathText $cfg 'kw-control-tower.sync.log')")
 }
 if ($runSteps.Count -eq 0) { Send-Hook; exit 0 }
 
 # 별도 프로그램으로 호출한다. 같은 프로그램 안에서 호출하면 동기화의 Write-Host 가 성공 스트림에
 # 포함되지 않아 출력을 받을 수 없다. 둘 다 출력을 UTF-8 로 맞춰 두어 한국어가 깨지지 않는다.
-$sync = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\sync.ps1'
-if (-not (Test-Path -LiteralPath $sync)) {
+$sync = Join-PathText ([System.IO.Path]::GetDirectoryName($PSScriptRoot)) 'scripts\sync.ps1'
+if (-not (Test-Exists $sync)) {
     # 동기화를 호출할 수 없을 때만 목록과 다른 곳을 나열한다. 동기화가 실행되면 그 결과가 무엇을
     # 고쳤는지 말하므로 함께 나열하면 같은 플러그인이 2번 나온다.
     [void]$say.Add('KW 컨트롤 타워: 이 PC 가 사내 설정과 다릅니다.')
@@ -709,7 +820,7 @@ try {
     $env:KWCT_REMOTE_HEAD = (@($remoteOf.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';')
     # -Brief 로 호출한다. 동기화는 진행 출력을 기록 파일에 두고 결과만 낸다.
     $out = & pwsh -NoProfile -NonInteractive -File $sync -Brief -Steps ($runSteps -join ',') -BudgetSeconds 60 2>&1
-    $syncLog = Join-Path $cfg 'kw-control-tower.sync.log'
+    $syncLog = Join-PathText $cfg 'kw-control-tower.sync.log'
     # 동기화가 낸 결과를 그대로 전달한다. 재시작하라는 안내도 동기화가 낸다. 무엇이 재시작을
     # 요구하는지는 그 일을 하는 동기화가 알므로 여기서 문구로 판정하지 않는다.
     foreach ($line in $out) { [void]$say.Add("$line") }

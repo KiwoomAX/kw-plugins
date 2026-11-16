@@ -11,6 +11,10 @@ $repo   = Split-Path -Parent $PSScriptRoot
 $plugin = Join-Path $repo 'plugins\kw-control-tower'
 $ps7    = 'pwsh'   # 컨트롤 타워는 7 을 전제한다. 설치기는 7 이 없으면 아무것도 설치하지 않는다.
 
+# 세션 점검 훅은 PATH 의 node 를 본다. 이 PC 의 Node.js 버전에 따라 결과가 달라지지 않게
+# node.exe 가 있는 폴더를 PATH 에서 뺀다. Node.js 검사는 가짜 node.exe 를 둔 폴더를 앞에 붙여 실행한다.
+$env:PATH = @($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'node.exe')) }) -join ';'
+
 # 훅·동기화·명의 스크립트는 UTF-8 로 출력하고, PowerShell 은 자식 프로그램의 출력을
 # [Console]::OutputEncoding 으로 읽는다. 이 값은 PC 의 코드페이지를 따르므로(한국어 윈도우는 949)
 # 맞추지 않으면 한글이 깨져 출력을 대조하는 검사가 모두 실패한다. 결과를 낸 뒤 원래 값으로 되돌린다.
@@ -271,7 +275,7 @@ foreach ($f in @((Join-Path $plugin 'hooks\session-check.ps1'), (Join-Path $plug
 # 스크립트가 늘어도 빠지지 않게 목록을 적지 않고 hooks 와 scripts 폴더의 스크립트를 모두 본다.
 foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $plugin 'hooks'), (Join-Path $plugin 'scripts') -Filter '*.ps1')) {
     Check "출력 인코딩을 UTF-8 로 맞춘다: $($f.Name)" {
-        (Get-CodeOnly (Get-Content -LiteralPath $f.FullName -Raw)).Contains('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)')
+        (Get-CodeOnly (Get-Content -LiteralPath $f.FullName -Raw)) -match '\[Console\]::OutputEncoding = (New-Object System\.Text\.UTF8Encoding\(|\[System\.Text\.UTF8Encoding\]::new\()\$false\)'
     }
 }
 
@@ -471,7 +475,7 @@ Check '폐기한 훅은 이름과 경로를 함께 적는다' {
 }
 # JSON 형식이 맞는 것과 목록의 형식이 맞는 것은 다르다. 항목 이름을 하나 잘못 적으면 JSON 형식
 # 오류는 없고 그 목록만 조용히 비어, 아무것도 하지 않고 성공으로 끝난다.
-$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','defaultModel')
+$manifestKeys = @('marketplaces','required','suggested','retiredPlugins','retiredMarketplaces','retiredSkills','retiredHooks','defaultModel','minNodeVersion')
 Check '목록에 있어야 할 항목이 모두 있다' {
     @($manifestKeys | Where-Object { $null -eq $mf.PSObject.Properties[$_] }).Count -eq 0
 }
@@ -630,6 +634,49 @@ Check '형식 오류인 JSON 은 무시하지 않고 오류로 멈춘다' {
     ($hookCode -match 'catch \{ throw "JSON 형식 오류: ')
 }
 
+# 세션 점검 훅은 ConvertFrom-Json 의 모듈을 불러오지 않으려고 System.Text.Json 으로 읽어 같은 형태로 바꾼다.
+# 두 결과를 ConvertTo-Json 으로 적어 대조한다. 숫자의 종류와 날짜 문자열의 변환까지 글자로 드러난다.
+$hookAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $plugin 'hooks\session-check.ps1'), [ref]$null, [ref]$null)
+foreach ($fnName in 'Read-Json', 'ConvertFrom-JsonElement', 'Test-Exists') {
+    $fnAst = $hookAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fnName }, $true)
+    . ([scriptblock]::Create($fnAst.Extent.Text))
+}
+$script:U8 = [System.Text.UTF8Encoding]::new($false)
+$script:Budget = @{ Files = 0 }
+# 바꾸기 전의 Read-Json 이다. 해석하지 못한 파일의 판정을 이것과 대조한다.
+function Read-JsonOld([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) }
+    catch { throw "JSON 형식 오류: $Path" }
+}
+$jsonCases = @(
+    '{"a":1,"b":3000000000,"c":1.5,"d":1e3,"e":99999999999999999999,"f":-0.25}',
+    '{"z":"2026-11-16T10:00:00.000Z","o":"2026-11-16T10:00:00+09:00","d":"2026-11-16","m":"2026-11-16T10:00","f":"2026-11-16T10:00:00.1234567","s":"2026-11-16 x","h":"한글 \"따옴표\" \\ 경로"}',
+    '{"e":[],"one":[1],"n":null,"t":true,"f":false,"nest":{"arr":[[],[{"k":[]}],{"x":null}]}}',
+    '{"enabledPlugins":{"kw-control-tower@kiwoom-ax":true},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"pwsh -File C:\\x\\corp-certs\\a.ps1"}]}]}}'
+)
+Check '훅의 JSON 읽기가 ConvertFrom-Json 과 같은 결과를 낸다' {
+    $diff = @(foreach ($j in $jsonCases) {
+        $d = [System.Text.Json.JsonDocument]::Parse($j)
+        $fast = (ConvertFrom-JsonElement $d.RootElement) | ConvertTo-Json -Depth 20 -Compress
+        $slow = ($j | ConvertFrom-Json) | ConvertTo-Json -Depth 20 -Compress
+        if ($fast -cne $slow) { "$fast <> $slow" }
+    })
+    foreach ($x in $diff) { Write-Host "       $x" }
+    $diff.Count -eq 0
+}
+Check '훅의 JSON 읽기가 해석하지 못한 파일은 ConvertFrom-Json 의 판정을 따른다' {
+    $jd = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-json-" + [guid]::NewGuid().ToString('n').Substring(0,8) + '.json')
+    $verdict = foreach ($j in @('{"a":1,"A":2}', '{ not json', '{"a":1} // 주석', "", "  `n ", '{"a":[1,2,],}')) {
+        [System.IO.File]::WriteAllText($jd, $j, $script:U8)
+        $slow = try { $o = Read-JsonOld $jd; 'ok:' + ($o | ConvertTo-Json -Depth 5 -Compress) } catch { 'error' }
+        $fast = try { $o = Read-Json $jd; 'ok:' + ($o | ConvertTo-Json -Depth 5 -Compress) } catch { 'error' }
+        if ($fast -cne $slow) { Write-Host "       $j : $fast <> $slow"; $false } else { $true }
+    }
+    Remove-Item -LiteralPath $jd -ErrorAction SilentlyContinue
+    @($verdict | Where-Object { -not $_ }).Count -eq 0
+}
+
 $brokenHome = Join-Path ([System.IO.Path]::GetTempPath()) ("kwct-brk-" + [guid]::NewGuid().ToString('n').Substring(0,8))
 New-Item -ItemType Directory -Force -Path (Join-Path $brokenHome '.claude\plugins') | Out-Null
 '{ not json' | Set-Content -LiteralPath (Join-Path $brokenHome '.claude\settings.json')
@@ -652,7 +699,7 @@ Check '훅이 호출하는 스크립트가 실재한다'  { Test-Path -LiteralPa
 # 비용을 치른다. 사용자가 직접 해야 하는 것도 동기화를 호출하지 않는다. 호출하면 로그인하지 않은
 # PC 에서 매 세션 동기화가 실행되고도 아무것도 고치지 못한다.
 Check '직접 할 일과 동기화가 고칠 것을 나눠 적는다' {
-    ($hookCode -match '\$asks\s*=\s*New-Object') -and ($hookCode -match '\$notes\s*=\s*New-Object')
+    ($hookCode -match '\$asks\s*=\s*\[System\.Collections\.ArrayList\]::new') -and ($hookCode -match '\$notes\s*=\s*\[System\.Collections\.ArrayList\]::new')
 }
 Check '동기화를 호출할지는 notes 만 보고 정한다' {
     $hookCode -match '\$notes\.Count -eq 0[^
@@ -696,7 +743,7 @@ Check '사내 지침 템플릿이 금융투자협회 홈페이지에 접속하�
 }
 # 점검은 외부 프로그램을 늘리지 않는다. 명의는 git 을 실행하지 않고 파일에서 읽는다.
 Check '점검이 git 을 실행하지 않고 .gitconfig 를 직접 읽는다' {
-    ($hookDetect -match "Join-Path \`$userHome '\.gitconfig'") -and ($hookDetect -notmatch '(?m)^[^#\r\n]*\bgit\s+config\b')
+    ($hookDetect -match "Join-PathText \`$userHome '\.gitconfig'") -and ($hookDetect -notmatch '(?m)^[^#\r\n]*\bgit\s+config\b')
 }
 
 Check '동기화 호출이 경계 뒤에 있다' {
@@ -800,7 +847,7 @@ Check '동기화가 블록을 쓰기 전에 템플릿을 kw-ax 로 복사한다'
     $c = $syncSrc.IndexOf("Join-Path `$cfg 'kw-ax'")
     ($c -ge 0) -and ($c -lt $syncSrc.IndexOf('$block = Get-AxBlock'))
 }
-Check '훅이 kw-ax 복사본을 템플릿과 대조한다' { $hookCode -match "Join-Path `\`$cfg 'kw-ax'" }
+Check '훅이 kw-ax 복사본을 템플릿과 대조한다' { $hookCode -match "Join-PathText `\`$cfg 'kw-ax'" }
 # 공용 블록을 쓰던 이전 버전의 흔적이 남으면 금지어 목록을 2번 불러온다.
 Check '동기화가 공용 블록을 새로 쓰지 않는다' { $syncSrc -notmatch "'# BEGIN korean-banned-words" }
 Check '동기화가 kw-ax 복사본을 가리키는 이전 공용 블록을 삭제한다' { $syncSrc.Contains('if ($original -match $reShared)') }
@@ -925,7 +972,7 @@ Check '설계 문서에 바뀐 규칙의 이전 문장이 남아 있지 않다' 
 # 세션 점검 훅이 호출하는 동기화 스크립트가 이 플러그인 안에 있어야 한다. 밖을 가리키면 플러그인을
 # 옮기거나 제거한 PC 에서 알림만 표시되고 아무것도 고쳐지지 않는다.
 Check '세션 점검 훅이 자기 플러그인 안의 동기화 스크립트를 호출한다' {
-    $hookCode -match 'Split-Path -Parent \$PSScriptRoot'
+    $hookCode -match "Join-PathText \(\[System\.IO\.Path\]::GetDirectoryName\(\`$PSScriptRoot\)\) 'scripts\\sync\.ps1'"
 }
 
 # --- 다시 쓰지 않는 말 --------------------------------------------------------
@@ -975,7 +1022,7 @@ foreach ($pair in @(@{ Name = '세션 점검 훅'; Src = $hookCode }, @{ Name = 
 # 훅과 동기화 스크립트가 같은 값을 봐야 세션 점검 훅이 알린 것을 동기화가 고친다. 한쪽만 고치면 훅은
 # 최신 버전이 아니라고 하는데 동기화는 업데이트할 것이 없다고 하는 상태가 된다.
 Check '세션 점검 훅과 동기화가 같은 방식으로 ref 를 읽는다' {
-    ($hookCode -match 'Join-Path \$g \(\$line\.Substring\(5\)\)') -and
+    ($hookCode -match 'Join-PathText \$g \(\$line\.Substring\(5\)\)') -and
     ($syncCode -match 'Join-Path \$g \(\$line\.Substring\(5\)\)')
 }
 
@@ -1063,7 +1110,7 @@ function New-Root([string]$Leaf, [string]$Sync, [string]$Day) {
         $h = Join-Path $r 'hooks\session-check.ps1'
         $t = [System.IO.File]::ReadAllText($h)
         $t = $t.Replace('& curl.exe -s -f -m 2 "$Url/info/refs?service=git-upload-pack"', "& pwsh -NoProfile -File '$stub'")
-        $t = $t.Replace('(Get-Date).DayOfWeek', "[DayOfWeek]::$Day")
+        $t = $t.Replace('[datetime]::Now.DayOfWeek', "[DayOfWeek]::$Day")
         [System.IO.File]::WriteAllText($h, $t, (New-Object System.Text.UTF8Encoding($false)))
     }
     $r
@@ -1207,7 +1254,7 @@ Check '승인한 뒤 메일이 바뀌면 다시 안내한다' {
 # 시나리오는 복사본의 요일 판정을 바꿔 끼워 실행한다. 원본의 그 글자가 바뀌면 치환이 조용히
 # 빗나가 실제 실행 요일을 따르므로, 글자가 그대로인지 먼저 본다.
 Check '명의 안내의 요일 판정이 시나리오가 바꿔 끼우는 글자 그대로다' {
-    $hookCode -match '-not \$idOk -and \(Get-Date\)\.DayOfWeek -eq \[DayOfWeek\]::Monday'
+    $hookCode -match '-not \$idOk -and \[datetime\]::Now\.DayOfWeek -eq \[DayOfWeek\]::Monday'
 }
 # 명의가 비어 있으면 월요일이 아닌 날에도 이슈 #28 을 막는 규칙이 매 세션 클로드에게 간다.
 # 화면에는 내지 않고, 클로드가 먼저 언급하지 않게 Send-Hook 이 규칙 앞에 붙이는 머리말로 구분한다.
@@ -1805,6 +1852,111 @@ Check '점검이 model 항목이 없으면 알린다' { (Invoke-HookWith '{}') -
 Check '점검이 이전 모델 허용 목록이 남아 있으면 알린다' { (Invoke-HookWith '{ "model": "opus", "availableModels": ["opus", "sonnet", "haiku"] }') -match '이전 모델 허용 목록이 남아 있습니다' }
 Check '점검이 model 항목이 있으면 말하지 않는다' { (Invoke-HookWith '{ "model": "fable", "availableModels": ["fable"] }') -notmatch '모델' }
 
+# --- Node.js 버전 -------------------------------------------------------------
+Write-Host ''
+Write-Host 'Node.js 버전'
+$minNode = [version]$mf.minNodeVersion
+$minRe = [regex]::Escape($mf.minNodeVersion)
+Check '목록의 Node.js 기준을 버전으로 읽을 수 있다' { $null -ne $minNode }
+# 가짜 node.exe 는 윈도우에 들어 있는 .NET Framework 의 csc.exe 로 만든다. 실제 node.exe 처럼 제품 이름과
+# 버전을 파일의 버전 정보에 넣는다. 훅은 node 를 실행하지 않으므로 내용은 비어 있어도 된다.
+$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+function New-FakeNode([string]$Dir, [string]$Version, [string]$Product = 'Node.js') {
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    $src = Join-Path $Dir 'node.cs'
+    Set-Content -LiteralPath $src -Encoding ascii -Value "[assembly: System.Reflection.AssemblyProduct(`"$Product`")] [assembly: System.Reflection.AssemblyFileVersion(`"$Version`")] class P { static void Main() {} }"
+    & $csc /nologo /target:exe "/out:$(Join-Path $Dir 'node.exe')" $src | Out-Null
+}
+$pf = Join-Path $os 'pf'   # 가짜 %ProgramFiles%. winget 이 Node.js 를 설치하는 폴더가 그 아래 nodejs 다
+New-FakeNode (Join-Path $pf 'nodejs') '1.0.0'
+New-FakeNode (Join-Path $os 'nvm') '1.0.0'
+New-FakeNode (Join-Path $os 'newer') "$($minNode.Major + 1).0.0"
+New-FakeNode (Join-Path $os 'shim') '1.0.0' 'Volta'
+# 이전 nvm-windows 처럼 winget 의 폴더를 nvm 의 폴더로 가는 링크로 만든 PC 다.
+$pfLinked = Join-Path $os 'pf-linked'
+New-Item -ItemType Directory -Force -Path $pfLinked | Out-Null
+New-Item -ItemType Junction -Path (Join-Path $pfLinked 'nodejs') -Target (Join-Path $os 'nvm') | Out-Null
+# 윈도우는 새 프로그램을 시작할 때 ProgramFiles 를 다시 정하므로, 실행된 훅 프로그램 안에서 바꾼다.
+function Invoke-HookWithNode([string]$Bin, [string]$ProgramFiles = $pf, [string]$State = '') {
+    $h = Join-Path $os ("k-" + [guid]::NewGuid().ToString('n').Substring(0,6))
+    New-Item -ItemType Directory -Force -Path (Join-Path $h '.claude\plugins') | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $h '.claude\settings.json'), '{}', (New-Object System.Text.UTF8Encoding($false)))
+    if ($State) { [System.IO.File]::WriteAllText((Join-Path $h '.claude\kw-control-tower.state'), $State, (New-Object System.Text.UTF8Encoding($false))) }
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$h'; `$env:ProgramFiles='$ProgramFiles'; `$env:PATH='$Bin;' + `$env:PATH; `$env:CLAUDE_PLUGIN_ROOT='$osQuiet'; & '$osQuiet\hooks\session-check.ps1'" 2>&1
+    ($out | ForEach-Object { "$_" }) -join "`n"
+}
+$today = Get-Date -Format 'yyyy-MM-dd'
+# 동기화 스크립트를 뺀 복사본이라, 동기화가 고칠 것은 "  - " 로 시작해 나열된다.
+$r = Invoke-HookWithNode (Join-Path $pf 'nodejs')
+Check '점검이 winget 이 설치한 낮은 Node.js 를 동기화 단계 10 으로 넘긴다' { $r -match "  - Node\.js 1\.0\.0 이 기준 $minRe 보다 낮습니다\." }
+$r = Invoke-HookWithNode (Join-Path $pf 'nodejs') $pf "nodeUpdate=$today"
+Check '점검이 오늘 이미 업데이트를 시작했으면 다시 넘기지 않는다' { $r -notmatch 'Node\.js \d' }
+$r = Invoke-HookWithNode (Join-Path $pf 'nodejs') $pf 'nodeUpdate=2000-01-01'
+Check '점검이 지난날 시작한 업데이트가 실패했으면 다시 넘긴다' { $r -match '  - Node\.js 1\.0\.0 이 기준' }
+$r = Invoke-HookWithNode (Join-Path $os 'nvm')
+Check '점검이 다른 곳의 낮은 Node.js 에는 winget 대신 설치한 도구를 안내한다' {
+    ($r -match "Node\.js 1\.0\.0\(.+\) 이 기준 $minRe 보다 낮습니다\. 이 Node\.js 를 설치한 도구로 업데이트하십시오") -and
+    ($r -match 'winget 으로 설치하지 마라') -and ($r -notmatch '  - Node\.js')
+}
+$r = Invoke-HookWithNode (Join-Path $pfLinked 'nodejs') $pfLinked
+Check '점검이 링크로 바뀐 winget 폴더의 Node.js 를 다른 곳의 것으로 본다' {
+    ($r -match '이 Node\.js 를 설치한 도구로 업데이트하십시오') -and ($r -notmatch '  - Node\.js')
+}
+Check '점검이 기준 이상인 Node.js 는 말하지 않는다' { (Invoke-HookWithNode (Join-Path $os 'newer')) -notmatch 'Node\.js \d' }
+Check '점검이 제품 이름이 Node.js 가 아닌 node.exe 는 판정하지 않는다' { (Invoke-HookWithNode (Join-Path $os 'shim')) -notmatch 'Node\.js \d' }
+Check '점검이 Node.js 가 없으면 말하지 않는다' { (Invoke-HookWith '{}') -notmatch 'Node\.js \d' }
+Remove-Item -LiteralPath (Join-Path $pfLinked 'nodejs') -Force
+
+# 동기화 단계 10 은 update-node.ps1 을 별도 프로그램으로 띄운다. 가짜 winget 이 받은 인자와 종료 코드를 남긴다.
+$wgBin = Join-Path $os 'wgbin'
+New-Item -ItemType Directory -Force -Path $wgBin | Out-Null
+Set-Content -LiteralPath (Join-Path $wgBin 'winget.cmd') -Encoding ascii -Value @(
+    '@echo off', 'echo %*>"%~dp0args.txt"', 'if defined KW_FAKE_SLOW ping -n 16 127.0.0.1 >nul', 'echo fake winget output',
+    'if defined KW_FAKE_RC exit /b %KW_FAKE_RC%', 'exit /b 0')
+function Invoke-NodeStep([string]$UserHome, [string]$StepArgs) {
+    $out = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:USERPROFILE='$UserHome'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$wgBin;' + `$env:PATH; & '$osCut' $StepArgs; exit `$LASTEXITCODE" 2>&1
+    ($out | ForEach-Object { "$_" }) -join "`n"
+}
+function Wait-File([string]$Path, [string]$Pattern) {
+    foreach ($i in 1..60) { if ((Test-Path -LiteralPath $Path) -and ((Get-Content -LiteralPath $Path -Raw) -match $Pattern)) { return $true }; Start-Sleep -Milliseconds 500 }
+    return $false
+}
+$nh = Join-Path $os 'node-home'
+New-Item -ItemType Directory -Force -Path (Join-Path $nh '.claude') | Out-Null
+$nodeLog = Join-Path $nh '.claude\kw-control-tower.node-update.log'
+$o = Invoke-NodeStep $nh "-Steps '10'"
+Check '동기화 단계 10 이 업데이트를 띄우고 기다리지 않고 알린다' { $o -match 'winget 을 시작했습니다\. 관리자 승인 창이 뜨면 승인해 주십시오\. 기록: ' }
+Check '띄운 업데이트가 winget 을 최신 LTS 설치 인자로 실행한다' {
+    (Wait-File (Join-Path $wgBin 'args.txt') 'install') -and
+    ((Get-Content -LiteralPath (Join-Path $wgBin 'args.txt') -Raw) -match '^install --id OpenJS\.NodeJS\.LTS --exact --source winget --silent')
+}
+Check '띄운 업데이트가 winget 의 출력과 종료 코드를 기록에 남긴다' {
+    (Wait-File $nodeLog '끝') -and ((Get-Content -LiteralPath $nodeLog -Raw) -match '(?s)fake winget output.*winget 종료 코드: 0')
+}
+Check '동기화가 오늘 날짜를 상태 파일에 적는다' { (Get-Content -LiteralPath (Join-Path $nh '.claude\kw-control-tower.state') -Raw) -match "(?m)^nodeUpdate=$today" }
+# 세션 점검 훅은 동기화의 출력을 읽으므로, 띄운 프로그램이 그 출력 파이프를 물려받으면 winget 이 끝날 때까지 기다린다.
+# 2026-10-29 에 그렇게 동기화가 24.8초를 기다렸다. 15초 걸리는 가짜 winget 이 끝나기 전에 동기화가 끝나야 한다.
+Check '동기화가 띄운 winget 을 기다리지 않는다' {
+    $nh3 = Join-Path $os 'node-home3'; New-Item -ItemType Directory -Force -Path (Join-Path $nh3 '.claude') | Out-Null
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $o3 = & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:KW_FAKE_SLOW='1'; `$env:USERPROFILE='$nh3'; `$env:CLAUDE_PLUGIN_ROOT='$plugin'; `$env:PATH='$wgBin;' + `$env:PATH; & '$osCut' -Brief -Steps '10'" 2>&1
+    $sw.Stop()
+    $log3 = Join-Path $nh3 '.claude\kw-control-tower.node-update.log'
+    $notYet = -not ((Test-Path -LiteralPath $log3) -and ((Get-Content -LiteralPath $log3 -Raw) -match '끝'))
+    Write-Host "       동기화가 끝난 시간: $([Math]::Round($sw.Elapsed.TotalSeconds, 1))초"
+    ($sw.Elapsed.TotalSeconds -lt 12) -and $notYet -and (Wait-File $log3 '끝')
+}
+Check '같은 날 다시 호출되면 띄우지 않는다' { (Invoke-NodeStep $nh "-Steps '10'") -match '오늘 이미 업데이트를 시작했습니다' }
+Check '설치기처럼 단계를 지정하지 않으면 띄우지 않는다' {
+    $nh2 = Join-Path $os 'node-home2'; New-Item -ItemType Directory -Force -Path (Join-Path $nh2 '.claude') | Out-Null
+    $o2 = Invoke-NodeStep $nh2 '-WhatIfOnly'
+    ($o2 -match '세션 점검 훅이 지정할 때만 실행합니다') -and ($o2 -notmatch 'winget 을 시작했습니다')
+}
+Check '업데이트 스크립트가 winget 실패의 종료 코드를 기록에 남긴다' {
+    $failLog = Join-Path $os 'fail.log'
+    & $ps7 -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "`$env:KW_FAKE_RC='5'; `$env:PATH='$wgBin;' + `$env:PATH; & '$(Join-Path $plugin 'scripts\update-node.ps1')' -Log '$failLog'" | Out-Null
+    (Get-Content -LiteralPath $failLog -Raw) -match 'winget 종료 코드: 5'
+}
 Remove-Item -LiteralPath $os -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- 동기화가 끝까지 간다 ---------------------------------------------------
