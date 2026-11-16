@@ -694,6 +694,11 @@ Check '사내 지침 템플릿이 금융투자협회 홈페이지에 접속하�
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     ($tplSrc -match 'kofia\.or\.kr') -and ($tplSrc -match '에는 접속하지 않는다')
 }
+# AX팀 문의는 스킬마다 따로 적지 않고 사내 지침 한 곳에서 문의 화면으로 안내한다. 초안은 묻고 나서 쓴다.
+Check '사내 지침 템플릿이 AX팀 문의를 문의 화면으로 안내하고 초안은 묻고 쓴다' {
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
+    ($tplSrc -match [regex]::Escape('http://192.7.9.45/ax/')) -and ($tplSrc -match [regex]::Escape('문의 초안을 작성해 드릴까요?'))
+}
 # 점검은 외부 프로그램을 늘리지 않는다. 명의는 git 을 실행하지 않고 파일에서 읽는다.
 Check '점검이 git 을 실행하지 않고 .gitconfig 를 직접 읽는다' {
     ($hookDetect -match "Join-Path \`$userHome '\.gitconfig'") -and ($hookDetect -notmatch '(?m)^[^#\r\n]*\bgit\s+config\b')
