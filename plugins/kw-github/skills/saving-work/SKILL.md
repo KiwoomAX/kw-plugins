@@ -110,7 +110,7 @@ commit 결과나 세션 시작 알림이 GitHub 에 올리지 않은 commit 이 
    - `uploaded` 가 거짓이면 이번 업로드가 GitHub 의 `main` 에 없다. 다른 PC 에서 올린 작업이 있다는 뜻이므로 개발자에게 알린다.
    - `leaked` 에 파일이 있으면 GitHub 의 `main`에 올라가면 안 되는 파일이 이미 올라가 있다. 파일과 `reason` 을 개발자에게 알리고, 비밀값이면 폐기하고 새로 발급받으라고 안내한다. 지우는 일은 개발자의 동의를 받은 뒤 commit 과 업로드로 한다.
    - 작업 이슈와 Bug 이슈는 개발자에게 말하지도 묻지도 않는다(사용자 결정, 2026-10-21). 기능 이슈만 아래대로 묻는다(사용자 결정, 2026-11-16). `issues` 중 `ours` 가 참인 이슈만 Claude 가 정리하고, `ours` 가 거짓인 이슈는 다른 사람이 만든 이슈이므로 손대지 않고 알리지 않는다.
-   - `ours` 인 이슈 중 본문이 양식뿐이거나(`template_only`) 이번 merge 까지 올라간 commit 이 본문의 commit 목록에 빠진 이슈는, 이 기능과 이번 작업에서 아는 내용과 `git log` 의 commit 으로 본문을 채워 `gh issue edit <번호> -R <레포> --body-file "<본문 파일>"` 로 고친다. 모르는 절은 "확인 필요" 로 적는다. 어느 commit 과도 이어지지 않은 빈 이슈는 지우지 않고 다음 작업 이슈로 다시 쓴다. 담당자가 없으면(`no_assignee`) `gh issue edit <번호> -R <레포> --add-assignee '@me'` 로 지정한다.
+   - `ours` 인 이슈 중 본문이 양식뿐이거나(`template_only`) 이번 merge 까지 올라간 commit 이 본문의 commit 목록에 빠진 이슈는, 이 기능과 이번 작업에서 아는 내용과 `git log` 의 commit 으로 본문을 채워 `gh issue edit <번호> -R <레포> --body-file "<본문 파일>"` 로 고친다. 모르는 절은 "확인 필요" 로 적는다. 어느 commit 과도 이어지지 않은 빈 이슈는 지우지 않는다. 하나는 다음 작업 이슈로 다시 쓰게 남기고, 그보다 많으면 `gh issue close <번호> -R <레포> --reason "not planned"` 로 닫는다. 닫은 이슈는 다시 열 수 있다. 담당자가 없으면(`no_assignee`) `gh issue edit <번호> -R <레포> --add-assignee '@me'` 로 지정한다.
    - `feature` 와 `assigned_to_me` 가 참인 이슈는 지금 계정이 담당한 기능 이슈다. 이번 업로드까지의 commit 으로 기능 이슈 본문의 요구사항이 모두 끝난 것으로 보이면, 그렇게 본 근거를 적어 선택 창으로 기능 이슈를 닫을지 묻는다. 닫기를 고르면 `gh issue close <번호> -R <레포>` 로 닫고 기능을 마무리했다고 알린다. 아직 남았다고 하면 이 세션에서는 다시 묻지 않는다. 끝난 것으로 보이지 않으면 묻지 않고 그대로 둔다.
    - 그 밖에 열려 있는 `ours` 작업 이슈와 Bug 이슈는 Claude 가 판단한다. 이번 업로드까지의 commit 으로 끝난 일이면 `gh issue close <번호> -R <레포>` 로 닫고, 아직 남은 일이면 그대로 둔다.
 
