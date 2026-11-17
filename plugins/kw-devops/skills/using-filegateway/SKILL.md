@@ -71,7 +71,7 @@ FileGateway는 아래 경로를 400으로 거절한다. 파일 서버가 같은 
 
 | 항목 | 값 |
 |---|---|
-| 주소 | 서버 `192.7.9.45`의 `kiwoom-infra` 네트워크 안에서는 `http://kiwoom-filegateway:9009`, 그 밖에서는 `http://192.7.9.45:9009`. 코드에서는 환경 변수 `FILE_GATEWAY_URL`로 받는다 |
+| 주소 | 서버 `192.7.9.45`의 `kiwoom-infra` 네트워크 안에서는 `http://kiwoom-filegateway-api:9009`, 그 밖에서는 `http://192.7.9.45:9009`. 코드에서는 환경 변수 `FILE_GATEWAY_URL`로 받는다 |
 | 메서드·경로 | `GET /api/files/{공유 이름}?path=<상대 경로>`. 공유 이름과 상대 경로는 URL 인코딩한다. 상대 경로는 `/`로 구분한다 |
 | 인증 | 헤더 `Authorization: Bearer <로그인 토큰 또는 접근 키>` |
 | 성공 응답 | 200과 파일 내용. `Content-Length`가 파일 크기다 |
@@ -111,7 +111,7 @@ from urllib.parse import quote
 
 import httpx
 
-FILE_GATEWAY_URL = os.environ.get("FILE_GATEWAY_URL", "http://kiwoom-filegateway:9009")
+FILE_GATEWAY_URL = os.environ.get("FILE_GATEWAY_URL", "http://kiwoom-filegateway-api:9009")
 
 
 def gateway_credential(user_token: str | None) -> str:
