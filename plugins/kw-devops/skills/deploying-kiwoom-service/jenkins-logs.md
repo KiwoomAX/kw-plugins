@@ -15,7 +15,7 @@ Build → Record → Deploy → Health check → Rollback(실패했을 때만) �
 | `Gate: 실행 조건 불충족 → 이후 stage 건너뜀` · `Finished: NOT_BUILT` | 위 두 조건 중 하나로 실행하지 않았다 | 위 두 줄을 먼저 본다 |
 | `kiwoomDeploy: healthContainer 파라미터는 필수입니다` | KiwoomAM 의 Jenkinsfile 에 그 값을 안 넣었다 | jenkinsfile.md 의 틀을 다시 본다 |
 | `kiwoom-deploy.yml: <키>: …` · `kiwoomDeployFromConfig: kiwoom-deploy.yml 값 검사 실패` | KiwoomAX 설정 파일 값이 규칙에 맞지 않는다 | 줄마다 적힌 키와 이유대로 고친다. 받는 키는 jenkinsfile.md 의 KiwoomAX 절에 있다 |
-| `kiwoomDeployFromConfig: envCredIds 에 이 잡이나 폴더에 없는 자격증명이 있다` | AX 팀이 그 자격증명을 아직 만들지 않았거나 이름이 다르다 | AX 팀 회신의 이름과 맞춘다. 요청을 안 보냈으면 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 보낸다 |
+| `kiwoomDeployFromConfig: envCredIds 에 이 잡이나 폴더에 없는 자격증명이 있다` | AX 팀이 그 자격증명을 아직 만들지 않았거나 이름이 다르다 | AX 팀이 문의 서비스에 남긴 답변의 이름과 맞춘다. 문의하지 않았으면 SKILL.md 의 「AX 팀에 요청하기」대로 안내한다 |
 | `Build: 배포 구성 문제 — …` · `Build: 배포 구성 검사 실패` | KiwoomAX compose 구성이 허용되지 않는 설정을 쓴다 | 줄마다 적힌 설정을 jenkinsfile.md 의 「파이프라인이 실패시키는 compose 구성」대로 고친다. 호스트 폴더 마운트가 꼭 필요하면 AX 팀에 경로 등록을 요청한다 |
 | `FAILED: <파일> 가 심볼릭 링크다` | `.env`·`certs`·compose 파일을 링크로 커밋했다 | 링크를 지우고 실제 파일로 커밋한다(`.env`·`certs/` 는 커밋하지 않는다) |
 | `Build: <서비스> → localhost:5000/<저장소>/<서비스>:${IMAGE_TAG:-latest}` | 빌드하는 서비스에 레지스트리 이름을 붙였다. KiwoomAX 는 `localhost:5000/ax/<저장소>/…` 다 | 정상이다 |
@@ -56,4 +56,4 @@ Build → Record → Deploy → Health check → Rollback(실패했을 때만) �
 | 컨테이너는 뜨는데 앱이 import 에 실패한다 | DooD 에서 상대경로 마운트가 빈 디렉터리로 덮였다 | override 에 `volumes: !reset []` |
 | 배포는 성공했는데 기능 하나가 조용히 빠졌다 | `!reset []` 이 살려야 할 절대경로 마운트까지 지웠다 | `!override` 로 그것만 다시 적는다 |
 | 나중에 뜨는 컨테이너가 포트 충돌로 종료된다 | 앞사람이 등록부에 안 넣었다 | `pick_port.py` 로 다시 세고 「뜨는데 등록이 없다」 줄을 넣는다 |
-| 첫 빌드가 `Prepare secrets` 단계에서 자격증명 `env-<서비스>` 를 찾지 못하고 멈춘다 | AX 팀이 이 저장소의 자격증명을 아직 만들지 않았다 | AX 팀의 등록 회신을 받은 뒤 Build Now 를 다시 누른다. 요청을 안 보냈으면 SKILL.md 의 「AX 팀에 등록 요청 보내기」로 보낸다 |
+| 첫 빌드가 `Prepare secrets` 단계에서 자격증명 `env-<서비스>` 를 찾지 못하고 멈춘다 | AX 팀이 이 저장소의 자격증명을 아직 만들지 않았다 | 문의 서비스에서 등록 완료 답변을 받은 뒤 Build Now 를 다시 누른다. 문의하지 않았으면 SKILL.md 의 「AX 팀에 요청하기」대로 안내한다 |

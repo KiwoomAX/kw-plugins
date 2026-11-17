@@ -743,6 +743,18 @@ Check '사내 지침 템플릿이 금융투자협회 홈페이지에 접속하�
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     ($tplSrc -match 'kofia\.or\.kr') -and ($tplSrc -match '에는 접속하지 않는다')
 }
+# AX팀 문의는 스킬마다 따로 적지 않고 사내 지침 한 곳에서 문의 화면으로 안내한다. 초안은 묻고 나서 쓴다.
+Check '사내 지침 템플릿이 AX팀 문의를 문의 화면으로 안내하고 초안은 묻고 쓴다' {
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
+    ($tplSrc -match [regex]::Escape('http://192.7.9.45/ax/')) -and ($tplSrc -match [regex]::Escape('문의 초안을 작성해 드릴까요?'))
+}
+# 배포 플러그인은 권장이라 없는 PC 가 있다. 유형 이름을 사내 지침에 두어야 없는 유형을 지어내지 않는다.
+# 이름은 문의 화면(notice-board)의 유형 목록과 글자가 같아야 한다.
+Check '사내 지침 템플릿이 문의 화면의 유형 이름을 모두 적는다' {
+    $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
+    $names = @('데이터 조회 요청 (화면·엑셀·테이블)', '환경변수(env) 등록', '기능 검토 문의', '제공 인프라', 'Claude 계정', '튜토리얼 신청', '기타 문의')
+    @($names | Where-Object { $tplSrc -notmatch [regex]::Escape("- ${_}:") }).Count -eq 0
+}
 # 점검은 외부 프로그램을 늘리지 않는다. 명의는 git 을 실행하지 않고 파일에서 읽는다.
 Check '점검이 git 을 실행하지 않고 .gitconfig 를 직접 읽는다' {
     ($hookDetect -match "Join-PathText \`$userHome '\.gitconfig'") -and ($hookDetect -notmatch '(?m)^[^#\r\n]*\bgit\s+config\b')
