@@ -259,6 +259,40 @@ description: Use when drawing any Kiwoom in-house web screen or its mockup (a �
 - 눌러서 내용이 바뀌는 구획은 최소 높이를 두어 페이지 높이가 내용 길이로 변하지 않게 한다. 화면 자동 이동은
   0.7초 정도로 둔다.
 
+## 스크롤바
+
+스크롤이 생기는 요소의 스크롤바 트랙과 thumb 테두리는 그 요소의 배경색 토큰과 같게 맞춘다.
+브라우저 기본 트랙은 회색이라 배경과 어울리지 않는다.
+
+| 영역 배경 | Tailwind 이름 | 토큰 변수 |
+|---|---|---|
+| 기본 패널 | `bg-surface` | `--bg-surface` |
+| 움푹한 패널 | `bg-surface-sunken` | `--bg-sunken` |
+| 대화상자 | `bg-surface-dialog` | `--bg-dialog` |
+
+```css
+/* Chromium */
+.영역::-webkit-scrollbar { width: 10px }
+.영역::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 9999px;
+  border: 3px solid var(--영역-배경);
+}
+.영역::-webkit-scrollbar-track {
+  background: var(--영역-배경);
+  border: none;
+}
+
+/* Firefox */
+.영역 { scrollbar-color: var(--border-medium) var(--영역-배경) }
+```
+
+- `var(--영역-배경)` 은 그 영역이 깔고 앉는 면의 토큰으로 바꾼다.
+- thumb 색은 `--border-medium` 을 기본으로 쓴다. 토큰이 낮밤에 따라 바뀌므로 밤 모드 분기가 필요 없다.
+- 대시보드는 셸이 페이지 스크롤바(`--bg-app`)와 사이드바 스크롤바(`--bg-rail`)를 처리한다.
+  내용 구획 안의 스크롤 영역만 위 패턴으로 맞춘다.
+- Tailwind 를 쓸 때 `scrollbar-thin` 유틸리티가 있으면 그것으로 대신하되, 트랙 색은 위 규칙을 따른다.
+
 ## 요소를 뺄 때
 
 화면 초안에서 요소를 빼면 남은 요소의 배치를 다시 정한다. 뺀 요소가 차지하던 공간을 비워 두지 않는다.

@@ -567,6 +567,13 @@
   }
 }
     </style>
+    <style>
+      /* 스크롤바 — 트랙과 thumb 테두리는 영역 배경에 맞춘다 */
+      html{scrollbar-color:var(--border-medium) var(--bg-app);scrollbar-width:thin}
+      html::-webkit-scrollbar{width:10px;height:10px}
+      html::-webkit-scrollbar-track{background:var(--bg-app)}
+      html::-webkit-scrollbar-thumb{background:var(--border-medium);border:3px solid var(--bg-app);border-radius:var(--radius-full)}
+    </style>
     <!-- ════ 여기부터 목업 스타일이다. 고쳐도 된다 ════
          · Tailwind 클래스는 이 파일에서 동작하지 않는다. CSS 와 토큰 변수만 쓴다.
          · 색 · 모서리 · 간격은 토큰 변수로 쓴다: var(--bg-surface) · var(--text-secondary) ·
