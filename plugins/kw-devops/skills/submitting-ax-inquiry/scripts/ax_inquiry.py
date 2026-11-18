@@ -354,6 +354,9 @@ def send(path: str, fields: dict[str, str], env: bytes | None = None) -> Stop:
         return Stop(4, *lines)
     if status in (401, 404) or 300 <= status < 400:
         return Stop(5, f"접수 경로 없음: 접근 키 접수 경로가 열리지 않음({status})", NO_RESEND)
+    # 접수 완료는 201 하나로만 본다. 두 접수 경로는 성공하면 늘 201 로 답하므로, 201 이 아닌 2xx 는 중간에서 바뀐
+    # 응답이라 접수됐는지 알 수 없다. 완료로 보면 실패를 놓치고, 실패로 보면 다시 보내 같은 문의가 두 건 생기므로
+    # 다시 보내지 않고 내 문의 목록에서 확인하게 한다.
     if status >= 500 or 200 <= status < 300:
         return Stop(6, f"접수 확인 필요: {status}", NO_RESEND)
     detail = data.get("detail") if isinstance(data, dict) else None
