@@ -8,7 +8,9 @@
 import argparse
 import datetime as dt
 import json
+import os
 import re
+import shutil
 import sys
 import zipfile
 from collections import Counter
@@ -61,7 +63,10 @@ class Book:
     def __init__(self, path):
         self.path = path
         self.cells, self.order, names = trace_cells.load_cells(path)
-        self.tables, pivots = trace_cells.load_package_parts(path)
+        self.tables, pivots, self.merged = trace_cells.load_package_parts(path)
+        # 시트별로 병합 범위 안의 셀 위치 → 그 범위의 왼쪽 위 셀 위치
+        self.merge_top = {s: {(r, c): (a[0], a[1]) for a in areas for r in range(a[0], a[2] + 1)
+                              for c in range(a[1], a[3] + 1)} for s, areas in self.merged.items()}
         self.resolve = trace_cells.make_resolver(self.cells, self.tables, names)
         self.pivot_at = {(pv.sheet, pos): pv for pv in pivots if pv.sheet in self.cells and pv.area
                          for pos in self.cells[pv.sheet] if trace_cells._inside(pos, pv.area)}
@@ -470,12 +475,13 @@ GUIDE = {"text": "분석 결과가 실제와 다르면, 알고 계신 엑셀 구
                     "「C」 시트의 지난주 열은 지난주 시트의 값을 매주 손으로 붙여 넣습니다."}
 
 
-def analyze(book, base_override=None):
-    """엑셀 전체의 표와 표 사이 읽기 관계. 날짜 시트 군의 기준 시트가 아닌 날짜 시트는 표를 찾지 않는다."""
+def analyze(book, base_override=None, saved=()):
+    """엑셀 전체의 표와 표 사이 읽기 관계. 날짜 시트 군의 기준 시트가 아닌 날짜 시트는 표를 찾지 않는다.
+    saved 는 결과 파일의 표 정의이고, 고친 범위를 표에 반영한다."""
     import tables as tb
     sheets, groups = tb.analyzed_sheets(book, base_override)
     skipped = [s for s in book.order if s not in sheets]
-    found = [t for s in sheets for t in tb.find_tables(book, s)]
+    found = tb.apply_areas(book, [t for s in sheets for t in tb.find_tables(book, s)], saved)
     reads, odd_refs = tb.read_map(book, found, set(skipped))
     return {"sheets": sheets, "skipped": skipped, "date_groups": groups, "tables": found,
             "groups": tb.group_tables(found), "reads": reads, "odd_refs": odd_refs}
@@ -494,15 +500,32 @@ def _zone(book, t):
     return f"{name} ({cols})" if name else cols
 
 
-def _preview(book, ts):
-    t = max(ts, key=lambda x: x["area"][2] - x["area"][0])  # 행이 가장 많은 표. 같으면 앞 표
+def _preview_table(book, t):
+    """표 하나의 미리보기. 표 오른쪽 · 아래 2셀과 소계 행을 함께 싣고, 셀마다 머리글 · 소계 · 데이터 · 표 밖을 적는다."""
+    import tables as tb
     r1, c1, r2, c2 = t["area"]
-    vals = book.sheet_values(t["sheet"])
-    rows = [[{"v": show(vals.get((r, c))), "formula": bool(book.formula(t["sheet"], (r, c)))} for c in range(c1, c2 + 1)]
-            for r in range(r1, min(r2, r1 + PREVIEW_ROWS - 1) + 1)]
-    note = (f"같은 모양 표 {len(ts)}개 중 이 표({_area_text(t['area'])})를 예로 보여 드립니다. 이 표의 행이 가장 많습니다."
-            if len(ts) > 1 else None)
-    return {"area": t["area"], "rows": rows, "note": note}
+    sheet, vals = t["sheet"], book.sheet_values(t["sheet"])
+    sums = {s["row"] for s in tb.summary_rows(book, t)}
+    head = t["header_rows"] or (r1, r1 - 1)
+    cut = min(r2, r1 + PREVIEW_ROWS - 1)
+    present = lambda r, c: (r, c) in vals or book.formula(sheet, (r, c))  # noqa: E731
+    rows = list(range(r1, cut + 1)) + sorted(r for r in sums if r > cut)
+    if cut == r2:
+        rows += [r for r in (r2 + 1, r2 + 2) if any(present(r, c) for c in range(c1, c2 + 3))]
+    last = max([c for c in (c2 + 1, c2 + 2) if any(present(r, c) for r in rows)], default=c2)
+
+    def kind(r, c):
+        if c > c2 or r > r2 or r < head[0]:
+            return "out"
+        return "head" if r <= head[1] else "sum" if r in sums else "data"
+
+    return {"id": t["id"], "area": t["area"], "rows": [
+        {"row": r, "cells": [{"v": show(vals.get((r, c))), "formula": bool(book.formula(sheet, (r, c))), "kind": kind(r, c)}
+                             for c in range(c1, last + 1)]} for r in rows]}
+
+
+def _preview(book, ts):
+    return {"tables": [_preview_table(book, t) for t in ts], "note": f"같은 모양 표 {len(ts)}개입니다." if len(ts) > 1 else None}
 
 
 def _lines(book, ts, found, names, groups, step_cache):
@@ -554,15 +577,16 @@ def _date_note(groups):
     return " ".join(f"이 화면은 날짜가 붙은 시트 중 {w}({s})를 기준으로 작성했습니다" for w, s in parts)
 
 
-def build_three_stage(book, analysis, result, names, step_cache):
-    """결과표 하나의 페이지 자료. result 는 {"sheet", "excel_table", "row_order"}, names 는 {묶음 번호: 클로드가 유추한 이름},
-    step_cache 는 실행 하나에서 공유하는 {(시트, 셀): build 결과} 다."""
+def build_three_stage(book, analysis, result, names, step_cache, defs=()):
+    """결과표 하나의 페이지 자료. result 는 {"table", "sheet", "row_order"}, names 는 {묶음 번호: 클로드가 유추한 이름},
+    step_cache 는 실행 하나에서 공유하는 {(시트, 셀): build 결과} 다. defs 는 결과 파일의 표 정의다."""
     import checks
+    import definitions
     import plain_text
     import sources
     import tables as tb
     found, groups, reads = analysis["tables"], analysis["groups"], analysis["reads"]
-    result_ids = tb.result_tables(found, groups, reads, result["sheet"], result.get("excel_table"))
+    result_ids = {result["table"]}
     cls = tb.classify(book, found, reads, result_ids)
     rank = {i: n for n, i in enumerate(cls["order"])}
     screens, used = {}, set()
@@ -581,19 +605,30 @@ def build_three_stage(book, analysis, result, names, step_cache):
             **sources.source_of(book, [t for t in by_group[c["group"]]["tables"] if t["id"] in cls["source"]])}
            for c in screens["source"]]
     sheets_of = lambda ids: list(dict.fromkeys(t["sheet"] for t in found if t["id"] in ids))  # noqa: E731
-    if "same" not in analysis:  # 값이 같은 열은 결과표와 무관하므로 실행 하나에서 1번만 찾는다
-        dated = {g["previous"] for g in analysis["date_groups"]}
-        by_sheet = {s: [t for t in found if t["sheet"] == s] for s in analysis["sheets"]}
-        by_sheet.update({s: tb.find_tables(book, s) for s in dated})
-        analysis["same"] = checks.same_value_columns(book, by_sheet, analysis["date_groups"])
+    dated = {g["previous"] for g in analysis["date_groups"]}
+    by_sheet = {s: [t for t in found if t["sheet"] == s] for s in analysis["sheets"]}
+    by_sheet.update({s: tb.find_tables(book, s) for s in dated})
     page = [t for t in found if t["id"] in used]
     in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
-    return {"title": f"{result.get('excel_table') or result['sheet']} 결과표는 이렇게 만들어집니다",
+    mine = [d for d in defs if d["id"] in used or d.get("orphan")]
+    sheets = {t["sheet"] for t in page}  # 혼자 적힌 칸 목록은 그 시트의 표 하나에만 붙으므로, 이 페이지가 쓰는 시트의 목록을 모두 모은다
+    outside = sorted(({"sheet": d["sheet"], **i} for d in defs for i in d.get("outside", {}).get("items", [])
+                      if d in mine or i.get("sheet", d["sheet"]) in sheets),
+                     key=lambda i: not i["read_by_result"])  # 저장해야 하는 셀을 먼저 보인다
+    return {"title": f"{result['table']} 결과표는 이렇게 만들어집니다",
+            "outside": outside[:tb.OUTSIDE_LIMIT], "outside_more": max(0, len(outside) - tb.OUTSIDE_LIMIT),
+            "conflicts": definitions.conflicts(defs, {d["id"] for d in mine}),
             "excel": Path(book.path).name, "path": str(book.path), "result": result["sheet"],
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
             "date_note": _date_note(analysis["date_groups"]), "screens": screens, "sources": src,
             "source_rules": book.source_rules_state,
-            "checks": {"odd": checks.odd_rows(book, page), "same": analysis["same"],
+            "checks": {"odd": checks.odd_rows(book, page),
+                       "same": checks.same_value_columns(book, by_sheet, analysis["date_groups"], set(cls["source"])),
+                       "external": checks._capped(checks.external_formula_cells(book, page), checks.ODD_MAX),
+                       "typed": checks._capped(checks.typed_cells(book, page), checks.ODD_MAX),
+                       "gaps": checks._capped(checks.gap_rows(book, page), checks.ODD_MAX),
+                       "winus": checks._capped([{"sheet": s, **c} for s in sheets_of(cls["source"])
+                                                if (c := sources.winus_candidate(s))], checks.ODD_MAX),
                        "ambiguous": checks.ambiguous(book, [o for o in analysis["odd_refs"] if in_page(o)],
                                                      tb.nameless_read(found, reads, result_ids), analysis["date_groups"])},
             "guide": GUIDE, "steps": list(dict.fromkeys(line["step"] for k in screens for c in screens[k] for line in c["lines"]))}
@@ -682,24 +717,29 @@ def name_hints(book, data):
 
 SHOWN_ALL, SHOWN_TOP = 20, 10  # 후보 시트가 20개를 넘으면 읽는 표가 많은 10개만 보인다(근거 없는 시작 값)
 SIZE_LIMIT = 16 * 1024 * 1024  # 페이지와 단계 화면 크기 합계 상한(근거 없는 시작 값)
+SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today", "allow_holiday")
 
 
 def write_candidates(book, analysis, out_dir, base=None):
     """1번째 실행의 후보 파일을 쓰고 경로를 돌려준다. 실행할 때마다 새로 쓴다. base 는 --base 로 받은 {군 이름: 시트 또는 None}."""
+    import definitions
     import tables as tb
     by_id = {t["id"]: t for t in analysis["tables"]}
     cands = tb.candidates(analysis["tables"], analysis["reads"])
     top = {c["sheet"] for c in sorted(cands, key=lambda c: -c["reads"])[:SHOWN_TOP]}
 
     def first_row(t):
-        r1, c1, _, c2 = t["area"]
-        r = (t["header_row"] or r1 - 1) + 1
+        _, c1, _, c2 = t["area"]
+        r = tb.data_top(t)
         return [show(book.sheet_values(t["sheet"]).get((r, c))) for c in range(c1, c2 + 1)]
 
     out = {"excel": Path(book.path).name, "base_sheets": base or {},
+           "suggested": definitions.suggested(definitions.base_date_relation(book, analysis["tables"])),
            "date_groups": [{"pattern": g["pattern"], "count": len(g["sheets"]), "base": g["base"]} for g in analysis["date_groups"]],
            "candidates": [{"sheet": c["sheet"], "reads": c["reads"], "shown": len(cands) <= SHOWN_ALL or c["sheet"] in top,
                            "tables": [{"id": i, "header": list(by_id[i]["header"] or []), "row_order": tb.row_order(book, by_id[i]),
+                                       "area": _area_text(by_id[i]["area"]), "title": by_id[i]["title"],
+                                       "first_row": first_row(by_id[i]),
                                        "excel_table": book.tables[by_id[i]["excel_table"]].name if by_id[i]["excel_table"] else None}
                                       for i in c["tables"]]} for c in cands],
            "groups": [{"id": g["id"], "sheet": g["sheet"], "areas": [_area_text(t["area"]) for t in g["tables"]],
@@ -712,20 +752,16 @@ def write_candidates(book, analysis, out_dir, base=None):
 
 def load_results(path, book, candidates_path):
     """결과 파일을 읽어 검사한다. BOM 을 허용하고 시트 · 기준 시트 이름 앞뒤 공백을 뺀다.
-    엑셀 표 이름은 대소문자를 무시하고 찾아 표 사전의 키(대문자)로 바꾼다. 기준 시트는 후보 파일과 같아야 한다."""
+    결과표는 표 id 로 지정한다. id 대조는 분석 뒤에 check_result_tables 가 한다. 기준 시트는 후보 파일과 같아야 한다."""
     data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if data.get("excel") != Path(book.path).name:
         sys.exit(f"결과표 파일의 엑셀 이름 다름: {data.get('excel')}")
     for r in data["results"]:
-        r["sheet"] = r["sheet"].strip()
+        r["sheet"] = r["sheet"] if r["sheet"] in book.cells else r["sheet"].strip()  # 시트 이름 자체에 공백이 있을 수 있다
         if r["sheet"] not in book.cells:
             sys.exit(f"결과표 시트 없음: {r['sheet']}")
-        table = r.get("excel_table")
-        if table:
-            key = table.strip().upper()
-            if key not in book.tables or book.tables[key].sheet != r["sheet"]:
-                sys.exit(f"결과표 엑셀 표 없음: {table}")
-            r["excel_table"] = key
+        if not r.get("table"):
+            sys.exit(f"결과표 표 지정 없음: {r['sheet']}")
     data.setdefault("names", {})
     data["base_sheets"] = {k: v.strip() if isinstance(v, str) else v for k, v in data.get("base_sheets", {}).items()}
     try:
@@ -734,7 +770,28 @@ def load_results(path, book, candidates_path):
         sys.exit(f"후보 파일 읽기 실패: {candidates_path}(1번째 실행과 같은 --out 폴더로 실행)")
     if data["base_sheets"] != expected:
         sys.exit("기준 시트가 후보 파일과 다름(--base 로 1번째 실행부터 다시)")
+    if "settings" not in data:
+        sys.exit("결과 파일에 settings 없음")
+    for key in SETTINGS_KEYS:
+        if key not in data["settings"]:
+            sys.exit(f"settings 항목 없음: {key}")
     return data
+
+
+def write_results(path, data):
+    """결과 파일을 임시 파일에 쓴 뒤 바꾼다. 쓰다 실패해도 이전 파일이 남는다."""
+    text = json.dumps(data, ensure_ascii=False, indent=1)
+    temp = Path(path).with_suffix(".tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
+
+
+def check_result_tables(results, analysis):
+    """결과 파일의 표 id 가 분석에서 찾은 표인지 확인한다."""
+    ids = {t["id"] for t in analysis["tables"]}
+    for r in results:
+        if r["table"] not in ids:
+            sys.exit(f"결과표 표 없음: {r['table']}")
 
 
 def parse_base(values, book):
@@ -764,14 +821,21 @@ def main_all(a, book):
         count = len(json.loads(path.read_text(encoding="utf-8"))["candidates"])
         print(f"결과표 후보 시트 {count}개: {path}")
         return
+    import definitions
     results = load_results(a.results, book, out.parent / "explain_candidates.json")
-    analysis = analyze(book, results["base_sheets"])
+    saved = results.get("definitions", [])
+    analysis = analyze(book, results["base_sheets"], saved)
     for r in results["results"]:
         if r["sheet"] in analysis["skipped"]:
             sys.exit(f"결과표 시트가 기준 시트가 아닌 날짜 시트: {r['sheet']}(--base 로 1번째 실행부터 다시)")
+    check_result_tables(results["results"], analysis)
+    results["definitions"] = definitions.merge(definitions.propose(book, analysis, results, saved), saved)
+    results["date_groups"] = [{"pattern": g["pattern"], "base": g["base"], "sheets": g["sheets"]} for g in analysis["date_groups"]]
+    results.setdefault("base_date", definitions.base_date_relation(book, analysis["tables"]))  # 개발자에게 물어 고친 값을 지키려고 비었을 때만 쓴다
+    results.setdefault("parameters", definitions.parameter_cells(book))
     cache, files, total = {}, {}, 0  # files: 경로 → 글자
     for n, result in enumerate(results["results"], 1):
-        data = build_three_stage(book, analysis, result, results["names"], cache)
+        data = build_three_stage(book, analysis, result, results["names"], cache, results["definitions"])
         page = out.parent / f"{out.stem}_r{n}.html"
         steps_dir = out.parent / f"{out.stem}_r{n}_steps"
         step_files = {}
@@ -789,13 +853,22 @@ def main_all(a, book):
         files[page] = html
     dirs = {p.parent for p in files if p.parent != out.parent}
     pages = [out.parent / f"{out.stem}_r{n}{x}" for n in range(1, len(results["results"]) + 1) for x in (".html", "_steps")]
-    if any(p.exists() for p in pages):
+    if any(p.exists() for p in pages) and not a.replace:
         sys.exit("출력 파일 중복(다른 이름 필요)")
+    if a.replace:  # 결과표가 줄었을 때 지난 번호의 페이지가 남지 않게, 같은 출력 이름의 결과표 페이지를 모두 지운다
+        mark = re.compile(re.escape(out.stem) + r"_r\d+(\.html|_steps)")
+        pages += [p for p in out.parent.iterdir() if mark.fullmatch(p.name) and p not in pages]
+    for p in pages:
+        if p.is_dir():
+            shutil.rmtree(p)
+        elif p.exists():
+            p.unlink()
     for d in sorted(dirs):
         d.mkdir()
     for p, html in files.items():
         with open(p, "x", encoding="utf-8") as f:
             f.write(html)
+    write_results(a.results, results)
     for n in range(1, len(results["results"]) + 1):
         print(out.parent / f"{out.stem}_r{n}.html")
 
@@ -809,6 +882,7 @@ def main(argv=None):
     ap.add_argument("--results", help="--all 일 때 결과표 파일(explain_results.json) 경로. 없으면 후보 파일만 쓴다")
     ap.add_argument("--base", action="append", help="--all 1번째 실행에서 날짜 시트 군의 기준 시트(「군 이름=시트」, 군을 풀면 「군 이름=없음」)")
     ap.add_argument("--out", help="만들 HTML 경로. 이미 있으면 실패한다")
+    ap.add_argument("--replace", action="store_true", help="--all 2번째 실행에서 같은 이름의 출력 파일을 지우고 다시 쓴다")
     ap.add_argument("--title", default="", help="결과 셀의 이름(예: 연도별 · 월별 수익률)")
     ap.add_argument("--hints", help="화면 대신 열 이름 재료를 이 JSON 경로에 쓴다")
     ap.add_argument("--names", help="열 이름 JSON {\"시트!열\": \"이름\"} 경로")

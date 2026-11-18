@@ -8,13 +8,13 @@
 <style>
 :root { color-scheme:light;
   --accent:#3F5A80; --on-accent:#FFFFFF; --accent-weak:#E8EBF0; --app:#FFFFFF; --surface:#FFFFFF; --sunken:#F4F6FA; --hover:#F0F0F1;
-  --ink:#1A1A1A; --ink2:#5D5D5D; --ink3:#8E8E8E; --line:#E5E5E5; --line2:#D1D1D1; --blink:#9DB4D8; --wave:#F3F5F9; }
+  --ink:#1A1A1A; --ink2:#5D5D5D; --ink3:#8E8E8E; --line:#E5E5E5; --line2:#D1D1D1; --blink:#9DB4D8; --wave:#F3F5F9; --outside:#FBEBDD; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme:dark;
   --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
-  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; } }
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; --outside:#3A2A1F; } }
 :root[data-theme="dark"] { color-scheme:dark;
   --accent:#7FA3D6; --on-accent:#12161C; --accent-weak:#232932; --app:#0F1013; --surface:#16181C; --sunken:#282C35; --hover:#262E3B;
-  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; }
+  --ink:#F2F4F7; --ink2:#A8B0BC; --ink3:#7C8490; --line:#2A2E35; --line2:#3A414A; --blink:#4A6A99; --wave:#1C2027; --outside:#3A2A1F; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--app); color:var(--ink); font:14px/1.5 "Malgun Gothic","맑은 고딕",sans-serif; }
 header { padding:14px 24px 10px; border-bottom:1px solid var(--line); }
@@ -49,11 +49,29 @@ table.g { border-collapse:collapse; font-size:12px; }
 .g th { background:var(--sunken); color:var(--ink3); font-weight:normal; border:1px solid var(--line); padding:2px 6px; }
 .g td { border:1px solid var(--line); padding:2px 8px; white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
 .g td.f { background:var(--accent-weak); }
+.g td.head { background:var(--accent); color:var(--on-accent); font-weight:600; }
+.g td.sum { background:var(--sunken); font-weight:600; }
+.g td.out { background:var(--outside); border-style:dashed; }
+.g td.et { border-top:2px solid var(--accent); } .g td.eb { border-bottom:2px solid var(--accent); }
+.g td.el { border-left:2px solid var(--accent); } .g td.er { border-right:2px solid var(--accent); }
+.legend { display:flex; gap:12px; margin:4px 0 12px; font-size:11px; color:var(--ink2); }
+.legend i { display:inline-block; width:12px; height:12px; margin-right:4px; vertical-align:-2px; border:1px solid var(--line2); }
 table.list td { white-space:normal; max-width:none; }
+/* 낮 · 밤: 단계 화면의 화면 모드 단추와 같다. 해 · 달 중 고른 쪽에만 면이 깔린다 */
+header { position:relative; padding-right:96px; }
+.mode { position:absolute; top:14px; right:24px; display:inline-flex; gap:2px; }
+.mode button { width:28px; height:26px; padding:0; display:grid; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--ink3); cursor:pointer; transition:background .15s, color .15s; }
+.mode button:hover { color:var(--ink2); }
+.mode button.is-on { background:var(--accent-weak); color:var(--ink); }
 </style>
 </head>
 <body>
-<header><div class="crumb" id="crumb"></div><h1 id="title"></h1></header>
+<header><div class="crumb" id="crumb"></div><h1 id="title"></h1>
+  <div class="mode" role="group" aria-label="화면 모드">
+    <button type="button" data-t="light" aria-label="낮" title="낮"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></button>
+    <button type="button" data-t="dark" aria-label="밤" title="밤"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+  </div>
+</header>
 <nav id="nav"></nav>
 <div class="notice"><b>아래 화면은 엑셀을 그대로 분석해 설명합니다.</b> 파란 바탕 셀은 수식 셀입니다. 「클로드가 유추한 이름」 표시가 있는 이름은 고칠 수 있습니다. 같은 모양으로 반복되는 표는 한 묶음으로 보입니다.</div>
 <main id="main"></main>
@@ -77,12 +95,24 @@ function line(l) {
     <br><code>${esc(l.formula)}</code> <span class="sub">대표 셀 ${esc(l.step[0])}!${esc(l.cell)}</span>${go}</div></details></li>`;
 }
 
+function previewTable(t) {
+  const [r1, c1, r2] = t.area;
+  const inside = (r, i) => { const c = t.rows[r] && t.rows[r].cells[i]; return !!c && c.kind !== "out"; };
+  const cls = (c, r, i) => {
+    if (c.kind === "out") return "out";
+    const edge = [!inside(r - 1, i) && "et", !inside(r + 1, i) && "eb", !inside(r, i - 1) && "el", !inside(r, i + 1) && "er"];
+    return [c.kind === "data" ? (c.formula ? "f" : "") : c.kind, ...edge].filter(Boolean).join(" ");
+  };
+  let h = `<tr><th></th>${t.rows[0].cells.map((_, i) => `<th>${col(c1 + i)}</th>`).join("")}</tr>`;
+  t.rows.forEach((row, r) => { h += `<tr><th>${row.row}</th>${row.cells.map((c, i) => `<td class="${cls(c, r, i)}" title="${esc(c.v)}">${esc(c.v)}</td>`).join("")}</tr>`; });
+  const shown = t.rows.filter(row => row.row <= r2).length;
+  const cut = r2 - r1 + 1 > shown ? `<div class="sub">표 전체 ${r2 - r1 + 1}행 중 ${shown}행을 보입니다.</div>` : "";
+  return `<table class="g">${h}</table>${cut}`;
+}
+
 function preview(p) {
-  const [r1, c1, r2, c2] = p.area;
-  let h = `<tr><th></th>${Array.from({ length: c2 - c1 + 1 }, (_, i) => `<th>${col(c1 + i)}</th>`).join("")}</tr>`;
-  p.rows.forEach((row, i) => { h += `<tr><th>${r1 + i}</th>${row.map(c => `<td class="${c.formula ? "f" : ""}" title="${esc(c.v)}">${esc(c.v)}</td>`).join("")}</tr>`; });
-  const cut = r2 - r1 + 1 > p.rows.length ? `<div class="sub">표 전체 ${r2 - r1 + 1}행 중 위쪽 ${p.rows.length}행을 보입니다.</div>` : "";
-  return `<details class="more" open><summary>엑셀 모양</summary>${p.note ? `<div class="sub">${esc(p.note)}</div>` : ""}<table class="g">${h}</table>${cut}</details>`;
+  const legend = `<div class="legend"><span><i style="background:var(--accent)"></i>머리글</span><span><i style="background:var(--accent-weak)"></i>수식</span><span><i style="background:var(--sunken)"></i>소계 · 합계</span><span><i style="background:var(--outside)"></i>표 밖 셀</span><span><i style="border:2px solid var(--accent)"></i>표 범위</span></div>`;
+  return `<details class="more" open><summary>엑셀 모양</summary>${p.note ? `<div class="sub">${esc(p.note)}</div>` : ""}${p.tables.map(previewTable).join("")}${legend}</details>`;
 }
 
 function card(c) {
@@ -106,8 +136,19 @@ function checks() {
     c.same.items, c.same.more, i => esc(i.text));
   const amb = listCard("분석이 모호했던 상황", "분석기가 판단하지 못한 셀입니다.",
     c.ambiguous.items, c.ambiguous.more, i => `<b>${esc(i.kind)}</b> · ${esc(i.where)}: ${esc(i.text)}`);
-  const empty = odd || same || amb ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
-  return empty + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
+  const defs = listCard("표 정의에서 확인할 사항", "표 범위, 열 이름, 소계 식을 확인해 주세요.", D.conflicts, 0, esc);
+  const out = listCard("표 밖 셀", "표 밖에 있는 값과 수식입니다. 셀마다 처리 방식을 확인해 주세요.", D.outside, D.outside_more,
+    i => `「${esc(i.sheet)}」 시트 ${esc(i.where)}${i.value === null || i.value === undefined ? "" : ` (${esc(i.value)})`}: ${esc(i.action)}${i.read_by_result ? " · 결과 계산이 읽습니다" : ""}`);
+  const winus = listCard("WINUS 추출본 후보", "시트 이름으로 찾은 후보입니다. 화면 번호와 탭이 맞는지 확인해 주세요.",
+    c.winus.items, c.winus.more, i => `「${esc(i.sheet)}」 시트: 화면 번호 ${esc(i.screen || "확인 필요")}, 탭 ${esc(i.tab || "확인 필요")}`);
+  const ext = listCard("다른 파일을 읽는 셀", "예전 파일을 읽는 셀일 수 있습니다. 셀마다 계속 쓸지 확인해 주세요.",
+    c.external.items, c.external.more, i => `「${esc(i.sheet)}」 시트 ${esc(i.cell)}: ${esc(i.file)}`);
+  const typed = listCard("수기 입력 셀", "수식 열 중간에 숫자를 직접 적은 셀입니다.",
+    c.typed.items, c.typed.more, i => `「${esc(i.sheet)}」 시트 ${esc(i.cell)}: ${esc(i.value)}`);
+  const gaps = listCard("데이터 행 사이에 끼어 있는 행", "첫 열이 빈 행입니다. 벤치마크 행 같은 행인지, 저장할 때 어떻게 다룰지 확인해 주세요.",
+    c.gaps.items, c.gaps.more, i => `「${esc(i.sheet)}」 시트 ${esc(i.row)}행: ${esc(i.first)}`);
+  const empty = odd || same || amb || defs || out || winus || ext || typed || gaps ? "" : '<p class="lead">확인이 필요한 셀을 찾지 못했습니다.</p>';
+  return empty + defs + out + winus + ext + typed + gaps + odd + same + amb + `<div class="card"><div class="head"><b>분석 결과가 실제와 다를 때</b></div><div class="body"><p>${esc(D.guide.text)}</p><div class="flow">${esc(D.guide.example)}</div></div></div>`;
 }
 
 function origin() {
@@ -133,6 +174,14 @@ nav.querySelectorAll("button").forEach(b => b.onclick = () => {
   nav.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
   main.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === "s-" + b.dataset.t));
 });
+/* 낮 · 밤: 처음엔 시스템 설정을 따르고, 누르면 고른 쪽으로 고정한다 */
+const modeBtns = document.querySelectorAll(".mode button");
+function showMode() {
+  const m = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  modeBtns.forEach(b => { b.classList.toggle("is-on", b.dataset.t === m); b.setAttribute("aria-pressed", b.dataset.t === m); });
+}
+modeBtns.forEach(b => b.onclick = () => { document.documentElement.dataset.theme = b.dataset.t; showMode(); });
+showMode();
 </script>
 </body>
 </html>
