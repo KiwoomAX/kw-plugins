@@ -611,11 +611,13 @@ def build_three_stage(book, analysis, result, names, step_cache, defs=()):
     page = [t for t in found if t["id"] in used]
     in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
     mine = [d for d in defs if d["id"] in used or d.get("orphan")]
-    outside = sorted(({"sheet": d["sheet"], **i} for d in mine for i in d.get("outside", {}).get("items", [])),
+    sheets = {t["sheet"] for t in page}  # 혼자 적힌 칸 목록은 그 시트의 표 하나에만 붙으므로, 이 페이지가 쓰는 시트의 목록을 모두 모은다
+    outside = sorted(({"sheet": d["sheet"], **i} for d in defs for i in d.get("outside", {}).get("items", [])
+                      if d in mine or i.get("sheet", d["sheet"]) in sheets),
                      key=lambda i: not i["read_by_result"])  # 저장해야 하는 셀을 먼저 보인다
     return {"title": f"{result['table']} 결과표는 이렇게 만들어집니다",
             "outside": outside[:tb.OUTSIDE_LIMIT], "outside_more": max(0, len(outside) - tb.OUTSIDE_LIMIT),
-            "conflicts": definitions.conflicts(mine),
+            "conflicts": definitions.conflicts(defs, {d["id"] for d in mine}),
             "excel": Path(book.path).name, "path": str(book.path), "result": result["sheet"],
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
             "date_note": _date_note(analysis["date_groups"]), "screens": screens, "sources": src,
@@ -853,6 +855,9 @@ def main_all(a, book):
     pages = [out.parent / f"{out.stem}_r{n}{x}" for n in range(1, len(results["results"]) + 1) for x in (".html", "_steps")]
     if any(p.exists() for p in pages) and not a.replace:
         sys.exit("출력 파일 중복(다른 이름 필요)")
+    if a.replace:  # 결과표가 줄었을 때 지난 번호의 페이지가 남지 않게, 같은 출력 이름의 결과표 페이지를 모두 지운다
+        mark = re.compile(re.escape(out.stem) + r"_r\d+(\.html|_steps)")
+        pages += [p for p in out.parent.iterdir() if mark.fullmatch(p.name) and p not in pages]
     for p in pages:
         if p.is_dir():
             shutil.rmtree(p)

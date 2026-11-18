@@ -83,7 +83,7 @@ def typed_cells(book, tables):
     for t in tables:
         sheet, vals = t["sheet"], book.sheet_values(t["sheet"])
         for c in range(t["area"][1], t["area"][3] + 1):
-            formulas = [r for r in _rows(t) if _formula(book, sheet, (r, c))]
+            formulas = {r for r in _rows(t) if _formula(book, sheet, (r, c))}  # 행 수가 많은 표에서 느려지지 않게 집합으로 찾는다
             numbers = [r for r in _rows(t) if r not in formulas and _is_number(vals.get((r, c)))]
             if len(formulas) + len(numbers) >= ODD_MIN and len(formulas) >= ODD_SHARE * (len(formulas) + len(numbers)):
                 items += [{"sheet": sheet, "cell": a1(r, c), "value": show(vals[(r, c)])} for r in numbers]
@@ -111,9 +111,10 @@ def gap_rows(book, tables):
         key = t["area"][1] + next(i for i, h in enumerate(t["header"]) if h)
         tops = book.merge_top.get(sheet, {})
         keyed = [r for r in _rows(t) if tops.get((r, key), (r, key)) in vals or book.formula(sheet, (r, key))]
+        found = set(keyed)
         skip = {s["row"] for s in summary_rows(book, t)}
         for r in _rows(t):
-            if keyed and keyed[0] < r < keyed[-1] and r not in keyed and r not in skip:
+            if keyed and keyed[0] < r < keyed[-1] and r not in found and r not in skip:
                 first = next((vals[(r, c)] for c in range(t["area"][1], t["area"][3] + 1) if (r, c) in vals), None)
                 if first is not None:
                     items.append({"sheet": sheet, "row": r, "first": show(first)})

@@ -137,7 +137,8 @@ def propose(book, analysis, results, saved=()):
     read = tb.read_cells(book, found, ids)
     used = [t for t in found if t["id"] in ids]
     empty = {"items": [], "total": 0}
-    base = base_date_relation(book, found)
+    written = results.get("base_date") or {}
+    base = written if written.get("sheet") and written.get("cell") else base_date_relation(book, found)  # 개발자가 적은 기준일 칸을 먼저 쓴다
     owners = {}
     for sheet in dict.fromkeys(t["sheet"] for t in used):
         mine = [t for t in used if t["sheet"] == sheet]
@@ -145,8 +146,29 @@ def propose(book, analysis, results, saved=()):
         rest = [t for t in found if t["sheet"] == sheet and t["id"] not in ids]
         skip = {parse_a1(base["cell"])} if base and base["sheet"] == sheet else set()  # 기준일 셀은 결과 파일의 base_date 가 맡는다
         owners[biggest["id"]] = tb.outside_cells(book, sheet, mine, rest, read, skip)
+    for sheet in dict.fromkeys(s for s, _ in sorted(read)):
+        if any(t["sheet"] == sheet for t in used):
+            continue
+        # 쓰인 표가 없는 시트(설정 칸 하나만 있는 시트 등)는 그 시트를 읽는 표의 정의에 시트 이름을 붙여 넣는다
+        reader = next(t for t in used if any(s == sheet for s, _ in tb._formula_areas(book, t)))
+        skip = {parse_a1(base["cell"])} if base and base["sheet"] == sheet else set()
+        got = tb.outside_cells(book, sheet, [], [t for t in found if t["sheet"] == sheet], read, skip)
+        mine = owners.setdefault(reader["id"], {"items": [], "total": 0})
+        owners[reader["id"]] = {"items": mine["items"] + [{"sheet": sheet, **i} for i in got["items"]], "total": mine["total"] + got["total"]}
     old = {s["id"]: s for s in saved}
     return [_entry(book, t, classes, result_ids, owners.get(t["id"], empty), old.get(t["id"], {})) for t in used]
+
+
+def _cell_key(d, item):
+    """혼자 적힌 칸의 위치(시트, 칸 주소). 다른 시트에서 온 칸은 항목에 시트 이름이 붙는다."""
+    return item.get("sheet", d["sheet"]), item["where"]
+
+
+def _keep_outside(new, answers):
+    """혼자 적힌 칸에 정해 둔 처리를 시트와 칸 주소로 찾아 붙인다. 목록이 다른 표로 옮겨 가도 처리가 남게 하기 위해서다."""
+    items = [{**i, "action": answers.get(_cell_key(new, i), i)["action"],
+              "target": answers.get(_cell_key(new, i), {}).get("target", i.get("target", ""))} for i in new["outside"]["items"]]
+    return {**new, "outside": {**new["outside"], "items": items}}
 
 
 def _keep_answers(new, old):
@@ -155,10 +177,6 @@ def _keep_answers(new, old):
     out["target"], out["confirmed"] = old.get("target", new["target"]), old.get("confirmed", new["confirmed"])
     if out["confirmed"]:
         out["role"] = old.get("role", new["role"])
-    answers = {i["where"]: i for i in old.get("outside", {}).get("items", [])}
-    items = [{**i, "action": answers.get(i["where"], i)["action"], "target": answers.get(i["where"], {}).get("target", i.get("target", ""))}
-             for i in new["outside"]["items"]]
-    out["outside"] = {**new["outside"], "items": items}
     answers = {s["row"]: s["expr"] for s in old.get("summaries", [])}
     out["summaries"] = [{**s, "expr": {k: v if v is not None else answers.get(s["row"], {}).get(k) for k, v in s["expr"].items()}}
                         for s in new["summaries"]]
@@ -167,33 +185,40 @@ def _keep_answers(new, old):
 
 def merge(proposed, saved):
     """제안을 저장된 정의와 합친다. 분석이 찾지 못한 저장 항목은 지우지 않고 orphan 으로 표시한다."""
+    answers = {_cell_key(s, i): i for s in saved for i in s.get("outside", {}).get("items", [])}
     old = {s["id"]: s for s in saved}
-    out = [_keep_answers(p, old.pop(p["id"])) if p["id"] in old else p for p in proposed]
+    out = [_keep_outside(_keep_answers(p, old.pop(p["id"])) if p["id"] in old else p, answers) for p in proposed]
     return out + [{**s, "orphan": True} for s in old.values()]
 
 
-def conflicts(defs):
-    """개발자에게 확인할 항목 목록(문장)."""
+def conflicts(defs, only=None):
+    """개발자에게 확인할 항목 목록(문장). 겹침은 결과 파일의 정의 전체로 찾고, only(표 id 집합)를 주면 그 표의 문장만 낸다.
+    결과표 화면마다 다른 화면의 표와 겹치는 이름 · 범위도 보이게 하기 위해서다."""
     out = []
     targets = Counter(d.get("target") for d in defs if d.get("target"))
+    mine = lambda d: only is None or d["id"] in only  # noqa: E731
     for i, d in enumerate(defs):
         where = f"{d['sheet']}!{_area_text(d['area'])}"
+        for other in defs[i + 1:]:
+            if mine(d) or mine(other):
+                if other["sheet"] == d["sheet"] and not d.get("orphan") and not other.get("orphan") and tb._overlap(d["area"], other["area"]):
+                    out.append(f"{where}: 범위 겹침 {_area_text(other['area'])}")
+        if not mine(d):
+            continue
         if d.get("orphan"):
             out.append(f"{where}: 표를 찾지 못함")
             continue
         names = Counter(c["db"] for c in d.get("columns", []))
         out += [f"{where}: 열 이름 겹침 {n}" for n, count in names.items() if count > 1]
-        for other in defs[i + 1:]:
-            if other["sheet"] == d["sheet"] and not other.get("orphan") and tb._overlap(d["area"], other["area"]):
-                out.append(f"{where}: 범위 겹침 {_area_text(other['area'])}")
         if d.get("confirmed") and not d.get("target"):
             out.append(f"{where}: 대상 이름 없음")
         if targets.get(d.get("target"), 0) > 1:
             out.append(f"{where}: 대상 이름 겹침 {d['target']}")
         out += [f"{where}: 소계 식 확인 필요 {s['label']}" for s in d.get("summaries", []) if None in s["expr"].values()]
         for item in d.get("outside", {}).get("items", []):
+            cell = f"{item['sheet']}!{item['where']}" if item.get("sheet") else item["where"]
             if item["action"] == "확인 필요":
-                out.append(f"{where}: 혼자 있는 값 확인 필요 {item['where']}")
+                out.append(f"{where}: 혼자 있는 값 확인 필요 {cell}")
             elif item["action"] == "별도 표로 저장" and not item.get("target"):
-                out.append(f"{where}: 저장할 표 이름 없음 {item['where']}")
+                out.append(f"{where}: 저장할 표 이름 없음 {cell}")
     return out
