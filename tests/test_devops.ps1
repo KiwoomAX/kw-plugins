@@ -378,6 +378,53 @@ Assert 'managing-sandbox docs use no em dash' (-not (($sbText + $sbBackText) -ma
 $sbSelf = & python $sbPy --selfcheck 2>&1 | Out-String
 Assert 'sandbox.py --selfcheck passes' ($LASTEXITCODE -eq 0 -and $sbSelf -match 'selfcheck ok')
 
+Write-Host '--- submitting-ax-inquiry ---'
+# Submits AX support inquiries with the personal access key. The run cases empty the key and point
+# the address at a closed port, so none of them reaches a real server.
+$aiDir  = Join-Path $PluginDir 'skills/submitting-ax-inquiry'
+$aiPy   = Join-Path $aiDir 'scripts/ax_inquiry.py'
+$aiText = if (Test-Path $aiPy) { [IO.File]::ReadAllText($aiPy) } else { '' }
+Assert 'ax_inquiry.py ships under scripts/' (Test-Path $aiPy)
+Assert 'ax_inquiry.py imports fetch_manifest from searching-winus' ($aiText -match 'searching-winus' -and $aiText -match 'import fetch_manifest')
+Assert 'ax_inquiry.py does not follow redirects' ($aiText -match 'HTTPRedirectHandler' -and $aiText -cnotmatch '\bOPENER\b')
+Assert 'ax_inquiry.py pins its output to UTF-8' ($aiText -match 'sys\.stdout\.reconfigure\(encoding="utf-8"\)' -and $aiText -match 'sys\.stderr\.reconfigure\(encoding="utf-8"\)')
+Assert 'ax_inquiry.py reads its address override' ($aiText -match 'AX_INQUIRY_URL')
+Assert 'ax_inquiry.py writes no temp copy of .env' ($aiText -notmatch 'tempfile|NamedTemporaryFile')
+Assert 'ax_inquiry.py declares no script dependencies' ($aiText -notmatch '(?m)^# /// script')
+Assert 'ax_inquiry.py carries no python3, date, 실측, Kiwoom-Manager or em dash' (-not ($aiText -match '\bpython3\b|\b20\d\d-\d\d-\d\d\b|실측|Kiwoom-Manager|—'))
+
+$aiTmp = Join-Path ([IO.Path]::GetTempPath()) ('ax-inquiry-test-' + [guid]::NewGuid().ToString('N'))
+$null = New-Item -ItemType Directory $aiTmp
+$savedKey = $env:KIWOOM_ACCESS_KEY; $savedUrl = $env:AX_INQUIRY_URL
+try {
+    Remove-Item Env:KIWOOM_ACCESS_KEY -ErrorAction SilentlyContinue
+    $env:AX_INQUIRY_URL = 'http://127.0.0.1:9'
+    $env:PYTHONIOENCODING = 'cp949'      # without the UTF-8 pin the Korean output fails here
+    $envFile = Join-Path $aiTmp '.env'
+    [IO.File]::WriteAllText($envFile, "API_KEY=secret-v`n1BAD=x`n")
+    $out = (& python $aiPy env-keys $envFile 2>&1 | Out-String)
+    Assert 'env-keys prints names and reasons only' ($LASTEXITCODE -eq 0 -and $out -match 'API_KEY' -and $out -match '2번째 줄: 키 이름이 숫자로 시작합니다' -and $out -notmatch 'secret-v')
+    $draft = Join-Path $aiTmp 'draft.json'
+    [IO.File]::WriteAllText($draft, '{"repo_name": "r", "body": "b", "keys": {"MISSING": "x"}}')
+    $out = (& python $aiPy send-env --draft $draft --env $envFile 2>&1 | Out-String)
+    Assert 'send-env stops on a key the .env lacks, before the key check' ($LASTEXITCODE -eq 3 -and $out.StartsWith('입력 오류'))
+    [IO.File]::WriteAllText($draft, '{"repo_name": "r", "body": "b", "keys": ["API_KEY"]}')
+    $out = (& python $aiPy send-env --draft $draft --env $envFile 2>&1 | Out-String)
+    Assert 'send-env stops when keys is not an object' ($LASTEXITCODE -eq 3 -and $out.StartsWith('입력 오류'))
+    $quoted = Join-Path $aiTmp 'quoted.env'
+    [IO.File]::WriteAllText($quoted, "API_KEY=`"secret-v`nOTHER=secret-o`n")
+    [IO.File]::WriteAllText($draft, '{"repo_name": "r", "body": "b", "keys": {"API_KEY": "x"}}')
+    $out = (& python $aiPy fix-env --draft $draft --env $quoted 2>&1 | Out-String)
+    Assert 'fix-env closes the picked key quote and prints no value' ($LASTEXITCODE -eq 0 -and $out -match '1번째 줄 API_KEY 따옴표 미닫힘' -and $out -notmatch 'secret-' -and [IO.File]::ReadAllText($quoted).StartsWith("API_KEY=`"secret-v`""))
+    $out = (& python $aiPy send-inquiry --draft (Join-Path $aiTmp 'none.json') 2>&1 | Out-String)
+    Assert 'send-inquiry stops on a missing draft' ($LASTEXITCODE -eq 3 -and $out.StartsWith('입력 오류'))
+} finally {
+    Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
+    if ($null -ne $savedKey) { $env:KIWOOM_ACCESS_KEY = $savedKey }
+    if ($null -ne $savedUrl) { $env:AX_INQUIRY_URL = $savedUrl } else { Remove-Item Env:AX_INQUIRY_URL -ErrorAction SilentlyContinue }
+    Remove-Item -Recurse -Force $aiTmp -ErrorAction SilentlyContinue
+}
+
 Write-Host '--- searching-document ---'
 # A reference skill: one SKILL.md and no scripts. The user's own Claude calls vdb-handler with it.
 $sdDir  = Join-Path $PluginDir 'skills/searching-document'
