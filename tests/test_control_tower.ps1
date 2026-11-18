@@ -743,10 +743,12 @@ Check '사내 지침 템플릿이 금융투자협회 홈페이지에 접속하�
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
     ($tplSrc -match 'kofia\.or\.kr') -and ($tplSrc -match '에는 접속하지 않는다')
 }
-# AX팀 문의는 스킬마다 따로 적지 않고 사내 지침 한 곳에서 문의 화면으로 안내한다. 초안은 묻고 나서 쓴다.
-Check '사내 지침 템플릿이 AX팀 문의를 문의 화면으로 안내하고 초안은 묻고 쓴다' {
+# AX팀 문의는 사내 지침 한 곳에서 접수 스킬로 안내한다. 초안을 보여 주고 승인을 받은 뒤 보낸다.
+Check '사내 지침 템플릿이 AX팀 문의를 접수 스킬로 보내고 승인을 묻는다' {
     $tplSrc = Get-Content (Join-Path $plugin 'templates\claude-md-ko.md') -Raw -Encoding UTF8
-    ($tplSrc -match [regex]::Escape('http://192.7.9.45/ax/')) -and ($tplSrc -match [regex]::Escape('문의 초안을 작성해 드릴까요?'))
+    ($tplSrc -match [regex]::Escape('http://192.7.9.45/ax/')) -and ($tplSrc -match [regex]::Escape('이렇게 보낼까요?')) -and
+    ($tplSrc -match 'submitting-ax-inquiry') -and -not ($tplSrc -match [regex]::Escape('문의 초안을 작성해 드릴까요?')) -and
+    -not ($tplSrc -match [regex]::Escape('문의 화면을 열까요?'))
 }
 # 배포 플러그인은 권장이라 없는 PC 가 있다. 유형 이름을 사내 지침에 두어야 없는 유형을 지어내지 않는다.
 # 이름은 문의 화면(notice-board)의 유형 목록과 글자가 같아야 한다.

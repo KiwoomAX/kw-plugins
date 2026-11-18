@@ -47,7 +47,7 @@ MINE = "http://192.7.9.45/ax/mine"
 TIMEOUT_SECONDS = 60
 MAX_BODY = 1_048_576  # 게이트웨이 접근 키 경로의 본문 상한
 
-# notice-board(src/backend/notice/env_file.py)와 같은 규칙이다. 같은 사례 파일로 시험한다.
+# AX 지원 문의 서비스가 .env 를 읽는 규칙과 같다. 서비스와 같은 사례 파일로 시험한다.
 KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 LINE_BREAK = re.compile(r"\r\n|\n|\r")
 JS_SPACE = ("\t\n\x0b\x0c\r \xa0            "
@@ -82,7 +82,7 @@ def key_reason(name: str) -> str | None:
     return "키 이름에 영문·숫자·_ 가 아닌 글자가 있습니다"
 
 
-def _decode_like_notice(data: bytes) -> str:
+def _decode_like_service(data: bytes) -> str:
     if data[:2] == b"\xff\xfe":
         return data[2:].decode("utf-16-le", errors="replace")
     if data[:2] == b"\xfe\xff":
@@ -92,11 +92,11 @@ def _decode_like_notice(data: bytes) -> str:
 
 
 def read_env_keys(data: bytes) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
-    """notice-board 와 같은 규칙으로 (키 이름, 줄 번호) 목록과 (줄 번호, 이유) 목록을 돌려준다."""
+    """AX 지원 문의 서비스와 같은 규칙으로 (키 이름, 줄 번호) 목록과 (줄 번호, 이유) 목록을 돌려준다."""
     keys: list[tuple[str, int]] = []
     problems: list[tuple[int, str]] = []
     quote: str | None = None
-    for number, raw in enumerate(LINE_BREAK.split(_decode_like_notice(data)), start=1):
+    for number, raw in enumerate(LINE_BREAK.split(_decode_like_service(data)), start=1):
         if quote:
             if quote in raw:
                 quote = None
@@ -145,8 +145,8 @@ class _Text:
 
 
 class _Entry:
-    def __init__(self, key: str | None, first: int, last: int, quote: str | None, closed: bool):
-        self.key, self.first, self.last, self.quote, self.closed = key, first, last, quote, closed
+    def __init__(self, key: str | None, reason: str | None, first: int, last: int, quote: str | None, closed: bool):
+        self.key, self.reason, self.first, self.last, self.quote, self.closed = key, reason, first, last, quote, closed
 
 
 def _entries(text: _Text) -> list[_Entry]:
@@ -165,18 +165,19 @@ def _entries(text: _Text) -> list[_Entry]:
             line = line[len("export "):]
         name, rest = line.split("=", 1)
         name, rest = name.strip(JS_SPACE), rest.strip(JS_SPACE)
-        key = None if key_reason(name) else name
+        reason = key_reason(name)
+        key = None if reason else name
         if rest[:1] in QUOTES and rest[0] not in rest[1:]:
             quote = rest[0]
             end = next((j for j in range(i + 1, n) if quote in text.lines[j]), None)
             if end is None:
-                out.append(_Entry(key, i, i, quote, False))
+                out.append(_Entry(key, reason, i, i, quote, False))
                 i += 1
             else:
-                out.append(_Entry(key, i, end, quote, True))
+                out.append(_Entry(key, reason, i, end, quote, True))
                 i = end + 1
             continue
-        out.append(_Entry(key, i, i, None, True))
+        out.append(_Entry(key, reason, i, i, None, True))
         i += 1
     return out
 
@@ -345,7 +346,7 @@ def send(path: str, fields: dict[str, str], env: bytes | None = None) -> Stop:
             return Stop(0, f"접수 완료: #{ticket} {BASE.rstrip('/')}/mine?id={ticket}")
         return Stop(6, "접수 확인 필요: 201 응답에 접수 번호 없음", NO_RESEND)
     if status == 401 and is_json:
-        lines = ["키 거절: notice-board 가 접근 키를 거절함"]
+        lines = ["키 거절: AX 지원 문의 서비스가 접근 키를 거절함"]
         new = registry_key()
         if new and new != key:
             lines.append("- 새 키가 설정됨: " + REOPEN)
@@ -366,10 +367,14 @@ ENV_FIELDS = ("repo_name", "body")
 
 
 def cmd_env_keys(args) -> Stop:
+    """닫히지 않은 따옴표 뒤의 줄도 읽어 알린다. 그 줄은 fix-env 가 닫으므로, 뒤의 키도 등록할 키로 고를 수 있어야 한다.
+
+    닫히지 않은 따옴표가 없으면 AX 지원 문의 서비스가 읽는 결과(read_env_keys)와 같다.
+    """
     data = _read_bytes(args.env, ".env")
-    keys, problems = read_env_keys(data)
-    lines = [name for name, _ in keys]
-    lines += [f"{line}번째 줄: {reason}" for line, reason in problems]
+    entries = _entries(_Text(data))
+    lines = [e.key for e in entries if e.key]
+    lines += [f"{e.first + 1}번째 줄: {e.reason}" for e in entries if e.reason]
     lines += [f"고칠 수 있음: {line}번째 줄 {key} {kind}" for line, key, kind in find_fixable(data)]
     return Stop(0, *lines)
 

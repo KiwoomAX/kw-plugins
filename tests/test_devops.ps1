@@ -424,6 +424,20 @@ try {
     if ($null -ne $savedUrl) { $env:AX_INQUIRY_URL = $savedUrl } else { Remove-Item Env:AX_INQUIRY_URL -ErrorAction SilentlyContinue }
     Remove-Item -Recurse -Force $aiTmp -ErrorAction SilentlyContinue
 }
+$aiMd   = Join-Path $aiDir 'SKILL.md'
+$aiMdText = if (Test-Path $aiMd) { [IO.File]::ReadAllText($aiMd) } else { '' }
+Assert 'submitting-ax-inquiry SKILL.md ships' (Test-Path $aiMd)
+Assert 'submitting-ax-inquiry frontmatter name matches the folder' (([regex]::Match($aiMdText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'submitting-ax-inquiry')
+Assert 'submitting-ax-inquiry SKILL.md carries no python3, date, 실측, Kiwoom-Manager or em dash' (-not ($aiMdText -match '\bpython3\b|\b20\d\d-\d\d-\d\d\b|실측|Kiwoom-Manager|—'))
+$aiCalls = @([regex]::Matches($aiMdText, '[^\s"]*ax_inquiry\.py'))
+Assert 'ax_inquiry.py is called through CLAUDE_SKILL_DIR' ($aiCalls.Count -gt 0 -and @($aiCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)
+$rules = @('fix-env 로만 하고, 초안과 함께 승인받은 뒤 한다', '「이렇게 보낼까요?」라고 묻는다', '초안을 보여 준 답에서 전송 명령을 실행하지 않는다',
+           '접수 경로 없음이나 접수 확인 필요로 끝나면 다시 보내지 않는다', '전송 명령은 자동 허용 목록에 넣지 않는다',
+           '키 이름은 env-keys 출력으로만 본다', '브라우저를 열지 않는다')
+Assert 'submitting-ax-inquiry SKILL.md states every rule' (@($rules | Where-Object { $aiMdText -notmatch [regex]::Escape($_) }).Count -eq 0)
+$adopt = [IO.File]::ReadAllText((Join-Path $Repo 'plugins/kw-dashboard/skills/building-kiwoom-dashboard/adopting-feature-repo.md'))
+Assert 'adopting-feature-repo sends env registration to the skill' ($adopt -match 'submitting-ax-inquiry' -and $adopt -notmatch [regex]::Escape('Claude 는 `.env` 를 열지 않는다'))
+Assert 'deploying SKILL.md sends env registration to the skill' ($text -match 'submitting-ax-inquiry' -and $text -notmatch '그 키만 남긴 파일로')
 
 Write-Host '--- searching-document ---'
 # A reference skill: one SKILL.md and no scripts. The user's own Claude calls vdb-handler with it.
