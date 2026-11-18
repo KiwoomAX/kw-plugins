@@ -38,9 +38,25 @@ def read_table(book, definition):
     return out
 
 
+NUMBER = {"number", "numeric"}
+SERIAL_ZERO = dt.datetime(1899, 12, 30)
+
+
+def _serial(value):
+    """날짜 · 시각 표시 형식 때문에 날짜로 읽힌 숫자 칸을 엑셀 일련값으로 되돌린다."""
+    if isinstance(value, dt.time):
+        return (value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1e6) / 86400
+    days = (value - SERIAL_ZERO).total_seconds() / 86400
+    return round(days - 1 if 1 < days < 61 else days, 10)  # openpyxl 은 60 이하 일련값에 하루를 더해 읽는다(1900년 윤년 오류 보정)
+
+
 def _wire(value, kind):
     if value is None or kind == "integer":
         return value
+    if value == "" and kind in NUMBER | {"date", "timestamptz"}:  # DB 가 숫자 · 날짜 열의 빈 글자를 거절한다
+        return None
+    if kind in NUMBER and isinstance(value, (dt.datetime, dt.time)):
+        value = _serial(value)
     if isinstance(value, (dt.datetime, dt.date)):
         return value.isoformat()[:10]
     if isinstance(value, float) and value.is_integer():
@@ -83,14 +99,33 @@ def _date_digits(v):
     return "".join(ch for ch in str(v) if ch.isdigit())
 
 
+def _group_heads(d, vals, row_map):
+    """{(행, 열): 위 행 값}. 소계 묶음 열의 빈칸은 엑셀에서 「위와 같음」이므로 위 데이터 행의 값으로 읽는다. 소계 행을 넘어서는 채우지 않는다."""
+    cols = {column_index_from_string(c["col"]) for c in d["columns"] if c["db"] in {s["group_by"] for s in d["summaries"] if s["group_by"]}}
+    stops, out = {s["row"] for s in d["summaries"]}, {}
+    for col in cols:
+        last, last_row = None, None
+        for r in sorted(row_map.values()):
+            if last_row is not None and any(last_row < s < r for s in stops):
+                last = None
+            value = vals.get((r, col))
+            if value in (None, "") and last is not None:
+                out[(r, col)] = last
+            else:
+                last = value
+            last_row = r
+    return out
+
+
 def _compare_cells(d, vals, rows, row_map, digits, report):
     name, by_seq = d["sheet"], {r["row_seq"]: r for r in rows}
     report["extra"] += [{"table": d["target"], "row_seq": s} for s in by_seq if s not in row_map]
+    heads = _group_heads(d, vals, row_map)
     for seq, r in row_map.items():
         row = by_seq.get(seq)
         for c in d["columns"]:
             col, cell = column_index_from_string(c["col"]), f"{name}!{c['col']}{r}"
-            cached = vals.get((r, col))
+            cached = heads.get((r, col), vals.get((r, col)))
             if isinstance(cached, str) and cached.startswith("#REF"):
                 report["ref_error"].append(cell)
             elif row is None or c["db"] not in row:

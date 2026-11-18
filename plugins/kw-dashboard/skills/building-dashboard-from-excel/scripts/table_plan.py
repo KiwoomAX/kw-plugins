@@ -195,11 +195,13 @@ def main(argv=None):
     ap.add_argument("results")
     ap.add_argument("--slug", required=True, help="엑셀의 영문 이름(소문자 · 숫자 · _)")
     ap.add_argument("--sources", required=True, help="4단계에서 정한 표별 출처 JSON {표 id: winus | external | manual}")
+    ap.add_argument("--schema", required=True, help="개발자가 고른 저장 스키마. 화면 API 가 이 스키마의 표를 연다")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     if not re.fullmatch(r"[a-z0-9_]+", a.slug):
         sys.exit(f"엑셀 영문 이름 오류: {a.slug}")
     plan = build(json.loads(Path(a.results).read_text(encoding="utf-8-sig")), a.slug, json.loads(Path(a.sources).read_text(encoding="utf-8-sig")))
+    plan["schema"] = a.schema
     Path(a.out).write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"만들 표 {len(plan['tables'])}개: {a.out}")
 

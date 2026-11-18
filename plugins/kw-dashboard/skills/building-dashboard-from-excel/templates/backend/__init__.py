@@ -16,10 +16,11 @@ def _calculate():
     return module.calculate
 
 
-def create_router(schema, user_of=None):
-    """기능의 API. user_of(request) 는 로그인한 사람의 이름을 돌려주고, 업로드 이력에만 남는다."""
-    import router
+def create_router(user_of=None, client=None):
+    """기능의 API. 스키마는 table_plan.json 의 schema 를 쓴다.
+    user_of(request) 는 로그인한 사람의 이름을 돌려주고, 업로드 이력에만 남는다. client 를 주지 않으면 샌드박스에 저장한다."""
+    import api
     import store
     import winus
     plan = json.loads((HERE / "table_plan.json").read_text(encoding="utf-8"))
-    return router.make_router(plan, store.Store(store.SandboxClient(), schema, plan), winus, _calculate(), user_of or (lambda request: ""))
+    return api.make_router(plan, store.Store(client or store.SandboxClient(), plan["schema"], plan), winus, _calculate(), user_of or (lambda request: ""))

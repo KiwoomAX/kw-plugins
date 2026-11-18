@@ -1,9 +1,11 @@
-"""개발 때 엑셀 저장값으로 표를 처음 채울 적재 파일을 만든다. 적재는 개발자가 터미널에서 실행한다.
+"""개발 때 표를 처음 채울 적재 파일을 만든다. 적재는 개발자가 터미널에서 실행한다.
+원천 · 수기 입력 · 고정값 표는 엑셀 저장값으로, 결과표는 그 표들로 계산 코드(calc.py)를 실행한 결과로 채운다.
 
-실행: python initial_load.py <엑셀> --plan table_plan.json --results explain_results.json --base-date YYYY-MM-DD --schema <스키마> --out load
+실행: python initial_load.py <엑셀> --plan table_plan.json --results explain_results.json --calc calc.py --base-date YYYY-MM-DD --schema <스키마> --out load
 """
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import re
 import sys
@@ -103,28 +105,46 @@ def _write(path, body):
     path.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def write_requests(book, plan, results, base_date, schema, out):
+def calculated(plan, calculate, wired, base_date, stamp):
+    """결과표 행. 엑셀 저장값 대신 원천 · 수기 입력 · 고정값 표로 계산 코드를 실행한다. 같은 기준일을 나중에 올려도 값이 같게 하기 위해서다."""
+    by_name = {t["name"]: t for t in plan["tables"]}
+    got = calculate({n: r for n, r in wired.items() if by_name[n]["stage"] != "calc"}, base_date)
+    out = {}
+    for t in plan["tables"]:
+        if t["stage"] != "calc" or t["name"].endswith("_dates"):
+            continue
+        target = t["name"].split("__", 2)[2]
+        if not got.get(target):
+            sys.exit(f"계산 결과가 비어 있습니다: {target}. 적재 파일을 쓰지 않았습니다")
+        out[t["name"]] = verify_calc.wire_values([{**stamp, **r} for r in got[target]], t["columns"])
+    return out
+
+
+def write_requests(book, plan, results, base_date, schema, out, calculate):
     """표마다 적재 요청 파일을 쓴다. 파일 이름의 앞 글자(overwrite · insert)가 실행할 명령이다."""
+    by_name = {t["name"]: t for t in plan["tables"]}
+    wired = {name: verify_calc.wire_values(r, by_name[name]["columns"]) for name, r in rows(book, plan, results["definitions"], base_date).items()}
+    saved = saved_time(book.path)
+    wired.update(calculated(plan, calculate, wired, base_date, {"base_date": base_date, "base_time": saved, "loaded_at": saved}))
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    by_name = {t["name"]: t for t in plan["tables"]}
-    for name, table_rows in rows(book, plan, results["definitions"], base_date).items():
+    for name, table_rows in wired.items():
         if not table_rows:  # 처음에 비어 있는 표(override 등)는 보낼 행이 없다
             continue
-        wired = verify_calc.wire_values(table_rows, by_name[name]["columns"])
         if by_name[name]["stage"] == "fixed":
-            _write(out / f"insert_{name}.json", {"schema": schema, "table": name, "mode": "append", "rows": wired})
+            _write(out / f"insert_{name}.json", {"schema": schema, "table": name, "mode": "append", "rows": table_rows})
         else:
-            _write(out / f"overwrite_{name}.json", {"schema": schema, "table": name, "where": {"base_date": base_date}, "rows": wired})
-    _write(out / "insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], base_date, saved_time(book.path))]})
+            _write(out / f"overwrite_{name}.json", {"schema": schema, "table": name, "where": {"base_date": base_date}, "rows": table_rows})
+    _write(out / "insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], base_date, saved)]})
     _write(out / "insert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "append", "rows": table_plan.registry_rows(plan, results, schema)})
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="엑셀 저장값으로 첫 적재 파일을 만든다")
+    ap = argparse.ArgumentParser(description="엑셀 저장값과 계산 결과로 첫 적재 파일을 만든다")
     ap.add_argument("excel")
     ap.add_argument("--plan", required=True)
     ap.add_argument("--results", required=True)
+    ap.add_argument("--calc", required=True, help="7단계에서 엑셀 대조에 합격한 calc.py")
     ap.add_argument("--base-date", required=True)
     ap.add_argument("--schema", required=True)
     ap.add_argument("--out", required=True)
@@ -133,7 +153,10 @@ def main(argv=None):
     import explain_cell
     plan = json.loads(Path(a.plan).read_text(encoding="utf-8-sig"))
     results = json.loads(Path(a.results).read_text(encoding="utf-8-sig"))
-    write_requests(explain_cell.Book(a.excel), plan, results, a.base_date, a.schema, a.out)
+    spec = importlib.util.spec_from_file_location("feature_calc", a.calc)
+    calc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(calc)
+    write_requests(explain_cell.Book(a.excel), plan, results, a.base_date, a.schema, a.out, calc.calculate)
     print(f"적재 파일: {a.out}")
 
 
