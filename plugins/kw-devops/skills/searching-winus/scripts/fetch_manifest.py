@@ -212,29 +212,45 @@ def cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
+def screens(q: dict) -> str:
+    """쿼리가 쓰이는 화면. DBGateway 가 화면 표를 싣기 전의 응답에는 칸이 없다."""
+    return ", ".join(f"{sc['system']} {sc['screen_code']} {sc['screen_name']}" for sc in q.get("screens") or [])
+
+
 def render_index(index: dict[str, list[dict]]) -> str:
     tables = index["tables"]
     # DBGateway 는 스킬이 테이블 목차를 읽기 전까지 WFS 테이블 쿼리를 승인 쿼리 목차에도 싣는다. 한 번만 보이게 뺀다.
     table_ids = {q["query_id"] for q in tables}
     queries = [q for q in index["queries"] if q["query_id"] not in table_ids]
-    lines = ["# DBGateway 쿼리 목차", "", "## 승인 쿼리", "", "| id | 이름 | 설명 | 사용 테이블 |", "|---|---|---|---|"]
-    lines += [f"| {q['query_id']} | {cell(q['query_name'])} | {cell(q['description'])} | {cell(', '.join(q['tables']))} |"
-              for q in queries] or ["| (없음) | | | |"]
-    lines += ["", "## 테이블 쿼리", "", "| id | 이름 | 종류 | 설명 | 사용 테이블 |", "|---|---|---|---|---|"]
-    lines += [f"| {q['query_id']} | {cell(q['query_name'])} | {q['type']} | {cell(q['description'])}"
-              f" | {cell(', '.join(q['tables']))} |" for q in tables] or ["| (없음) | | | | |"]
+    lines = ["# DBGateway 쿼리 목차", "", "## 승인 쿼리", "", "| id | 이름 | 화면 | 설명 | 사용 테이블 |", "|---|---|---|---|---|"]
+    lines += [f"| {q['query_id']} | {cell(q['query_name'])} | {cell(screens(q))} | {cell(q['description'])}"
+              f" | {cell(', '.join(q['tables']))} |" for q in queries] or ["| (없음) | | | | |"]
+    lines += ["", "## 테이블 쿼리", "", "| id | 이름 | 종류 | 화면 | 설명 | 사용 테이블 |", "|---|---|---|---|---|---|"]
+    lines += [f"| {q['query_id']} | {cell(q['query_name'])} | {q['type']} | {cell(screens(q))} | {cell(q['description'])}"
+              f" | {cell(', '.join(q['tables']))} |" for q in tables] or ["| (없음) | | | | | |"]
     return "\n".join(lines)
 
 
+def render_argument(a: dict) -> str:
+    """인자 하나. 형식과 설명은 DBGateway 가 인자 표에 적힌 인자에만 싣는다."""
+    parts = [a["kind"], *([f"최대 {a['max_items']}개"] if a.get("max_items") else []),
+             *([f"형식 {a['format']}"] if a.get("format") else [])]
+    return f"`{a['name']}`({', '.join(parts)})" + (f": {a['note']}" if a.get("note") else "")
+
+
 def render_detail(q: dict) -> str:
-    args = ", ".join(f"`{a['name']}`({a['kind']}" + (f", 최대 {a['max_items']}개" if a.get("max_items") else "") + ")"
-                     for a in q["arguments"]) or "없음"
     lines = [f"## id {q['query_id']} · {q['query_name']}", "", f"- 설명: {q['description']}",
              f"- 사용 테이블: {', '.join(q['tables'])}"]
+    if screens(q):
+        lines.append(f"- 화면: {screens(q)}")
     # 테이블 쿼리의 상세에만 종류가 있다.
     if "type" in q:
         lines.append(f"- 종류: 테이블 쿼리({q['type']})")
-    lines.append(f"- 인자: {args}")
+    # 설명이 붙으면 인자마다 한 줄로 낸다. 설명이 쉼표를 품어 한 줄로 이으면 인자 경계가 흐려진다.
+    if any(a.get("note") for a in q["arguments"]):
+        lines += ["- 인자:", *(f"  - {render_argument(a)}" for a in q["arguments"])]
+    else:
+        lines.append(f"- 인자: {', '.join(render_argument(a) for a in q['arguments']) or '없음'}")
     lines += [f"- 기간: `{p['start']}`~`{p['end']}`, 종료일 − 시작일 최대 {p['max_days_between']}일"
               for p in q.get("periods", [])]
     if "type" in q:
@@ -298,10 +314,17 @@ def _selfcheck() -> None:
         else:
             raise AssertionError("복사본이 없는데 못 받으면 멈춘다")
         out = render_index(new)
-        assert "| 1 | 가 | 설명 \\| 하나 | T_A, T_B |" in out, out
-        assert out.count("| 3 | 다 |") == 1 and "| 3 | 다 | WFS | 셋 | T_D |" in out, "두 목차에 다 있는 쿼리는 테이블 쿼리 표에만 낸다"
+        assert "| 1 | 가 |  | 설명 \\| 하나 | T_A, T_B |" in out, out
+        assert out.count("| 3 | 다 |") == 1 and "| 3 | 다 | WFS |  | 셋 | T_D |" in out, "두 목차에 다 있는 쿼리는 테이블 쿼리 표에만 낸다"
         assert "C1" not in out, "출력 컬럼은 목차에 내지 않는다"
-        assert "| (없음) | | | | |" in render_index(other), "테이블 쿼리가 없으면 (없음)"
+        assert "| (없음) | | | | | |" in render_index(other), "테이블 쿼리가 없으면 (없음)"
+        # 화면은 화면 표에서 온 칸이다. 화면 번호 · 이름으로 쿼리를 찾을 때 설명 문장 대신 이 칸을 본다
+        fs = {"system": "WINUS", "screen_code": "FS852001", "screen_name": "펀드별수익률"}
+        fas = {"system": "FAS", "screen_code": "8270", "screen_name": "자금현황"}
+        shown = render_index({"queries": [{**new["queries"][0], "screens": [fs, fas]}], "tables": [{**wfs, "type": "WFS",
+                              "columns": ["C1"], "screens": [fas]}]})
+        assert "| 1 | 가 | WINUS FS852001 펀드별수익률, FAS 8270 자금현황 | 설명 \\| 하나 | T_A, T_B |" in shown, shown
+        assert "| 3 | 다 | WFS | FAS 8270 자금현황 | 셋 | T_D |" in shown, shown
         plain = {"query_id": 7, "query_name": "기준일", "description": "d", "tables": ["T"], "sql": "SELECT 1 FROM T",
                  "sql_analysis": SQL_OK, "problems": [],
                  "arguments": [{"name": "오늘", "kind": "스칼라"}, {"name": "codes", "kind": "목록", "max_items": 30}]}
@@ -318,6 +341,15 @@ def _selfcheck() -> None:
         assert "- 종류: 테이블 쿼리(WINUS)" in d and "- 출력 컬럼: 펀드코드, 평가금액" in d, d
         assert "- 기간: `from_dt`~`to_dt`, 종료일 − 시작일 최대 31일" in d and "- 부를 수 없음: 폭 조건 없음" in d, d
         assert "- 출력 컬럼: 알 수 없음" in render_detail({**table, "columns": None})
+        # 인자 표에 적힌 인자는 형식과 설명이 붙는다. 설명이 있으면 인자마다 한 줄로 낸다
+        noted = {**plain, "screens": [fs], "arguments": [
+            {"name": "오늘", "kind": "스칼라", "format": "yyyymmdd"},
+            {"name": "codes", "kind": "목록", "max_items": 30, "format": "code", "note": "내부코드, 3자리"}]}
+        d = render_detail(noted)
+        assert "- 화면: WINUS FS852001 펀드별수익률" in d, d
+        assert "- 인자:\n  - `오늘`(스칼라, 형식 yyyymmdd)\n  - `codes`(목록, 최대 30개, 형식 code): 내부코드, 3자리" in d, d
+        d = render_detail({**plain, "arguments": [{"name": "오늘", "kind": "스칼라", "format": "yyyymmdd"}]})
+        assert "- 인자: `오늘`(스칼라, 형식 yyyymmdd)" in d and "- 화면" not in d, d
         _selfcheck_registry()
         _selfcheck_key_and_http()
     finally:
