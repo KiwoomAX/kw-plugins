@@ -42,8 +42,8 @@ def _fixed(plan, definitions):
     for d in definitions:
         for item in d["outside"]["items"]:
             name = {"개발 고정값 표에 저장": f"{excel}__fixed__worker_cells", "별도 표로 저장": f"{excel}__fixed__{item.get('target')}"}.get(item["action"])
-            if name:
-                out[name].append({"sheet": d["sheet"], "cell": item["where"], "value": item["value"], "formula": item["formula"]})
+            if name:  # 쓰인 표가 없는 시트의 칸은 항목에 시트 이름이 붙어 온다
+                out[name].append({"sheet": item.get("sheet", d["sheet"]), "cell": item["where"], "value": item["value"], "formula": item["formula"]})
     return out
 
 
