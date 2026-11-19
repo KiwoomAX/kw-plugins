@@ -301,30 +301,42 @@ $dbShipped = @(Get-ChildItem (Join-Path $DbDir 'scripts') -File -ErrorAction Sil
 Assert 'the skill ships fetch_manifest.py and nothing else' (@($dbShipped).Count -eq 1 -and $dbShipped[0].Name -eq 'fetch_manifest.py')
 $dbText  = if (Test-Path $dbMd) { [IO.File]::ReadAllText($dbMd) } else { '' }
 $fetText = if (Test-Path $dbFetch) { [IO.File]::ReadAllText($dbFetch) } else { '' }
-$dbAll   = $dbText + "`n" + $fetText
+# SKILL.md is read on every use, so situational parts live in reference files. SKILL.md must link each one,
+# and the rules below that forbid a word cover those files too; only SKILL.md must carry the code and commands.
+$dbRefs  = @('access-key.md', 'client-code.md', 'table-query.md')
+foreach ($ref in $dbRefs) {
+    Assert "searching-winus ships $ref" (Test-Path (Join-Path $DbDir $ref))
+    Assert "searching-winus SKILL.md links $ref" ($dbText -match [regex]::Escape("]($ref)"))
+}
+$dbRefText = @($dbRefs | ForEach-Object { $p = Join-Path $DbDir $_; if (Test-Path $p) { [IO.File]::ReadAllText($p) } }) -join "`n"
+$dbDocs  = $dbText + "`n" + $dbRefText
+$dbAll   = $dbDocs + "`n" + $fetText
+Assert 'searching-winus reference files carry no CLAUDE_SKILL_DIR (not substituted there)' (-not ($dbRefText -match 'CLAUDE_SKILL_DIR'))
+# fetch_manifest.py's key refusal names access-key.md by path, because managing-sandbox prints the same refusal.
+Assert 'the key refusal points at access-key.md' ($fetText -match '"access-key\.md"')
 $dbName  = ([regex]::Match($dbText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value
 Assert 'searching-winus frontmatter name matches the folder' ($dbName -eq 'searching-winus')
 Assert 'searching-winus files point at no personal skills folder' (-not ($dbAll -match '~/\.claude/skills'))
 Assert 'searching-winus files call no python3' (-not ($dbAll -match '\bpython3\b'))
 Assert 'searching-winus files carry no build-history notes' (-not ($dbAll -match '\b20\d\d-\d\d-\d\d\b|실측'))
-Assert 'nothing shipped to skill users names the registry tables' (-not ($dbText + "`n" + $fetText -match 'kw_deploy'))
+Assert 'nothing shipped to skill users names the registry tables' (-not ($dbAll -match 'kw_deploy'))
 # The skill reads the manifest and nothing else: publishing it is somebody else's job elsewhere.
 Assert 'the skill says nothing about publishing the manifest' (-not ($dbAll -match '관리자|build_manifest'))
 # Where the manifest comes from and how long a copy is kept is the script's business. The reader
 # only needs the command and what to do with a warning line, so the skill must not describe either.
-Assert 'the skill does not describe the cache or its source' (-not ($dbText -match 'MongoDB|\.claude|캐시|TTL'))
+Assert 'the skill does not describe the cache or its source' (-not ($dbDocs -match 'MongoDB|\.claude|캐시|TTL'))
 # The skill is read-only: every registered query is a SELECT. A query goes out as POST with its
 # arguments in the body (DBGateway ADR-0040), so POST to /winus/query is a read; other write verbs are not.
-Assert 'the skill asks for no write' (-not ($dbText -match '\bPUT\b|\bPATCH\b|\bDELETE\b|execute_dml|insert_one'))
+Assert 'the skill asks for no write' (-not ($dbDocs -match '\bPUT\b|\bPATCH\b|\bDELETE\b|execute_dml|insert_one'))
 # DBGateway is retiring the query-string GET (Kiwoom-DBgateway#99), so the code the skill teaches must not use it.
-Assert 'the skill calls queries with POST, not the retiring GET' ($dbText -match 'httpx\.post\(' -and -not ($dbText -match 'GET /winus/query|httpx\.get\('))
+Assert 'the skill calls queries with POST, not the retiring GET' ($dbText -match 'httpx\.post\(' -and -not ($dbDocs -match 'GET /winus/query|httpx\.get\('))
 # fetch hands back the whole envelope: cached and produced_at tell the reader how old the rows are, and truncated
 # tells a table query called with limit that rows were cut (Kiwoom-DBgateway ADR-0053 · ADR-0063).
-Assert 'the skill fetch returns the envelope, not only rows' ($dbText -match '(?m)^\s+return r\.json\(\)\s*$' -and -not ($dbText -match 'return r\.json\(\)\["rows"\]'))
+Assert 'the skill fetch returns the envelope, not only rows' ($dbText -match '(?m)^\s+return r\.json\(\)\s*$' -and -not ($dbDocs -match 'return r\.json\(\)\["rows"\]'))
 # The bare /winus/manifest paths are deprecated in favour of /winus/manifest/queries and /winus/manifest/tables (Kiwoom-DBgateway ADR-0054).
 Assert 'fetch_manifest.py reads no deprecated manifest path' ($fetText -match '/winus/manifest/queries' -and $fetText -match '/winus/manifest/tables' -and -not ($fetText -match '/winus/manifest(?!/(queries|tables))'))
 # Screen numbers and report names are internal detail; the manifest lists queries, not screens.
-Assert 'the skill names no WINUS screen numbers' (-not ($dbText -match '\b0\d{5}\b'))
+Assert 'the skill names no WINUS screen numbers' (-not ($dbDocs -match '\b0\d{5}\b'))
 # The skill is installed as a plugin, so the run-time call must resolve through the skill dir.
 $fetCalls = [regex]::Matches($dbText, '(?m)^python\b.*fetch_manifest\.py.*$')
 Assert 'fetch_manifest.py is called through CLAUDE_SKILL_DIR' ($fetCalls.Count -gt 0 -and @($fetCalls | Where-Object { $_.Value -notmatch 'CLAUDE_SKILL_DIR' }).Count -eq 0)

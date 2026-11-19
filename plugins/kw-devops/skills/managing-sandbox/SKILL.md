@@ -25,7 +25,7 @@ description: AX팀 데이터베이스의 샌드박스(kw_sandbox)에 테이블�
 
 샌드박스는 searching-winus 와 같은 접근 키(환경 변수 `KIWOOM_ACCESS_KEY`)를 쓰고, 키 없는 요청은 받지 않는다. 스크립트는 키가 없거나, DBGateway 가 키를 거절하거나, 키를 설정했지만 지금 창에 반영되지 않았으면 요청을 보내지 않고 멈춘다. 그때 출력의 `조치`·`설정 뒤` 줄이 할 일을 알려 준다.
 
-클로드는 그 출력을 받으면 searching-winus SKILL.md 의 「접근 키」 절 순서대로 발급과 등록을 안내한다. 두 스킬은 같은 키를 쓰므로, 한 번 등록하면 두 스킬 모두에서 쓰인다.
+클로드는 스크립트가 키 때문에 멈추면 searching-winus 의 `access-key.md`(`${CLAUDE_SKILL_DIR}/../searching-winus/access-key.md`)를 읽고 그 순서대로 발급과 등록을 안내한다. 두 스킬은 같은 키를 쓰므로, 한 번 등록하면 두 스킬 모두에서 쓰인다.
 
 ## 명령
 
