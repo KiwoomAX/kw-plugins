@@ -36,6 +36,8 @@ TTL_SECONDS = 3600
 GATEWAY = os.environ.get("QUERY_GATEWAY_URL", "http://192.7.9.45:9101")
 KEY_ENV = "KIWOOM_ACCESS_KEY"
 KEY_PAGE = "http://192.7.9.45:3000/#access-key"
+# 발급 · 등록 순서. managing-sandbox 도 이 종료 문구를 쓰므로 어느 스킬의 문서인지 경로로 알린다.
+KEY_STEPS = Path(__file__).resolve().parent.parent / "access-key.md"
 # 승인 쿼리와 테이블 쿼리의 목차는 따로 있다(Kiwoom-DBgateway ADR-0054). 상세는 테이블 쿼리여도 승인 쿼리 경로가 답한다.
 QUERIES_PATH = "/winus/manifest/queries"
 TABLES_PATH = "/winus/manifest/tables"
@@ -72,7 +74,7 @@ def key_refused(reason: str) -> SystemExit:
     """접근 키 화면을 알리고(Windows 에서는 브라우저로 열고), 발급·설정 순서를 적은 종료를 돌려준다."""
     opened = OPEN_BROWSER and webbrowser.open(KEY_PAGE)
     page = f"접근 키 화면 {KEY_PAGE} ({'브라우저로 열림' if opened else '브라우저로 열지 못함'})"
-    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급. 클로드가 SKILL.md 「접근 키」 순서대로 환경 변수 {KEY_ENV} 등록\n"
+    return SystemExit(f"{reason}\n- 조치: {page}에서 키 발급. 클로드가 {KEY_STEPS} 순서대로 환경 변수 {KEY_ENV} 등록\n"
                       f"- 설정 뒤: {REOPEN}\n- 키 원문은 대화에 붙여 넣지 않음")
 
 
@@ -424,7 +426,8 @@ def _selfcheck_key_and_http() -> None:
         # 키가 없으면 DBGateway 를 부르지 않고 화면을 알린다. 열었는지는 문구로 구분한다
         os.environ.pop(KEY_ENV, None)
         OPEN_BROWSER = True
-        stops(lambda: get("/ok"), f"접근 키 없음: 환경 변수 {KEY_ENV}", "브라우저로 열림")
+        stops(lambda: get("/ok"), f"접근 키 없음: 환경 변수 {KEY_ENV}", "브라우저로 열림", str(KEY_STEPS))
+        assert KEY_STEPS.is_file(), f"안내가 가리키는 순서 문서가 스킬에 없음: {KEY_STEPS}"
         assert opened == [KEY_PAGE] and paths == [], (opened, paths)
         OPEN_BROWSER = False
         stops(access_key, "브라우저로 열지 못함", KEY_PAGE)
