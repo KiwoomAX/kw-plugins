@@ -15,9 +15,9 @@ description: Use when someone wants to turn a business Excel workbook into store
 
 코드를 쓰기 전에 아래를 알린다.
 
-- 화면으로 들어온 요청은 모두 개발자의 접근 키 권한으로 처리되고, 작업 기록에도 개발자로 남는다.
-- 키를 재발급하거나 다른 본부로 옮기거나 퇴사하면 서비스가 멈춘다. 키는 서버 환경 변수 `KIWOOM_ACCESS_KEY` 로 넣는다.
-- 업로드 코드를 넣기 전에 그 화면의 접근 제한이 설정됐는지 확인한다. 접근 제한이 없으면 업로드와 「WINUS 다시 받기」를 빼고 조회만 만든다.
+- 화면 서버는 화면을 쓰는 사람의 로그인 토큰으로 샌드박스를 읽고 쓴다. 요청은 그 사람의 권한으로 판정되고, 샌드박스 작업 기록에도 그 사람으로 남는다. 그 사람의 본부가 표를 둔 스키마를 쓸 수 없으면 샌드박스가 거절한다.
+- 로그인 토큰은 Kiwoom-Gateway 가 그 화면의 `/api/` 요청에 `X-Auth-Access-Token` 헤더로 넘긴다. 처음에는 빈 값으로 넘기므로, 그 화면에 토큰을 넘기는 설정을 AX팀에 요청한다. 토큰이 비어 오면 화면 서버는 샌드박스를 호출하지 않고 그 사실을 알린다.
+- 「WINUS 다시 받기」와 업로드의 WINUS 조회는 아직 서버 환경 변수 `KIWOOM_ACCESS_KEY` 의 접근 키로 호출한다. WINUS 조회가 로그인 토큰을 받는지는 AX팀 확인 전이다. 이 키의 주인이 키를 재발급하거나 다른 본부로 옮기거나 퇴사하면 WINUS 조회가 멈춘다.
 
 ## 작업 폴더
 
@@ -52,7 +52,7 @@ description: Use when someone wants to turn a business Excel workbook into store
 
 ### 4. 원천 출처 확정
 
-결과 파일의 표 역할과 연결을 0단계 설명과 대조하고, 둘이 다른 표만 묻는다. 예를 들어 설명에는 수기 입력인데 연결이 있는 표, 설명에 없는 원천 표를 묻는다. 확정한 표별 출처를 `sources.json` 에 적는다.
+결과 파일의 표 역할과 연결을 0단계 설명과 대조하고, 둘이 다른 표만 묻는다. 예를 들어 설명에는 수기 입력인데 연결이 있는 표, 설명에 없는 원천 표를 묻는다. WINUS 에서 붙여 넣는 표인데 설명에 화면 번호 · 탭이나 조회 조건이 빠졌으면 그것도 묻는다. 5단계에서 쿼리를 찾을 때 필요하다. 확정한 표별 출처를 `sources.json` 에 적는다.
 
 수기 입력 표와 외부 데이터 표가 모두 없는 엑셀은 이 스킬의 대상이 아니다. 저장해 둘 사람 입력이 없기 때문이다. 5단계까지만 진행하고, 저장 구조와 조회 화면 없이 등록 쿼리로 응용화면을 바로 만들라고 안내한 뒤 끝낸다.
 
@@ -61,7 +61,7 @@ description: Use when someone wants to turn a business Excel workbook into store
 WINUS 원천 표마다 아래 순서로 쿼리를 찾는다.
 
 1. 설명의 화면 번호와 탭을 확인한다. 화면 번호만으로 고르지 않고 탭까지 맞춘다.
-2. `searching-winus` 스킬의 등록 쿼리 목차에서 찾는다. 있으면 그 쿼리를 쓰고 조회 조건은 쿼리 매개변수로 둔다.
+2. `searching-winus` 스킬의 등록 쿼리 목차에서 찾는다. 있으면 그 쿼리의 번호를 적어 두고 조회 조건은 쿼리 매개변수로 둔다. 매개변수는 WINUS 조회 조건으로만 쓰이고 계산에는 넘어가지 않는다.
 3. 없으면 `query_requests.md` 에 항목을 적는다. 사용자가 이 파일을 AX 팀에 넘긴다. 등록 쿼리는 AX 팀이 승인하므로 값 대조는 하지 않는다.
 
 | 등록 요청 항목 | 내용 |
@@ -70,29 +70,35 @@ WINUS 원천 표마다 아래 순서로 쿼리를 찾는다.
 | SQL | 엑셀에서 찾은 SQL 또는 화면 · 탭 정보 |
 | 매개변수 | 이름과 값의 형식, 값이 든 셀 |
 
-등록 번호를 기다리지 않는다. 그 표는 엑셀 저장값으로 채워 「쿼리 연결 대기」로 두고 6~8단계를 진행한다. 대기 표가 남아 있으면 화면의 업로드와 「WINUS 다시 받기」는 꺼진다. 한 결과 안에 두 시점의 데이터가 섞이지 않게 하기 위해서다.
+등록 번호를 기다리지 않는다. 목차에서 찾은 쿼리의 표도 등록 요청한 표와 같이 엑셀 저장값으로 채워 「쿼리 연결 대기」로 두고 6~8단계를 진행한다. 두 표 모두 9단계에서 응답 열을 대조한 뒤 연결한다. 대기 표가 남아 있으면 화면의 업로드와 「WINUS 다시 받기」는 꺼진다. 한 결과 안에 두 시점의 데이터가 섞이지 않게 하기 위해서다.
 
 ### 6. 저장 구조 만들기
 
-쓸 수 있는 스키마를 조회해 개발자에게 고르게 한다. 고르는 기준은 그 엑셀을 쓰는 본부다. 고른 스키마를 `--schema` 로 넘겨 `scripts/table_plan.py` 로 `table_plan.json` 을 만든다. 화면 API 는 이 파일의 스키마에서 표를 연다. 표 목록을 보이고 승인을 받은 뒤 샌드박스 스킬(`managing-sandbox`)로 표를 만든다. 이미 있는 표는 이름과 열을 대조해, 같으면 다시 만들지 않고 다르면 묻는다.
+쓸 수 있는 스키마를 조회해 개발자에게 고르게 한다. 고르는 기준은 그 엑셀을 쓰는 본부다. 엑셀의 영문 이름도 개발자에게 묻는다. 표 이름의 앞 글자가 되므로 영문 소문자 · 숫자 · `_` 만 쓰고, 정한 뒤에는 바꾸지 않는다(예: `cash_mgmt`). 고른 스키마를 `--schema`, 영문 이름을 `--slug` 로 넘겨 `scripts/table_plan.py` 로 `table_plan.json` 을 만든다. 화면 API 는 이 파일의 스키마에서 표를 연다.
+
+원천 표의 열마다 결과 계산이 읽는지와 0 · 빈 값 비율을 `table_plan.py columns` 로 보이고, 계산이 읽지 않는 열을 저장할지 묻는다. 표 목록을 보이고 승인을 받은 뒤 `table_plan.py requests` 로 표마다 만들기 요청 파일을 쓰고, 샌드박스 스킬(`managing-sandbox`)의 `create --spec` 으로 표를 만든다. 다시 시작한 작업이면 먼저 샌드박스 스킬의 `describe` 로 있는 표의 열을 읽어 `table_plan.py compare` 로 대조하고, 같은 표는 다시 만들지 않고 다른 표는 묻는다.
 
 표를 만들기 전에 결과표에 뜻이 다른 행 구간이 섞여 있는지 확인한다. `table_plan.split_points` 는 수식이 크게 바뀌는 행만 찾고 다른 시트를 복사해 붙인 구간은 놓칠 수 있다. 그래서 찾은 행이 없어도 행이 많은 결과표는 개발자에게 구간이 있는지 묻는다. 구간이 있으면 3단계로 돌아가 표 정의를 나눈다.
 
-WINUS 원천 표의 primary key 는 서로 다른 기준일 세 개의 응답으로 유일한지 확인한 뒤 정한다. 표를 만든 뒤에는 primary key 를 바꿀 수 없다.
+「쿼리 연결 대기」인 WINUS 원천 표는 primary key 없이 만든다. primary key 는 9단계에서 서로 다른 기준일 세 개의 응답으로 유일한지 확인한 뒤 정한다. 표를 만든 뒤에는 primary key 를 바꿀 수 없으므로, 그때 표를 다시 만든다.
 
 ### 7. 계산 이전과 엑셀 대조
 
-[calc-guide.md](calc-guide.md) 대로 엑셀 수식을 표 · 열 이름 기준의 Python 코드 `calc.py` 로 옮긴다. `scripts/verify_calc.py` 로 엑셀 저장값과 셀 단위로 대조하고, 합격해야 다음으로 간다.
+[calc-guide.md](calc-guide.md) 대로 엑셀 수식을 표 · 열 이름 기준의 Python 코드 `calc.py` 로 옮긴다. `scripts/verify_calc.py` 로 엑셀 저장값과 셀 단위로 대조하고, 합격(종료 코드 0)해야 다음으로 간다. 대조 결과 파일에 다른 셀과 빠진 셀이 적힌다.
 
 ### 8. 조회 화면
 
 [templates/README.md](templates/README.md) 대로 템플릿을 대시보드 저장소에 복사한다. 엑셀마다 달라지는 값은 `table_plan.json` 과 `calc.py` 뿐이고, 화면 코드는 고치지 않는다. `scripts/initial_load.py` 에 7단계에서 합격한 `calc.py` 를 `--calc` 로 넘겨 적재 파일을 만들고, 적재는 개발자가 터미널에서 실행한다. 원천 · 수기 입력 표는 엑셀 저장값으로 채우고, 결과표는 그 표들로 계산 코드를 실행한 결과로 채운다. 같은 기준일을 나중에 다시 올려도 결과표 값이 바뀌지 않게 하기 위해서다. 대화 중에 기준일 범위를 지우는 적재를 실행하지 않는다.
 
+적재 파일 이름의 번호가 실행 순서다. 1번(`overwrite`)은 기준일 범위를 교체하고, 2번(`upsert`)은 고정값 표와 엑셀 목록 표를 고쳐 쓰며, 3번(`insert`)은 업로드 이력의 완료 행이다. 3번은 1 · 2번이 모두 성공한 뒤에만 넣는다. 3번이 있어야 화면이 그 기준일을 완료로 본다.
+
+날짜 시트 군(예: `2026.09.23` · `2026.09.30` 처럼 날짜마다 복사한 시트)이 있으면, 기준 시트와 머리글이 같은 지난 날짜 시트도 그 시트의 날짜를 기준일로 삼아 함께 넣는다. 지난 날짜의 결과표도 계산 코드로 다시 계산하고, 날짜마다 완료 행을 남긴다. 기준 시트가 아닌 시트의 표는 기준 시트와 같은 값을 그 날짜로 넣는다. 머리글이 다르거나 시트 이름에서 날짜를 읽을 수 없는 시트는 넣지 않고 명령 출력에 나오므로, 그 시트를 어떻게 할지 개발자에게 묻는다.
+
 ### 9. 쿼리 연결
 
-등록 번호가 오면 `scripts/query_link.py` 로 응답 열과 표의 열을 값으로 대조한다. 열이 맞으면 「쿼리 연결 대기」를 풀고 업로드를 시험한다. 열 구성이 달라 표를 다시 만들어야 하면 개발자에게 알린다.
+등록 번호가 오면 `searching-winus` 로 한 기준일의 응답을 받아 파일로 두고, `scripts/query_link.py` 로 응답 열과 표의 열을 값으로 대조한다. 열이 맞으면 「쿼리 연결 대기」를 푼 `table_plan.json` 과 엑셀 목록 표를 고쳐 쓸 `upsert_excel_registry.json` 이 나온다. 두 파일을 반영하기 전에 서로 다른 기준일 세 개의 응답으로 primary key 를 정하고, 그 원천 표를 primary key 를 넣어 다시 만든 뒤 초기 적재의 그 표 파일을 다시 넣는다. 그다음 `table_plan.json` 을 대시보드에 복사하고 `upsert_excel_registry.json` 을 샌드박스 스킬의 `insert` 로 넣은 뒤 업로드를 시험한다. 열 구성이 달라 표를 다시 만들어야 하면 개발자에게 알린다.
 
-대기를 푼 뒤 「WINUS 다시 받기」로 한 기준일을 받아, 실제 응답으로 계산한 결과표를 엑셀 저장값과 `scripts/verify_calc.py` 로 다시 대조한다. 엑셀에 붙여 넣은 화면 값은 응답과 다를 수 있다. 예를 들어 화면은 소수 둘째 자리까지만 내려받고, 응답이 빈 값으로 주는 칸을 화면은 0 으로 보인다. 다른 열이 나오면 열마다 차이의 원인과 예시 값을 적어 개발자에게 보이고, 개발자가 엑셀 담당자에게 아래 중 하나를 묻게 한다. 클로드가 정하지 않는다.
+대기를 푼 뒤 「WINUS 다시 받기」로 한 기준일을 받아, 실제 응답으로 계산한 결과표를 엑셀 저장값과 `scripts/verify_calc.py` 로 다시 대조한다. 받은 원천 표 행을 `--inputs` 파일로 넘긴다. 엑셀에 붙여 넣은 화면 값은 응답과 다를 수 있다. 예를 들어 화면은 소수 둘째 자리까지만 내려받고, 응답이 빈 값으로 주는 칸을 화면은 0 으로 보인다. 다른 열이 나오면 열마다 차이의 원인과 예시 값을 적어 개발자에게 보이고, 개발자가 엑셀 담당자에게 아래 중 하나를 묻게 한다. 클로드가 정하지 않는다.
 
 - 엑셀과 같게 맞춘다(예: 소수 둘째 자리로 맞춘 뒤 계산, 빈 값은 0).
 - 응답 값 그대로 보인다.
@@ -114,8 +120,20 @@ WINUS 원천 표의 primary key 는 서로 다른 기준일 세 개의 응답으
 
 ## 실행 명령
 
-스크립트는 PowerShell 에서 아래 형식으로 실행한다.
+스크립트는 PowerShell 에서 아래 형식으로 실행한다. 명령마다 인자는 스크립트 첫머리 설명과 `--help` 에 있다.
 
 ```powershell
 uv run --system-certs --no-project --with-requirements "<스킬>\scripts\requirements.txt" python "<스킬>\scripts\table_plan.py" <인자>
 ```
+
+| 단계 | 명령 | 결과 |
+|---|---|---|
+| 6 | `table_plan.py <explain_results.json> --slug <영문 이름> --sources sources.json --schema <스키마> --out table_plan.json` | 저장 설계 파일 |
+| 6 | `table_plan.py columns <엑셀> --results explain_results.json --definition <표 id>` | 열마다 결과 계산이 읽는지와 0 · 빈 값 비율 |
+| 6 | `table_plan.py requests --plan table_plan.json --out create` | 표마다 `create --spec` 요청 파일 |
+| 6 | `table_plan.py compare --plan table_plan.json --described described.json` | 이미 있는 표와 같은 표 · 다른 표 · 없는 표 |
+| 7 · 9 | `verify_calc.py <엑셀> --plan table_plan.json --results explain_results.json --calc calc.py --base-date <기준일> --out verify_report.json` | 대조 결과 파일. 합격이면 종료 코드 0 |
+| 8 | `initial_load.py <엑셀> --plan table_plan.json --results explain_results.json --calc calc.py --base-date <기준일> --out load` | 번호 순서대로 실행할 적재 파일 |
+| 9 | `query_link.py <엑셀> --plan table_plan.json --results explain_results.json --table <표 이름> --query-id <번호> --response response.json --key <엑셀 열> <응답 열> --out-plan table_plan.json --out-registry upsert_excel_registry.json` | 열 대응 결과. 대기가 풀리면 두 파일 |
+
+`described.json` 은 샌드박스 스킬의 `describe` 로 읽은 표마다의 열 목록을 `{표 이름: 열 목록}` 으로 모은 파일이다.

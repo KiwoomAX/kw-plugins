@@ -1,7 +1,10 @@
 """엑셀 분석기의 표 정의로 만들 표의 이름 · 열 · primary key 를 정한다.
 
 표 이름은 `{엑셀}__{단계}__{대상}` 이고, 단계는 raw_winus · raw_external · raw_manual · fixed · calc 다.
-실행: python table_plan.py <explain_results.json> --slug <엑셀 영문 이름> --sources <sources.json> --out table_plan.json
+실행: python table_plan.py <explain_results.json> --slug <엑셀 영문 이름> --sources <sources.json> --schema <스키마> --out table_plan.json
+      python table_plan.py requests --plan table_plan.json --out create        표마다 만들기 요청 파일
+      python table_plan.py compare --plan table_plan.json --described described.json   이미 있는 표와 대조
+      python table_plan.py columns <엑셀> --results explain_results.json --definition <표 id>   열마다 결과 계산이 읽는지
 """
 import argparse
 import datetime as dt
@@ -54,9 +57,9 @@ def _simple(name, stage, description, columns, key):
             "primary_key": key, "editable": False, "waiting_query": False, "query_id": None}
 
 
-def _dates_table(excel, d):
+def _dates_table(excel, d, hourly):
     columns = [{"name": f"t_plus_{x['rel']}", "type": "date"} for x in d["date_columns"]]
-    return {"name": f"{excel}__calc__{d['target']}_dates", "stage": "calc", "definition_id": d["id"], "primary_key": ["base_date"],
+    return {"name": f"{excel}__calc__{d['target']}_dates", "stage": "calc", "definition_id": d["id"], "primary_key": ["base_date"] + (["base_time"] if hourly else []),
             "description": f"{excel} 엑셀 {d['target']} 표의 기준일별 실제 날짜", "columns": COMMON + columns,
             "editable": False, "waiting_query": False, "query_id": None}
 
@@ -79,7 +82,7 @@ def build(results, excel_slug, sources):
         if d["role"] == "결과":
             tables.append(_table(excel_slug, "calc", d["target"], d, [{"name": "row_seq", "type": "integer"}], _key(hourly, "row_seq")))
             if d["date_columns"]:
-                tables.append(_dates_table(excel_slug, d))
+                tables.append(_dates_table(excel_slug, d, hourly))
         elif d["role"] != "계산":
             tables.append(_source_table(excel_slug, d, _kind(d, sources), hourly))
         for item in d["outside"]["items"]:
@@ -190,7 +193,57 @@ def registry_rows(plan, results, schema):
     return out
 
 
+def _read(path):
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+
+
+def _print(body):
+    sys.stdout.reconfigure(encoding="utf-8")
+    print(json.dumps(body, ensure_ascii=False, indent=1))
+
+
+def _requests_command(argv):
+    ap = argparse.ArgumentParser(description="표마다 샌드박스 표 만들기 요청 파일(create --spec)을 쓴다")
+    ap.add_argument("--plan", required=True)
+    ap.add_argument("--out", required=True)
+    a = ap.parse_args(argv)
+    plan, out = _read(a.plan), Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    for req in create_requests(plan, plan["schema"]):
+        (out / f"create_{req['table']}.json").write_text(json.dumps(req, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"만들기 요청 {len(plan['tables'])}개: {out}")
+
+
+def _compare_command(argv):
+    ap = argparse.ArgumentParser(description="이미 있는 표와 설계를 대조한다")
+    ap.add_argument("--plan", required=True)
+    ap.add_argument("--described", required=True, help="샌드박스 describe 로 읽은 열 목록 {표 이름: 열 목록}")
+    a = ap.parse_args(argv)
+    _print(existing(_read(a.plan), _read(a.described)))
+
+
+def _columns_command(argv):
+    ap = argparse.ArgumentParser(description="열마다 결과 계산이 읽는지와 0 · 빈 값 비율을 낸다")
+    ap.add_argument("excel")
+    ap.add_argument("--results", required=True)
+    ap.add_argument("--definition", required=True, help="표 정의의 id")
+    a = ap.parse_args(argv)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "explaining-excel-cell/scripts"))
+    import explain_cell
+    book = explain_cell.Book(a.excel)
+    d = next(x for x in _read(a.results)["definitions"] if x["id"] == a.definition)
+    read = {col for sheet, cells in book.cells.items() for pos in cells if (f := book.formula(sheet, pos))
+            for ref_sheet, col in _read_columns(f) if (ref_sheet.strip("'") or sheet) == d["sheet"]}
+    _print(column_report(book, d, read))
+
+
+COMMANDS = {"requests": _requests_command, "compare": _compare_command, "columns": _columns_command}
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in COMMANDS:
+        return COMMANDS[argv[0]](argv[1:])
     ap = argparse.ArgumentParser(description="엑셀 분석기의 표 정의로 저장 설계 파일을 만든다")
     ap.add_argument("results")
     ap.add_argument("--slug", required=True, help="엑셀의 영문 이름(소문자 · 숫자 · _)")

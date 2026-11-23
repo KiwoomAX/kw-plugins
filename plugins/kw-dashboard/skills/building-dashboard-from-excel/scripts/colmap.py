@@ -3,12 +3,12 @@ import datetime as dt
 from decimal import ROUND_HALF_UP, Decimal
 
 MATCH = 0.8  # 같은 열로 보는 값 일치율(근거 없는 시작 값)
-TRANSFORMS = {"same": lambda x: x, "/1e8": lambda x: x / 1e8, "round(/1e8)": lambda x: round(x / 1e8), "*100": lambda x: x * 100, "/100": lambda x: x / 100}
-
-
 def round_half_up(value, digits):
     """화면처럼 사사오입한다. 파이썬 round 는 0.005 경계에서 다르게 반올림한다."""
     return Decimal(repr(value) if isinstance(value, float) else str(value)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+
+
+TRANSFORMS = {"same": lambda x: x, "/1e8": lambda x: x / 1e8, "round(/1e8)": lambda x: int(round_half_up(x / 1e8, 0)), "*100": lambda x: x * 100, "/100": lambda x: x / 100}
 
 
 def _key(v):
@@ -56,7 +56,8 @@ def _score(pairs, excel_col, query_col, name):
 
 
 def match(excel_rows, query_rows, key_columns):
-    """{"mapped": {엑셀 열: {"column", "transform", "match"}}, "missing": [엑셀 열]}. 빈 값은 0 으로 보고, 둘 다 빈 열은 이름으로 맞춘다."""
+    """{"mapped": {엑셀 열: {"column", "transform", "match"}}, "missing": [엑셀 열]}. 빈 값은 0 으로 보고, 엑셀 열이 비었으면 이름이 같은 응답 열에만 맞춘다.
+    가장 잘 맞는 응답 열이 둘 이상이면 고르지 않고 missing 으로 둔다."""
     excel_key, query_key = key_columns
     by_key = {_key(r.get(query_key)): r for r in query_rows}
     pairs = [(r, by_key[_key(r.get(excel_key))]) for r in excel_rows if _key(r.get(excel_key)) in by_key]
@@ -64,14 +65,15 @@ def match(excel_rows, query_rows, key_columns):
     mapped, missing = {}, []
     for col in (c for c in (excel_rows[0] if excel_rows else {}) if c != excel_key):
         if all(e.get(col) in (None, "", 0) for e, _ in pairs):
-            named = col if col in columns else next((c for c in columns if all(q.get(c) in (None, "", 0) for _, q in pairs)), None)
-            if named:
-                mapped[col] = {"column": named, "transform": "same", "match": 1.0}
+            if col in columns:
+                mapped[col] = {"column": col, "transform": "same", "match": 1.0}
             else:
                 missing.append(col)
             continue
-        best = max(((_score(pairs, col, c, t), c, t) for c in columns for t in TRANSFORMS), key=lambda x: x[0], default=(0, None, None))
-        if best[0] >= MATCH:
+        scores = [(_score(pairs, col, c, t), c, t) for c in columns for t in TRANSFORMS]
+        best = max(scores, key=lambda x: x[0], default=(0, None, None))
+        tied = {c for score, c, _ in scores if score == best[0]}
+        if best[0] >= MATCH and len(tied) == 1:
             mapped[col] = {"column": best[1], "transform": best[2], "match": best[0]}
         else:
             missing.append(col)

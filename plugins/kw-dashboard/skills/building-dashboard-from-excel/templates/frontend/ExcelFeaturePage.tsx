@@ -6,7 +6,7 @@ import { evaluate, type Row } from './summary';
 import './ExcelFeaturePage.css';
 
 type TableInfo = { name: string; label: string };
-type Settings = { date_input: { on: boolean; default: string }; refresh_unit: string; allow_today: boolean; allow_holiday: boolean };
+type Settings = { date_input: { on: boolean; default: string }; refresh_unit: string; allow_today: boolean };
 type Column = { name: string; type: string; header?: string; levels?: string[] };
 type Summary = { row: number; label: string; label_col: string | null; group_by: string | null; expr: Record<string, string | null> };
 type TableData = { columns: Column[]; rows: Row[]; summaries: Summary[]; dates: Row[]; base_time: string | null; loaded_at: string | null; state: string };
@@ -14,6 +14,11 @@ type Reply = { status: string; message: string; errors: { sheet: string; cell: s
 
 const RECALC = '이 기준일의 결과를 다시 계산해야 합니다';
 const WAITING = 'WINUS 쿼리 연결을 기다리고 있습니다';
+
+/* 한국 날짜(YYYY-MM-DD). 브라우저 시간대와 상관없이 오늘에서 daysBack 일 앞의 날을 정한다 */
+function koreanDay(daysBack = 0): string {
+  return new Date(Date.now() - daysBack * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+}
 
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
@@ -169,11 +174,13 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
   const state = (resTable ?? rawTable)?.state;
   const latest = dates[0];
 
-  const lastDay = useMemo(() => {
-    const d = new Date();
-    if (!info?.settings.allow_today) d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
-  }, [info]);
+  const lastDay = koreanDay(info?.settings.allow_today ? 0 : 1);
+  /* 올리기 창의 기준일 첫 값. 분석 때 정한 기본값(오늘 · 어제)을 쓰고, 그 밖의 값이면 가장 최근 기준일을 쓴다 */
+  const firstDay = useMemo(() => {
+    const rule = info?.settings.date_input.default;
+    const day = rule === '오늘' ? koreanDay(0) : rule === '어제' ? koreanDay(1) : latest ?? '';
+    return day && day > lastDay ? lastDay : day;
+  }, [info, latest, lastDay]);
 
   const done = async (got: Reply, day: string) => {
     setReply(undefined);
@@ -256,7 +263,7 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
           <button className="sv-btn" disabled={off || !date} onClick={() => setDialog('refetch')}>
             WINUS 다시 받기
           </button>
-          <button className="sv-btn" disabled={off} onClick={() => { setNewDate(latest ?? ''); setFile(undefined); setReply(undefined); setDialog('upload'); }}>
+          <button className="sv-btn" disabled={off} onClick={() => { setNewDate(firstDay); setFile(undefined); setReply(undefined); setDialog('upload'); }}>
             수기 입력 · 외부 데이터 업로드
           </button>
           <a className="sv-btn" href={`${api}/export?date=${encodeURIComponent(date)}`}>
@@ -297,7 +304,11 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
               <h2>입력 양식 올리기</h2>
               <label className="sv-row">
                 <span>기준일</span>
-                <input aria-label="기준일 선택" type="date" max={lastDay} value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+                {info?.settings.date_input.on ? (
+                  <input aria-label="기준일 선택" type="date" max={lastDay} value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+                ) : (
+                  <b>{newDate}</b>
+                )}
               </label>
               <div className="sv-date">
                 {existing ? '이 기준일에는 이미 수기 입력이 있습니다. 업데이트하려면 올려 주세요' : '새 기준일입니다. WINUS 데이터를 이 기준일로 받아 계산합니다'}

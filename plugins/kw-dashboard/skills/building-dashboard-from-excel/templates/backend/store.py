@@ -1,6 +1,6 @@
 """기능의 표를 읽고 쓴다. 화면 입력을 표 이름이나 조건으로 그대로 넘기지 않고, table_plan.json 에 있는 표만 연다.
 
-저장 경로를 바꿀 때는 이 파일의 SandboxClient 만 바꾼다.
+저장 경로를 바꿀 때는 이 파일을 고치지 않고, router.py 에서 같은 post(경로, 요청) 을 가진 클라이언트를 create_router(client=...) 로 넘긴다.
 """
 import datetime as dt
 import os
@@ -19,14 +19,15 @@ class SandboxRefused(Exception):
 
 
 class SandboxClient:
-    """샌드박스 요청 한 번을 보낸다. 실패해도 다시 보내지 않는다."""
+    """샌드박스 요청 한 번을 보낸다. 실패해도 다시 보내지 않는다.
+    token 은 화면을 쓰는 사람의 로그인 토큰이고 그 요청에만 쓴다. 저장하거나 기록에 남기지 않는다."""
 
-    def __init__(self, url=None, key=None):
+    def __init__(self, token, url=None):
         self.url = url or os.environ["QUERY_GATEWAY_URL"]
-        self.key = (key or os.environ["KIWOOM_ACCESS_KEY"]).strip()
+        self.token = token
 
     def post(self, path, body):
-        r = httpx.post(f"{self.url}/sandbox/{path}", json=body, headers={"Authorization": f"Bearer {self.key}"}, timeout=60)
+        r = httpx.post(f"{self.url}/sandbox/{path}", json=body, headers={"Authorization": f"Bearer {self.token}"}, timeout=60)
         if r.status_code == 200:
             return r.json()
         try:
@@ -53,7 +54,7 @@ class Store:
     def _select(self, name, where):
         """조건에 맞는 행을 모두 받는다. 1,000행을 넘으면 페이지로 나눠 받는다."""
         t = self._table(name)
-        keys = t["primary_key"] or [t["columns"][0]["name"]]
+        keys = t["primary_key"] or [c["name"] for c in t["columns"]]  # primary key 가 없으면 모든 열로 정렬해야 페이지 사이에 행이 겹치거나 빠지지 않는다
         out, offset = [], 0
         while True:
             page = self.client.post("rows/select", {"schema": self.schema, "table": name, "where": where, "limit": PAGE, "offset": offset,
@@ -90,6 +91,10 @@ class Store:
 
     def latest_before(self, base_date):
         return next((d for d in self.dates() if d < base_date), None)
+
+    def nearest(self, base_date):
+        """앞선 완료 기준일 중 가장 가까운 날. 없으면 뒤의 완료 기준일 중 가장 가까운 날."""
+        return self.latest_before(base_date) or next((d for d in reversed(self.dates()) if d > base_date), None)
 
     def _full(self, name, rows):
         columns = [c["name"] for c in self._table(name)["columns"]]

@@ -6,7 +6,8 @@
 import datetime as dt
 import threading
 from contextlib import contextmanager
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -20,7 +21,20 @@ BUSY = "다른 업로드가 진행 중입니다"
 NO_DATA = "이 기준일의 WINUS 데이터가 없습니다"
 REFUSED = "WINUS 연결 권한이 없습니다. 담당 개발자에게 문의해 주십시오"
 OVERWRITE = "기존 수기 입력이 덮어씌워집니다. 그래도 진행하시겠습니까?"
-TRANSFORMS = {"same": lambda x: x, "/1e8": lambda x: x / 1e8, "round(/1e8)": lambda x: round(x / 1e8), "*100": lambda x: x * 100, "/100": lambda x: x / 100}
+UNFINISHED = "이 기준일은 지난 업로드가 끝나지 않았습니다. 입력 양식을 다시 올려 주십시오"
+
+
+def round_half_up(x):
+    """엑셀과 같은 사사오입. 파이썬 round 는 .5 를 짝수 쪽으로 보낸다."""
+    return int(Decimal(str(x)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+TRANSFORMS = {"same": lambda x: x, "/1e8": lambda x: x / 1e8, "round(/1e8)": lambda x: round_half_up(x / 1e8), "*100": lambda x: x * 100, "/100": lambda x: x / 100}
+
+
+def korean_today():
+    """한국 날짜. 서버 시간대와 상관없이 오늘을 정한다."""
+    return dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
 
 _guard = threading.Lock()
 _held = set()
@@ -70,6 +84,7 @@ def _mapped(table, rows):
         item = {}
         for db, spec in query_map.items():
             value = row.get(spec["column"])
+            value = None if value == "" else value
             item[db] = value if spec["transform"] == "same" or value is None else str(TRANSFORMS[spec["transform"]](float(value)))
         out.append(item)
     return out
@@ -167,16 +182,13 @@ def _refused_date(plan, base_date, today):
     day = dt.date.fromisoformat(base_date)
     if not plan["settings"]["allow_today"] and day >= today:
         return "오늘은 기준일로 올릴 수 없습니다"
-    if not plan["settings"]["allow_holiday"] and (day.weekday() >= 5 or base_date in plan.get("holidays", [])):
-        return "휴일은 기준일로 올릴 수 없습니다"
     return None
 
 
 def _process(store, winus, plan, calculate, data, base_date, user, confirm):
     editable = by_stage(plan, "raw_manual", "raw_external")
     state = store.state(base_date)
-    form_date = base_date if state != "없음" else store.latest_before(base_date)
-    previous = {t["name"]: [r["row_id"] for r in store.read(t["name"], form_date)] if form_date else [] for t in editable}
+    previous = {t["name"]: _previous_ids(store, t["name"], base_date, state) for t in editable}
     checked = input_form.check(plan, data, previous)
     if checked["errors"]:
         return result("rejected", "입력 양식이 다릅니다. 아무것도 저장하지 않았습니다", checked["errors"])
@@ -202,11 +214,18 @@ def _process(store, winus, plan, calculate, data, base_date, user, confirm):
     return write_all(store, base_date, "업로드", user, dt.datetime.now(dt.timezone.utc).isoformat(), writes)
 
 
+def _previous_ids(store, name, base_date, state):
+    """양식 검사의 기준이 되는 행 ID. 그 기준일에 쓰인 행이 없으면(첫 쓰기에서 멈춘 기준일, 첫 적재보다 앞선 날짜) 가장 가까운 기준일의 행을 쓴다."""
+    rows = store.read(name, base_date) if state != "없음" else []
+    near = None if rows else store.nearest(base_date)
+    return [r["row_id"] for r in (rows or (store.read(name, near) if near else []))]
+
+
 def run(store, winus, plan, calculate, form_bytes, base_date, user, confirm_overwrite, today=None):
     """입력 양식 하나를 처리한다. {"status": saved · same · needs_confirm · rejected · failed, "message", "errors"}."""
     if waiting(plan):
         return result("rejected", WAITING)
-    refused = _refused_date(plan, base_date, today or dt.date.today())
+    refused = _refused_date(plan, base_date, today or korean_today())
     if refused:
         return result("rejected", refused)
     try:

@@ -1,8 +1,13 @@
 """Python 으로 옮긴 계산 결과를 엑셀에 저장된 값과 셀 단위로 대조한다. 엑셀의 저장값이 정답이다.
 
-대조는 표 정의 범위의 셀을 기준으로 돈다. 그래서 계산 코드가 빠뜨린 행 · 열도 찾는다.
+대조는 표 정의 범위의 셀을 기준으로 한다. 그래서 계산 코드가 빠뜨린 행 · 열도 찾는다.
+
+실행: python verify_calc.py <엑셀> --plan table_plan.json --results explain_results.json --calc calc.py --base-date YYYY-MM-DD --out verify_report.json [--inputs inputs.json]
+--inputs 는 엑셀 저장값 대신 쓸 표 {표 이름: 행 목록} 이다. 9단계에서 실제 응답으로 다시 대조할 때 쓴다.
 """
+import argparse
 import datetime as dt
+import json
 import re
 import sys
 from decimal import Decimal, InvalidOperation
@@ -204,3 +209,34 @@ def compare(book, definitions, results, row_map, digits=None):
 def passed(report):
     """다른 셀, 빠진 셀, 남는 행이 하나도 없어야 합격이다. #REF! 셀은 합격 판정에서 뺀다."""
     return not any(report[k] for k in ("diff", "missing", "extra", "summary_diff", "dates_diff"))
+
+
+def main(argv=None):
+    """합격이면 0, 아니면 1 을 돌려준다."""
+    ap = argparse.ArgumentParser(description="calc.py 결과를 엑셀 저장값과 셀 단위로 대조한다")
+    ap.add_argument("excel")
+    ap.add_argument("--plan", required=True)
+    ap.add_argument("--results", required=True)
+    ap.add_argument("--calc", required=True)
+    ap.add_argument("--base-date", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--inputs", help="엑셀 저장값 대신 쓸 표 {표 이름: 행 목록}")
+    a = ap.parse_args(argv)
+    import initial_load
+    import table_plan
+    plan = json.loads(Path(a.plan).read_text(encoding="utf-8-sig"))
+    results = json.loads(Path(a.results).read_text(encoding="utf-8-sig"))
+    book, by_name, defs = initial_load.open_book(a.excel), {t["name"]: t for t in plan["tables"]}, results["definitions"]
+    tables = {n: wire_values(r, by_name[n]["columns"]) for n, r in initial_load.rows(book, plan, defs, a.base_date).items() if by_name[n]["stage"] != "calc"}
+    tables.update(json.loads(Path(a.inputs).read_text(encoding="utf-8-sig")) if a.inputs else {})
+    computed = initial_load.load_calc(a.calc)(tables, dt.date.fromisoformat(a.base_date))
+    row_map = {d["target"]: {i: r for i, r in enumerate(table_plan._data_rows(d), 1)} for d in defs if d["role"] == "결과"}
+    report = compare(book, defs, computed, row_map, display_digits(a.excel, sorted({d["sheet"] for d in defs if d["role"] == "결과"})))
+    Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    ok = passed(report)
+    print(f"{'합격' if ok else '불합격'}: 같은 셀 {report['same']}, 다른 셀 {len(report['diff'])}, 빠진 셀 {len(report['missing'])}, 남는 행 {len(report['extra'])}. 자세한 내용: {a.out}")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

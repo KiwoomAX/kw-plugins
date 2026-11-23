@@ -5,6 +5,8 @@ import upload
 
 
 def _process(store, winus, plan, calculate, base_date, user):
+    if store.state(base_date) == "미완료":  # 일부만 반영된 입력을 다시 받기로 확정하지 않는다
+        return upload.result("rejected", upload.UNFINISHED)
     editable = {t["name"]: store.read(t["name"], base_date) for t in upload.by_stage(plan, "raw_manual", "raw_external")}
     winus_rows, failed = upload.fetch_winus(plan, winus, base_date, {}, editable)
     if failed:

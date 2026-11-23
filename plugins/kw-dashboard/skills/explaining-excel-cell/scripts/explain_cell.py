@@ -717,7 +717,7 @@ def name_hints(book, data):
 
 SHOWN_ALL, SHOWN_TOP = 20, 10  # 후보 시트가 20개를 넘으면 읽는 표가 많은 10개만 보인다(근거 없는 시작 값)
 SIZE_LIMIT = 16 * 1024 * 1024  # 페이지와 단계 화면 크기 합계 상한(근거 없는 시작 값)
-SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today", "allow_holiday")
+SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today")
 
 
 def write_candidates(book, analysis, out_dir, base=None):

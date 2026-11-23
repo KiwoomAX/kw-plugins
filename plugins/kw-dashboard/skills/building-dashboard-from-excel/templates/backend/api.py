@@ -18,8 +18,8 @@ def _target(name):
     return name.split("__", 2)[2]
 
 
-def make_router(plan, store, winus, calculate, user_of):
-    """기능 하나의 API. user_of(request) 는 로그인한 사람의 이름을 돌려준다."""
+def make_router(plan, store_for, winus, calculate, user_of):
+    """기능 하나의 API. store_for(request) 는 그 요청을 보낸 사람의 권한으로 읽고 쓰는 Store 를, user_of(request) 는 로그인한 사람의 이름을 돌려준다."""
     router = APIRouter()
     source = [t for t in plan["tables"] if t["stage"] in ORIGIN]
     result = [t for t in plan["tables"] if t["stage"] == "calc" and not t["name"].endswith("_dates")]
@@ -32,15 +32,16 @@ def make_router(plan, store, winus, calculate, user_of):
                 "waiting": upload_module.waiting(plan), "settings": plan["settings"]}
 
     @router.get("/dates")
-    def dates():
-        found = store.dates()
+    def dates(request: Request):
+        found = store_for(request).dates()
         return {"dates": found, "default": found[0] if found else None}
 
     @router.get("/table")
-    def table(date: str, name: str):
+    def table(request: Request, date: str, name: str):
         t = allowed.get(name)
         if t is None:
             raise HTTPException(status_code=404, detail="없는 표입니다")
+        store = store_for(request)
         rows = store.read(name, date)
         dates_name = f"{name}_dates"
         return {"columns": [c for c in t["columns"] if c["name"] not in HIDDEN], "rows": rows, "summaries": t.get("summaries", []),
@@ -48,20 +49,22 @@ def make_router(plan, store, winus, calculate, user_of):
                 "base_time": rows[0].get("base_time") if rows else None, "loaded_at": rows[0].get("loaded_at") if rows else None, "state": store.state(date)}
 
     @router.get("/form")
-    def form(date: str):
+    def form(request: Request, date: str):
+        store = store_for(request)
         values = {t["name"]: store.read(t["name"], date) for t in plan["tables"] if t.get("editable")}
         return Response(input_form.make(plan, values, {"기준일": date}), media_type=XLSX)
 
     @router.post("/upload")
     def upload(request: Request, file: UploadFile = File(...), date: str = Form(...), confirm: bool = Form(False)):
-        return upload_module.run(store, winus, plan, calculate, file.file.read(), date, user_of(request), confirm)
+        return upload_module.run(store_for(request), winus, plan, calculate, file.file.read(), date, user_of(request), confirm)
 
     @router.post("/refetch")
     def refetch(request: Request, date: str):
-        return refetch_module.run(store, winus, plan, calculate, date, user_of(request))
+        return refetch_module.run(store_for(request), winus, plan, calculate, date, user_of(request))
 
     @router.get("/export")
-    def export(date: str):
+    def export(request: Request, date: str):
+        store = store_for(request)
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
         for t in source + result:

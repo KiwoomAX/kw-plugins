@@ -1,7 +1,8 @@
 """개발 때 표를 처음 채울 적재 파일을 만든다. 적재는 개발자가 터미널에서 실행한다.
 원천 · 수기 입력 · 고정값 표는 엑셀 저장값으로, 결과표는 그 표들로 계산 코드(calc.py)를 실행한 결과로 채운다.
 
-실행: python initial_load.py <엑셀> --plan table_plan.json --results explain_results.json --calc calc.py --base-date YYYY-MM-DD --schema <스키마> --out load
+실행: python initial_load.py <엑셀> --plan table_plan.json --results explain_results.json --calc calc.py --base-date YYYY-MM-DD --out load
+스키마는 table_plan.json 의 schema 를 쓴다.
 """
 import argparse
 import datetime as dt
@@ -77,7 +78,8 @@ def _same_shape(book, d, sheet):
 
 
 def date_sheets(book, plan, definitions, group):
-    """구조가 같은 지난 날짜 시트를 그 시트의 날짜를 기준일로 삼아 읽는다. 구조가 다르거나 날짜를 읽을 수 없는 시트는 different 로 알린다."""
+    """구조가 같은 지난 날짜 시트를 그 시트의 날짜를 기준일로 삼아 읽는다. 구조가 다르거나 날짜를 읽을 수 없는 시트는 different 로 알린다.
+    기준 시트의 표는 그 날짜 시트에서 읽고, 다른 시트의 표는 기준 시트와 같은 값을 그 날짜로 넣는다."""
     mine = [d for d in definitions if d["sheet"] == group["base"]]
     loaded, different = {}, []
     for sheet in group["sheets"]:
@@ -87,11 +89,9 @@ def date_sheets(book, plan, definitions, group):
         if not m or not all(_same_shape(book, d, sheet) for d in mine):
             different.append(sheet)
             continue
-        moved = [{**d, "sheet": sheet} for d in mine]
-        ids = {d["id"] for d in mine}
-        part = {**plan, "tables": [t for t in plan["tables"] if t.get("definition_id") in ids]}
+        moved = [{**d, "sheet": sheet} if d["sheet"] == group["base"] else d for d in definitions]
         day = f"{m[1]}-{int(m[2]):02d}-{int(m[3]):02d}"
-        loaded[day] = rows(book, part, moved, day)
+        loaded[day] = rows(book, plan, moved, day)
     return {"loaded": loaded, "different": different}
 
 
@@ -120,23 +120,47 @@ def calculated(plan, calculate, wired, base_date, stamp):
     return out
 
 
-def write_requests(book, plan, results, base_date, schema, out, calculate):
-    """표마다 적재 요청 파일을 쓴다. 파일 이름의 앞 글자(overwrite · insert)가 실행할 명령이다."""
-    by_name = {t["name"]: t for t in plan["tables"]}
-    wired = {name: verify_calc.wire_values(r, by_name[name]["columns"]) for name, r in rows(book, plan, results["definitions"], base_date).items()}
-    saved = saved_time(book.path)
-    wired.update(calculated(plan, calculate, wired, base_date, {"base_date": base_date, "base_time": saved, "loaded_at": saved}))
+def write_requests(book, plan, results, base_date, out, calculate):
+    """적재 요청 파일을 쓴다. 파일 이름의 번호가 실행 순서이고, 번호 뒤의 글자(overwrite · upsert · insert)가 실행할 명령이다.
+    날짜 시트 군이 있으면 구조가 같은 지난 날짜 시트도 그 날짜로 넣는다. 모든 기준일을 계산한 뒤에 파일을 쓰므로, 계산이 하나라도 실패하면 아무 파일도 쓰지 않는다.
+    완료 이력(3번)은 마지막에 넣는다. 앞 파일이 하나라도 실패하면 3번을 넣지 않는다."""
+    schema, by_name, saved = plan["schema"], {t["name"]: t for t in plan["tables"]}, saved_time(book.path)
+    days, different = {base_date: rows(book, plan, results["definitions"], base_date)}, []
+    for group in results.get("date_groups", []):
+        got = date_sheets(book, plan, results["definitions"], group)
+        days.update({day: r for day, r in got["loaded"].items() if day != base_date})
+        different += got["different"]
+    wired_days = {}
+    for day, day_rows in days.items():
+        wired = {name: verify_calc.wire_values(r, by_name[name]["columns"]) for name, r in day_rows.items()}
+        wired.update(calculated(plan, calculate, wired, day, {"base_date": day, "base_time": saved, "loaded_at": saved}))
+        wired_days[day] = wired
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    for name, table_rows in wired.items():
-        if not table_rows:  # 처음에 비어 있는 표(override 등)는 보낼 행이 없다
-            continue
-        if by_name[name]["stage"] == "fixed":
-            _write(out / f"insert_{name}.json", {"schema": schema, "table": name, "mode": "append", "rows": table_rows})
-        else:
-            _write(out / f"overwrite_{name}.json", {"schema": schema, "table": name, "where": {"base_date": base_date}, "rows": table_rows})
-    _write(out / "insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], base_date, saved)]})
-    _write(out / "insert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "append", "rows": table_plan.registry_rows(plan, results, schema)})
+    for day, wired in wired_days.items():
+        for name, table_rows in wired.items():
+            if table_rows and by_name[name]["stage"] != "fixed":  # 처음에 비어 있는 표는 보낼 행이 없다
+                _write(out / f"1_overwrite_{name}_{day}.json", {"schema": schema, "table": name, "where": {"base_date": day}, "rows": table_rows})
+    for name, table_rows in wired_days[base_date].items():
+        if table_rows and by_name[name]["stage"] == "fixed":  # 다시 적재해도 같은 칸은 고쳐 쓰고 중복으로 거절되지 않는다
+            _write(out / f"2_upsert_{name}.json", {"schema": schema, "table": name, "mode": "upsert", "rows": table_rows})
+    _write(out / "2_upsert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "upsert", "rows": table_plan.registry_rows(plan, results, schema)})
+    _write(out / "3_insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], day, saved) for day in sorted(days)]})
+    return {"dates": sorted(days), "different": different}
+
+
+def load_calc(path):
+    """7단계에서 엑셀 대조에 합격한 calc.py 의 calculate."""
+    spec = importlib.util.spec_from_file_location("feature_calc", path)
+    calc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(calc)
+    return calc.calculate
+
+
+def open_book(path):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "explaining-excel-cell/scripts"))
+    import explain_cell
+    return explain_cell.Book(path)
 
 
 def main(argv=None):
@@ -146,18 +170,14 @@ def main(argv=None):
     ap.add_argument("--results", required=True)
     ap.add_argument("--calc", required=True, help="7단계에서 엑셀 대조에 합격한 calc.py")
     ap.add_argument("--base-date", required=True)
-    ap.add_argument("--schema", required=True)
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "explaining-excel-cell/scripts"))
-    import explain_cell
     plan = json.loads(Path(a.plan).read_text(encoding="utf-8-sig"))
     results = json.loads(Path(a.results).read_text(encoding="utf-8-sig"))
-    spec = importlib.util.spec_from_file_location("feature_calc", a.calc)
-    calc = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(calc)
-    write_requests(explain_cell.Book(a.excel), plan, results, a.base_date, a.schema, a.out, calc.calculate)
-    print(f"적재 파일: {a.out}")
+    got = write_requests(open_book(a.excel), plan, results, a.base_date, a.out, load_calc(a.calc))
+    print(f"적재 파일: {a.out} (기준일 {', '.join(got['dates'])})")
+    if got["different"]:
+        print(f"구조가 달라 넣지 않은 날짜 시트: {', '.join(got['different'])}. 이 시트를 어떻게 할지 개발자에게 묻는다")
 
 
 if __name__ == "__main__":

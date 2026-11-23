@@ -98,6 +98,11 @@ def _check_sheet(table, ws, previous, errors):
                 errors.append({"sheet": name, "cell": f"A{r}", "reason": "행을 추가할 수 없는 시트입니다"})
                 continue
             row_id, next_id = next_id, next_id + 1
+        elif row_id in seen:  # 행을 복사해 붙이면 행 ID 도 함께 복사된다
+            if not table.get("row_config"):
+                errors.append({"sheet": name, "cell": f"A{r}", "reason": f"같은 행 ID 가 두 번 있습니다({row_id})"})
+                continue
+            row_id, next_id = next_id, next_id + 1
         seen.add(row_id)
         row = {"row_id": row_id}
         for i, column in enumerate(columns):
