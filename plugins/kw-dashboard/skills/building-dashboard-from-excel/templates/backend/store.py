@@ -57,8 +57,8 @@ class Store:
         keys = t["primary_key"] or [c["name"] for c in t["columns"]]  # primary key 가 없으면 모든 열로 정렬해야 페이지 사이에 행이 겹치거나 빠지지 않는다
         out, offset = [], 0
         while True:
-            page = self.client.post("rows/select", {"schema": self.schema, "table": name, "where": where, "limit": PAGE, "offset": offset,
-                                                    "order_by": [{"column": k} for k in keys]})
+            body = {"schema": self.schema, "table": name, "limit": PAGE, "offset": offset, "order_by": [{"column": k} for k in keys]}
+            page = self.client.post("rows/select", body | ({"where": where} if where else {}))  # 샌드박스는 빈 조건을 거절한다
             out += [dict(zip(page["columns"], row)) for row in page["rows"]]
             if not page.get("truncated"):
                 return out
