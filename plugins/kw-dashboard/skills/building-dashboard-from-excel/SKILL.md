@@ -1,6 +1,6 @@
 ---
 name: building-dashboard-from-excel
-description: Use when someone wants to turn a business Excel workbook into stored tables, calculation code and a result-table screen inside a Kiwoom dashboard repo, including workbooks with manual input or data copied from WINUS screens. Asks for the data sources first and works through table definitions, query registration, storage, calculation check and the screen.
+description: Use when someone wants to add a business Excel workbook to a Kiwoom dashboard repo as stored tables, calculation code and a result-table screen, including workbooks with manual input or data copied from WINUS screens. Not for Excel work without a dashboard, such as connecting a workbook to a database or fetching WINUS data into it. Asks for the data sources first and works through table definitions, query registration, storage, calculation check and the screen.
 ---
 
 # building-dashboard-from-excel
