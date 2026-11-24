@@ -108,7 +108,7 @@ def _write(path, body):
 def calculated(plan, calculate, wired, base_date, stamp):
     """결과표 행. 엑셀 저장값 대신 원천 · 수기 입력 · 고정값 표로 계산 코드를 실행한다. 같은 기준일을 나중에 올려도 값이 같게 하기 위해서다."""
     by_name = {t["name"]: t for t in plan["tables"]}
-    got = calculate({n: r for n, r in wired.items() if by_name[n]["stage"] != "calc"}, base_date)
+    got = calculate({n: r for n, r in wired.items() if by_name[n]["stage"] != "calc"}, dt.date.fromisoformat(base_date))  # 업로드와 같게 기준일은 날짜로 넘긴다
     out = {}
     for t in plan["tables"]:
         if t["stage"] != "calc" or t["name"].endswith("_dates"):
@@ -125,9 +125,10 @@ def write_requests(book, plan, results, base_date, out, calculate):
     날짜 시트 군이 있으면 구조가 같은 지난 날짜 시트도 그 날짜로 넣는다. 모든 기준일을 계산한 뒤에 파일을 쓰므로, 계산이 하나라도 실패하면 아무 파일도 쓰지 않는다.
     완료 이력(3번)은 마지막에 넣는다. 앞 파일이 하나라도 실패하면 3번을 넣지 않는다."""
     schema, by_name, saved = plan["schema"], {t["name"]: t for t in plan["tables"]}, saved_time(book.path)
-    days, different = {base_date: rows(book, plan, results["definitions"], base_date)}, []
+    defs = [d for d in results["definitions"] if not d.get("orphan")]  # 분석기가 찾지 못한 표는 table_plan.build 처럼 뺀다
+    days, different = {base_date: rows(book, plan, defs, base_date)}, []
     for group in results.get("date_groups", []):
-        got = date_sheets(book, plan, results["definitions"], group)
+        got = date_sheets(book, plan, defs, group)
         days.update({day: r for day, r in got["loaded"].items() if day != base_date})
         different += got["different"]
     wired_days = {}

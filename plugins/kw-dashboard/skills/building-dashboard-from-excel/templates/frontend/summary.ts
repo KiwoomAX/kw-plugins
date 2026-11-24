@@ -124,3 +124,38 @@ export function evaluate(expr: string, rows: Row[], summaries?: Record<string, R
     throw e;
   }
 }
+
+export type Summary = { row: number; label: string; label_col: string | null; group_by: string | null; expr: Record<string, string | null> };
+
+/* 데이터 행 사이에 소계 행을 끼운 표시 순서. 묶는 열이 있으면 그 값이 끝나는 곳 뒤, 없으면 표 끝이다.
+   분석기는 엑셀의 소계 행마다 항목을 하나씩 만들므로, 같은 열로 묶는 항목은 첫 항목 하나로 묶음마다 소계를 낸다.
+   묶는 열이 둘 이상이면 값이 덜 자주 바뀌는 열을 바깥 묶음으로 보고, 같으면 엑셀에서 소계 항목이 나중에 나온 열을 바깥으로 본다(엑셀은 안쪽 소계 행을 먼저 둔다).
+   안쪽 소계를 먼저 넣고, 바깥 묶음이 끝나면 안쪽 묶음도 끝난다. */
+export function withSummaries(rows: Row[], summaries: Summary[]): { row: Row; summary?: Summary }[] {
+  const known: Record<string, Row> = {};
+  const line = (s: Summary, part: Row[]) => {
+    const row: Row = s.label_col ? { [s.label_col]: s.label } : {};
+    const ordered = Object.entries(s.expr).sort(([, a], [, b]) => Number(a?.includes('ROW(')) - Number(b?.includes('ROW(')));
+    known[s.label] = row;
+    for (const [column, expr] of ordered) row[column] = expr ? evaluate(expr, part, known) : null;
+    return { row: { ...row }, summary: s };
+  };
+  const first = new Map<string, Summary>();
+  for (const s of summaries) if (s.group_by && !first.has(s.group_by)) first.set(s.group_by, s);
+  const changes = new Map([...first.keys()].map((c) => [c, rows.filter((r, i) => i > 0 && r[c] !== rows[i - 1][c]).length]));
+  const columns = [...first.keys()].sort((a, b) => (changes.get(b) ?? 0) - (changes.get(a) ?? 0)); // 안쪽 묶음부터. 같으면 엑셀 순서
+  const outer = (a: string, b: string) => columns.indexOf(a) > columns.indexOf(b); // a 가 b 의 바깥 묶음
+  const start = new Map(columns.map((c) => [c, 0]));
+  const out: { row: Row; summary?: Summary }[] = [];
+  rows.forEach((row, i) => {
+    out.push({ row });
+    const changed = columns.filter((c) => i + 1 === rows.length || rows[i + 1][c] !== row[c]);
+    const ended = columns.filter((c) => changed.includes(c) || changed.some((o) => outer(o, c)));
+    for (const c of ended) {
+      out.push(line(first.get(c) as Summary, rows.slice(start.get(c), i + 1)));
+      start.set(c, i + 1);
+    }
+  });
+  for (const s of summaries.filter((x) => !x.group_by)) out.push(line(s, rows));
+  return out;
+}

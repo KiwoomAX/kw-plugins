@@ -15,12 +15,12 @@ from collections import Counter
 from pathlib import Path
 
 from openpyxl.formula import Tokenizer
-from openpyxl.utils import column_index_from_string
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 STAGE = {"winus": "raw_winus", "external": "raw_external", "manual": "raw_manual"}
 COMMON = [{"name": "base_date", "type": "date"}, {"name": "base_time", "type": "timestamptz"}, {"name": "loaded_at", "type": "timestamptz"}]
 TYPES = {"text": {"type": "text"}, "code": {"type": "varchar", "length": 50}, "number": {"type": "numeric"}, "date": {"type": "date"}}
-CELL = re.compile(r"^\$?([A-Za-z]{1,3})\$?\d+")
+COLUMN = re.compile(r"^\$?([A-Za-z]{1,3})(?:\$?\d+)?$")  # A1 · $A$1 · A(열 전체)
 MIN_DATES = 3  # primary key 를 정하기 전에 확인할 기준일 수
 REGISTRY = [("excel", "text"), ("table_name", "text"), ("stage", "text"), ("definition_id", "text"), ("schema_name", "text"), ("columns_json", "text"),
             ("summaries_json", "text"), ("row_map_json", "text"), ("query_id", "integer"), ("waiting_query", "boolean"), ("updated_at", "timestamptz")]
@@ -141,14 +141,15 @@ def column_report(book, definition, read_columns):
 
 
 def _read_columns(formula):
-    """수식이 읽는 (시트, 열) 집합."""
+    """수식이 읽는 (시트, 열) 집합. 범위는 처음 열부터 끝 열까지 모두 든다(예: 원천!A:F 는 A~F)."""
     out = set()
     for tok in Tokenizer(formula).items:
         if tok.type == "OPERAND" and tok.subtype == "RANGE":
             sheet, _, ref = tok.value.rpartition("!")
-            m = CELL.match(ref)
-            if m:
-                out.add((sheet, m[1].upper()))
+            ends = [COLUMN.match(part) for part in ref.split(":")]
+            if ends and all(ends):
+                first, last = sorted(column_index_from_string(m[1].upper()) for m in (ends[0], ends[-1]))
+                out |= {(sheet, get_column_letter(c)) for c in range(first, last + 1)}
     return out
 
 

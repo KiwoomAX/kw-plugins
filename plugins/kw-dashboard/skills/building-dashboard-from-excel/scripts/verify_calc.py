@@ -226,7 +226,8 @@ def main(argv=None):
     import table_plan
     plan = json.loads(Path(a.plan).read_text(encoding="utf-8-sig"))
     results = json.loads(Path(a.results).read_text(encoding="utf-8-sig"))
-    book, by_name, defs = initial_load.open_book(a.excel), {t["name"]: t for t in plan["tables"]}, results["definitions"]
+    defs = [d for d in results["definitions"] if not d.get("orphan")]  # 분석기가 찾지 못한 표는 table_plan.build 처럼 뺀다
+    book, by_name = initial_load.open_book(a.excel), {t["name"]: t for t in plan["tables"]}
     tables = {n: wire_values(r, by_name[n]["columns"]) for n, r in initial_load.rows(book, plan, defs, a.base_date).items() if by_name[n]["stage"] != "calc"}
     tables.update(json.loads(Path(a.inputs).read_text(encoding="utf-8-sig")) if a.inputs else {})
     computed = initial_load.load_calc(a.calc)(tables, dt.date.fromisoformat(a.base_date))

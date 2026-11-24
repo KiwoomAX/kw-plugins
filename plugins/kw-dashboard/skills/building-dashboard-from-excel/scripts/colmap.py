@@ -35,11 +35,17 @@ def _norm(v):
     return v
 
 
+def _tolerance(x):
+    """엑셀 값의 소수 자릿수 반 단위(1.23 은 0.005, 0.0123 은 0.00005). 화면에서 반올림해 붙여 넣은 값을 맞추되 0.006 을 넘지 않는다."""
+    exponent = Decimal(repr(x) if isinstance(x, float) else str(x)).as_tuple().exponent
+    return min(0.006, 0.5 * 10 ** exponent) if isinstance(exponent, int) and exponent < 0 else 0.006
+
+
 def _equal(a, b):
     a, b = 0 if a in (None, "") else a, 0 if b in (None, "") else b
     x, y = _number(a), _number(b)
     if x is not None and y is not None:
-        return abs(x - y) <= max(0.006, abs(y) * 1e-6)
+        return abs(x - y) <= max(_tolerance(x), abs(y) * 1e-6)
     return str(_norm(a)).strip() == str(_norm(b)).strip()
 
 

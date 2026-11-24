@@ -2,13 +2,12 @@
    표 목록과 열은 모두 API 가 알려 주므로 엑셀마다 이 파일을 고치지 않는다. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import DashboardLayout from '../../shell/DashboardLayout';
-import { evaluate, type Row } from './summary';
+import { withSummaries, type Row, type Summary } from './summary';
 import './ExcelFeaturePage.css';
 
 type TableInfo = { name: string; label: string };
 type Settings = { date_input: { on: boolean; default: string }; refresh_unit: string; allow_today: boolean };
 type Column = { name: string; type: string; header?: string; levels?: string[] };
-type Summary = { row: number; label: string; label_col: string | null; group_by: string | null; expr: Record<string, string | null> };
 type TableData = { columns: Column[]; rows: Row[]; summaries: Summary[]; dates: Row[]; base_time: string | null; loaded_at: string | null; state: string };
 type Reply = { status: string; message: string; errors: { sheet: string; cell: string; reason: string }[] };
 
@@ -20,45 +19,23 @@ function koreanDay(daysBack = 0): string {
   return new Date(Date.now() - daysBack * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 }
 
+/* 실패하면 서버가 보낸 안내(detail)를 담은 오류를 낸다. 예: 로그인 토큰을 받지 못했다는 503 */
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
-  if (!r.ok) throw new Error(`요청 실패(${r.status})`);
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { detail?: unknown } | null;
+    throw new Error(typeof body?.detail === 'string' ? body.detail : `요청 실패(${r.status})`);
+  }
   return r.json() as Promise<T>;
 }
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function shown(value: unknown, column?: Column): string {
   if (value === null || value === undefined) return '';
   if (column?.type !== 'numeric') return String(value);
   const n = Number(value);
   return Number.isNaN(n) ? String(value) : n.toLocaleString('en-US', { maximumFractionDigits: 6 }); // 코드 열은 글자라 쉼표가 붙지 않는다
-}
-
-/* 데이터 행 사이에 소계 행을 끼운 표시 순서. 묶는 열이 있으면 그 값이 끝나는 곳 뒤, 없으면 표 끝이다 */
-function withSummaries(table: TableData): { row: Row; summary?: Summary }[] {
-  const known: Record<string, Row> = {};
-  const line = (s: Summary, rows: Row[]) => {
-    const row: Row = s.label_col ? { [s.label_col]: s.label } : {};
-    const ordered = Object.entries(s.expr).sort(([, a], [, b]) => Number(a?.includes('ROW(')) - Number(b?.includes('ROW(')));
-    known[s.label] = row;
-    for (const [column, expr] of ordered) row[column] = expr ? evaluate(expr, rows, known) : null;
-    return { row: { ...row }, summary: s };
-  };
-  const grouped = table.summaries.filter((s) => s.group_by);
-  const out: { row: Row; summary?: Summary }[] = [];
-  let start = 0;
-  table.rows.forEach((row, i) => {
-    out.push({ row });
-    for (const s of grouped) {
-      const column = s.group_by as string;
-      if (table.rows[i + 1]?.[column] !== row[column]) {
-        const part = table.rows.slice(start).filter((r, j) => j + start <= i && r[column] === row[column]);
-        out.push(line(s, part));
-      }
-    }
-    if (grouped.some((s) => table.rows[i + 1]?.[s.group_by as string] !== row[s.group_by as string])) start = i + 1;
-  });
-  for (const s of table.summaries.filter((x) => !x.group_by)) out.push(line(s, table.rows));
-  return out;
 }
 
 function headerText(column: Column, table: TableData): string | null {
@@ -92,7 +69,7 @@ function Head({ table }: { table: TableData }) {
 }
 
 function Pane({ label, table, result }: { label: string; table?: TableData; result: boolean }) {
-  const lines = useMemo(() => (table ? withSummaries(table) : []), [table]);
+  const lines = useMemo(() => (table ? withSummaries(table.rows, table.summaries) : []), [table]);
   let seq = 0;
   return (
     <section className={`sv-pane ${result ? 'res' : ''}`}>
@@ -144,11 +121,15 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
 
   useEffect(() => {
     void (async () => {
-      const got = await getJson<NonNullable<typeof info>>(`${api}/tables`);
-      setInfo(got);
-      setRaw(got.source[0]?.name ?? '');
-      setRes(got.result[0]?.name ?? '');
-      setDate((await loadDates()).default ?? '');
+      try {
+        const got = await getJson<NonNullable<typeof info>>(`${api}/tables`);
+        setInfo(got);
+        setRaw(got.source[0]?.name ?? '');
+        setRes(got.result[0]?.name ?? '');
+        setDate((await loadDates()).default ?? '');
+      } catch (e) {
+        setNotice(message(e));
+      }
     })();
   }, [api, loadDates]);
 
@@ -158,8 +139,13 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
       const key = `${day}|${name}`;
       if (asked.current.has(key) && !force) return; // 이미 받은 표는 다시 요청하지 않아 표를 바로 바꿀 수 있다
       asked.current.add(key);
-      const data = await getJson<TableData>(`${api}/table?date=${encodeURIComponent(day)}&name=${encodeURIComponent(name)}`);
-      setCache((old) => ({ ...old, [key]: data }));
+      try {
+        const data = await getJson<TableData>(`${api}/table?date=${encodeURIComponent(day)}&name=${encodeURIComponent(name)}`);
+        setCache((old) => ({ ...old, [key]: data }));
+      } catch (e) {
+        asked.current.delete(key); // 실패한 표는 다시 고르면 다시 요청한다
+        setNotice(message(e));
+      }
     },
     [api],
   );
@@ -200,7 +186,13 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
     body.append('file', file);
     body.append('date', day);
     body.append('confirm', String(confirm));
-    const got = await getJson<Reply>(`${api}/upload`, { method: 'POST', body });
+    let got: Reply;
+    try {
+      got = await getJson<Reply>(`${api}/upload`, { method: 'POST', body });
+    } catch (e) {
+      setReply({ status: 'failed', message: message(e), errors: [] });
+      return;
+    }
     if (got.status === 'saved' || got.status === 'same') await done(got, day);
     else setReply(got);
   };
@@ -211,7 +203,12 @@ export default function ExcelFeaturePage({ api, title }: { api: string; title: s
   };
 
   const refetch = async () => {
-    const got = await getJson<Reply>(`${api}/refetch?date=${encodeURIComponent(date)}`, { method: 'POST' });
+    let got: Reply;
+    try {
+      got = await getJson<Reply>(`${api}/refetch?date=${encodeURIComponent(date)}`, { method: 'POST' });
+    } catch (e) {
+      got = { status: 'failed', message: message(e), errors: [] };
+    }
     if (got.status === 'saved') await done(got, date);
     else {
       setDialog('');

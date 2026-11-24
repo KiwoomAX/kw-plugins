@@ -74,6 +74,14 @@ def stamp(rows, base_date, base_time, loaded_at):
     return [{**r, "base_date": base_date, "base_time": base_time, "loaded_at": loaded_at} for r in rows]
 
 
+def as_stored(plan, tables, base_date, now):
+    """샌드박스가 돌려주는 모양으로 바꾼다. 기준일 · 기준 시각 · 적재 시각이 붙고 소수 열은 글자다.
+    계산 코드가 업로드(양식 값 · 새로 받은 WINUS 값)와 다시 받기(저장된 값)에서 같은 모양의 입력을 받게 한다."""
+    numeric = {t["name"]: {c["name"] for c in t["columns"] if c["type"] == "numeric"} for t in plan["tables"]}
+    return {name: stamp([{k: str(v) if k in numeric[name] and v is not None and not isinstance(v, str) else v for k, v in r.items()} for r in rows], base_date, now, now)
+            for name, rows in tables.items()}
+
+
 def _mapped(table, rows):
     """쿼리 응답을 표의 열 이름으로 바꾼다. query_map 이 없으면 응답 열 이름을 그대로 쓴다."""
     query_map = table.get("query_map")
@@ -137,7 +145,7 @@ def list_tables(plan):
 def calculated(plan, calculate, tables, base_date):
     """(표 이름별 결과 행, 실패 응답). 계산을 첫 쓰기 전에 끝내므로 실패하면 아무것도 저장되지 않는다."""
     try:
-        got = calculate(tables, base_date)
+        got = calculate(tables, dt.date.fromisoformat(base_date))  # calc-guide 의 약속대로 기준일은 날짜로 넘긴다
     except Exception as e:  # 엑셀마다 다른 계산 코드의 오류를 화면에 알리고 멈춘다
         return None, result("failed", f"계산에 실패했습니다. 아무것도 저장하지 않았습니다({type(e).__name__})")
     out = {}
@@ -149,9 +157,9 @@ def calculated(plan, calculate, tables, base_date):
     return out, None
 
 
-def write_all(store, base_date, kind, user, base_time, writes):
+def write_all(store, base_date, kind, user, base_time, writes, loaded_at=None):
     """writes 는 쓰는 순서대로 (표 이름, 행 목록). 시간 단위는 쌓고, 일자 단위는 기준일 범위를 교체한다."""
-    loaded_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    loaded_at = loaded_at or dt.datetime.now(dt.timezone.utc).isoformat()
     try:
         upload_id = store.begin(base_date, base_time, kind, user)
         for name, rows in writes:
@@ -198,20 +206,23 @@ def _process(store, winus, plan, calculate, data, base_date, user, confirm):
         return result("same", "바뀐 값이 없어 저장된 결과를 보입니다")
     if state != "없음" and not confirm:
         return result("needs_confirm", OVERWRITE)
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    forms = as_stored(plan, checked["tables"], base_date, now)
     if not store.hourly and state == "완료" and not list_tables(plan) & set(changed):  # 호출 목록이 바뀌면 WINUS 를 다시 받는다
         winus_rows = {t["name"]: store.read(t["name"], base_date) for t in by_stage(plan, "raw_winus")}
         fresh = []
     else:
-        winus_rows, failed = fetch_winus(plan, winus, base_date, checked["parameters"], checked["tables"])
+        fetched, failed = fetch_winus(plan, winus, base_date, checked["parameters"], checked["tables"])
         if failed:
             return failed
+        winus_rows = as_stored(plan, fetched, base_date, now)
         fresh = list(winus_rows)
-    inputs = {**checked["tables"], **winus_rows, **{t["name"]: store.read_all(t["name"]) for t in by_stage(plan, "fixed")}}
+    inputs = {**forms, **winus_rows, **{t["name"]: store.read_all(t["name"]) for t in by_stage(plan, "fixed")}}
     results, failed = calculated(plan, calculate, inputs, base_date)
     if failed:
         return failed
-    writes = [(n, checked["tables"][n]) for n in changed] + [(n, winus_rows[n]) for n in fresh] + list(results.items())
-    return write_all(store, base_date, "업로드", user, dt.datetime.now(dt.timezone.utc).isoformat(), writes)
+    writes = [(n, forms[n]) for n in changed] + [(n, winus_rows[n]) for n in fresh] + list(results.items())
+    return write_all(store, base_date, "업로드", user, now, writes, now)
 
 
 def _previous_ids(store, name, base_date, state):
