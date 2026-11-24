@@ -21,7 +21,6 @@ STAGE = {"winus": "raw_winus", "external": "raw_external", "manual": "raw_manual
 COMMON = [{"name": "base_date", "type": "date"}, {"name": "base_time", "type": "timestamptz"}, {"name": "loaded_at", "type": "timestamptz"}]
 TYPES = {"text": {"type": "text"}, "code": {"type": "varchar", "length": 50}, "number": {"type": "numeric"}, "date": {"type": "date"}}
 COLUMN = re.compile(r"^\$?([A-Za-z]{1,3})(?:\$?\d+)?$")  # A1 · $A$1 · A(열 전체)
-MIN_DATES = 3  # primary key 를 정하기 전에 확인할 기준일 수
 REGISTRY = [("excel", "text"), ("table_name", "text"), ("stage", "text"), ("definition_id", "text"), ("schema_name", "text"), ("columns_json", "text"),
             ("summaries_json", "text"), ("row_map_json", "text"), ("query_id", "integer"), ("waiting_query", "boolean"), ("updated_at", "timestamptz")]
 UPLOAD = [("upload_id", "text"), ("excel", "text"), ("base_date", "date"), ("base_time", "timestamptz"), ("status", "text"), ("kind", "text"),
@@ -65,7 +64,7 @@ def _dates_table(excel, d, hourly):
 
 
 def _source_table(excel, d, kind, hourly):
-    if kind == "winus":  # primary key 는 기준일 세 개의 응답으로 확인한 뒤 정한다. 표를 만든 뒤에는 바꿀 수 없다
+    if kind == "winus":  # 쿼리 결과는 여러 테이블을 잇거나 묶은 값이라 원본 테이블의 key 를 쓸 수 없다. 저장은 기준일 범위 교체, 조회는 모든 열 정렬이라 key 없이 둔다
         return _table(excel, "raw_winus", d["target"], d, [], [], waiting_query=True)
     return _table(excel, STAGE[kind], d["target"], d, [{"name": "row_id", "type": "integer"}], _key(hourly, "row_id"), editable=True)
 
@@ -167,15 +166,6 @@ def split_points(book, definition):
             if stable and reads[i][1] != reads[i - 1][1] and reads[i][1] == reads[i + 1][1]:
                 changed[reads[i][0]] += 1
     return sorted(r for r, n in changed.items() if 2 * n >= formula_columns)
-
-
-def primary_key_check(rows_by_date, columns):
-    """columns 가 기준일마다 유일한지 확인한다. 서로 다른 기준일 세 개가 있어야 unique 가 참이 된다."""
-    for rows in rows_by_date.values():
-        keys = [tuple(r.get(c) for c in columns) for r in rows]
-        if len(keys) != len(set(keys)):
-            return {"unique": False, "dates": len(rows_by_date)}
-    return {"unique": len(rows_by_date) >= MIN_DATES, "dates": len(rows_by_date)}
 
 
 def registry_rows(plan, results, schema):

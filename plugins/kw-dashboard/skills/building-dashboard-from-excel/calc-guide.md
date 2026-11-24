@@ -35,5 +35,4 @@ def calculate(tables: dict[str, list[dict]], base_date: date) -> dict[str, list[
 
 - 숫자는 셀의 표시 형식 자릿수로 반올림해 같으면 같다고 본다.
 - 엑셀이 `#REF!` 인 셀은 따로 세고 합격 판정에서 뺀다.
-- 엑셀 저장 뒤 WINUS 값이 바뀐 셀은 개발자에게 보여 확인받는다.
 - 소계 · 합계 식과 날짜 머리글도 함께 대조한다.
