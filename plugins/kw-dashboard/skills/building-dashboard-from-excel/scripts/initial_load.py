@@ -60,12 +60,12 @@ def rows(book, plan, definitions, base_date):
     stamp = {"base_date": base_date, "base_time": saved, "loaded_at": saved}
     for t in plan["tables"]:
         d = by_id.get(t.get("definition_id"))
-        if d is None:
+        if d is None or t["stage"] == "stat":  # 통계 표는 저장하지 않는다
             continue
         if t["name"].endswith("_dates"):
             out[t["name"]] = [{**stamp, **_dates_row(book, d)}]
             continue
-        extra = {"calc": "row_seq", "raw_manual": "row_id", "raw_external": "row_id"}.get(t["stage"])
+        extra = {"calc": "row_seq", "raw_manual": "row_id"}.get(t["stage"])
         table = verify_calc.read_table(book, d)
         out[t["name"]] = [{**stamp, **({extra: i} if extra else {}), **r} for i, r in enumerate(table, 1)]
     return out

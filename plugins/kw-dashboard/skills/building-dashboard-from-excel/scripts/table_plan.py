@@ -1,6 +1,6 @@
 """엑셀 분석기의 표 정의로 만들 표의 이름 · 열 · primary key 를 정한다.
 
-표 이름은 `{엑셀}__{단계}__{대상}` 이고, 단계는 raw_winus · raw_external · raw_manual · fixed · calc 다.
+표 이름은 `{엑셀}__{단계}__{대상}` 이고, 단계는 raw_winus · raw_wfs · raw_manual · fixed · calc · stat 이다. stat(통계 표)은 저장하지 않고 calc.py 가 계산만 한다.
 실행: python table_plan.py check <엑셀> --results explain_results.json --facts explain_facts.json   표 정의 검사(먼저 실행)
       python table_plan.py <explain_results.json> --slug <엑셀 영문 이름> --sources <sources.json> --schema <스키마> --out table_plan.json
       python table_plan.py requests --plan table_plan.json --out create        표마다 만들기 요청 파일
@@ -18,12 +18,12 @@ from pathlib import Path
 from openpyxl.formula import Tokenizer
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-STAGE = {"winus": "raw_winus", "external": "raw_external", "manual": "raw_manual"}
+STAGE = {"winus": "raw_winus", "wfs": "raw_wfs", "manual": "raw_manual"}
 COMMON = [{"name": "base_date", "type": "date"}, {"name": "base_time", "type": "timestamptz"}, {"name": "loaded_at", "type": "timestamptz"}]
 TYPES = {"text": {"type": "text"}, "code": {"type": "varchar", "length": 50}, "number": {"type": "numeric"}, "date": {"type": "date"}}
 COLUMN = re.compile(r"^\$?([A-Za-z]{1,3})(?:\$?\d+)?$")  # A1 · $A$1 · A(열 전체)
 REGISTRY = [("excel", "text"), ("table_name", "text"), ("stage", "text"), ("definition_id", "text"), ("schema_name", "text"), ("columns_json", "text"),
-            ("summaries_json", "text"), ("row_map_json", "text"), ("query_id", "integer"), ("waiting_query", "boolean"), ("updated_at", "timestamptz")]
+            ("row_map_json", "text"), ("query_id", "integer"), ("waiting_query", "boolean"), ("updated_at", "timestamptz")]
 UPLOAD = [("upload_id", "text"), ("excel", "text"), ("base_date", "date"), ("base_time", "timestamptz"), ("status", "text"), ("kind", "text"),
           ("uploaded_by", "text"), ("started_at", "timestamptz"), ("finished_at", "timestamptz")]
 
@@ -42,7 +42,8 @@ def _kind(d, sources):
         return sources[d["id"]]
     if d["role"] == "수기 입력":
         return "manual"
-    return "winus" if (d.get("source") or {}).get("origin") == "WINUS" else "external"
+    origin = (d.get("source") or {}).get("origin")
+    return {"WINUS": "winus", "WFS": "wfs"}.get(origin, "manual")
 
 
 def _table(excel, stage, target, d, extra, key, **more):
@@ -64,9 +65,34 @@ def _dates_table(excel, d, hourly):
             "editable": False, "waiting_query": False, "query_id": None}
 
 
+def _stat_tables(excel, d, hourly):
+    """결과표의 소계 항목을 target 으로 묶어 대상마다 통계 표 하나. 열은 이름 열 · 묶는 열 · 값 열을 처음 나온 순서로 둔다."""
+    by_db = {c["db"]: (c, i) for i, c in enumerate(d["columns"])}
+    groups = {}
+    for s in d["summaries"]:
+        names = groups.setdefault(s["target"], [])
+        for n in [s["label_col"], s["group_by"], *s["values"]]:
+            if n is not None and n not in names:
+                names.append(n)
+    labels = {s["label_col"] for s in d["summaries"]}
+    out = []
+    for target, names in groups.items():
+        columns = []
+        for n in names:
+            if n not in by_db:
+                sys.exit(f"표 정의 {d['id']}: 소계 항목의 열 {n} 이 columns 에 없음")
+            c, i = by_db[n]
+            columns.append(_column({**c, "type": "text"} if n in labels else c, d["levels"], i))
+        out.append({"name": f"{excel}__stat__{target}", "stage": "stat", "definition_id": d["id"], "primary_key": _key(hourly, "row_seq"),
+                    "description": f"{excel} 엑셀 {d['target']} 표의 소계 · 합계({target})",
+                    "columns": COMMON + [{"name": "row_seq", "type": "integer"}] + columns, "summaries": [],
+                    "editable": False, "waiting_query": False, "query_id": None})
+    return out
+
+
 def _source_table(excel, d, kind, hourly):
-    if kind == "winus":  # 쿼리 결과는 여러 테이블을 잇거나 묶은 값이라 원본 테이블의 key 를 쓸 수 없다. 저장은 기준일 범위 교체, 조회는 모든 열 정렬이라 key 없이 둔다
-        return _table(excel, "raw_winus", d["target"], d, [], [], waiting_query=True)
+    if kind in ("winus", "wfs"):  # 쿼리 결과는 여러 테이블을 잇거나 묶은 값이라 원본 테이블의 key 를 쓸 수 없다. 저장은 기준일 범위 교체, 조회는 모든 열 정렬이라 key 없이 둔다
+        return _table(excel, STAGE[kind], d["target"], d, [], [], waiting_query=True)
     return _table(excel, STAGE[kind], d["target"], d, [{"name": "row_id", "type": "integer"}], _key(hourly, "row_id"), editable=True)
 
 
@@ -145,6 +171,7 @@ def build(results, excel_slug, sources):
             tables.append(_table(excel_slug, "calc", d["target"], d, [{"name": "row_seq", "type": "integer"}], _key(hourly, "row_seq")))
             if d["date_columns"]:
                 tables.append(_dates_table(excel_slug, d, hourly))
+            tables += _stat_tables(excel_slug, d, hourly)
         elif d["role"] != "계산":
             tables.append(_source_table(excel_slug, d, _kind(d, sources), hourly))
         for item in d["outside"]["items"]:
@@ -165,6 +192,8 @@ def create_requests(plan, schema):
     """표를 만드는 요청 목록."""
     out = []
     for t in plan["tables"]:
+        if t["stage"] == "stat":  # 통계 표는 저장하지 않으므로 만들지 않는다
+            continue
         columns = [{k: c[k] for k in ("name", "type", "length") if k in c} | ({"nullable": False} if c["name"] in t["primary_key"] else {})
                    for c in t["columns"]]
         req = {"schema": schema, "table": t["name"], "description": t["description"], "columns": columns}
@@ -176,6 +205,8 @@ def existing(plan, described):
     """이미 있는 표와 대조한다. described 는 {표 이름: 열 목록} 이다."""
     out = {"same": [], "different": [], "missing": []}
     for t in plan["tables"]:
+        if t.get("stage") == "stat":
+            continue
         if t["name"] not in described:
             out["missing"].append(t["name"])
             continue
@@ -186,7 +217,7 @@ def existing(plan, described):
 
 
 def _data_rows(d):
-    skip = {s["row"] for s in d["summaries"]}
+    skip = {s["row"] for s in d["summaries"] if "row" in s}
     top = d["header_rows"][1] + 1 if d["header_rows"] else d["area"][0]
     return [r for r in range(top, d["area"][2] + 1) if r not in skip]
 
@@ -232,17 +263,17 @@ def split_points(book, definition):
 
 
 def registry_rows(plan, results, schema):
-    """엑셀 목록 표에 넣을 행. 응용화면 개발자가 보는 열 정리와 소계 정의가 여기에 남는다."""
+    """엑셀 목록 표에 넣을 행. 응용화면 개발자가 보는 열 정리가 여기에 남는다. 통계 표는 저장하지 않으므로 넣지 않는다."""
     by_id = {d["id"]: d for d in results["definitions"]}
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     out = []
     for t in plan["tables"]:
-        if t["stage"] == "common":
+        if t["stage"] in ("common", "stat"):
             continue
         d = by_id.get(t.get("definition_id"), {})
         row_map = {i: r for i, r in enumerate(_data_rows(d), 1)} if d and t["stage"] == "calc" else {}
         out.append({"excel": plan["excel"], "table_name": t["name"], "stage": t["stage"], "definition_id": t.get("definition_id"), "schema_name": schema,
-                    "columns_json": json.dumps(t["columns"], ensure_ascii=False), "summaries_json": json.dumps(d.get("summaries", []), ensure_ascii=False),
+                    "columns_json": json.dumps(t["columns"], ensure_ascii=False),
                     "row_map_json": json.dumps(row_map), "query_id": t["query_id"], "waiting_query": t["waiting_query"], "updated_at": now})
     return out
 
@@ -324,7 +355,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="엑셀 분석기의 표 정의로 저장 설계 파일을 만든다")
     ap.add_argument("results")
     ap.add_argument("--slug", required=True, help="엑셀의 영문 이름(소문자 · 숫자 · _)")
-    ap.add_argument("--sources", required=True, help="4단계에서 정한 표별 출처 JSON {표 id: winus | external | manual}")
+    ap.add_argument("--sources", required=True, help="4단계에서 정한 표별 출처 JSON {표 id: winus | wfs | manual}")
     ap.add_argument("--schema", required=True, help="개발자가 고른 저장 스키마. 화면 API 가 이 스키마의 표를 연다")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
