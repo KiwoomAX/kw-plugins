@@ -156,13 +156,14 @@ Assert 'explainer description is a safe plain scalar' (-not ($exDesc -match ': |
 Assert 'explainer opens only as a slash command' ($exText -match '(?m)^disable-model-invocation:\s*true\s*$')
 foreach ($f in @('scripts/explain_cell.py', 'scripts/formula_segments.py', 'scripts/query_sources.py',
                  'scripts/trace_cells.py', 'scripts/capture_views.py', 'scripts/tables.py', 'scripts/plain_text.py', 'scripts/sources.py',
-                 'scripts/checks.py', 'scripts/requirements.txt', 'assets/explain_view.html', 'assets/three_stage_view.html')) {
+                 'scripts/checks.py', 'scripts/facts.py', 'scripts/requirements.txt', 'assets/explain_view.html', 'assets/three_stage_view.html')) {
     Assert "explainer ships $f" (Test-Path (Join-Path $ExDir $f))
 }
 Assert 'explainer runs scripts through uv, not python3' (($exText -match 'uv run') -and -not ($exText -match '\bpython3\b'))
 Assert 'explainer carries no build-history notes' (-not ($exText -match '\b20\d\d-\d\d-\d\d\b|~/\.claude'))
 Assert 'the plugin description names the explainer' ($pluginJson.description -match 'explaining-excel-cell')
 Assert 'explainer ships scripts/definitions.py' (Test-Path (Join-Path $ExDir 'scripts/definitions.py'))
+Assert 'the explainer documents the facts run' ($exText -match '--facts')
 foreach ($page in @('explain_view.html', 'three_stage_view.html')) {
     $view = Read-TextOrEmpty (Join-Path $ExDir "assets/$page")
     Assert "$page has the day and night buttons" (($view -match 'aria-label="낮"') -and ($view -match 'aria-label="밤"'))

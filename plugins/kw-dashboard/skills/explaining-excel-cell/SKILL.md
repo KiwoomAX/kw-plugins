@@ -63,6 +63,8 @@ disable-model-invocation: true
    uv run --system-certs --no-project --with-requirements "<스킬>\scripts\requirements.txt" python "<스킬>\scripts\explain_cell.py" "<엑셀 경로>" --all --results explain_results.json --out explain_all.html
    ```
 
+   대시보드 스킬처럼 설명 화면 없이 사실 자료만 필요하면 7번 명령에 `--facts` 를 붙이고 `--out` 을 `explain_facts.json` 으로 준다. 그 파일에는 결과에 쓰이는 셀과 따라가지 못한 참조, 연결 목록, WINUS 추출본 후보, 확인 필요한 사항이 쓰이고, 결과 파일은 바뀌지 않는다.
+
 8. 만든 페이지를 `Start-Process` 로 브라우저에서 연다. 날짜 시트 군이 있으면 대화에서 1번 알린다. 「마지막 시트(<시트>)의 계산 기준으로 분석했습니다. 더 과거의 계산 이력까지 모두 검토가 필요하면 말씀해 주세요.」 틀린 내용이 있으면 이 대화에서 알려 달라고 덧붙인다.
 9. 결과에 쓰이는 표를 하나씩 확인받는다. 2번째 실행은 그 표마다 결과 파일의 `definitions` 에 표 정의를 제안한다. 화면의 표 범위 테두리, 머리글, 소계 행, 표 밖 셀과 「확인 필요한 사항」을 함께 보며 묻는다. 애매한 정의는 짐작하지 않고 모두 묻는다. 답은 결과 파일에 Edit 도구로 고치고, 같은 명령에 `--replace` 를 붙여 다시 실행한다. `--replace` 는 같은 이름의 출력 파일을 지우고 다시 쓴다.
    - 표를 확인하면 `target` 에 표 이름의 영문 대상을 적고 `confirmed` 를 `true` 로 바꾼다. 역할(`role`)은 `confirmed` 가 `true` 일 때만 고친 값이 남는다.

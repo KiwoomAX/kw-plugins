@@ -22,6 +22,9 @@ REF_TEXT = {"broken": "참조가 깨져 있어 어느 셀을 읽는지 알 수 �
 
 
 def _capped(items, limit):
+    """limit 이 None 이면 자르지 않는다(사실 자료는 Claude 가 항목마다 묻는 데 쓰므로 모두 낸다)."""
+    if limit is None:
+        return {"items": items, "more": 0}
     return {"items": items[:limit], "more": max(0, len(items) - limit)}
 
 
@@ -44,7 +47,7 @@ def _rows(t):
     return range(data_top(t), t["area"][2] + 1)
 
 
-def odd_rows(book, tables):
+def odd_rows(book, tables, limit=ODD_MAX):
     """열 셀의 60% 이상이 같은 역할이면, 역할이 다른 셀과 값 셀을 모은다. 머리글 글자와 같은 값은 뺀다."""
     heads = {}
     for t in tables:
@@ -74,7 +77,7 @@ def odd_rows(book, tables):
                     continue
                 items.append({"sheet": sheet, "cell": a1(*pos), "column": _column(t, c), "usual": usual,
                               "got": f if f else f"값 「{show(v)}」"})
-    return _capped(items, ODD_MAX)
+    return _capped(items, limit)
 
 
 def typed_cells(book, tables):
@@ -128,7 +131,7 @@ def _keep(v):
     return round(float(v), 10)
 
 
-def same_value_columns(book, tables_by_sheet, date_groups, source_ids=()):
+def same_value_columns(book, tables_by_sheet, date_groups, source_ids=(), limit=SAME_MAX):
     """수식이 없는 두 열이 같은 소수를 5개 이상, 작은 열 값의 80% 이상 보유하면 묻는다. 날짜 시트는 기준과 바로 이전 시트만 본다.
     둘 다 원천 표(source_ids)이면 값이 같아도 옮겨 붙인 연결이 아니므로 묻지 않는다."""
     dated = {s for g in date_groups for s in g["sheets"]}
@@ -163,7 +166,7 @@ def same_value_columns(book, tables_by_sheet, date_groups, source_ids=()):
                 f"「{tb['sheet']}」 시트 {label(tb, {}, [])}의 「{_column(tb, cb)}」 값과 같습니다. "
                 "두 열 사이에 수식 연결은 없습니다. 같은 값을 옮겨 붙이는 연결이 맞습니까?")
         items.append({"text": text, "a": f"{ta['sheet']}!{col_name(ca)}열", "b": f"{tb['sheet']}!{col_name(cb)}열", "count": n})
-    return _capped(items, SAME_MAX)
+    return _capped(items, limit)
 
 
 def _tokens(formula):
@@ -188,7 +191,7 @@ def _only_numbers_differ(f1, f2):
     return diff
 
 
-def ambiguous(book, odd_refs, nameless, date_groups):
+def ambiguous(book, odd_refs, nameless, date_groups, limit=AMBIGUOUS_MAX):
     """분석기가 판단하지 못한 상황. 참조, 과거 시트, 이름 없는 범위, 기준값, 매크로 시트 순이다."""
     items = [{"kind": "과거 시트" if o["why"] == "past_sheet" else "참조", "where": f"{o['sheet']}!{o['cell']}",
               "text": REF_TEXT[o["why"]]} for o in odd_refs]
@@ -202,4 +205,4 @@ def ambiguous(book, odd_refs, nameless, date_groups):
                               "text": "매주 바뀌는 기준값입니까? 정해진 규칙이 있습니까?"})
     items += [{"kind": UNPLACED[u.get("why", "시트 모름")][0], "where": u["location"],
                "text": UNPLACED[u.get("why", "시트 모름")][1]} for u in book.unplaced]
-    return _capped(items, AMBIGUOUS_MAX)
+    return _capped(items, limit)

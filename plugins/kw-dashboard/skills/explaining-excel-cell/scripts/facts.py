@@ -90,3 +90,39 @@ def ranges_text(cells):
                     start = prev = r
         out[sheet] = texts
     return out
+
+
+def _area_text(area):
+    r1, c1, r2, c2 = area
+    return _cell_name(r1, c1) if (r1, c1) == (r2, c2) else f"{_cell_name(r1, c1)}:{_cell_name(r2, c2)}"
+
+
+def build_facts(book, analysis, results):
+    """사실 자료 사전. 수식 추적 · 연결 목록 · WINUS 추출본 후보 · 예외 목록과, 그것을 읽는 데 필요한 머리 정보만 쓴다.
+    표 정의 · 기준일 셀 · 매개변수 셀은 Claude 가 정하므로 넣지 않는다."""
+    from pathlib import Path
+
+    import explain_cell
+    import sources
+    import tables as tb
+    by_id = {t["id"]: t for t in analysis["tables"]}
+    result_ids = {r["table"] for r in results["results"]}
+    cls = tb.classify(book, analysis["tables"], analysis["reads"], result_ids)
+    page = [t for t in analysis["tables"] if t["id"] in set(cls["source"]) | set(cls["calc"]) | result_ids]
+    starts = set()
+    for i in result_ids:
+        sheet, area = by_id[i]["sheet"], by_id[i]["area"]
+        starts |= _cells_in(book, sheet, area)
+    cells, unfollowed = used_cells(book, starts, frozenset(analysis["skipped"]))
+    used_sheets = {s for s, _ in cells}
+    checks = explain_cell.page_checks(book, analysis, cls, page, result_ids, limited=False)
+    checks.pop("winus")
+    return {"excel": Path(book.path).name, "base_sheets": results.get("base_sheets", {}),
+            "results": [{"table": i, "sheet": by_id[i]["sheet"], "area": _area_text(by_id[i]["area"])} for i in sorted(result_ids)],
+            "date_groups": [{"pattern": g["pattern"], "base": g["base"], "sheets": g["sheets"]} for g in analysis["date_groups"]],
+            "used_cells": ranges_text(cells), "unfollowed": unfollowed,
+            "connections": [{"sheet": x["sheet"], "area": _area_text(x["area"]), "name": x["name"], "kind": x["kind"], "source": x["source"]}
+                            for x in book.loaded_ranges],
+            "source_rules": book.source_rules_state,
+            "winus_candidates": [{"sheet": s, **c} for s in analysis["sheets"] if s in used_sheets and (c := sources.winus_candidate(s))],
+            "checks": checks}
