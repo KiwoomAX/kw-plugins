@@ -1,7 +1,8 @@
 """엑셀 분석기의 표 정의로 만들 표의 이름 · 열 · primary key 를 정한다.
 
 표 이름은 `{엑셀}__{단계}__{대상}` 이고, 단계는 raw_winus · raw_external · raw_manual · fixed · calc 다.
-실행: python table_plan.py <explain_results.json> --slug <엑셀 영문 이름> --sources <sources.json> --schema <스키마> --out table_plan.json
+실행: python table_plan.py check <엑셀> --results explain_results.json --facts explain_facts.json   표 정의 검사(먼저 실행)
+      python table_plan.py <explain_results.json> --slug <엑셀 영문 이름> --sources <sources.json> --schema <스키마> --out table_plan.json
       python table_plan.py requests --plan table_plan.json --out create        표마다 만들기 요청 파일
       python table_plan.py compare --plan table_plan.json --described described.json   이미 있는 표와 대조
       python table_plan.py columns <엑셀> --results explain_results.json --definition <표 id>   열마다 결과 계산이 읽는지
@@ -69,8 +70,70 @@ def _source_table(excel, d, kind, hourly):
     return _table(excel, STAGE[kind], d["target"], d, [{"name": "row_id", "type": "integer"}], _key(hourly, "row_id"), editable=True)
 
 
+ANALYZER = Path(__file__).resolve().parents[2] / "explaining-excel-cell/scripts"
+TOP_KEYS = ("settings", "definitions", "date_groups", "base_date", "parameters")
+SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today")
+DEF_KEYS = ("id", "sheet", "area", "header_rows", "levels", "columns", "date_columns", "summaries", "role", "target", "confirmed", "source", "outside")
+ITEM_KEYS = {"columns": ("col", "db", "type", "header"), "date_columns": ("col", "rel"),
+             "summaries": ("label", "label_col", "group_by", "target", "values")}
+
+
+def _analyzer():
+    if str(ANALYZER) not in sys.path:
+        sys.path.insert(0, str(ANALYZER))
+
+
+def missing_fields(results):
+    """손으로 쓴 결과 파일에서 뒤 스크립트가 바로 읽는 항목 중 빠진 것을 모두 적는다. 빠진 항목마다 한 줄이다."""
+    out = [f"{k} 없음" for k in TOP_KEYS if k not in results]
+    out += [f"settings.{k} 없음" for k in SETTINGS_KEYS if k not in results.get("settings", {})]
+    for i, g in enumerate(results.get("date_groups") or []):
+        out += [f"date_groups[{i}].{k} 없음" for k in ("pattern", "base", "sheets") if k not in g]
+    for n, d in enumerate(results.get("definitions") or []):
+        if d.get("orphan"):
+            continue
+        where = f"표 정의 {d.get('id', f'[{n}]')}"
+        out += [f"{where}: {k} 없음" for k in DEF_KEYS if k not in d]
+        area = d.get("area")
+        if area is not None and not (isinstance(area, list) and len(area) == 4 and all(isinstance(x, int) for x in area)):
+            out.append(f"{where}: area 는 숫자 4개여야 함")
+        for key, need in ITEM_KEYS.items():
+            for i, item in enumerate(d.get(key) or []):
+                out += [f"{where}: {key}[{i}].{k} 없음" for k in need if k not in item]
+        for i, item in enumerate((d.get("outside") or {}).get("items", [])):
+            need = ("action", "where", "value", "formula") + (("target",) if item.get("action") == "별도 표로 저장" else ())
+            out += [f"{where}: outside.items[{i}].{k} 없음" for k in need if k not in item]
+    return out
+
+
+def _cells(text):
+    """「B5:B7」 · 「C2」 를 (행, 열) 집합으로."""
+    from openpyxl.utils.cell import range_boundaries
+    c1, r1, c2, r2 = range_boundaries(text)
+    return {(r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)}
+
+
+def uncovered(results, facts):
+    """결과에 쓰이는 셀 중 어느 표 정의 범위에도, 표 밖 셀 항목에도 들지 않는 셀. {시트: ["E9"]} 형식이다."""
+    covered = set()
+    for d in results["definitions"]:
+        if d.get("orphan"):
+            continue
+        r1, c1, r2, c2 = d["area"]
+        covered |= {(d["sheet"], (r, c)) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)}
+        for item in d["outside"]["items"]:
+            covered |= {(item.get("sheet", d["sheet"]), p) for p in _cells(item["where"])}
+    left = {(s, p) for s, texts in facts["used_cells"].items() for x in texts for p in _cells(x)} - covered
+    _analyzer()
+    import facts as analyzer_facts
+    return analyzer_facts.ranges_text(left)
+
+
 def build(results, excel_slug, sources):
     """저장 설계. 역할이 「계산」인 표는 저장하지 않고 계산 코드 안에서만 쓴다."""
+    missing = missing_fields(results)
+    if missing:
+        sys.exit("결과 파일의 빠진 항목:\n" + "\n".join(missing))
     hourly = results["settings"]["refresh_unit"] == "시간"
     defs = [d for d in results["definitions"] if not d.get("orphan")]
     for d in defs:
@@ -228,7 +291,30 @@ def _columns_command(argv):
     _print(column_report(book, d, read))
 
 
-COMMANDS = {"requests": _requests_command, "compare": _compare_command, "columns": _columns_command}
+def unlisted_report(book, results):
+    """정의 범위에서 찾은 소계 · 합계 행 중 표 정의에 적지 않은 행의 위치."""
+    return []
+
+
+def _check_command(argv):
+    """빠진 항목, 표 정의 범위 밖의 결과 셀, 정의에 적지 않은 소계 행을 낸다. 하나라도 있으면 1 을 돌려준다."""
+    ap = argparse.ArgumentParser(description="손으로 쓴 결과 파일을 뒤 단계 전에 검사한다")
+    ap.add_argument("excel")
+    ap.add_argument("--results", required=True)
+    ap.add_argument("--facts", required=True, help="분석기 --facts 실행이 쓴 explain_facts.json")
+    a = ap.parse_args(argv)
+    results = _read(a.results)
+    report = {"missing": missing_fields(results), "uncovered": {}, "unlisted": []}
+    if not report["missing"]:
+        _analyzer()
+        import explain_cell
+        report["uncovered"] = uncovered(results, _read(a.facts))
+        report["unlisted"] = unlisted_report(explain_cell.Book(a.excel), results)
+    _print(report)
+    return 1 if any(report.values()) else 0
+
+
+COMMANDS = {"requests": _requests_command, "compare": _compare_command, "columns": _columns_command, "check": _check_command}
 
 
 def main(argv=None):
@@ -251,4 +337,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
