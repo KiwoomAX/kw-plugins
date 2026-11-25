@@ -186,6 +186,19 @@ Assert 'the excel dashboard template has no summary formula module' (-not (Test-
 foreach ($k in @('출처 설명', '표 정의', '등록 요청', 'query_requests.md', '응용화면', '구조 변경', '로그인 토큰', 'table_plan.json')) {
     Assert "excel dashboard SKILL.md explains $k" ($bxText -match $k)
 }
+$bxReadme = Read-TextOrEmpty (Join-Path $BxDir 'templates/README.md')
+$bxCalc   = Read-TextOrEmpty (Join-Path $BxDir 'calc-guide.md')
+# The flow reviews the result tables in Excel before anything is stored in the sandbox; the wording comes from the design.
+foreach ($k in @('작업할 엑셀의 실제 업데이트 프로세스를 설명해 주시면 분석에 도움이 됩니다', '--facts', 'table_plan.py check', '이렇게 저장할까요',
+                 'HANDOFF-', '등록 뒤에 이어서 하기를 권장합니다', '새 구조를 임시로 만들어 계산 결과를 엑셀에 저장했습니다', '샌드박스(AX DB)에 저장할까요?')) {
+    Assert "excel dashboard SKILL.md says $k" ($bxText.Contains($k))
+}
+foreach ($k in @('영문 이름을 정해 주세요', 'PC 저장', '화면 코드는 고치지 않는다')) {
+    Assert "excel dashboard SKILL.md no longer says $k" (-not $bxText.Contains($k))
+}
+Assert 'the excel dashboard template README lets developers change copied code' (-not $bxReadme.Contains('복사한 코드를 고치지 않는다'))
+Assert 'the excel dashboard template README keeps the module name limit' ($bxReadme.Contains('모듈 이름이 같아서'))
+Assert 'the calc guide returns statistics tables' ($bxCalc.Contains('통계 표') -and -not $bxCalc.Contains('summaries'))
 Assert 'excel dashboard runs scripts through uv, not python3' (($bxText -match 'uv run') -and -not ($bxText -match '\bpython3\b'))
 Assert 'the plugin description names the excel dashboard skill' ($pluginJson.description -match 'building-dashboard-from-excel')
 
