@@ -95,10 +95,11 @@ def date_sheets(book, plan, definitions, group):
     return {"loaded": loaded, "different": different}
 
 
-def upload_row(excel, base_date, saved_at):
-    """초기 적재를 업로드 이력의 완료 행으로 남긴다. 이 행이 있어야 화면과 업로드가 그 기준일을 완료로 본다."""
-    return {"upload_id": uuid.uuid4().hex, "excel": excel, "base_date": base_date, "base_time": saved_at, "status": "완료", "kind": "초기 적재",
-            "uploaded_by": "", "started_at": saved_at, "finished_at": saved_at}
+def upload_row(excel, base_date, saved_at, status="완료"):
+    """초기 적재를 업로드 이력 행으로 남긴다. 완료 행이 있어야 화면과 업로드가 그 기준일을 완료로 본다.
+    임시 실행의 검토 기준일은 「진행 중」으로 남겨, 뒤이은 업로드가 그 기준일을 처음부터 계산하게 한다."""
+    return {"upload_id": uuid.uuid4().hex, "excel": excel, "base_date": base_date, "base_time": saved_at, "status": status, "kind": "초기 적재",
+            "uploaded_by": "", "started_at": saved_at, "finished_at": saved_at if status == "완료" else None}
 
 
 def _write(path, body):
@@ -120,8 +121,10 @@ def calculated(plan, calculate, wired, base_date, stamp):
     return out
 
 
-def write_requests(book, plan, results, base_date, out, calculate):
+def write_requests(book, plan, results, base_date, out, calculate, review=False):
     """적재 요청 파일을 쓴다. 파일 이름의 번호가 실행 순서이고, 번호 뒤의 글자(overwrite · upsert · insert)가 실행할 명령이다.
+    review 는 임시 실행(review_run.py)만 켠다. 켜면 base_date 의 결과표 파일을 쓰지 않고 그 기준일 이력을 「진행 중」으로 쓴다.
+    결과표는 뒤이은 업로드가 계산해 채운다.
     날짜 시트 군이 있으면 구조가 같은 지난 날짜 시트도 그 날짜로 넣는다. 모든 기준일을 계산한 뒤에 파일을 쓰므로, 계산이 하나라도 실패하면 아무 파일도 쓰지 않는다.
     완료 이력(3번)은 마지막에 넣는다. 앞 파일이 하나라도 실패하면 3번을 넣지 않는다."""
     schema, by_name, saved = plan["schema"], {t["name"]: t for t in plan["tables"]}, saved_time(book.path)
@@ -140,13 +143,15 @@ def write_requests(book, plan, results, base_date, out, calculate):
     out.mkdir(parents=True, exist_ok=True)
     for day, wired in wired_days.items():
         for name, table_rows in wired.items():
+            if review and day == base_date and by_name[name]["stage"] == "calc":
+                continue
             if table_rows and by_name[name]["stage"] != "fixed":  # 처음에 비어 있는 표는 보낼 행이 없다
                 _write(out / f"1_overwrite_{name}_{day}.json", {"schema": schema, "table": name, "where": {"base_date": day}, "rows": table_rows})
     for name, table_rows in wired_days[base_date].items():
         if table_rows and by_name[name]["stage"] == "fixed":  # 다시 적재해도 같은 칸은 고쳐 쓰고 중복으로 거절되지 않는다
             _write(out / f"2_upsert_{name}.json", {"schema": schema, "table": name, "mode": "upsert", "rows": table_rows})
     _write(out / "2_upsert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "upsert", "rows": table_plan.registry_rows(plan, results, schema, book)})
-    _write(out / "3_insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], day, saved) for day in sorted(days)]})
+    _write(out / "3_insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], day, saved, "진행 중" if review and day == base_date else "완료") for day in sorted(days)]})
     return {"dates": sorted(days), "different": different}
 
 

@@ -5,3 +5,8 @@
 
 # 엑셀의 표와 저장된 계산 결과를 읽는다
 openpyxl
+
+# review_run.py 가 화면 서버 API 로 임시 실행한다
+fastapi
+httpx
+python-multipart
