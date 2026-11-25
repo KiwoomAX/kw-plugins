@@ -234,10 +234,12 @@ def render_index(index: dict[str, list[dict]]) -> str:
 
 
 def render_argument(a: dict) -> str:
-    """인자 하나. 형식과 설명은 DBGateway 가 인자 표에 적힌 인자에만 싣는다."""
+    """인자 하나. 형식과 설명은 DBGateway 가 인자 표에 적힌 인자에만, 보낼 수 없는 값은 펀드·사번 같은 인자에만 싣는다."""
     parts = [a["kind"], *([f"최대 {a['max_items']}개"] if a.get("max_items") else []),
              *([f"형식 {a['format']}"] if a.get("format") else [])]
-    return f"`{a['name']}`({', '.join(parts)})" + (f": {a['note']}" if a.get("note") else "")
+    blocked = "·".join(f"`{v}`" for v in a.get("blocked_values", []))
+    tail = [*([a["note"]] if a.get("note") else []), *([f"{blocked}(전체) 보낼 수 없음"] if blocked else [])]
+    return f"`{a['name']}`({', '.join(parts)})" + (f": {'. '.join(tail)}" if tail else "")
 
 
 def render_detail(q: dict) -> str:
@@ -249,7 +251,7 @@ def render_detail(q: dict) -> str:
     if "type" in q:
         lines.append(f"- 종류: 테이블 쿼리({q['type']})")
     # 설명이 붙으면 인자마다 한 줄로 낸다. 설명이 쉼표를 품어 한 줄로 이으면 인자 경계가 흐려진다.
-    if any(a.get("note") for a in q["arguments"]):
+    if any(a.get("note") or a.get("blocked_values") for a in q["arguments"]):
         lines += ["- 인자:", *(f"  - {render_argument(a)}" for a in q["arguments"])]
     else:
         lines.append(f"- 인자: {', '.join(render_argument(a) for a in q['arguments']) or '없음'}")
@@ -352,6 +354,13 @@ def _selfcheck() -> None:
         assert "- 인자:\n  - `오늘`(스칼라, 형식 yyyymmdd)\n  - `codes`(목록, 최대 30개, 형식 code): 내부코드, 3자리" in d, d
         d = render_detail({**plain, "arguments": [{"name": "오늘", "kind": "스칼라", "format": "yyyymmdd"}]})
         assert "- 인자: `오늘`(스칼라, 형식 yyyymmdd)" in d and "- 화면" not in d, d
+        # 전체를 뜻하는 값은 DBGateway 가 거절하므로 인자 줄에 알린다. 설명이 없어도 인자마다 한 줄로 낸다
+        blocked = {**plain, "arguments": [
+            {"name": "t_fund", "kind": "스칼라", "format": "fund_code", "blocked_values": ["0000"]},
+            {"name": "sabun", "kind": "스칼라", "note": "사번", "blocked_values": ["00000", "Y"]}]}
+        d = render_detail(blocked)
+        assert "- 인자:\n  - `t_fund`(스칼라, 형식 fund_code): `0000`(전체) 보낼 수 없음\n" in d, d
+        assert "  - `sabun`(스칼라): 사번. `00000`·`Y`(전체) 보낼 수 없음" in d, d
         _selfcheck_registry()
         _selfcheck_key_and_http()
     finally:
