@@ -218,13 +218,14 @@ def _process(store, winus, plan, calculate, data, base_date, user, confirm, revi
         winus_rows = {t["name"]: store.read(t["name"], base_date) for t in by_stage(plan, *SOURCE_STAGES)}
         fresh = []
     else:
-        # 임시 실행은 연결을 기다리는 표를 호출하지 않고 저장된 값으로 계산하며, 그 표는 다시 쓰지 않는다
+        # 임시 실행은 연결을 기다리는 표를 호출하지 않고 저장된 값으로 계산한다. 일자 단위는 그 표를 다시 쓰지 않는다.
+        # 시간 단위는 화면이 가장 최근 기준 시각의 행만 읽으므로, 같은 행을 이번 기준 시각으로 다시 쌓는다
         held = {t["name"] for t in by_stage(plan, *SOURCE_STAGES) if t["waiting_query"]} if review else set()
         fetched, failed = fetch_winus(plan, winus, base_date, checked["parameters"], checked["tables"], skip=held)
         if failed:
             return failed
         winus_rows = as_stored(plan, fetched, base_date, now)
-        fresh = list(winus_rows)
+        fresh = list(winus_rows) + (sorted(held) if store.hourly else [])
         winus_rows.update({n: store.read(n, base_date) for n in held})
     inputs = {**forms, **winus_rows, **{t["name"]: store.read_all(t["name"]) for t in by_stage(plan, "fixed")}}
     results, failed = calculated(plan, calculate, inputs, base_date)
