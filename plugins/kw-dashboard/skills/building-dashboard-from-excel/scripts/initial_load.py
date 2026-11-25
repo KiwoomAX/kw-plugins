@@ -145,7 +145,7 @@ def write_requests(book, plan, results, base_date, out, calculate):
     for name, table_rows in wired_days[base_date].items():
         if table_rows and by_name[name]["stage"] == "fixed":  # 다시 적재해도 같은 칸은 고쳐 쓰고 중복으로 거절되지 않는다
             _write(out / f"2_upsert_{name}.json", {"schema": schema, "table": name, "mode": "upsert", "rows": table_rows})
-    _write(out / "2_upsert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "upsert", "rows": table_plan.registry_rows(plan, results, schema)})
+    _write(out / "2_upsert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "upsert", "rows": table_plan.registry_rows(plan, results, schema, book)})
     _write(out / "3_insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], day, saved) for day in sorted(days)]})
     return {"dates": sorted(days), "different": different}
 

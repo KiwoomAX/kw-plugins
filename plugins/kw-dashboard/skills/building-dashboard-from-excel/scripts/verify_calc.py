@@ -18,23 +18,17 @@ from openpyxl.utils import column_index_from_string
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "templates/backend"))
-import summary_expr  # noqa: E402
+import table_plan  # noqa: E402
 from colmap import round_half_up  # noqa: E402
 
 NEAR = Decimal("0.000000001")
-
-
-def _data_rows(d):
-    skip = {s["row"] for s in d["summaries"]}
-    top = d["header_rows"][1] + 1 if d["header_rows"] else d["area"][0]
-    return [r for r in range(top, d["area"][2] + 1) if r not in skip]
 
 
 def read_table(book, definition):
     """엑셀 저장값을 표 정의 범위로 읽는다. 여러 행에 병합된 행 머리는 행마다 채운다."""
     vals, tops = book.sheet_values(definition["sheet"]), book.merge_top.get(definition["sheet"], {})
     out = []
-    for r in _data_rows(definition):
+    for r in table_plan.data_rows(book, definition):
         row = {}
         for c in definition["columns"]:
             pos = (r, column_index_from_string(c["col"]))
@@ -104,10 +98,10 @@ def _date_digits(v):
     return "".join(ch for ch in str(v) if ch.isdigit())
 
 
-def _group_heads(d, vals, row_map):
-    """{(행, 열): 위 행 값}. 소계 묶음 열의 빈칸은 엑셀에서 「위와 같음」이므로 위 데이터 행의 값으로 읽는다. 소계 행을 넘어서는 채우지 않는다."""
+def _group_heads(d, vals, row_map, stops):
+    """{(행, 열): 위 행 값}. 소계 묶음 열의 빈칸은 엑셀에서 「위와 같음」이므로 위 데이터 행의 값으로 읽는다. 소계 행(stops)을 넘어서는 채우지 않는다."""
     cols = {column_index_from_string(c["col"]) for c in d["columns"] if c["db"] in {s["group_by"] for s in d["summaries"] if s["group_by"]}}
-    stops, out = {s["row"] for s in d["summaries"]}, {}
+    out = {}
     for col in cols:
         last, last_row = None, None
         for r in sorted(row_map.values()):
@@ -122,10 +116,9 @@ def _group_heads(d, vals, row_map):
     return out
 
 
-def _compare_cells(d, vals, rows, row_map, digits, report):
+def _compare_cells(d, vals, rows, row_map, heads, digits, report):
     name, by_seq = d["sheet"], {r["row_seq"]: r for r in rows}
     report["extra"] += [{"table": d["target"], "row_seq": s} for s in by_seq if s not in row_map]
-    heads = _group_heads(d, vals, row_map)
     for seq, r in row_map.items():
         row = by_seq.get(seq)
         for c in d["columns"]:
@@ -141,25 +134,28 @@ def _compare_cells(d, vals, rows, row_map, digits, report):
                 report["diff"].append({"cell": cell, "excel": cached, "computed": row[c["db"]]})
 
 
-def _compare_summaries(d, vals, rows, row_map, digits, report):
+def _compare_summaries(d, lines, vals, results, row_map, heads, digits, report):
+    """소계 · 합계 행마다 calc.py 의 통계 표 행과 엑셀 셀을 비교한다. 이름 글자가 같은 소계 항목 하나로 짝짓는다.
+    묶는 열이 있으면 그 행 바로 위 데이터 행의 묶는 열 값으로 통계 표 행을 찾는다."""
     letters = {c["db"]: c["col"] for c in d["columns"]}
-    known = {}
-    ordered = sorted(row_map.items(), key=lambda x: x[1])
-    for s in d["summaries"]:
+    data = sorted(row_map.values())
+    for line in lines:
+        item = next(s for s in d["summaries"] if s["label"] == line["label"])
         group = None
-        if s["group_by"]:
-            before = [seq for seq, r in ordered if r < s["row"]]
-            near = next((x for x in rows if before and x["row_seq"] == before[-1]), {})
-            group = near.get(s["group_by"])
-        part = [x for x in rows if not s["group_by"] or x.get(s["group_by"]) == group]
-        items = sorted(((k, e) for k, e in s["expr"].items() if e), key=lambda x: "ROW(" in x[1])  # 같은 행의 값을 읽는 식은 뒤에 계산한다
-        for db, expr in items:
-            value = summary_expr.evaluate(expr, part, known)
-            known.setdefault(s["label"], {})[db] = None if value is None else str(value)
+        if item["group_by"]:
+            above = [r for r in data if r < line["row"]]
+            pos = (above[-1], column_index_from_string(letters[item["group_by"]])) if above else None
+            group = heads.get(pos, vals.get(pos)) if pos else None
+        found = next((x for x in results.get(item["target"], [])
+                      if (item["label_col"] is None or _same(line["label"], x.get(item["label_col"]), None))
+                      and (not item["group_by"] or _same(group, x.get(item["group_by"]), None))), None)
+        for db in item["values"]:
             col = column_index_from_string(letters[db])
-            cached, cell = vals.get((s["row"], col)), f"{d['sheet']}!{letters[db]}{s['row']}"
-            if value is None or not _same(cached, value, digits.get((s["row"], col))):
-                report["summary_diff"].append({"cell": cell, "excel": cached, "computed": None if value is None else str(value)})
+            cached, cell = vals.get((line["row"], col)), f"{d['sheet']}!{letters[db]}{line['row']}"
+            if found is None:
+                report["summary_missing"].append({"cell": cell, "excel": cached})
+            elif not _same(cached, found.get(db), digits.get((line["row"], col))):
+                report["summary_diff"].append({"cell": cell, "excel": cached, "computed": found.get(db)})
 
 
 def _compare_dates(d, vals, results, report):
@@ -193,22 +189,25 @@ def display_digits(path, sheets):
 
 
 def compare(book, definitions, results, row_map, digits=None):
-    """결과표마다 대조한다. results 는 {대상: 행 목록}, row_map 은 {대상: {row_seq: 엑셀 행}}, digits 는 {시트: {(행, 열): 표시 자릿수}} 다."""
-    report = {"same": 0, "diff": [], "missing": [], "extra": [], "ref_error": [], "summary_diff": [], "dates_diff": []}
+    """결과표마다 대조한다. results 는 calc.py 반환값 {대상: 행 목록}(결과표 대상과 통계 표 대상), row_map 은 {대상: {row_seq: 엑셀 행}},
+    digits 는 {시트: {(행, 열): 표시 자릿수}} 다."""
+    report = {"same": 0, "diff": [], "missing": [], "extra": [], "ref_error": [], "summary_diff": [], "summary_missing": [], "dates_diff": []}
     for d in definitions:
         if d["role"] != "결과":
             continue
         vals, rows, seqs = book.sheet_values(d["sheet"]), results.get(d["target"], []), {int(k): v for k, v in row_map[d["target"]].items()}
         cell_digits = (digits or {}).get(d["sheet"], {})
-        _compare_cells(d, vals, rows, seqs, cell_digits, report)
-        _compare_summaries(d, vals, rows, seqs, cell_digits, report)
+        lines = table_plan.summary_lines(book, d)
+        heads = _group_heads(d, vals, seqs, {x["row"] for x in lines})
+        _compare_cells(d, vals, rows, seqs, heads, cell_digits, report)
+        _compare_summaries(d, lines, vals, results, seqs, heads, cell_digits, report)
         _compare_dates(d, vals, results, report)
     return report
 
 
 def passed(report):
-    """다른 셀, 빠진 셀, 남는 행이 하나도 없어야 합격이다. #REF! 셀은 합격 판정에서 뺀다."""
-    return not any(report[k] for k in ("diff", "missing", "extra", "summary_diff", "dates_diff"))
+    """다른 셀, 빠진 셀, 남는 행, 다른 소계 칸, 빠진 소계 행이 하나도 없어야 합격이다. #REF! 셀은 합격 판정에서 뺀다."""
+    return not any(report[k] for k in ("diff", "missing", "extra", "summary_diff", "summary_missing", "dates_diff"))
 
 
 def main(argv=None):
@@ -223,7 +222,6 @@ def main(argv=None):
     ap.add_argument("--inputs", help="엑셀 저장값 대신 쓸 표 {표 이름: 행 목록}")
     a = ap.parse_args(argv)
     import initial_load
-    import table_plan
     plan = json.loads(Path(a.plan).read_text(encoding="utf-8-sig"))
     results = json.loads(Path(a.results).read_text(encoding="utf-8-sig"))
     defs = [d for d in results["definitions"] if not d.get("orphan")]  # 분석기가 찾지 못한 표는 table_plan.build 처럼 뺀다
@@ -231,11 +229,12 @@ def main(argv=None):
     tables = {n: wire_values(r, by_name[n]["columns"]) for n, r in initial_load.rows(book, plan, defs, a.base_date).items() if by_name[n]["stage"] != "calc"}
     tables.update(json.loads(Path(a.inputs).read_text(encoding="utf-8-sig")) if a.inputs else {})
     computed = initial_load.load_calc(a.calc)(tables, dt.date.fromisoformat(a.base_date))
-    row_map = {d["target"]: {i: r for i, r in enumerate(table_plan._data_rows(d), 1)} for d in defs if d["role"] == "결과"}
+    row_map = {d["target"]: {i: r for i, r in enumerate(table_plan.data_rows(book, d), 1)} for d in defs if d["role"] == "결과"}
     report = compare(book, defs, computed, row_map, display_digits(a.excel, sorted({d["sheet"] for d in defs if d["role"] == "결과"})))
     Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     ok = passed(report)
-    print(f"{'합격' if ok else '불합격'}: 같은 셀 {report['same']}, 다른 셀 {len(report['diff'])}, 빠진 셀 {len(report['missing'])}, 남는 행 {len(report['extra'])}. 자세한 내용: {a.out}")
+    print(f"{'합격' if ok else '불합격'}: 같은 셀 {report['same']}, 다른 셀 {len(report['diff'])}, 빠진 셀 {len(report['missing'])}, 남는 행 {len(report['extra'])}, "
+          f"다른 소계 칸 {len(report['summary_diff'])}, 빠진 소계 행 {len(report['summary_missing'])}. 자세한 내용: {a.out}")
     return 0 if ok else 1
 
 

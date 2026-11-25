@@ -216,15 +216,42 @@ def existing(plan, described):
     return out
 
 
-def _data_rows(d):
-    skip = {s["row"] for s in d["summaries"] if "row" in s}
+def _found_lines(book, d):
+    """분석기 소계 행 찾기가 정의 범위에서 찾은 소계 · 합계 행 {row, label, label_col, col}. col 은 이름 글자가 있는 열 글자다."""
+    _analyzer()
+    import tables as analyzer_tables
+    r1, c1, r2, c2 = d["area"]
+    by_col = {column_index_from_string(c["col"]): c["db"] for c in d["columns"]}
+    names = [by_col.get(c, get_column_letter(c)) for c in range(c1, c2 + 1)]
+    letters = {n: get_column_letter(c1 + i) for i, n in enumerate(names)}
+    table = {"sheet": d["sheet"], "area": tuple(d["area"]), "header_rows": d["header_rows"], "header": None}
+    return [{"row": s["row"], "label": s["label"], "label_col": s["label_col"], "col": letters.get(s["label_col"], get_column_letter(c1))}
+            for s in analyzer_tables.summary_rows(book, table, names)]
+
+
+def summary_lines(book, d):
+    """정의 범위의 소계 · 합계 행 중 이름 글자가 그 정의의 summaries[].label 에 있는 행만. 정의가 적지 않은 「자산총계」 같은 원천 행이
+    데이터에서 빠지지 않게 하기 위해서다."""
+    labels = {s["label"] for s in d["summaries"]}
+    return [{k: x[k] for k in ("row", "label", "label_col")} for x in _found_lines(book, d) if x["label"] in labels] if labels else []
+
+
+def unlisted_lines(book, d):
+    """찾은 소계 · 합계 행 중 정의에 적지 않은 행의 셀 위치(예: 결과!A8). Claude 는 이 행을 소계로 정의할지 데이터 행으로 둘지 묻는다."""
+    labels = {s["label"] for s in d["summaries"]}
+    return [f"{d['sheet']}!{x['col']}{x['row']}" for x in _found_lines(book, d) if x["label"] not in labels]
+
+
+def data_rows(book, d):
+    """데이터 행 번호. 머리글 아래부터 범위 끝까지에서 summary_lines 의 행을 뺀다."""
+    skip = {x["row"] for x in summary_lines(book, d)}
     top = d["header_rows"][1] + 1 if d["header_rows"] else d["area"][0]
     return [r for r in range(top, d["area"][2] + 1) if r not in skip]
 
 
 def column_report(book, definition, read_columns):
     """열마다 결과 계산이 읽는지와 0 · 빈 값 비율. 저장 여부를 물을 때 쓴다."""
-    vals, rows = book.sheet_values(definition["sheet"]), _data_rows(definition)
+    vals, rows = book.sheet_values(definition["sheet"]), data_rows(book, definition)
     out = []
     for c in definition["columns"]:
         col = column_index_from_string(c["col"])
@@ -249,7 +276,7 @@ def _read_columns(formula):
 def split_points(book, definition):
     """수식 열의 절반 이상에서 읽는 원천 열이 함께 바뀌고 다음 행까지 이어지는 행 번호. 이런 행에서 표를 나눈다.
     한 행만 다른 수식이나 한두 열만 바뀌는 행은 구간이 아니라 예외 셀이므로 세지 않는다."""
-    changed, rows = Counter(), _data_rows(definition)
+    changed, rows = Counter(), data_rows(book, definition)
     formula_columns = 0
     for c in definition["columns"]:
         col = column_index_from_string(c["col"])
@@ -262,7 +289,7 @@ def split_points(book, definition):
     return sorted(r for r, n in changed.items() if 2 * n >= formula_columns)
 
 
-def registry_rows(plan, results, schema):
+def registry_rows(plan, results, schema, book):
     """엑셀 목록 표에 넣을 행. 응용화면 개발자가 보는 열 정리가 여기에 남는다. 통계 표는 저장하지 않으므로 넣지 않는다."""
     by_id = {d["id"]: d for d in results["definitions"]}
     now = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -271,7 +298,7 @@ def registry_rows(plan, results, schema):
         if t["stage"] in ("common", "stat"):
             continue
         d = by_id.get(t.get("definition_id"), {})
-        row_map = {i: r for i, r in enumerate(_data_rows(d), 1)} if d and t["stage"] == "calc" else {}
+        row_map = {i: r for i, r in enumerate(data_rows(book, d), 1)} if d and t["stage"] == "calc" else {}
         out.append({"excel": plan["excel"], "table_name": t["name"], "stage": t["stage"], "definition_id": t.get("definition_id"), "schema_name": schema,
                     "columns_json": json.dumps(t["columns"], ensure_ascii=False),
                     "row_map_json": json.dumps(row_map), "query_id": t["query_id"], "waiting_query": t["waiting_query"], "updated_at": now})
@@ -324,7 +351,7 @@ def _columns_command(argv):
 
 def unlisted_report(book, results):
     """정의 범위에서 찾은 소계 · 합계 행 중 표 정의에 적지 않은 행의 위치."""
-    return []
+    return [x for d in results["definitions"] if not d.get("orphan") for x in unlisted_lines(book, d)]
 
 
 def _check_command(argv):

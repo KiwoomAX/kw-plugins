@@ -48,12 +48,13 @@ def main(argv=None):
     plan, results = read(a.plan), read(a.results)
     t = next(x for x in plan["tables"] if x["name"] == a.table)
     d = next(x for x in results["definitions"] if x["id"] == t["definition_id"])
-    excel_rows = verify_calc.read_table(initial_load.open_book(a.excel), d)
+    book = initial_load.open_book(a.excel)
+    excel_rows = verify_calc.read_table(book, d)
     got = link(plan, a.table, a.query_id, read(a.response), excel_rows, tuple(a.key), read(a.args) if a.args else None)
     new = got["plan"]
     if not next(x for x in new["tables"] if x["name"] == a.table)["waiting_query"]:
         Path(a.out_plan).write_text(json.dumps(new, ensure_ascii=False, indent=1), encoding="utf-8")
-        rows = [r for r in table_plan.registry_rows(new, results, new["schema"]) if r["table_name"] == a.table]
+        rows = [r for r in table_plan.registry_rows(new, results, new["schema"], book) if r["table_name"] == a.table]
         Path(a.out_registry).write_text(json.dumps({"schema": new["schema"], "table": "excel_registry", "mode": "upsert", "rows": rows}, ensure_ascii=False, indent=1), encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({k: got[k] for k in ("mapped", "missing", "unmatched_rows")}, ensure_ascii=False, indent=1))
