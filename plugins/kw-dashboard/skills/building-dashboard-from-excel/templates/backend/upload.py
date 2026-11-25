@@ -45,17 +45,18 @@ class Busy(Exception):
 
 
 @contextmanager
-def lock(base_date):
-    """같은 기준일의 동시 쓰기를 거절한다. 샌드박스에 잠금 요청이 없어 프로세스 안에서 막는다(uvicorn 단일 프로세스 전제)."""
+def lock(key):
+    """같은 엑셀 · 같은 기준일의 동시 쓰기를 거절한다. key 는 (엑셀 이름, 기준일)이다. 엑셀 기능마다 표가 달라 서로 거절하지 않는다.
+    샌드박스에 잠금 요청이 없어 프로세스 안에서 거절한다(uvicorn 단일 프로세스 전제)."""
     with _guard:
-        if base_date in _held:
+        if key in _held:
             raise Busy
-        _held.add(base_date)
+        _held.add(key)
     try:
         yield
     finally:
         with _guard:
-            _held.discard(base_date)
+            _held.discard(key)
 
 
 def result(status, message, errors=()):
@@ -128,7 +129,10 @@ def fetch_winus(plan, winus, base_date, parameters, lists=None, skip=()):
     for t in by_stage(plan, *SOURCE_STAGES):
         if t["name"] in skip:
             continue
-        args = {k: v.format(**values) for k, v in t.get("query_args", {}).items()}
+        try:
+            args = {k: v.format(**values) for k, v in t.get("query_args", {}).items()}
+        except (KeyError, IndexError, ValueError, AttributeError):  # query_link.py 가 거절하는 틀을 설계 파일에 손으로 넣었을 때
+            return None, result("failed", f"{t['name'].rsplit('__', 1)[-1]} 조회 조건 값을 만들지 못했습니다. 아무것도 저장하지 않았습니다. 담당 개발자에게 문의해 주십시오")
         rows = []
         for one in _arg_sets(t, args, lists or {}):
             try:
@@ -251,7 +255,7 @@ def run(store, winus, plan, calculate, form_bytes, base_date, user, confirm_over
     if refused:
         return result("rejected", refused)
     try:
-        with lock(base_date):
+        with lock((plan["excel"], base_date)):
             return _process(store, winus, plan, calculate, form_bytes, base_date, user, confirm_overwrite, review)
     except Busy:
         return result("rejected", BUSY)

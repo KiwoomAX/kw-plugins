@@ -27,7 +27,7 @@ def run(store, winus, plan, calculate, base_date, user):
     if upload.waiting(plan):
         return upload.result("rejected", upload.WAITING)
     try:
-        with upload.lock(base_date):
+        with upload.lock((plan["excel"], base_date)):
             return _process(store, winus, plan, calculate, base_date, user)
     except upload.Busy:
         return upload.result("rejected", upload.BUSY)
