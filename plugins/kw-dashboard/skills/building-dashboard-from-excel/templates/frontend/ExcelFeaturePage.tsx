@@ -2,13 +2,13 @@
    표 목록과 열은 모두 API 가 알려 주므로 엑셀마다 이 파일을 고치지 않는다. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import DashboardLayout from '../../shell/DashboardLayout';
-import { withSummaries, type Row, type Summary } from './summary';
 import './ExcelFeaturePage.css';
 
+type Row = Record<string, unknown>;
 type TableInfo = { name: string; label: string };
 type Settings = { date_input: { on: boolean; default: string }; refresh_unit: string; allow_today: boolean };
 type Column = { name: string; type: string; header?: string; levels?: string[] };
-type TableData = { columns: Column[]; rows: Row[]; summaries: Summary[]; dates: Row[]; base_time: string | null; loaded_at: string | null; state: string };
+type TableData = { columns: Column[]; rows: Row[]; dates: Row[]; base_time: string | null; loaded_at: string | null; state: string };
 type Reply = { status: string; message: string; errors: { sheet: string; cell: string; reason: string }[] };
 
 const RECALC = '이 기준일의 결과를 다시 계산해야 합니다';
@@ -69,8 +69,6 @@ function Head({ table }: { table: TableData }) {
 }
 
 function Pane({ label, table, result }: { label: string; table?: TableData; result: boolean }) {
-  const lines = useMemo(() => (table ? withSummaries(table.rows, table.summaries) : []), [table]);
-  let seq = 0;
   return (
     <section className={`sv-pane ${result ? 'res' : ''}`}>
       <div className="sv-cap">
@@ -81,9 +79,9 @@ function Pane({ label, table, result }: { label: string; table?: TableData; resu
           <table>
             <Head table={table} />
             <tbody>
-              {lines.map(({ row, summary }, i) => (
-                <tr key={i} className={summary ? 'sum' : ''}>
-                  <td className="rn">{summary ? '' : (seq += 1)}</td>
+              {table.rows.map((row, i) => (
+                <tr key={i}>
+                  <td className="rn">{i + 1}</td>
                   {table.columns.map((c) => (
                     <td key={c.name} className={c.type === 'numeric' ? 'n' : ''}>
                       {shown(row[c.name], c)}

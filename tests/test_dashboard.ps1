@@ -181,6 +181,8 @@ $bxDesc = ([regex]::Match($bxText, '(?m)^description:\s*(.+)$')).Groups[1].Value
 Assert 'excel dashboard description says when to open the skill' ($bxDesc -match '^Use when ')
 Assert 'excel dashboard description is a safe plain scalar' (-not ($bxDesc -match ': | #'))
 Assert 'excel dashboard ships requirements.txt' (Test-Path (Join-Path $BxDir 'scripts/requirements.txt'))
+Assert 'the excel dashboard template draws no summary rows' (-not (Test-Path (Join-Path $BxDir 'templates/frontend/summary.ts')) -and -not ((Get-Content -Raw (Join-Path $BxDir 'templates/frontend/ExcelFeaturePage.tsx')) -match 'ummar'))
+Assert 'the excel dashboard template has no summary formula module' (-not (Test-Path (Join-Path $BxDir 'templates/backend/summary_expr.py')))
 foreach ($k in @('출처 설명', '표 정의', '등록 요청', 'query_requests.md', '응용화면', '구조 변경', '로그인 토큰', 'table_plan.json')) {
     Assert "excel dashboard SKILL.md explains $k" ($bxText -match $k)
 }

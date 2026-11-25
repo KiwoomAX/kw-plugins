@@ -45,7 +45,7 @@ def make_router(plan, store_for, winus, calculate, user_of, review=False):
         store = store_for(request)
         rows = store.read(name, date)
         dates_name = f"{name}_dates"
-        return {"columns": [c for c in t["columns"] if c["name"] not in HIDDEN], "rows": rows, "summaries": t.get("summaries", []),
+        return {"columns": [c for c in t["columns"] if c["name"] not in HIDDEN], "rows": rows,
                 "dates": store.read(dates_name, date) if dates_name in store.tables else [],
                 "base_time": rows[0].get("base_time") if rows else None, "loaded_at": rows[0].get("loaded_at") if rows else None, "state": store.state(date)}
 
