@@ -62,6 +62,9 @@ def result(status, message, errors=()):
     return {"status": status, "message": message, "errors": list(errors)}
 
 
+SOURCE_STAGES = ("raw_winus", "raw_wfs")  # 등록 쿼리로 받는 원천 표. WFS 도 WINUS 와 같은 등록 쿼리 경로로 받는다
+
+
 def by_stage(plan, *stages):
     return [t for t in plan["tables"] if t["stage"] in stages]
 
@@ -116,12 +119,15 @@ def _arg_sets(t, args, lists):
     return [{**args, each["arg"]: v} for v in _each_values(each, lists)] if each else [args]
 
 
-def fetch_winus(plan, winus, base_date, parameters, lists=None):
+def fetch_winus(plan, winus, base_date, parameters, lists=None, skip=()):
     """(표별 행, 실패 응답). 하나라도 실패하면 그 기준일은 저장하지 않는다.
-    query_each 가 있는 표는 lists({표 이름: 행 목록})의 그 열 값마다 한 번씩 순서대로 호출하고 응답을 합친다."""
+    query_each 가 있는 표는 lists({표 이름: 행 목록})의 그 열 값마다 한 번씩 순서대로 호출하고 응답을 합친다.
+    skip 의 표는 호출하지 않고 돌려주는 사전에도 넣지 않는다."""
     out = {}
     values = {"base_date": base_date, "yyyymmdd": base_date.replace("-", ""), **{k: str(v) for k, v in (parameters or {}).items()}}
-    for t in by_stage(plan, "raw_winus"):
+    for t in by_stage(plan, *SOURCE_STAGES):
+        if t["name"] in skip:
+            continue
         args = {k: v.format(**values) for k, v in t.get("query_args", {}).items()}
         rows = []
         for one in _arg_sets(t, args, lists or {}):
@@ -139,7 +145,7 @@ def fetch_winus(plan, winus, base_date, parameters, lists=None):
 
 def list_tables(plan):
     """query_each 가 목록으로 읽는 표 이름."""
-    return {t["query_each"]["table"] for t in by_stage(plan, "raw_winus") if t.get("query_each", {}).get("table")}
+    return {t["query_each"]["table"] for t in by_stage(plan, *SOURCE_STAGES) if t.get("query_each", {}).get("table")}
 
 
 def calculated(plan, calculate, tables, base_date):
@@ -193,7 +199,7 @@ def _refused_date(plan, base_date, today):
     return None
 
 
-def _process(store, winus, plan, calculate, data, base_date, user, confirm):
+def _process(store, winus, plan, calculate, data, base_date, user, confirm, review=False):
     editable = by_stage(plan, "raw_manual", "raw_external")
     state = store.state(base_date)
     previous = {t["name"]: _previous_ids(store, t["name"], base_date, state) for t in editable}
@@ -209,14 +215,17 @@ def _process(store, winus, plan, calculate, data, base_date, user, confirm):
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     forms = as_stored(plan, checked["tables"], base_date, now)
     if not store.hourly and state == "완료" and not list_tables(plan) & set(changed):  # 호출 목록이 바뀌면 WINUS 를 다시 받는다
-        winus_rows = {t["name"]: store.read(t["name"], base_date) for t in by_stage(plan, "raw_winus")}
+        winus_rows = {t["name"]: store.read(t["name"], base_date) for t in by_stage(plan, *SOURCE_STAGES)}
         fresh = []
     else:
-        fetched, failed = fetch_winus(plan, winus, base_date, checked["parameters"], checked["tables"])
+        # 임시 실행은 연결을 기다리는 표를 호출하지 않고 저장된 값으로 계산하며, 그 표는 다시 쓰지 않는다
+        held = {t["name"] for t in by_stage(plan, *SOURCE_STAGES) if t["waiting_query"]} if review else set()
+        fetched, failed = fetch_winus(plan, winus, base_date, checked["parameters"], checked["tables"], skip=held)
         if failed:
             return failed
         winus_rows = as_stored(plan, fetched, base_date, now)
         fresh = list(winus_rows)
+        winus_rows.update({n: store.read(n, base_date) for n in held})
     inputs = {**forms, **winus_rows, **{t["name"]: store.read_all(t["name"]) for t in by_stage(plan, "fixed")}}
     results, failed = calculated(plan, calculate, inputs, base_date)
     if failed:
@@ -232,15 +241,16 @@ def _previous_ids(store, name, base_date, state):
     return [r["row_id"] for r in (rows or (store.read(name, near) if near else []))]
 
 
-def run(store, winus, plan, calculate, form_bytes, base_date, user, confirm_overwrite, today=None):
-    """입력 양식 하나를 처리한다. {"status": saved · same · needs_confirm · rejected · failed, "message", "errors"}."""
-    if waiting(plan):
+def run(store, winus, plan, calculate, form_bytes, base_date, user, confirm_overwrite, today=None, review=False):
+    """입력 양식 하나를 처리한다. {"status": saved · same · needs_confirm · rejected · failed, "message", "errors"}.
+    review 는 스킬의 임시 실행만 켠다. 켜면 연결을 기다리는 표가 있어도 거절하지 않는다."""
+    if waiting(plan) and not review:
         return result("rejected", WAITING)
     refused = _refused_date(plan, base_date, today or korean_today())
     if refused:
         return result("rejected", refused)
     try:
         with lock(base_date):
-            return _process(store, winus, plan, calculate, form_bytes, base_date, user, confirm_overwrite)
+            return _process(store, winus, plan, calculate, form_bytes, base_date, user, confirm_overwrite, review)
     except Busy:
         return result("rejected", BUSY)

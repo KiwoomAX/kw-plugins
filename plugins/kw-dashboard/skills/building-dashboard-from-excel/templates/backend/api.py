@@ -9,7 +9,7 @@ import input_form
 import refetch as refetch_module
 import upload as upload_module
 
-ORIGIN = {"raw_winus": "WINUS", "raw_external": "외부", "raw_manual": "수기"}
+ORIGIN = {"raw_winus": "WINUS", "raw_wfs": "WFS", "raw_external": "외부", "raw_manual": "수기"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 HIDDEN = {"base_date", "base_time", "loaded_at"}
 
@@ -18,8 +18,9 @@ def _target(name):
     return name.split("__", 2)[2]
 
 
-def make_router(plan, store_for, winus, calculate, user_of):
-    """기능 하나의 API. store_for(request) 는 그 요청을 보낸 사람의 권한으로 읽고 쓰는 Store 를, user_of(request) 는 로그인한 사람의 이름을 돌려준다."""
+def make_router(plan, store_for, winus, calculate, user_of, review=False):
+    """기능 하나의 API. store_for(request) 는 그 요청을 보낸 사람의 권한으로 읽고 쓰는 Store 를, user_of(request) 는 로그인한 사람의 이름을 돌려준다.
+    review 는 스킬의 임시 실행만 켠다(upload.run 참고). 대시보드에 복사한 화면은 create_router 를 쓰므로 언제나 꺼져 있다."""
     router = APIRouter()
     source = [t for t in plan["tables"] if t["stage"] in ORIGIN]
     result = [t for t in plan["tables"] if t["stage"] == "calc" and not t["name"].endswith("_dates")]
@@ -56,7 +57,7 @@ def make_router(plan, store_for, winus, calculate, user_of):
 
     @router.post("/upload")
     def upload(request: Request, file: UploadFile = File(...), date: str = Form(...), confirm: bool = Form(False)):
-        return upload_module.run(store_for(request), winus, plan, calculate, file.file.read(), date, user_of(request), confirm)
+        return upload_module.run(store_for(request), winus, plan, calculate, file.file.read(), date, user_of(request), confirm, review=review)
 
     @router.post("/refetch")
     def refetch(request: Request, date: str):
