@@ -1,0 +1,24 @@
+[
+ {
+  "upload_id": "sample1",
+  "excel": "stock_sample",
+  "base_date": "2026-11-20",
+  "base_time": "2026-11-20T09:00:00+00:00",
+  "status": "완료",
+  "kind": "초기 적재",
+  "uploaded_by": "",
+  "started_at": "2026-11-20T09:00:00+00:00",
+  "finished_at": "2026-11-20T09:00:00+00:00"
+ },
+ {
+  "upload_id": "sample2",
+  "excel": "stock_sample",
+  "base_date": "2026-11-21",
+  "base_time": "2026-11-21T09:00:00+00:00",
+  "status": "완료",
+  "kind": "초기 적재",
+  "uploaded_by": "",
+  "started_at": "2026-11-21T09:00:00+00:00",
+  "finished_at": "2026-11-21T09:00:00+00:00"
+ }
+]

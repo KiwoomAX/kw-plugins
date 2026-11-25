@@ -1,0 +1,355 @@
+{
+ "excel": "stock_sample",
+ "schema": "YS",
+ "settings": {
+  "date_input": {
+   "on": true,
+   "default": "어제"
+  },
+  "refresh_unit": "일자",
+  "allow_today": false
+ },
+ "tables": [
+  {
+   "name": "stock_sample__raw_winus__price",
+   "stage": "raw_winus",
+   "definition_id": "price!A1",
+   "primary_key": [],
+   "description": "stock_sample 예시 엑셀의 price 표",
+   "columns": [
+    {
+     "name": "base_date",
+     "type": "date"
+    },
+    {
+     "name": "base_time",
+     "type": "timestamptz"
+    },
+    {
+     "name": "loaded_at",
+     "type": "timestamptz"
+    },
+    {
+     "name": "종목코드",
+     "type": "varchar",
+     "length": 50,
+     "header": "종목코드",
+     "levels": [
+      "종목코드"
+     ]
+    },
+    {
+     "name": "종목명",
+     "type": "text",
+     "header": "종목명",
+     "levels": [
+      "종목명"
+     ]
+    },
+    {
+     "name": "시가",
+     "type": "numeric",
+     "header": "시가",
+     "levels": [
+      "시가"
+     ]
+    },
+    {
+     "name": "종가",
+     "type": "numeric",
+     "header": "종가",
+     "levels": [
+      "종가"
+     ]
+    },
+    {
+     "name": "변동성",
+     "type": "numeric",
+     "header": "변동성",
+     "levels": [
+      "변동성"
+     ]
+    }
+   ],
+   "summaries": [],
+   "editable": false,
+   "waiting_query": false,
+   "query_id": 1,
+   "query_args": {
+    "base_date": "{base_date}"
+   }
+  },
+  {
+   "name": "stock_sample__raw_manual__memo",
+   "stage": "raw_manual",
+   "definition_id": "memo!A1",
+   "primary_key": [
+    "base_date",
+    "row_id"
+   ],
+   "description": "stock_sample 예시 엑셀의 memo 표",
+   "columns": [
+    {
+     "name": "base_date",
+     "type": "date"
+    },
+    {
+     "name": "base_time",
+     "type": "timestamptz"
+    },
+    {
+     "name": "loaded_at",
+     "type": "timestamptz"
+    },
+    {
+     "name": "row_id",
+     "type": "integer"
+    },
+    {
+     "name": "종목코드",
+     "type": "varchar",
+     "length": 50,
+     "header": "종목코드",
+     "levels": [
+      "종목코드"
+     ]
+    },
+    {
+     "name": "메모",
+     "type": "text",
+     "header": "메모",
+     "levels": [
+      "메모"
+     ]
+    }
+   ],
+   "summaries": [],
+   "editable": true,
+   "waiting_query": false,
+   "query_id": null
+  },
+  {
+   "name": "stock_sample__calc__daily",
+   "stage": "calc",
+   "definition_id": "daily!A1",
+   "primary_key": [
+    "base_date",
+    "row_seq"
+   ],
+   "description": "stock_sample 예시 엑셀의 daily 표",
+   "columns": [
+    {
+     "name": "base_date",
+     "type": "date"
+    },
+    {
+     "name": "base_time",
+     "type": "timestamptz"
+    },
+    {
+     "name": "loaded_at",
+     "type": "timestamptz"
+    },
+    {
+     "name": "row_seq",
+     "type": "integer"
+    },
+    {
+     "name": "종목명",
+     "type": "text",
+     "header": "종목명",
+     "levels": [
+      "종목명"
+     ]
+    },
+    {
+     "name": "등락률",
+     "type": "numeric",
+     "header": "등락률",
+     "levels": [
+      "등락률"
+     ]
+    },
+    {
+     "name": "변동성",
+     "type": "numeric",
+     "header": "변동성",
+     "levels": [
+      "변동성"
+     ]
+    },
+    {
+     "name": "메모",
+     "type": "text",
+     "header": "메모",
+     "levels": [
+      "메모"
+     ]
+    }
+   ],
+   "summaries": [],
+   "editable": false,
+   "waiting_query": false,
+   "query_id": null
+  },
+  {
+   "name": "stock_sample__stat__daily_total",
+   "stage": "stat",
+   "definition_id": "daily_total!A1",
+   "primary_key": [
+    "base_date",
+    "row_seq"
+   ],
+   "description": "stock_sample 예시 엑셀의 daily_total 표",
+   "columns": [
+    {
+     "name": "base_date",
+     "type": "date"
+    },
+    {
+     "name": "base_time",
+     "type": "timestamptz"
+    },
+    {
+     "name": "loaded_at",
+     "type": "timestamptz"
+    },
+    {
+     "name": "row_seq",
+     "type": "integer"
+    },
+    {
+     "name": "구분",
+     "type": "text",
+     "header": "구분",
+     "levels": [
+      "구분"
+     ]
+    },
+    {
+     "name": "종목수",
+     "type": "numeric",
+     "header": "종목수",
+     "levels": [
+      "종목수"
+     ]
+    },
+    {
+     "name": "등락률평균",
+     "type": "numeric",
+     "header": "등락률평균",
+     "levels": [
+      "등락률평균"
+     ]
+    }
+   ],
+   "summaries": [],
+   "editable": false,
+   "waiting_query": false,
+   "query_id": null
+  },
+  {
+   "name": "excel_registry",
+   "stage": "common",
+   "description": "엑셀 목록과 표별 열 정리",
+   "columns": [
+    {
+     "name": "excel",
+     "type": "text"
+    },
+    {
+     "name": "table_name",
+     "type": "text"
+    },
+    {
+     "name": "stage",
+     "type": "text"
+    },
+    {
+     "name": "definition_id",
+     "type": "text"
+    },
+    {
+     "name": "schema_name",
+     "type": "text"
+    },
+    {
+     "name": "columns_json",
+     "type": "text"
+    },
+    {
+     "name": "row_map_json",
+     "type": "text"
+    },
+    {
+     "name": "query_id",
+     "type": "integer"
+    },
+    {
+     "name": "waiting_query",
+     "type": "boolean"
+    },
+    {
+     "name": "updated_at",
+     "type": "timestamptz"
+    }
+   ],
+   "primary_key": [
+    "excel",
+    "table_name"
+   ],
+   "editable": false,
+   "waiting_query": false,
+   "query_id": null
+  },
+  {
+   "name": "excel_upload",
+   "stage": "common",
+   "description": "엑셀 업로드 이력",
+   "columns": [
+    {
+     "name": "upload_id",
+     "type": "text"
+    },
+    {
+     "name": "excel",
+     "type": "text"
+    },
+    {
+     "name": "base_date",
+     "type": "date"
+    },
+    {
+     "name": "base_time",
+     "type": "timestamptz"
+    },
+    {
+     "name": "status",
+     "type": "text"
+    },
+    {
+     "name": "kind",
+     "type": "text"
+    },
+    {
+     "name": "uploaded_by",
+     "type": "text"
+    },
+    {
+     "name": "started_at",
+     "type": "timestamptz"
+    },
+    {
+     "name": "finished_at",
+     "type": "timestamptz"
+    }
+   ],
+   "primary_key": [
+    "upload_id"
+   ],
+   "editable": false,
+   "waiting_query": false,
+   "query_id": null
+  }
+ ]
+}
