@@ -45,6 +45,12 @@ def make(plan, values, parameters):
         ws.append([ROW_ID] + [c["name"] for c in columns])
         for row in values.get(t["name"], []):
             ws.append([row["row_id"]] + [_cell(row.get(c["name"]), c) for c in columns])
+        for i, c in enumerate(columns, 2):  # 글자 열은 텍스트 셀로 둔다. 새 행에 적은 005930 이 엑셀에서 5930 으로 바뀌지 않게 한다
+            if c["type"] in ("varchar", "text"):
+                letter = get_column_letter(i)
+                ws.column_dimensions[letter].number_format = "@"
+                for (cell,) in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                    cell.number_format = "@"
     ws = wb.create_sheet(PARAMETERS)
     ws.append(["이름", "값"])
     for name, value in parameters.items():
