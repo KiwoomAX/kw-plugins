@@ -32,7 +32,7 @@ description: Use when someone wants to see how their repo works feature by featu
 | 렌더 | `render.py` 로 `docs/code-flow/index.html` 과 `manual.html` 을 함께 만들고 두 파일을 브라우저로 연다 |
 | 보고 | 아래 「결과 알리기」를 따른다 |
 
-`appZone` 은 레포 서비스가 실행되는 곳의 이름이다(예: 「홀세일 대시보드 (클라우드)」, 「메일 보관함 (내 PC)」).
+`appZone` 은 레포 서비스가 실행되는 곳의 이름이다(예: 「팀 대시보드 (클라우드)」, 「메일 보관함 (내 PC)」).
 
 ## 기능 순서
 

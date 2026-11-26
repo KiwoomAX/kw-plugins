@@ -26,7 +26,7 @@ from openpyxl.formula.tokenizer import Tokenizer  # noqa: E402
 from openpyxl.formula.translate import Translator  # noqa: E402
 from query_sources import file_name, load_connections, load_external_files, query_tables  # noqa: E402
 
-sys.setrecursionlimit(20000)  # 위 행을 계속 참조하는 열(드라매틱 엑셀은 1,722 행)도 끝까지 따라간다
+sys.setrecursionlimit(20000)  # 위 행을 계속 참조하는 열(천 행이 넘는 열)도 끝까지 따라간다
 
 
 def col_name(n):
@@ -129,7 +129,7 @@ def build(path, sheet, cell, title="", names=None):
     retitled = {}  # 도형 id -> 처음 붙인 이름. 같은 열의 표 안 칸을 나중에 만나 표 열 제목으로 바꾼 도형
 
     def header_cell(s, pos):
-        """엑셀 표 맨 위의 열 제목 칸인가. 수식이 [#Headers] 로 이 글자를 읽기도 한다(설정해지 E6)."""
+        """엑셀 표 맨 위의 열 제목 칸인가. 수식이 [#Headers] 로 이 글자를 읽기도 한다."""
         name, t = book.table_at(s, pos)
         return t is not None and pos[0] < t.area[0] + t.header_rows
 
@@ -222,11 +222,11 @@ def build(path, sheet, cell, title="", names=None):
         """범위 안 수식 칸 중 가장 많은 칸이 쓰는 수식의 칸에서, 값이 0도 빈 값도 아닌 첫 칸을 대표로 고른다.
         (시트, 행, 열, 설명) 이거나 None.
 
-        열 전체 범위의 맨 위 수식은 날짜 머리나 매개변수 칸인 일이 많아(Cash Management 설정해지 V6 ·
-        raw data C2), 첫 수식 칸을 고르면 실제로 더한 행 대신 머리를 따라가게 된다.
+        열 전체 범위의 맨 위 수식은 날짜 머리나 매개변수 칸인 일이 많아, 첫 수식 칸을 고르면 실제로 더한 행 대신
+        머리를 따라가게 된다.
         값 칸이 수식 칸보다 많으면 따라가지 않는다. 그런 범위의 수식 칸은 대개 맨 아래 합계 행이라,
-        대표로 보이면 실제로 더한 값 칸 대신 합계를 원천처럼 보이게 된다(에코자원화 L:L, 값 178칸 · 합계 행 하나).
-        다만 그 값 칸이 쿼리 연결 표의 값이면 대표 한 칸을 따라가 출처를 보인다(Cash Management SUMIF 의 raw data U:U).
+        대표로 보이면 실제로 더한 값 칸 대신 합계를 원천처럼 보이게 된다.
+        다만 그 값 칸이 쿼리 연결 표의 값이면 대표 한 칸을 따라가 출처를 보인다(SUMIF 가 더하는 열이 연결 표의 열일 때).
         """
         s_now[0] = s
         rs = ref["sheet"]
@@ -363,7 +363,7 @@ def build(path, sheet, cell, title="", names=None):
                           "range": f"{s} 시트 {col_name(c)}열",
                           "source": source_of(s, (r, c), bool(formula), ext), "_table": in_table}
         elif in_table and not nodes[nid]["_table"] and nid not in names and not (title and nid == f"{sheet}!{col_name(c0)}"):
-            # 같은 열에 표 밖 라벨(설정해지 A4)과 표 안 데이터(A7 펀드코드)가 있으면 표 열 제목이 그 열의 이름이다
+            # 같은 열에 표 밖 라벨과 표 안 데이터(예: 펀드코드)가 있으면 표 열 제목이 그 열의 이름이다
             retitled.setdefault(nid, nodes[nid]["title"])
             nodes[nid].update(title=node_title(s, r, c), _table=True)
             if not header_cell(s, (r, c)):
