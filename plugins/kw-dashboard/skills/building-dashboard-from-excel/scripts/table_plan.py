@@ -237,8 +237,9 @@ def summary_lines(book, d):
 
 
 def unlisted_lines(book, d):
-    """찾은 소계 · 합계 행 중 정의에 적지 않은 행의 셀 위치(예: 결과!A8). Claude 는 이 행을 소계로 정의할지 데이터 행으로 둘지 묻는다."""
-    labels = {s["label"] for s in d["summaries"]}
+    """찾은 소계 · 합계 행 중 정의에 적지 않은 행의 셀 위치(예: 결과!A8). Claude 는 이 행을 소계로 정의할지 데이터 행으로 둘지 묻는다.
+    데이터 행으로 두기로 한 행 이름은 정의의 data_labels 에 적혀 있어 다시 묻지 않는다."""
+    labels = {s["label"] for s in d["summaries"]} | set(d.get("data_labels") or [])
     return [f"{d['sheet']}!{x['col']}{x['row']}" for x in _found_lines(book, d) if x["label"] not in labels]
 
 
