@@ -17,7 +17,9 @@ def round_half_up(value, digits):
 
 
 def _key(v):
-    return str(v).strip().lstrip("0") if v is not None else ""
+    """키 비교용 글자. 앞의 0 은 떼되, 0 으로만 된 값은 "0" 으로 남긴다. 빈 값은 키가 없는 행이다."""
+    s = str(v).strip() if v is not None else ""
+    return s.lstrip("0") or ("0" if s else "")
 
 
 def _number(v):
@@ -58,16 +60,22 @@ def _keyed(row, columns):
     return tuple(_key(row.get(c)) for c in columns)
 
 
-def compare(excel_rows, response_rows, keys, mapping, limit=3):
-    """{"checked": {표 열: {column, transform, same, rows, diff}}, "unmatched_rows": 개수, "repeated_keys": 개수}.
-    keys 는 [(엑셀 열, 응답 열)], mapping 은 {표 열: (응답 열, 변환)}. diff 는 값이 다른 행을 limit 개까지 보인다.
-    unmatched_rows 는 키가 응답에 없는 엑셀 행 수, repeated_keys 는 키가 겹쳐 짝을 정할 수 없는 응답 행 수다."""
+def pair_rows(excel_rows, response_rows, keys):
+    """(짝 [(엑셀 행, 응답 행)], 응답 키별 행 수). keys 는 [(엑셀 열, 응답 열)] 이다. 키가 비었거나 응답에 없는 엑셀 행은 짝이 없다."""
     excel_keys, response_keys = [e for e, _ in keys], [r for _, r in keys]
     count = {}
     for r in response_rows:
         count[_keyed(r, response_keys)] = count.get(_keyed(r, response_keys), 0) + 1
     by_key = {_keyed(r, response_keys): r for r in response_rows}
-    pairs = [(e, by_key[_keyed(e, excel_keys)]) for e in excel_rows if all(_keyed(e, excel_keys)) and _keyed(e, excel_keys) in by_key]
+    return [(e, by_key[_keyed(e, excel_keys)]) for e in excel_rows if all(_keyed(e, excel_keys)) and _keyed(e, excel_keys) in by_key], count
+
+
+def compare(excel_rows, response_rows, keys, mapping, limit=3):
+    """{"checked": {표 열: {column, transform, same, rows, diff}}, "unmatched_rows": 개수, "repeated_keys": 개수}.
+    keys 는 [(엑셀 열, 응답 열)], mapping 은 {표 열: (응답 열, 변환)}. diff 는 값이 다른 행을 limit 개까지 보인다.
+    unmatched_rows 는 키가 응답에 없는 엑셀 행 수, repeated_keys 는 키가 겹쳐 짝을 정할 수 없는 응답 행 수다."""
+    excel_keys = [e for e, _ in keys]
+    pairs, count = pair_rows(excel_rows, response_rows, keys)
     checked = {}
     for col, (column, name) in mapping.items():
         same, diff = 0, []

@@ -13,7 +13,7 @@ import string
 import sys
 from pathlib import Path
 
-from colmap import compare  # colmap 이 서버 폴더(templates/backend)를 경로에 넣는다
+from colmap import compare, pair_rows  # colmap 이 서버 폴더(templates/backend)를 경로에 넣는다
 import transform  # noqa: E402
 
 
@@ -82,9 +82,9 @@ def link(plan, table, query_id, response_rows, excel_rows, keys, mapping, query_
         t = next(x for x in new["tables"] if x["name"] == table)
         t.update(waiting_query=False, query_id=query_id, query_map=query_map, query_args=query_args or {})
     out = {"missing": missing, **got, "linked": linked, "plan": new}
-    if missing:
-        out["samples"] = {"excel": {c: [r.get(c) for r in excel_rows[:3]] for c in missing},
-                          "response": {c: [r.get(c) for r in response_rows[:3]] for c in (response_rows[0] if response_rows else {})}}
+    if missing:  # 키로 짝지은 행끼리 보여야 Claude 가 값을 대조해 응답 열과 배수를 제안할 수 있다
+        out["samples"] = [{"key": [e.get(k) for k, _ in keys], "excel": {c: e.get(c) for c in missing}, "response": q}
+                          for e, q in pair_rows(excel_rows, response_rows, keys)[0][:3]]
     return out
 
 
