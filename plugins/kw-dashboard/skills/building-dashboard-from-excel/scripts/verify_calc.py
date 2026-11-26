@@ -100,7 +100,7 @@ def _date_digits(v):
 
 def _group_heads(d, vals, row_map, stops):
     """{(행, 열): 위 행 값}. 소계 묶음 열의 빈칸은 엑셀에서 「위와 같음」이므로 위 데이터 행의 값으로 읽는다. 소계 행(stops)을 넘어서는 채우지 않는다."""
-    cols = {column_index_from_string(c["col"]) for c in d["columns"] if c["db"] in {s["group_by"] for s in d["summaries"] if s["group_by"]}}
+    cols = {column_index_from_string(c["col"]) for c in d["columns"] if c["db"] in {g for s in d["summaries"] for g in table_plan.group_columns(s)}}
     out = {}
     for col in cols:
         last, last_row = None, None
@@ -136,19 +136,18 @@ def _compare_cells(d, vals, rows, row_map, heads, digits, report):
 
 def _compare_summaries(d, lines, vals, results, row_map, heads, digits, report):
     """소계 · 합계 행마다 calc.py 의 통계 표 행과 엑셀 셀을 비교한다. 이름 글자가 같은 소계 항목 하나로 짝짓는다.
-    묶는 열이 있으면 그 행 바로 위 데이터 행의 묶는 열 값으로 통계 표 행을 찾는다."""
+    묶는 열이 있으면 묶음 쪽 데이터 행(position 이 below 면 바로 위, above 면 바로 아래)의 묶는 열 값이 모두 같은 통계 표 행을 찾는다."""
     letters = {c["db"]: c["col"] for c in d["columns"]}
     data = sorted(row_map.values())
     for line in lines:
         item = next(s for s in d["summaries"] if s["label"] == line["label"])
-        group = None
-        if item["group_by"]:
-            above = [r for r in data if r < line["row"]]
-            pos = (above[-1], column_index_from_string(letters[item["group_by"]])) if above else None
-            group = heads.get(pos, vals.get(pos)) if pos else None
+        groups = table_plan.group_columns(item)
+        side = [r for r in data if r > line["row"]][:1] if item.get("position") == "above" else [r for r in data if r < line["row"]][-1:]
+        group = {g: heads.get((side[0], column_index_from_string(letters[g])), vals.get((side[0], column_index_from_string(letters[g])))) if side else None
+                 for g in groups}
         found = next((x for x in results.get(item["target"], [])
                       if (item["label_col"] is None or _same(line["label"], x.get(item["label_col"]), None))
-                      and (not item["group_by"] or _same(group, x.get(item["group_by"]), None))), None)
+                      and all(_same(group[g], x.get(g), None) for g in groups)), None)
         for db in item["values"]:
             col = column_index_from_string(letters[db])
             cached, cell = vals.get((line["row"], col)), f"{d['sheet']}!{letters[db]}{line['row']}"

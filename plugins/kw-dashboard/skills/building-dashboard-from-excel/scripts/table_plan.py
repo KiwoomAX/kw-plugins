@@ -65,13 +65,19 @@ def _dates_table(excel, d, hourly):
             "editable": False, "waiting_query": False, "query_id": None}
 
 
+def group_columns(item):
+    """소계 항목의 묶는 열 목록. group_by 는 열 이름 하나, 목록, 또는 null 이다."""
+    g = item.get("group_by")
+    return [] if not g else [g] if isinstance(g, str) else list(g)
+
+
 def _stat_tables(excel, d, hourly):
     """결과표의 소계 항목을 target 으로 묶어 대상마다 통계 표 하나. 열은 이름 열 · 묶는 열 · 값 열을 처음 나온 순서로 둔다."""
     by_db = {c["db"]: (c, i) for i, c in enumerate(d["columns"])}
     groups = {}
     for s in d["summaries"]:
         names = groups.setdefault(s["target"], [])
-        for n in [s["label_col"], s["group_by"], *s["values"]]:
+        for n in [s["label_col"], *group_columns(s), *s["values"]]:
             if n is not None and n not in names:
                 names.append(n)
     labels = {s["label_col"] for s in d["summaries"]}
