@@ -60,7 +60,7 @@ def _simple(name, stage, description, columns, key):
 
 def _dates_table(excel, d, hourly):
     columns = [{"name": f"t_plus_{x['rel']}", "type": "date"} for x in d["date_columns"]]
-    return {"name": f"{excel}__calc__{d['target']}_dates", "stage": "calc", "definition_id": d["id"], "primary_key": ["base_date"] + (["base_time"] if hourly else []),
+    return {"name": f"{excel}__calc__{d['target']}_dates", "stage": "calc", "dates_of": d["target"], "definition_id": d["id"], "primary_key": ["base_date"] + (["base_time"] if hourly else []),
             "description": f"{excel} 엑셀 {d['target']} 표의 기준일별 실제 날짜", "columns": COMMON + columns,
             "editable": False, "waiting_query": False, "query_id": None}
 
@@ -103,7 +103,8 @@ def _source_table(excel, d, kind, hourly):
 
 
 ANALYZER = Path(__file__).resolve().parents[2] / "explaining-excel-cell/scripts"
-TOP_KEYS = ("settings", "definitions", "date_groups", "base_date", "parameters")
+TOP_KEYS = ("settings", "definitions", "date_groups", "base_date")
+RESERVED = {c["name"] for c in COMMON} | {"row_id", "row_seq"}  # 모든 표에 붙는 열 이름이라 엑셀 열 이름으로 쓰지 않는다
 SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today")
 DEF_KEYS = ("id", "sheet", "area", "header_rows", "levels", "columns", "date_columns", "summaries", "role", "target", "confirmed", "source", "outside")
 ITEM_KEYS = {"columns": ("col", "db", "type", "header"), "date_columns": ("col", "rel"),
@@ -129,6 +130,8 @@ def missing_fields(results):
         area = d.get("area")
         if area is not None and not (isinstance(area, list) and len(area) == 4 and all(isinstance(x, int) for x in area)):
             out.append(f"{where}: area 는 숫자 4개여야 함")
+        names = [c.get("db") for c in d.get("columns") or []]
+        out += [f"{where}: 열 이름 {n} 겹침" for n in dict.fromkeys(names) if n is not None and (names.count(n) > 1 or n in RESERVED)]
         for key, need in ITEM_KEYS.items():
             for i, item in enumerate(d.get(key) or []):
                 out += [f"{where}: {key}[{i}].{k} 없음" for k in need if k not in item]

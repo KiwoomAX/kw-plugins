@@ -16,8 +16,6 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils import column_index_from_string
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "templates/backend"))
 import table_plan  # noqa: E402
 from colmap import round_half_up  # noqa: E402
 

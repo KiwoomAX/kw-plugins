@@ -61,7 +61,7 @@ def rows(book, plan, definitions, base_date):
         d = by_id.get(t.get("definition_id"))
         if d is None or t["stage"] == "stat":  # 통계 표는 저장하지 않는다
             continue
-        if t["name"].endswith("_dates"):
+        if t.get("dates_of"):
             out[t["name"]] = [{**stamp, **_dates_row(book, d)}]
             continue
         extra = {"calc": "row_seq", "raw_manual": "row_id"}.get(t["stage"])
@@ -114,7 +114,7 @@ def calculated(plan, calculate, wired, base_date, stamp):
     got = calculate({n: r for n, r in wired.items() if by_name[n]["stage"] != "calc"}, dt.date.fromisoformat(base_date))  # 업로드와 같게 기준일은 날짜로 넘긴다
     out = {}
     for t in plan["tables"]:
-        if t["stage"] != "calc" or t["name"].endswith("_dates"):
+        if t["stage"] != "calc" or t.get("dates_of"):
             continue
         target = t["name"].split("__", 2)[2]
         if not got.get(target):

@@ -29,7 +29,7 @@ HIDDEN = ("base_date", "base_time", "loaded_at")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-RAW_STAGES = ("raw_winus", "raw_wfs", "raw_manual", "raw_external", "fixed")
+RAW_STAGES = ("raw_winus", "raw_wfs", "raw_manual", "fixed")
 PREFIX = {**{s: "raw" for s in RAW_STAGES}, "calc": "cal", "stat": "stat"}
 NUMBER = {"numeric", "integer", "bigint"}
 SHEET_MAX = 31  # 엑셀 시트 이름 최대 길이
@@ -37,7 +37,7 @@ SHEET_MAX = 31  # 엑셀 시트 이름 최대 길이
 
 def _shown(t):
     """검토 엑셀에 시트로 쓰는 표. 날짜 표와 공통 표는 뺀다."""
-    return t["stage"] in PREFIX and not (t["stage"] == "calc" and t["name"].endswith("_dates"))
+    return t["stage"] in PREFIX and not t.get("dates_of")
 
 
 def sheet_names(plan):

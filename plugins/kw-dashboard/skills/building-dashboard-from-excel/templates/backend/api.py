@@ -9,7 +9,7 @@ import input_form
 import refetch as refetch_module
 import upload as upload_module
 
-ORIGIN = {"raw_winus": "WINUS", "raw_wfs": "WFS", "raw_external": "외부", "raw_manual": "수기"}
+ORIGIN = {"raw_winus": "WINUS", "raw_wfs": "WFS", "raw_manual": "수기"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 HIDDEN = {"base_date", "base_time", "loaded_at"}
 
@@ -23,7 +23,7 @@ def make_router(plan, store_for, winus, calculate, user_of, review=False):
     review 는 스킬의 임시 실행만 켠다(upload.run 참고). 대시보드에 복사한 화면은 create_router 를 쓰므로 언제나 꺼져 있다."""
     router = APIRouter()
     source = [t for t in plan["tables"] if t["stage"] in ORIGIN]
-    result = [t for t in plan["tables"] if t["stage"] == "calc" and not t["name"].endswith("_dates")]
+    result = [t for t in plan["tables"] if t["stage"] == "calc" and not t.get("dates_of")]
     allowed = {t["name"]: t for t in source + result}
 
     @router.get("/tables")

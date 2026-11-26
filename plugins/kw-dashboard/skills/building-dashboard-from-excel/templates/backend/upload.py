@@ -197,7 +197,7 @@ def _refused_date(plan, base_date, today):
 
 
 def _process(store, winus, plan, calculate, data, base_date, user, confirm, review=False):
-    editable = by_stage(plan, "raw_manual", "raw_external")
+    editable = by_stage(plan, "raw_manual")
     state = store.state(base_date)
     previous = {t["name"]: _previous_ids(store, t["name"], base_date, state) for t in editable}
     checked = input_form.check(plan, data, previous)
