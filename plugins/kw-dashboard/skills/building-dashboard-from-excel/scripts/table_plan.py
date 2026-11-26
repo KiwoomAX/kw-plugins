@@ -114,7 +114,7 @@ def missing_fields(results):
     out = [f"{k} 없음" for k in TOP_KEYS if k not in results]
     out += [f"settings.{k} 없음" for k in SETTINGS_KEYS if k not in results.get("settings", {})]
     for i, g in enumerate(results.get("date_groups") or []):
-        out += [f"date_groups[{i}].{k} 없음" for k in ("pattern", "base", "sheets") if k not in g]
+        out += [f"date_groups[{i}].{k} 없음" for k in ("pattern", "base", "sheets", "dates") if k not in g]
     for n, d in enumerate(results.get("definitions") or []):
         if d.get("orphan"):
             continue

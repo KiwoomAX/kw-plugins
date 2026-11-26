@@ -19,7 +19,6 @@ from openpyxl.utils import column_index_from_string
 import table_plan
 import verify_calc
 
-SHEET_DATE = re.compile(r"(20\d\d)\D?(\d{1,2})\D?(\d{1,2})")
 
 
 def saved_time(path):
@@ -78,21 +77,24 @@ def _same_shape(book, d, sheet):
 
 
 def date_sheets(book, plan, definitions, group):
-    """구조가 같은 지난 날짜 시트를 그 시트의 날짜를 기준일로 삼아 읽는다. 구조가 다르거나 날짜를 읽을 수 없는 시트는 different 로 알린다.
+    """구조가 같은 지난 날짜 시트를 그 시트의 날짜를 기준일로 삼아 읽는다. 날짜는 시트 이름에서 읽지 않고 결과 파일의 group["dates"]
+    ({시트 이름: YYYY-MM-DD})에서 가져온다. 구조가 다른 시트는 different, 날짜를 정하지 않은 시트는 undated 로 알린다.
     기준 시트의 표는 그 날짜 시트에서 읽고, 다른 시트의 표는 기준 시트와 같은 값을 그 날짜로 넣는다."""
     mine = [d for d in definitions if d["sheet"] == group["base"]]
-    loaded, different = {}, []
+    loaded, different, undated = {}, [], []
     for sheet in group["sheets"]:
         if sheet == group["base"]:
             continue
-        m = SHEET_DATE.search(sheet)
-        if not m or not all(_same_shape(book, d, sheet) for d in mine):
+        day = (group.get("dates") or {}).get(sheet)
+        if not day:
+            undated.append(sheet)
+            continue
+        if not all(_same_shape(book, d, sheet) for d in mine):
             different.append(sheet)
             continue
         moved = [{**d, "sheet": sheet} if d["sheet"] == group["base"] else d for d in definitions]
-        day = f"{m[1]}-{int(m[2]):02d}-{int(m[3]):02d}"
         loaded[day] = rows(book, plan, moved, day)
-    return {"loaded": loaded, "different": different}
+    return {"loaded": loaded, "different": different, "undated": undated}
 
 
 def upload_row(excel, base_date, saved_at, status="완료"):
@@ -129,11 +131,12 @@ def write_requests(book, plan, results, base_date, out, calculate, review=False)
     완료 이력(3번)은 마지막에 넣는다. 앞 파일이 하나라도 실패하면 3번을 넣지 않는다."""
     schema, by_name, saved = plan["schema"], {t["name"]: t for t in plan["tables"]}, saved_time(book.path)
     defs = [d for d in results["definitions"] if not d.get("orphan")]  # 분석기가 찾지 못한 표는 table_plan.build 처럼 뺀다
-    days, different = {base_date: rows(book, plan, defs, base_date)}, []
+    days, different, undated = {base_date: rows(book, plan, defs, base_date)}, [], []
     for group in results.get("date_groups", []):
         got = date_sheets(book, plan, defs, group)
         days.update({day: r for day, r in got["loaded"].items() if day != base_date})
         different += got["different"]
+        undated += got["undated"]
     wired_days = {}
     for day, day_rows in days.items():
         wired = {name: verify_calc.wire_values(r, by_name[name]["columns"]) for name, r in day_rows.items()}
@@ -152,7 +155,7 @@ def write_requests(book, plan, results, base_date, out, calculate, review=False)
             _write(out / f"2_upsert_{name}.json", {"schema": schema, "table": name, "mode": "upsert", "rows": table_rows})
     _write(out / "2_upsert_excel_registry.json", {"schema": schema, "table": "excel_registry", "mode": "upsert", "rows": table_plan.registry_rows(plan, results, schema, book)})
     _write(out / "3_insert_excel_upload.json", {"schema": schema, "table": "excel_upload", "mode": "append", "rows": [upload_row(plan["excel"], day, saved, "진행 중" if review and day == base_date else "완료") for day in sorted(days)]})
-    return {"dates": sorted(days), "different": different}
+    return {"dates": sorted(days), "different": different, "undated": undated}
 
 
 def load_calc(path):
@@ -184,6 +187,8 @@ def main(argv=None):
     print(f"적재 파일: {a.out} (기준일 {', '.join(got['dates'])})")
     if got["different"]:
         print(f"구조가 달라 넣지 않은 날짜 시트: {', '.join(got['different'])}. 이 시트를 어떻게 할지 개발자에게 묻는다")
+    if got["undated"]:
+        print(f"날짜를 정하지 않아 넣지 않은 날짜 시트: {', '.join(got['undated'])}. 결과 파일의 date_groups[].dates 에 날짜를 적는다")
 
 
 if __name__ == "__main__":
