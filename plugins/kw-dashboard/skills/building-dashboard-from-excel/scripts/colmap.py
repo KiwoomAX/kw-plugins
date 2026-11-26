@@ -1,6 +1,11 @@
 """엑셀 원천 표의 열마다 같은 값을 가진 쿼리 응답 열과 변환을 찾는다. 키 열로 행을 맞춘 뒤 값 일치율을 본다."""
 import datetime as dt
+import sys
 from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "templates/backend"))
+import transform  # noqa: E402  운영 서버와 같은 변환 계산을 쓴다
 
 MATCH = 0.8  # 같은 열로 보는 값 일치율(근거 없는 시작 값)
 def round_half_up(value, digits):
@@ -8,7 +13,9 @@ def round_half_up(value, digits):
     return Decimal(repr(value) if isinstance(value, float) else str(value)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
 
 
-TRANSFORMS = {"same": lambda x: x, "/1e8": lambda x: x / 1e8, "round(/1e8)": lambda x: int(round_half_up(x / 1e8, 0)), "*100": lambda x: x * 100, "/100": lambda x: x / 100}
+SCALES = ("100", "1e3", "1e4", "1e6", "1e8")  # 시도하는 배수: 100(%) · 천 · 만 · 백만 · 억. 운영 서버는 어떤 배수든 계산한다
+# 앞에 둔 변환일수록 먼저 고른다. 같은 응답 열에 여러 변환이 맞으면 그대로 · 반올림 없는 변환을 고른다
+TRANSFORMS = ["same"] + [f"{op}{s}" for s in SCALES for op in "/*"] + [f"round({op}{s})" for s in SCALES for op in "/*"]
 
 
 def _key(v):
@@ -55,7 +62,7 @@ def _score(pairs, excel_col, query_col, name):
         x, y = e.get(excel_col), q.get(query_col)
         if name != "same":
             y = _number(y)
-            y = TRANSFORMS[name](y) if y is not None else None
+            y = float(transform.apply(name, y)) if y is not None else None
         n += 1
         ok += _equal(x, y)
     return ok / n if n else 0

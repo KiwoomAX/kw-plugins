@@ -6,12 +6,13 @@
 import datetime as dt
 import threading
 from contextlib import contextmanager
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 import httpx
 
 import input_form
+import transform
 import winus as winus_errors
 from store import SandboxRefused
 
@@ -22,14 +23,6 @@ NO_DATA = "이 기준일의 WINUS 데이터가 없습니다"
 REFUSED = "WINUS 연결 권한이 없습니다. 담당 개발자에게 문의해 주십시오"
 OVERWRITE = "기존 수기 입력이 덮어씌워집니다. 그래도 진행하시겠습니까?"
 UNFINISHED = "이 기준일은 지난 업로드가 끝나지 않았습니다. 입력 양식을 다시 올려 주십시오"
-
-
-def round_half_up(x):
-    """엑셀과 같은 사사오입. 파이썬 round 는 .5 를 짝수 쪽으로 보낸다."""
-    return int(Decimal(str(x)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-
-
-TRANSFORMS = {"same": lambda x: x, "/1e8": lambda x: x / 1e8, "round(/1e8)": lambda x: round_half_up(x / 1e8), "*100": lambda x: x * 100, "/100": lambda x: x / 100}
 
 
 def korean_today():
@@ -97,7 +90,7 @@ def _mapped(table, rows):
         for db, spec in query_map.items():
             value = row.get(spec["column"])
             value = None if value == "" else value
-            item[db] = value if spec["transform"] == "same" or value is None else str(TRANSFORMS[spec["transform"]](float(value)))
+            item[db] = value if spec["transform"] == "same" or value is None else transform.text(transform.apply(spec["transform"], value))
         out.append(item)
     return out
 
