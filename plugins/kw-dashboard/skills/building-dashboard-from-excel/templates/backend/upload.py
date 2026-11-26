@@ -19,7 +19,7 @@ from store import SandboxRefused
 WAITING = "WINUS 쿼리 연결을 기다리고 있습니다"
 RECALC = "이 기준일의 결과를 다시 계산해야 합니다"
 BUSY = "다른 업로드가 진행 중입니다"
-NO_DATA = "이 기준일의 WINUS 데이터가 없습니다"
+NO_DATA = "표에 이 기준일 데이터가 없습니다. 아무것도 저장하지 않았습니다"  # 앞에 표 대상 이름을 붙여 보인다
 REFUSED = "WINUS 연결 권한이 없습니다. 담당 개발자에게 문의해 주십시오"
 OVERWRITE = "기존 수기 입력이 덮어씌워집니다. 그래도 진행하시겠습니까?"
 UNFINISHED = "이 기준일은 지난 업로드가 끝나지 않았습니다. 입력 양식을 다시 올려 주십시오"
@@ -134,8 +134,8 @@ def fetch_winus(plan, winus, base_date, parameters, lists=None, skip=()):
                 return None, result("failed", REFUSED)
             except winus_errors.WinusStopped:
                 return None, result("failed", f"{t['name'].rsplit('__', 1)[-1]} 데이터를 받지 못했습니다. 아무것도 저장하지 않았습니다. 잠시 뒤 다시 올려 주십시오")
-        if not rows:  # 값 하나의 0건은 넘어가고, 합친 결과가 0건일 때만 멈춘다
-            return None, result("failed", NO_DATA)
+        if not rows:  # 값 하나의 0건은 넘어가고, 합친 결과가 0건일 때만 멈춘다. 빈 날이 정상인 표가 있으면 개발자가 이 줄을 고친다
+            return None, result("failed", f"{t['name'].rsplit('__', 1)[-1]} {NO_DATA}")
         out[t["name"]] = _mapped(t, rows)
     return out, None
 
@@ -155,7 +155,7 @@ def calculated(plan, calculate, tables, base_date):
     for t in by_stage(plan, "calc"):
         target = t["name"].split("__", 2)[2]
         if not got.get(target):
-            return None, result("failed", "계산 결과가 비어 있습니다. 아무것도 저장하지 않았습니다")
+            return None, result("failed", f"{target} 계산 결과가 비어 있습니다. 아무것도 저장하지 않았습니다")
         out[t["name"]] = got[target]
     return out, None
 
