@@ -1,9 +1,10 @@
-"""등록 번호가 오면 쿼리 응답 열과 표의 열을 값으로 맞추고 「쿼리 연결 대기」를 푼다.
+"""등록 번호가 오면 개발자가 정한 열 대응대로 엑셀 표와 쿼리 응답을 대조하고, 맞으면 「쿼리 연결 대기」를 푼다.
 
 실행: python query_link.py <엑셀> --plan table_plan.json --results explain_results.json --table <표 이름> --query-id <번호>
-        --response response.json --key <엑셀 열> <응답 열> [--args args.json] [--map 엑셀열=응답열[:변환] ...] --out-plan table_plan.json --out-registry upsert_excel_registry.json
+        --response response.json --key <엑셀 열> <응답 열> [--key ...] [--map 엑셀열=응답열[:변환] ...] [--args args.json] [--accept]
+        --out-plan table_plan.json --out-registry upsert_excel_registry.json
 response.json 은 searching-winus 로 받은 한 기준일의 응답 행 목록이다. 대기가 풀릴 때만 두 파일을 쓴다.
-값으로 찾은 열 대응은 제안이다. 찾지 못한 열과 틀린 열은 개발자가 --map 으로 정한다.
+열 대응은 스크립트가 찾지 않는다. 대응이 빠진 열이 있으면 엑셀 값과 응답 값 몇 개를 보이므로, Claude 가 보고 대응을 제안한다.
 """
 import argparse
 import copy
@@ -12,7 +13,7 @@ import string
 import sys
 from pathlib import Path
 
-from colmap import _key, match  # colmap 이 서버 폴더(templates/backend)를 경로에 넣는다
+from colmap import compare  # colmap 이 서버 폴더(templates/backend)를 경로에 넣는다
 import transform  # noqa: E402
 
 
@@ -60,22 +61,28 @@ def bad_map(given, excel_rows, response_rows):
     return bad
 
 
-def link(plan, table, query_id, response_rows, excel_rows, key_columns, query_args=None, given=None):
-    """{"mapped": {표 열: {column, transform, match}}, "missing": [표 열], "unmatched_rows": 개수, "plan": 새 설계}.
-    given({표 열: (응답 열, 변환)})은 개발자가 정한 대응이라 값으로 찾은 대응보다 앞서고, match 는 None 으로 남긴다.
-    unmatched_rows 는 키가 응답에 없는 엑셀 행 수다. 엑셀이 레코드 하나를 두 줄로 보이거나 합계 줄이 섞이면 생긴다.
-    맞지 않는 열이나 행이 있으면 설계를 바꾸지 않는다. 그때는 개발자에게 알려 열 대응이나 행 정리 코드를 정한다."""
-    got = match(excel_rows, response_rows, key_columns)
-    mapped = {key_columns[0]: {"column": key_columns[1], "transform": "same", "match": 1.0}, **got["mapped"],
-              **{col: {"column": column, "transform": name, "match": None} for col, (column, name) in (given or {}).items()}}
-    missing = [c for c in got["missing"] if c not in (given or {})]
-    keys = {_key(r.get(key_columns[1])) for r in response_rows}
-    unmatched = sum(1 for r in excel_rows if _key(r.get(key_columns[0])) not in keys or not _key(r.get(key_columns[0])))
+def link(plan, table, query_id, response_rows, excel_rows, keys, mapping, query_args=None, accept=False):
+    """{"missing", "checked", "unmatched_rows", "repeated_keys", "linked", "plan"} 에 대응이 빠지면 "samples" 를 더한다.
+    keys 는 [(엑셀 열, 응답 열)], mapping 은 {표 열: (응답 열, 변환)}. 모든 열에 대응이 있고, 엑셀 행마다 짝이 되는 응답 행이 하나씩 있고,
+    값이 모두 같을 때 대기를 푼다. 값이 다른 행이 있으면 개발자가 보고 accept 로 정한다. 그 밖에는 설계를 바꾸지 않는다."""
+    key_cols = {e for e, _ in keys}
+    columns = [c for c in (excel_rows[0] if excel_rows else {}) if c not in key_cols]
+    missing = [c for c in columns if c not in mapping]
+    got = compare(excel_rows, response_rows, keys, {c: mapping[c] for c in columns if c in mapping})
+    differs = any(c["same"] != c["rows"] for c in got["checked"].values())
+    linked = not missing and not got["unmatched_rows"] and not got["repeated_keys"] and (accept or not differs)
     new = copy.deepcopy(plan)
-    if not missing and not unmatched:
+    if linked:
+        query_map = {e: {"column": r, "transform": "same", "match": 1.0} for e, r in keys}
+        query_map.update({c: {"column": v["column"], "transform": v["transform"], "match": round(v["same"] / v["rows"], 4) if v["rows"] else None}
+                          for c, v in got["checked"].items()})
         t = next(x for x in new["tables"] if x["name"] == table)
-        t.update(waiting_query=False, query_id=query_id, query_map=mapped, query_args=query_args or {})
-    return {"mapped": mapped, "missing": missing, "unmatched_rows": unmatched, "plan": new}
+        t.update(waiting_query=False, query_id=query_id, query_map=query_map, query_args=query_args or {})
+    out = {"missing": missing, **got, "linked": linked, "plan": new}
+    if missing:
+        out["samples"] = {"excel": {c: [r.get(c) for r in excel_rows[:3]] for c in missing},
+                          "response": {c: [r.get(c) for r in response_rows[:3]] for c in (response_rows[0] if response_rows else {})}}
+    return out
 
 
 def main(argv=None):
@@ -86,9 +93,10 @@ def main(argv=None):
     ap.add_argument("--table", required=True)
     ap.add_argument("--query-id", type=int, required=True)
     ap.add_argument("--response", required=True)
-    ap.add_argument("--key", nargs=2, required=True, metavar=("엑셀_열", "응답_열"))
+    ap.add_argument("--key", nargs=2, action="append", required=True, metavar=("엑셀_열", "응답_열"), help="행을 짝짓는 열. 여러 열이면 여러 번 쓴다")
     ap.add_argument("--args", help="쿼리 인자 {이름: 값 틀}. 값은 고정 글자나 {base_date} · {yyyymmdd}. 예: {\"dt\": \"{yyyymmdd}\", \"gb\": \"1\"}")
-    ap.add_argument("--map", action="append", metavar="엑셀열=응답열[:변환]", help="개발자가 정한 열 대응. 여러 번 쓴다. 예: 환매금액=RED_AMT:/1e8")
+    ap.add_argument("--map", action="append", metavar="엑셀열=응답열[:변환]", help="표 열마다 대응하는 응답 열. 여러 번 쓴다. 예: 환매금액=RED_AMT:/1e8")
+    ap.add_argument("--accept", action="store_true", help="값이 다른 행을 개발자가 보고 그대로 연결하기로 했을 때")
     ap.add_argument("--out-plan", required=True)
     ap.add_argument("--out-registry", required=True)
     a = ap.parse_args(argv)
@@ -116,14 +124,14 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
         print("연결하지 않았습니다: " + " · ".join(wrong))
         sys.exit(1)
-    got = link(plan, a.table, a.query_id, response, excel_rows, tuple(a.key), query_args, given)
+    got = link(plan, a.table, a.query_id, response, excel_rows, [tuple(k) for k in a.key], given, query_args, a.accept)
     new = got["plan"]
-    if not next(x for x in new["tables"] if x["name"] == a.table)["waiting_query"]:
+    if got["linked"]:
         Path(a.out_plan).write_text(json.dumps(new, ensure_ascii=False, indent=1), encoding="utf-8")
         rows = [r for r in table_plan.registry_rows(new, results, new["schema"], book) if r["table_name"] == a.table]
         Path(a.out_registry).write_text(json.dumps({"schema": new["schema"], "table": "excel_registry", "mode": "upsert", "rows": rows}, ensure_ascii=False, indent=1), encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({k: got[k] for k in ("mapped", "missing", "unmatched_rows")}, ensure_ascii=False, indent=1))
+    print(json.dumps({k: v for k, v in got.items() if k != "plan"}, ensure_ascii=False, indent=1, default=str))
 
 
 if __name__ == "__main__":

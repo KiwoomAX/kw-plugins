@@ -1,4 +1,7 @@
-"""엑셀 원천 표의 열마다 같은 값을 가진 쿼리 응답 열과 변환을 찾는다. 키 열로 행을 맞춘 뒤 값 일치율을 본다."""
+"""엑셀 원천 표와 쿼리 응답을 개발자가 정한 열 대응대로 대조한다. 키 열로 행을 짝지은 뒤 열마다 같은 행 수를 센다.
+
+어느 응답 열이 어느 표 열인지는 찾지 않는다. 엑셀 모양은 끝이 없어 규칙으로 찾을 수 없으므로 Claude 가 제안하고 개발자가 정한다.
+"""
 import datetime as dt
 import sys
 from decimal import ROUND_HALF_UP, Decimal
@@ -7,15 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "templates/backend"))
 import transform  # noqa: E402  운영 서버와 같은 변환 계산을 쓴다
 
-MATCH = 0.8  # 같은 열로 보는 값 일치율(근거 없는 시작 값)
+
 def round_half_up(value, digits):
     """화면처럼 사사오입한다. 파이썬 round 는 0.005 경계에서 다르게 반올림한다."""
     return Decimal(repr(value) if isinstance(value, float) else str(value)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
-
-
-SCALES = ("100", "1e3", "1e4", "1e6", "1e8")  # 시도하는 배수: 100(%) · 천 · 만 · 백만 · 억. 운영 서버는 어떤 배수든 계산한다
-# 앞에 둔 변환일수록 먼저 고른다. 같은 응답 열에 여러 변환이 맞으면 그대로 · 반올림 없는 변환을 고른다
-TRANSFORMS = ["same"] + [f"{op}{s}" for s in SCALES for op in "/*"] + [f"round({op}{s})" for s in SCALES for op in "/*"]
 
 
 def _key(v):
@@ -56,38 +54,30 @@ def _equal(a, b):
     return str(_norm(a)).strip() == str(_norm(b)).strip()
 
 
-def _score(pairs, excel_col, query_col, name):
-    ok = n = 0
-    for e, q in pairs:
-        x, y = e.get(excel_col), q.get(query_col)
-        if name != "same":
-            y = _number(y)
-            y = float(transform.apply(name, y)) if y is not None else None
-        n += 1
-        ok += _equal(x, y)
-    return ok / n if n else 0
+def _keyed(row, columns):
+    return tuple(_key(row.get(c)) for c in columns)
 
 
-def match(excel_rows, query_rows, key_columns):
-    """{"mapped": {엑셀 열: {"column", "transform", "match"}}, "missing": [엑셀 열]}. 빈 값은 0 으로 보고, 엑셀 열이 비었으면 이름이 같은 응답 열에만 맞춘다.
-    가장 잘 맞는 응답 열이 둘 이상이면 고르지 않고 missing 으로 둔다."""
-    excel_key, query_key = key_columns
-    by_key = {_key(r.get(query_key)): r for r in query_rows}
-    pairs = [(r, by_key[_key(r.get(excel_key))]) for r in excel_rows if _key(r.get(excel_key)) in by_key]
-    columns = [c for c in (query_rows[0] if query_rows else {}) if c != query_key]
-    mapped, missing = {}, []
-    for col in (c for c in (excel_rows[0] if excel_rows else {}) if c != excel_key):
-        if all(e.get(col) in (None, "", 0) for e, _ in pairs):
-            if col in columns:
-                mapped[col] = {"column": col, "transform": "same", "match": 1.0}
-            else:
-                missing.append(col)
-            continue
-        scores = [(_score(pairs, col, c, t), c, t) for c in columns for t in TRANSFORMS]
-        best = max(scores, key=lambda x: x[0], default=(0, None, None))
-        tied = {c for score, c, _ in scores if score == best[0]}
-        if best[0] >= MATCH and len(tied) == 1:
-            mapped[col] = {"column": best[1], "transform": best[2], "match": best[0]}
-        else:
-            missing.append(col)
-    return {"mapped": mapped, "missing": missing}
+def compare(excel_rows, response_rows, keys, mapping, limit=3):
+    """{"checked": {표 열: {column, transform, same, rows, diff}}, "unmatched_rows": 개수, "repeated_keys": 개수}.
+    keys 는 [(엑셀 열, 응답 열)], mapping 은 {표 열: (응답 열, 변환)}. diff 는 값이 다른 행을 limit 개까지 보인다.
+    unmatched_rows 는 키가 응답에 없는 엑셀 행 수, repeated_keys 는 키가 겹쳐 짝을 정할 수 없는 응답 행 수다."""
+    excel_keys, response_keys = [e for e, _ in keys], [r for _, r in keys]
+    count = {}
+    for r in response_rows:
+        count[_keyed(r, response_keys)] = count.get(_keyed(r, response_keys), 0) + 1
+    by_key = {_keyed(r, response_keys): r for r in response_rows}
+    pairs = [(e, by_key[_keyed(e, excel_keys)]) for e in excel_rows if all(_keyed(e, excel_keys)) and _keyed(e, excel_keys) in by_key]
+    checked = {}
+    for col, (column, name) in mapping.items():
+        same, diff = 0, []
+        for e, q in pairs:
+            y = q.get(column)
+            if name != "same" and y not in (None, ""):
+                y = float(transform.apply(name, y))
+            if _equal(e.get(col), y):
+                same += 1
+            elif len(diff) < limit:
+                diff.append({"key": [e.get(k) for k in excel_keys], "excel": e.get(col), "response": q.get(column)})
+        checked[col] = {"column": column, "transform": name, "same": same, "rows": len(pairs), "diff": diff}
+    return {"checked": checked, "unmatched_rows": len(excel_rows) - len(pairs), "repeated_keys": sum(n for n in count.values() if n > 1)}
