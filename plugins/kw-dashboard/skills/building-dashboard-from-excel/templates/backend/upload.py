@@ -123,7 +123,7 @@ def fetch_winus(plan, winus, base_date, parameters, lists=None, skip=()):
         if t["name"] in skip:
             continue
         try:
-            args = {k: v.format(**values) for k, v in t.get("query_args", {}).items()}
+            args = {k: [x.format(**values) for x in v] if isinstance(v, list) else v.format(**values) for k, v in t.get("query_args", {}).items()}  # 목록 인자는 원소마다 채운다
         except (KeyError, IndexError, ValueError, AttributeError):  # query_link.py 가 거절하는 틀을 설계 파일에 손으로 넣었을 때
             return None, result("failed", f"{t['name'].rsplit('__', 1)[-1]} 조회 조건 값을 만들지 못했습니다. 아무것도 저장하지 않았습니다. 담당 개발자에게 문의해 주십시오")
         rows = []

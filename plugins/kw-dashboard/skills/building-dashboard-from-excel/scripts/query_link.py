@@ -20,20 +20,23 @@ import transform  # noqa: E402
 FILLED = {"base_date", "yyyymmdd"}  # 운영 중 서버가 업로드한 기준일로 채우는 이름
 
 
+def _fillable(v):
+    """서버가 운영 중에 채울 수 있는 값 틀인가. 글자 하나이거나, 그런 글자의 빈 배열 아닌 목록이다."""
+    if isinstance(v, list):
+        return bool(v) and all(isinstance(x, str) and _fillable(x) for x in v)
+    if not isinstance(v, str):
+        return False
+    try:
+        names = {n for _, n, _, _ in string.Formatter().parse(v) if n is not None}
+    except ValueError:  # 중괄호 짝이 맞지 않는 틀
+        return False
+    return names <= FILLED
+
+
 def bad_args(query_args, each_arg=None):
-    """[(인자, 값 틀)]. 운영 중 서버가 만들 수 없는 값이다. 고정 글자와 {base_date} · {yyyymmdd} 만 받는다.
+    """[(인자, 값 틀)]. 운영 중 서버가 만들 수 없는 값이다. 고정 글자와 {base_date} · {yyyymmdd} 만 받고, 목록 인자는 원소마다 같은 기준으로 본다.
     each_arg 는 query_each 가 목록 값마다 채우는 인자라 틀을 보지 않는다."""
-    bad = []
-    for arg, v in (query_args or {}).items():
-        if arg == each_arg:
-            continue
-        try:
-            names = {n for _, n, _, _ in string.Formatter().parse(v) if n is not None} if isinstance(v, str) else None
-        except ValueError:  # 중괄호 짝이 맞지 않는 틀
-            names = None
-        if names is None or not names <= FILLED:
-            bad.append((arg, v))
-    return bad
+    return [(arg, v) for arg, v in (query_args or {}).items() if arg != each_arg and not _fillable(v)]
 
 
 def parse_map(items):
@@ -112,7 +115,7 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
         for arg, v in bad:
             print(f"연결하지 않았습니다: 인자 {arg} 의 값 「{json.dumps(v, ensure_ascii=False)}」는 운영 중에 서버가 만들 수 없습니다.")
-        print("쓸 수 있는 값은 고정 글자, {base_date}, {yyyymmdd}, 목록 값마다 호출하는 인자(query_each)입니다.")
+        print("쓸 수 있는 값은 고정 글자, {base_date}, {yyyymmdd}, 그런 값의 배열, 목록 값마다 호출하는 인자(query_each)입니다.")
         sys.exit(1)
     d = next(x for x in results["definitions"] if x["id"] == t["definition_id"])
     book = initial_load.open_book(a.excel)
