@@ -162,8 +162,8 @@ def _compare_dates(d, vals, results, report):
     if not d["date_columns"]:
         return
     rows = results.get(f"{d['target']}_dates") or [{}]
-    r = d["header_rows"][1]
     for x in d["date_columns"]:
+        r = x.get("row", d["header_rows"][1])  # 날짜가 있는 엑셀 행. 적지 않으면 마지막 머리글 줄이다
         cached = vals.get((r, column_index_from_string(x["col"])))
         computed = rows[0].get(f"t_plus_{x['rel']}")
         if computed is None or _date_digits(cached) != _date_digits(computed):

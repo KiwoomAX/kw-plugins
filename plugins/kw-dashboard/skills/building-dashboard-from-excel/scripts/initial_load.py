@@ -48,9 +48,9 @@ def _fixed(plan, definitions):
 
 
 def _dates_row(book, d):
+    """날짜는 날짜 열 항목의 row(엑셀 행)에서 읽는다. row 가 없으면 마지막 머리글 줄이다."""
     vals = book.sheet_values(d["sheet"])
-    r = d["header_rows"][1]
-    return {f"t_plus_{x['rel']}": _date_text(vals.get((r, column_index_from_string(x["col"])))) for x in d["date_columns"]}
+    return {f"t_plus_{x['rel']}": _date_text(vals.get((x.get("row", d["header_rows"][1]), column_index_from_string(x["col"])))) for x in d["date_columns"]}
 
 
 def rows(book, plan, definitions, base_date):
