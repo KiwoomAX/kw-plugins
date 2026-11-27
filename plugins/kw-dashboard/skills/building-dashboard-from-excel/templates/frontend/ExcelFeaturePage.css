@@ -1,0 +1,44 @@
+/* 결과표 조회 화면의 모양. 색 · 모서리 · 간격은 대시보드 셸의 값을 쓰고, 글자 크기는 내용 구획의 값을 그대로 쓴다. */
+.content .sv { display: flex; flex-direction: column; gap: 8px; height: calc(100vh - 130px); }
+.content .sv-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 8px 12px; white-space: nowrap; border-radius: var(--radius-md); background: var(--bg-sunken); color: var(--text-secondary); }
+.content .sv-bar label { display: flex; align-items: center; gap: 6px; }
+.content .sv-bar select, .content .sv-bar input { font: inherit; padding: 3px 6px; border: 1px solid var(--border-medium); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text-primary); max-width: 210px; }
+.content .sv-arrow { color: var(--text-tertiary); }
+.content .sv-sp { flex: 1; }
+.content .sv-btn { font: inherit; padding: 4px 10px; border: 1px solid var(--border-medium); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text-primary); cursor: pointer; }
+.content .sv-btn:hover { background: var(--bg-hover); }
+.content .sv-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+.content .sv-ok { padding: 8px 12px; border-radius: var(--radius-sm); background: var(--ok-weak); color: var(--text-primary); }
+.content .sv-main { display: flex; gap: 12px; flex: 1; min-height: 0; }
+.content .sv-pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--bg-surface); }
+.content .sv-cap { padding: 6px 10px; color: var(--text-secondary); border-bottom: 1px solid var(--border-light); }
+.content .sv-cap b { color: var(--text-primary); }
+.content .sv-pane.res .sv-cap { background: var(--accent-weak); }
+.content .sv-grid { flex: 1; min-height: 0; overflow: auto; }
+.content .sv-grid table { border-collapse: collapse; }
+.content .sv-grid th { position: sticky; top: 0; z-index: 2; height: 22px; min-width: 56px; padding: 0 8px; background: var(--bg-sunken); color: var(--text-tertiary); font-weight: 400; }
+.content .sv-grid th.rn, .content .sv-grid td.rn { position: sticky; left: 0; z-index: 1; min-width: 40px; background: var(--bg-sunken); color: var(--text-tertiary); text-align: right; padding: 0 8px; }
+.content .sv-grid th.rn { z-index: 3; }
+.content .sv-grid td { height: 24px; padding: 0 8px; border-right: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light); white-space: nowrap; color: var(--text-primary); }
+.content .sv-grid td.h { background: var(--th-bg); color: var(--th-ink); }
+.content .sv-grid td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.content .sv-empty { flex: 1; display: grid; place-items: center; border: 1px dashed var(--border-light); border-radius: var(--radius-md); color: var(--text-secondary); }
+.content .sv-note { color: var(--text-tertiary); }
+.content .sv-scrim { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; background: var(--scrim); }
+.content .sv-scrim.open { display: flex; }
+.content .sv-dlg { width: 500px; padding: 20px 22px; border: 1px solid var(--border-light); border-radius: 10px; background: var(--bg-dialog); }
+.content .sv-dlg h2 { margin: 0 0 12px; color: var(--text-primary); }
+.content .sv-date { margin-bottom: 12px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-medium); color: var(--text-secondary); }
+.content .sv-date b { color: var(--text-primary); }
+.content .sv-step { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-sunken); color: var(--text-secondary); }
+.content .sv-step .sv-btn { flex: 0 0 auto; margin-left: auto; }
+.content .sv-row { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; color: var(--text-secondary); }
+.content .sv-file { padding: 8px; border: 1px dashed var(--border-medium); border-radius: var(--radius-sm); color: var(--text-tertiary); }
+.content .sv-act { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.content .sv-bar select[data-sv="date"] { max-width: none; }
+.content .sv-dlg input[type="date"] { justify-self: start; font: inherit; padding: 3px 6px; border: 1px solid var(--border-medium); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text-primary); }
+.content .sv-bar label { flex: 0 1 auto; min-width: 0; }
+.content .sv-bar label select { min-width: 0; flex: 1 1 auto; }
+.content .sv-bar .sv-btn { flex: 0 0 auto; }
+.content .sv-btn:disabled { opacity: .5; cursor: default; }
+.content a.sv-btn { text-decoration: none; }

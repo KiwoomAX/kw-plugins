@@ -44,18 +44,17 @@ disable-model-invocation: true
 4. 같은 질문에서 행 순서를 확인한다. 결과표의 `row_order` 가 「순위 순」이면 묻지 않는다. 그 밖의 결과표와 사용자가 직접 지정한 표는 두 안을 묻는다.
    - 기본 안: 엑셀의 지금 순서를 순번 열(`row_seq`)로 저장하고, 앞으로 추가분은 뒷행에 붙인다.
    - 다른 안: 가나다 순이나 펀드코드 순 같은 정렬 기준을 정한다.
-5. 같은 질문에서 `settings` 네 항목을 묻는다. 후보 파일의 `suggested` 에 값이 있으면 제안값으로 보인다.
+5. 같은 질문에서 `settings` 세 항목을 묻는다. 후보 파일의 `suggested` 에 값이 있으면 제안값으로 보인다.
    - `date_input`: 기준일 입력칸을 켤지와, 켜면 기본값(예: 어제)
    - `refresh_unit`: 데이터 갱신 단위(`일자` · `시간`). 수기 입력의 이전 값을 모두 남겨야 하면 `시간` 이다
-   - `allow_today`: 오늘을 기준일로 받을지. 전일자 기준 업무는 받지 않는다
-   - `allow_holiday`: 휴일을 기준일로 받을지
+   - `allow_today`: 오늘을 기준일로 받을지. 전일자 기준 업무는 받지 않는다. 휴일은 거절하지 않는다. 화면의 날짜 선택에서 올리는 사람이 고른다
 6. 답을 `--out` 폴더의 `explain_results.json` 에 Write 도구로 쓴다(UTF-8). `base_sheets` 는 후보 파일의 `base_sheets` 를 그대로 옮긴다. 결과표는 후보 파일 `tables[].id` 를 `table` 에 적는다. 표 묶음 이름은 후보 파일의 `groups`(머리글 행 글자, 표 위 제목 글자, 첫 행 값)를 보고 클로드가 유추해 묶음 번호로 적는다. 이 파일은 대시보드 스킬이 행 순서 답을 읽는 기록이기도 하다.
 
    ```json
    {"excel": "<엑셀 파일 이름>", "base_sheets": {"<pattern>": "<시트>"},
     "results": [{"table": "<표 id>", "sheet": "<시트>", "row_order": "순위 순"}],
     "names": {"g1": "분류 대응표"},
-    "settings": {"date_input": {"on": true, "default": "어제"}, "refresh_unit": "일자", "allow_today": false, "allow_holiday": false}}
+    "settings": {"date_input": {"on": true, "default": "어제"}, "refresh_unit": "일자", "allow_today": false}}
    ```
 
 7. 2번째 실행으로 페이지를 만든다. 결과표마다 `explain_all_r<번호>.html` 과 단계 화면 폴더 `explain_all_r<번호>_steps/` 가 생긴다.
@@ -64,13 +63,15 @@ disable-model-invocation: true
    uv run --system-certs --no-project --with-requirements "<스킬>\scripts\requirements.txt" python "<스킬>\scripts\explain_cell.py" "<엑셀 경로>" --all --results explain_results.json --out explain_all.html
    ```
 
+   대시보드 스킬처럼 설명 화면 없이 사실 자료만 필요하면 7번 명령에 `--facts` 를 붙이고 `--out` 을 `explain_facts.json` 으로 준다. 그 파일에는 결과에 쓰이는 셀과 따라가지 못한 참조, 연결 목록, WINUS 추출본 후보, 확인 필요한 사항이 쓰이고, 결과 파일은 바뀌지 않는다.
+
 8. 만든 페이지를 `Start-Process` 로 브라우저에서 연다. 날짜 시트 군이 있으면 대화에서 1번 알린다. 「마지막 시트(<시트>)의 계산 기준으로 분석했습니다. 더 과거의 계산 이력까지 모두 검토가 필요하면 말씀해 주세요.」 틀린 내용이 있으면 이 대화에서 알려 달라고 덧붙인다.
 9. 결과에 쓰이는 표를 하나씩 확인받는다. 2번째 실행은 그 표마다 결과 파일의 `definitions` 에 표 정의를 제안한다. 화면의 표 범위 테두리, 머리글, 소계 행, 표 밖 셀과 「확인 필요한 사항」을 함께 보며 묻는다. 애매한 정의는 짐작하지 않고 모두 묻는다. 답은 결과 파일에 Edit 도구로 고치고, 같은 명령에 `--replace` 를 붙여 다시 실행한다. `--replace` 는 같은 이름의 출력 파일을 지우고 다시 쓴다.
    - 표를 확인하면 `target` 에 표 이름의 영문 대상을 적고 `confirmed` 를 `true` 로 바꾼다. 역할(`role`)은 `confirmed` 가 `true` 일 때만 고친 값이 남는다.
    - 다시 실행하면 분석 값은 새로 계산된다. 고친 값으로 남는 항목은 `target`, `confirmed`, `area`, `header_rows`, 열의 `db` · `type`, 표 밖 셀의 `action`, 빈 `expr` 에 적은 식이다.
    - `area` 와 `header_rows` 는 `[시작 행, 시작 열, 끝 행, 끝 열]`, `[첫 행, 끝 행]` 형식의 숫자 목록이다.
    - 표를 새로 정하면 `id`(`시트!범위`), `sheet`, `area`, `added: true` 를 적은 항목을 추가한다.
-   - 표 밖 셀의 `action` 은 `버림`, `개발 고정값 표에 저장`, `별도 표로 저장`, `이 표에 포함` 중 하나다. `read_by_result` 가 `true` 인 셀은 결과 계산이 읽으므로 버리지 않는다. `별도 표로 저장` 은 `target` 에 영문 대상 이름을 적고, 같은 `target` 의 셀은 한 표가 된다. `확인 필요` 는 혼자 있는 숫자 · 날짜이므로 담당자가 바꾸는 값인지 물어 `매개변수` 또는 `개발 고정값 표에 저장` 으로 고친다. 쓰인 표가 없는 시트의 칸은 그 칸을 읽는 표의 목록에 들어가고, 항목에 `sheet` 가 붙는다.
+   - 표 밖 셀의 `action` 은 `버림`, `개발 고정값 표에 저장`, `별도 표로 저장`, `이 표에 포함` 중 하나다. `read_by_result` 가 `true` 인 셀은 결과 계산이 읽으므로 버리지 않는다. `별도 표로 저장` 은 `target` 에 영문 대상 이름을 적고, 같은 `target` 의 셀은 한 표가 된다. `확인 필요` 는 혼자 있는 숫자 · 날짜이므로 담당자가 바꾸는 값인지 물어 `매개변수` 또는 `개발 고정값 표에 저장` 으로 고친다. `매개변수` 는 WINUS 조회 조건으로만 쓰이고 계산에는 넘어가지 않는다. 그래서 `read_by_result` 가 `true` 인 칸은 `매개변수` 로 두지 않는다. 담당자가 바꾸는 값이면 그 칸을 표로 추가하고 역할을 「수기 입력」으로 정한다. 쓰인 표가 없는 시트의 칸은 그 칸을 읽는 표의 목록에 들어가고, 항목에 `sheet` 가 붙는다.
    - 소계 · 합계 행은 DB 에 저장하지 않는다. `expr` 이 `null` 인 셀은 계산 식을 물어 아래 문법으로 적는다.
 
    ```
@@ -138,7 +139,7 @@ disable-model-invocation: true
 | `결과표 시트 없음` | 결과 파일의 시트 이름을 엑셀과 대조해 고친다 |
 | `결과표 표 지정 없음` | 결과 파일의 `table` 에 후보 파일 `tables[].id` 를 적는다 |
 | `결과표 표 없음` | 결과 파일의 `table` 을 후보 파일 `tables[].id` 와 대조해 고친다 |
-| `결과 파일에 settings 없음` | 전체 모드 5번의 네 항목을 물어 `settings` 에 적는다 |
+| `결과 파일에 settings 없음` | 전체 모드 5번의 세 항목을 물어 `settings` 에 적는다 |
 | `settings 항목 없음` | 메시지에 나온 항목을 물어 `settings` 에 적는다 |
 | `인자 오류: --hints 는 셀 모드 전용` | `--all` 에서는 `--hints` 를 빼고 실행한다 |
 | `인자 오류: --base` | `--base` 의 군 이름은 후보 파일 `date_groups[].pattern`, 시트는 그 군의 시트 이름으로 다시 적는다 |

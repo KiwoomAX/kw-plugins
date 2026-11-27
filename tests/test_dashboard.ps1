@@ -156,20 +156,51 @@ Assert 'explainer description is a safe plain scalar' (-not ($exDesc -match ': |
 Assert 'explainer opens only as a slash command' ($exText -match '(?m)^disable-model-invocation:\s*true\s*$')
 foreach ($f in @('scripts/explain_cell.py', 'scripts/formula_segments.py', 'scripts/query_sources.py',
                  'scripts/trace_cells.py', 'scripts/capture_views.py', 'scripts/tables.py', 'scripts/plain_text.py', 'scripts/sources.py',
-                 'scripts/checks.py', 'scripts/requirements.txt', 'assets/explain_view.html', 'assets/three_stage_view.html')) {
+                 'scripts/checks.py', 'scripts/facts.py', 'scripts/requirements.txt', 'assets/explain_view.html', 'assets/three_stage_view.html')) {
     Assert "explainer ships $f" (Test-Path (Join-Path $ExDir $f))
 }
 Assert 'explainer runs scripts through uv, not python3' (($exText -match 'uv run') -and -not ($exText -match '\bpython3\b'))
 Assert 'explainer carries no build-history notes' (-not ($exText -match '\b20\d\d-\d\d-\d\d\b|~/\.claude'))
 Assert 'the plugin description names the explainer' ($pluginJson.description -match 'explaining-excel-cell')
 Assert 'explainer ships scripts/definitions.py' (Test-Path (Join-Path $ExDir 'scripts/definitions.py'))
+Assert 'the explainer documents the facts run' ($exText -match '--facts')
 foreach ($page in @('explain_view.html', 'three_stage_view.html')) {
     $view = Read-TextOrEmpty (Join-Path $ExDir "assets/$page")
     Assert "$page has the day and night buttons" (($view -match 'aria-label="낮"') -and ($view -match 'aria-label="밤"'))
 }
-foreach ($k in @('settings', 'refresh_unit', 'allow_today', 'allow_holiday', 'definitions', '--replace', '표 밖 셀', '소계')) {
+foreach ($k in @('settings', 'refresh_unit', 'allow_today', 'definitions', '--replace', '표 밖 셀', '소계')) {
     Assert "explainer SKILL.md explains $k" ($exText -match $k)
 }
+
+Write-Host '--- building-dashboard-from-excel ---'
+$BxDir  = Join-Path $PluginDir 'skills/building-dashboard-from-excel'
+$bxText = Read-TextOrEmpty (Join-Path $BxDir 'SKILL.md')
+Assert 'excel dashboard SKILL.md ships' ($bxText -ne '')
+Assert 'excel dashboard frontmatter name matches the folder' (([regex]::Match($bxText, '(?m)^name:\s*(\S+)\s*$')).Groups[1].Value -eq 'building-dashboard-from-excel')
+$bxDesc = ([regex]::Match($bxText, '(?m)^description:\s*(.+)$')).Groups[1].Value
+Assert 'excel dashboard description says when to open the skill' ($bxDesc -match '^Use when ')
+Assert 'excel dashboard description is a safe plain scalar' (-not ($bxDesc -match ': | #'))
+Assert 'excel dashboard ships requirements.txt' (Test-Path (Join-Path $BxDir 'scripts/requirements.txt'))
+Assert 'the excel dashboard template draws no summary rows' (-not (Test-Path (Join-Path $BxDir 'templates/frontend/summary.ts')) -and -not ((Get-Content -Raw (Join-Path $BxDir 'templates/frontend/ExcelFeaturePage.tsx')) -match 'ummar'))
+Assert 'the excel dashboard template has no summary formula module' (-not (Test-Path (Join-Path $BxDir 'templates/backend/summary_expr.py')))
+foreach ($k in @('출처 설명', '표 정의', '등록 요청', 'query_requests.md', '응용화면', '구조 변경', '로그인 토큰', 'table_plan.json')) {
+    Assert "excel dashboard SKILL.md explains $k" ($bxText -match $k)
+}
+$bxReadme = Read-TextOrEmpty (Join-Path $BxDir 'templates/README.md')
+$bxCalc   = Read-TextOrEmpty (Join-Path $BxDir 'calc-guide.md')
+# The flow reviews the result tables in Excel before anything is stored in the sandbox; the wording comes from the design.
+foreach ($k in @('작업할 엑셀의 실제 업데이트 프로세스를 설명해 주시면 분석에 도움이 됩니다', '--facts', 'table_plan.py check', '이렇게 저장할까요',
+                 'HANDOFF-', '등록 뒤에 이어서 하기를 권장합니다', '새 구조를 임시로 만들어 계산 결과를 엑셀에 저장했습니다', '샌드박스(AX DB)에 저장할까요?')) {
+    Assert "excel dashboard SKILL.md says $k" ($bxText.Contains($k))
+}
+foreach ($k in @('영문 이름을 정해 주세요', 'PC 저장', '화면 코드는 고치지 않는다')) {
+    Assert "excel dashboard SKILL.md no longer says $k" (-not $bxText.Contains($k))
+}
+Assert 'the excel dashboard template README lets developers change copied code' (-not $bxReadme.Contains('복사한 코드를 고치지 않는다'))
+Assert 'the excel dashboard template README keeps the module name limit' ($bxReadme.Contains('모듈 이름이 같아서'))
+Assert 'the calc guide returns statistics tables' ($bxCalc.Contains('통계 표') -and -not $bxCalc.Contains('summaries'))
+Assert 'excel dashboard runs scripts through uv, not python3' (($bxText -match 'uv run') -and -not ($bxText -match '\bpython3\b'))
+Assert 'the plugin description names the excel dashboard skill' ($pluginJson.description -match 'building-dashboard-from-excel')
 
 Write-Host '--- extracting-excel-queries ---'
 # The query extractor ships every script SKILL.md runs, and not the macro rebuild tool.

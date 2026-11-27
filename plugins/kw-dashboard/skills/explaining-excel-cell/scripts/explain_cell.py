@@ -26,7 +26,7 @@ from openpyxl.formula.tokenizer import Tokenizer  # noqa: E402
 from openpyxl.formula.translate import Translator  # noqa: E402
 from query_sources import file_name, load_connections, load_external_files, query_tables  # noqa: E402
 
-sys.setrecursionlimit(20000)  # 위 행을 계속 참조하는 열(드라매틱 엑셀은 1,722 행)도 끝까지 따라간다
+sys.setrecursionlimit(20000)  # 위 행을 계속 참조하는 열(천 행이 넘는 열)도 끝까지 따라간다
 
 
 def col_name(n):
@@ -129,7 +129,7 @@ def build(path, sheet, cell, title="", names=None):
     retitled = {}  # 도형 id -> 처음 붙인 이름. 같은 열의 표 안 칸을 나중에 만나 표 열 제목으로 바꾼 도형
 
     def header_cell(s, pos):
-        """엑셀 표 맨 위의 열 제목 칸인가. 수식이 [#Headers] 로 이 글자를 읽기도 한다(설정해지 E6)."""
+        """엑셀 표 맨 위의 열 제목 칸인가. 수식이 [#Headers] 로 이 글자를 읽기도 한다."""
         name, t = book.table_at(s, pos)
         return t is not None and pos[0] < t.area[0] + t.header_rows
 
@@ -222,11 +222,11 @@ def build(path, sheet, cell, title="", names=None):
         """범위 안 수식 칸 중 가장 많은 칸이 쓰는 수식의 칸에서, 값이 0도 빈 값도 아닌 첫 칸을 대표로 고른다.
         (시트, 행, 열, 설명) 이거나 None.
 
-        열 전체 범위의 맨 위 수식은 날짜 머리나 매개변수 칸인 일이 많아(Cash Management 설정해지 V6 ·
-        raw data C2), 첫 수식 칸을 고르면 실제로 더한 행 대신 머리를 따라가게 된다.
+        열 전체 범위의 맨 위 수식은 날짜 머리나 매개변수 칸인 일이 많아, 첫 수식 칸을 고르면 실제로 더한 행 대신
+        머리를 따라가게 된다.
         값 칸이 수식 칸보다 많으면 따라가지 않는다. 그런 범위의 수식 칸은 대개 맨 아래 합계 행이라,
-        대표로 보이면 실제로 더한 값 칸 대신 합계를 원천처럼 보이게 된다(에코자원화 L:L, 값 178칸 · 합계 행 하나).
-        다만 그 값 칸이 쿼리 연결 표의 값이면 대표 한 칸을 따라가 출처를 보인다(Cash Management SUMIF 의 raw data U:U).
+        대표로 보이면 실제로 더한 값 칸 대신 합계를 원천처럼 보이게 된다.
+        다만 그 값 칸이 쿼리 연결 표의 값이면 대표 한 칸을 따라가 출처를 보인다(SUMIF 가 더하는 열이 연결 표의 열일 때).
         """
         s_now[0] = s
         rs = ref["sheet"]
@@ -363,7 +363,7 @@ def build(path, sheet, cell, title="", names=None):
                           "range": f"{s} 시트 {col_name(c)}열",
                           "source": source_of(s, (r, c), bool(formula), ext), "_table": in_table}
         elif in_table and not nodes[nid]["_table"] and nid not in names and not (title and nid == f"{sheet}!{col_name(c0)}"):
-            # 같은 열에 표 밖 라벨(설정해지 A4)과 표 안 데이터(A7 펀드코드)가 있으면 표 열 제목이 그 열의 이름이다
+            # 같은 열에 표 밖 라벨과 표 안 데이터(예: 펀드코드)가 있으면 표 열 제목이 그 열의 이름이다
             retitled.setdefault(nid, nodes[nid]["title"])
             nodes[nid].update(title=node_title(s, r, c), _table=True)
             if not header_cell(s, (r, c)):
@@ -580,7 +580,6 @@ def _date_note(groups):
 def build_three_stage(book, analysis, result, names, step_cache, defs=()):
     """결과표 하나의 페이지 자료. result 는 {"table", "sheet", "row_order"}, names 는 {묶음 번호: 클로드가 유추한 이름},
     step_cache 는 실행 하나에서 공유하는 {(시트, 셀): build 결과} 다. defs 는 결과 파일의 표 정의다."""
-    import checks
     import definitions
     import plain_text
     import sources
@@ -605,11 +604,7 @@ def build_three_stage(book, analysis, result, names, step_cache, defs=()):
             **sources.source_of(book, [t for t in by_group[c["group"]]["tables"] if t["id"] in cls["source"]])}
            for c in screens["source"]]
     sheets_of = lambda ids: list(dict.fromkeys(t["sheet"] for t in found if t["id"] in ids))  # noqa: E731
-    dated = {g["previous"] for g in analysis["date_groups"]}
-    by_sheet = {s: [t for t in found if t["sheet"] == s] for s in analysis["sheets"]}
-    by_sheet.update({s: tb.find_tables(book, s) for s in dated})
     page = [t for t in found if t["id"] in used]
-    in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
     mine = [d for d in defs if d["id"] in used or d.get("orphan")]
     sheets = {t["sheet"] for t in page}  # 혼자 적힌 칸 목록은 그 시트의 표 하나에만 붙으므로, 이 페이지가 쓰는 시트의 목록을 모두 모은다
     outside = sorted(({"sheet": d["sheet"], **i} for d in defs for i in d.get("outside", {}).get("items", [])
@@ -622,16 +617,31 @@ def build_three_stage(book, analysis, result, names, step_cache, defs=()):
             "summary": plain_text.flow_summary(sheets_of(cls["source"]), sheets_of(cls["calc"]), result["sheet"]),
             "date_note": _date_note(analysis["date_groups"]), "screens": screens, "sources": src,
             "source_rules": book.source_rules_state,
-            "checks": {"odd": checks.odd_rows(book, page),
-                       "same": checks.same_value_columns(book, by_sheet, analysis["date_groups"], set(cls["source"])),
-                       "external": checks._capped(checks.external_formula_cells(book, page), checks.ODD_MAX),
-                       "typed": checks._capped(checks.typed_cells(book, page), checks.ODD_MAX),
-                       "gaps": checks._capped(checks.gap_rows(book, page), checks.ODD_MAX),
-                       "winus": checks._capped([{"sheet": s, **c} for s in sheets_of(cls["source"])
-                                                if (c := sources.winus_candidate(s))], checks.ODD_MAX),
-                       "ambiguous": checks.ambiguous(book, [o for o in analysis["odd_refs"] if in_page(o)],
-                                                     tb.nameless_read(found, reads, result_ids), analysis["date_groups"])},
+            "checks": page_checks(book, analysis, cls, page, result_ids),
             "guide": GUIDE, "steps": list(dict.fromkeys(line["step"] for k in screens for c in screens[k] for line in c["lines"]))}
+
+
+def page_checks(book, analysis, cls, page, result_ids, limited=True):
+    """페이지(결과표와 조상 표 page)의 「확인 필요한 사항」. limited 가 False 면 화면용 상한을 두지 않는다."""
+    import checks
+    import sources
+    import tables as tb
+    found, reads = analysis["tables"], analysis["reads"]
+    odd_max, same_max, amb_max = (checks.ODD_MAX, checks.SAME_MAX, checks.AMBIGUOUS_MAX) if limited else (None, None, None)
+    sheets_of = lambda ids: list(dict.fromkeys(t["sheet"] for t in found if t["id"] in ids))  # noqa: E731
+    dated = {g["previous"] for g in analysis["date_groups"]}
+    by_sheet = {s: [t for t in found if t["sheet"] == s] for s in analysis["sheets"]}
+    by_sheet.update({s: tb.find_tables(book, s) for s in dated})
+    in_page = lambda o: any(t["sheet"] == o["sheet"] and tb._inside(parse_a1(o["cell"]), t["area"]) for t in page)  # noqa: E731
+    return {"odd": checks.odd_rows(book, page, odd_max),
+            "same": checks.same_value_columns(book, by_sheet, analysis["date_groups"], set(cls["source"]), same_max),
+            "external": checks._capped(checks.external_formula_cells(book, page), odd_max),
+            "typed": checks._capped(checks.typed_cells(book, page), odd_max),
+            "gaps": checks._capped(checks.gap_rows(book, page), odd_max),
+            "winus": checks._capped([{"sheet": s, **c} for s in sheets_of(cls["source"])
+                                     if (c := sources.winus_candidate(s))], odd_max),
+            "ambiguous": checks.ambiguous(book, [o for o in analysis["odd_refs"] if in_page(o)],
+                                          tb.nameless_read(found, reads, result_ids), analysis["date_groups"], amb_max)}
 
 
 def render_three_stage(data, step_files):
@@ -717,7 +727,7 @@ def name_hints(book, data):
 
 SHOWN_ALL, SHOWN_TOP = 20, 10  # 후보 시트가 20개를 넘으면 읽는 표가 많은 10개만 보인다(근거 없는 시작 값)
 SIZE_LIMIT = 16 * 1024 * 1024  # 페이지와 단계 화면 크기 합계 상한(근거 없는 시작 값)
-SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today", "allow_holiday")
+SETTINGS_KEYS = ("date_input", "refresh_unit", "allow_today")
 
 
 def write_candidates(book, analysis, out_dir, base=None):
@@ -808,12 +818,32 @@ def parse_base(values, book):
     return out
 
 
+def main_facts(a, book, out):
+    """--all --facts 실행. 설명 화면과 결과 파일은 쓰지 않고 사실 자료 JSON 하나만 --out 에 쓴다.
+    저장된 표 정의를 분석에 넘기지 않는다. 사실 자료가 Claude 가 쓴 정의와 상관없는 분석기 판정이어야 범위 밖 셀 검사가 의미가 있다."""
+    import facts
+    results = load_results(a.results, book, out.parent / "explain_candidates.json")
+    analysis = analyze(book, results["base_sheets"])
+    for r in results["results"]:
+        if r["sheet"] in analysis["skipped"]:
+            sys.exit(f"결과표 시트가 기준 시트가 아닌 날짜 시트: {r['sheet']}(--base 로 1번째 실행부터 다시)")
+    check_result_tables(results["results"], analysis)
+    data = facts.build_facts(book, analysis, results)
+    if out.exists() and not a.replace:
+        sys.exit("출력 파일 중복(다른 이름 필요)")
+    out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"사실 자료: {out} · 결과에 쓰이는 시트 {len(data['used_cells'])}개 · 연결 {len(data['connections'])}개 · "
+          f"WINUS 추출본 후보 {len(data['winus_candidates'])}개")
+
+
 def main_all(a, book):
     """--all 실행. --results 가 없으면 후보 파일만 쓰고, 있으면 결과표마다 페이지와 단계 화면을 쓴다.
     파일은 모두 메모리에서 만든 뒤 출력 경로를 검사하고 쓴다. 중간에 실패하면 아무 파일도 쓰지 않는다."""
     if not any(c.kind == "formula" for cells in book.cells.values() for c in cells.values()):
         sys.exit(f"계산 규칙 없음: {a.excel}")
     out = Path(a.out)
+    if a.facts:
+        return main_facts(a, book, out)
     if not a.results:
         base = parse_base(a.base, book)
         analysis = analyze(book, base)
@@ -886,7 +916,10 @@ def main(argv=None):
     ap.add_argument("--title", default="", help="결과 셀의 이름(예: 연도별 · 월별 수익률)")
     ap.add_argument("--hints", help="화면 대신 열 이름 재료를 이 JSON 경로에 쓴다")
     ap.add_argument("--names", help="열 이름 JSON {\"시트!열\": \"이름\"} 경로")
+    ap.add_argument("--facts", action="store_true", help="--all 2번째 실행에서 설명 화면 대신 사실 자료 JSON 을 --out 경로에 쓴다")
     a = ap.parse_args(argv)
+    if a.facts and not (a.all and a.results):
+        sys.exit("인자 오류: --facts 는 --results 와 함께 --all 에서 쓴다")
     target = a.hints or a.out
     if a.all and a.hints:
         sys.exit("인자 오류: --hints 는 셀 모드 전용")

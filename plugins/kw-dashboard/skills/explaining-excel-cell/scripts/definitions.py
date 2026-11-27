@@ -221,4 +221,6 @@ def conflicts(defs, only=None):
                 out.append(f"{where}: 혼자 있는 값 확인 필요 {cell}")
             elif item["action"] == "별도 표로 저장" and not item.get("target"):
                 out.append(f"{where}: 저장할 표 이름 없음 {cell}")
+            elif item["action"] == "매개변수" and item.get("read_by_result"):  # 매개변수는 WINUS 조회 조건으로만 쓰이고 계산에 넘어가지 않는다
+                out.append(f"{where}: 결과 계산이 읽는 칸은 매개변수로 둘 수 없음 {cell}")
     return out
